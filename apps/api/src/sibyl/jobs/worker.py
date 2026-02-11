@@ -38,6 +38,8 @@ def get_redis_settings() -> RedisSettings:
 
 async def startup(ctx: dict[str, Any]) -> None:
     """Worker startup - initialize resources."""
+    import os
+
     from sibyl.banner import log_banner
     from sibyl_core.logging import configure_logging
 
@@ -48,6 +50,25 @@ async def startup(ctx: dict[str, Any]) -> None:
     log.info("Job worker online")
     ctx["start_time"] = datetime.now(UTC)
 
+    # Load API keys from database into environment BEFORE any jobs use GraphClient
+    try:
+        from sibyl.services.settings import get_settings_service
+
+        settings_svc = get_settings_service()
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            openai_key = await settings_svc.get_openai_key()
+            if openai_key:
+                os.environ["OPENAI_API_KEY"] = openai_key
+                log.debug("Loaded OpenAI API key from database settings")
+
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            anthropic_key = await settings_svc.get_anthropic_key()
+            if anthropic_key:
+                os.environ["ANTHROPIC_API_KEY"] = anthropic_key
+                log.debug("Loaded Anthropic API key from database settings")
+    except Exception as e:
+        log.warning("Failed to load API keys from database", error=str(e))
 
 async def shutdown(ctx: dict[str, Any]) -> None:  # noqa: ARG001
     """Worker shutdown - cleanup resources."""
