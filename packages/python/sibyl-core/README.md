@@ -17,7 +17,7 @@ moon run core:test        # Pytest
 
 ## What's Here
 
-- **models/** — Domain entities (Task, Project, Epic, Agent, Source, etc.)
+- **models/** — Domain entities (Task, Project, Epic, Source, etc.)
 - **graph/** — FalkorDB/Graphiti client, entity management
 - **retrieval/** — Hybrid search (semantic + BM25), fusion, deduplication
 - **tools/** — MCP tool implementations (search, explore, add, manage)
@@ -31,7 +31,6 @@ src/sibyl_core/
 ├── models/
 │   ├── entities.py       # Entity, EntityType, base classes
 │   ├── tasks.py          # Task, Project, Epic, Milestone
-│   ├── agents.py         # AgentRecord, WorktreeRecord, ApprovalRecord, Checkpoint
 │   ├── sources.py        # Source, Document
 │   └── responses.py      # API response models
 ├── graph/
@@ -58,7 +57,6 @@ src/sibyl_core/
 ```python
 from sibyl_core.models import (
     Entity, EntityType, Task, TaskStatus, Project, Epic,
-    AgentRecord, AgentStatus, WorktreeRecord, ApprovalRecord,
 )
 
 task = Task(
@@ -66,51 +64,6 @@ task = Task(
     content="Add Google and GitHub OAuth",
     project_id="proj_abc",
     status=TaskStatus.TODO,
-)
-```
-
-### Agent Models
-
-```python
-from sibyl_core.models import (
-    AgentRecord, AgentStatus, AgentType,
-    WorktreeRecord, WorktreeStatus,
-    ApprovalRecord, ApprovalType, ApprovalStatus,
-    AgentCheckpoint,
-)
-
-# Agent record (persistent state)
-agent = AgentRecord(
-    name="OAuth Implementation Agent",
-    status=AgentStatus.WORKING,
-    agent_type=AgentType.IMPLEMENTER,
-    task_id="task_abc",
-    tokens_used=15000,
-    cost_usd=0.45,
-)
-
-# Git worktree for isolation
-worktree = WorktreeRecord(
-    agent_id="agent_xyz",
-    path="/worktrees/agent-xyz",
-    branch="agent/oauth-impl",
-    status=WorktreeStatus.ACTIVE,
-)
-
-# Human-in-the-loop approval
-approval = ApprovalRecord(
-    agent_id="agent_xyz",
-    approval_type=ApprovalType.FILE_WRITE,
-    summary="Write to config.py",
-    status=ApprovalStatus.PENDING,
-)
-
-# Session checkpoint for resume
-checkpoint = AgentCheckpoint(
-    agent_id="agent_xyz",
-    session_id="sess_123",
-    conversation_summary="Implementing OAuth...",
-    current_step="Writing auth module",
 )
 ```
 
@@ -163,10 +116,6 @@ await manager.block_task(task_id, reason="Waiting on API")
 | `epic` | Feature-level grouping |
 | `source` | Documentation sources |
 | `document` | Crawled content |
-| `agent` | AI agent records |
-| `worktree` | Git worktree isolation |
-| `approval` | Human approval requests |
-| `checkpoint` | Agent session state |
 
 ## Relationship Types
 
@@ -179,8 +128,6 @@ RelationshipType.APPLIES_TO, REQUIRES, CONFLICTS_WITH, SUPERSEDES
 # Task
 RelationshipType.BELONGS_TO, DEPENDS_ON, BLOCKS, REFERENCES
 
-# Agent
-RelationshipType.WORKS_ON, USES_WORKTREE, CHECKPOINTED_AS, REQUESTED_BY
 ```
 
 ## Configuration
@@ -189,7 +136,7 @@ RelationshipType.WORKS_ON, USES_WORKTREE, CHECKPOINTED_AS, REQUESTED_BY
 SIBYL_OPENAI_API_KEY=sk-...         # Required (embeddings)
 SIBYL_FALKORDB_HOST=localhost
 SIBYL_FALKORDB_PORT=6380
-SIBYL_ANTHROPIC_API_KEY=...         # Optional (agents)
+SIBYL_ANTHROPIC_API_KEY=...         # Optional (LLM-powered features)
 ```
 
 ## Key Patterns

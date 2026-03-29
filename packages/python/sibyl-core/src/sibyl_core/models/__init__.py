@@ -1,18 +1,5 @@
 """Pydantic models for Sibyl knowledge graph operations."""
 
-from sibyl_core.models.agents import (
-    AgentCheckpoint,
-    AgentRecord,
-    AgentSpawnSource,
-    AgentStatus,
-    AgentType,
-    ApprovalRecord,
-    ApprovalStatus,
-    ApprovalType,
-    QualityGateType,
-    WorktreeRecord,
-    WorktreeStatus,
-)
 from sibyl_core.models.entities import (
     ConfigFile,
     Entity,
@@ -86,15 +73,6 @@ __all__ = [
     "SHARED_PROJECT_SLUG",
     # Tool inputs
     "AddLearningInput",
-    # Agent Harness
-    "AgentCheckpoint",
-    "AgentRecord",
-    "AgentSpawnSource",
-    "AgentStatus",
-    "AgentType",
-    "ApprovalRecord",
-    "ApprovalStatus",
-    "ApprovalType",
     # Notes
     "AuthorType",
     # Documentation crawling
@@ -126,7 +104,6 @@ __all__ = [
     "Pattern",
     "Project",
     "ProjectStatus",
-    "QualityGateType",
     "RecordDebuggingInput",
     "Relationship",
     "RelationshipType",
@@ -149,8 +126,5 @@ __all__ = [
     "TimeEntry",
     "Tool",
     "Topic",
-    # Agent Harness (worktree)
-    "WorktreeRecord",
-    "WorktreeStatus",
     "is_shared_project_slug",
 ]

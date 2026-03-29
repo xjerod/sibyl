@@ -92,30 +92,6 @@ class Task(Entity):
     completed_at: datetime | None = Field(default=None, description="When completed")
     reviewed_at: datetime | None = Field(default=None, description="When reviewed")
 
-    # Agent coordination (for Agent Harness)
-    assigned_agent: str | None = Field(
-        default=None, description="Agent ID currently working on this"
-    )
-    claimed_at: datetime | None = Field(default=None, description="When agent claimed the task")
-    heartbeat_at: datetime | None = Field(
-        default=None, description="Last agent heartbeat timestamp"
-    )
-
-    # Worktree tracking
-    worktree_path: str | None = Field(default=None, description="Path to agent's isolated worktree")
-    worktree_branch: str | None = Field(default=None, description="Git branch in the worktree")
-
-    # Multi-agent collaboration
-    collaborators: list[str] = Field(default_factory=list, description="Other agent IDs involved")
-    handoff_history: list[dict[str, Any]] = Field(
-        default_factory=list, description="Agent handoff log with timestamps and reasons"
-    )
-
-    # Checkpointing for recovery
-    last_checkpoint: dict[str, Any] | None = Field(
-        default=None, description="Last saved agent progress state for resume"
-    )
-
     @model_validator(mode="before")
     @classmethod
     def set_entity_fields(cls, data: dict[str, Any]) -> dict[str, Any]:

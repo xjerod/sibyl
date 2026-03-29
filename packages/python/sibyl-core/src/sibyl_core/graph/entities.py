@@ -20,15 +20,6 @@ from pydantic import BaseModel
 
 from sibyl_core.errors import EntityNotFoundError, SearchError
 from sibyl_core.graph.client import GraphClient
-from sibyl_core.models.agents import (
-    AgentCheckpoint,
-    AgentRecord,
-    ApprovalRecord,
-    ApprovalStatus,
-    ApprovalType,
-    WorktreeRecord,
-    WorktreeStatus,
-)
 from sibyl_core.models.entities import Entity, EntityType
 from sibyl_core.models.sources import Community, Document, Source
 from sibyl_core.models.tasks import (
@@ -50,7 +41,7 @@ log = structlog.get_logger()
 # Generic enum type for coercion
 TEnum = TypeVar("TEnum", bound=Enum)
 # RediSearch special characters that need escaping in fulltext queries
-# Includes / which appears in paths like "create/cleanup" or "~/.sibyl-worktrees/"
+# Includes / which appears in paths like "create/cleanup" or local file paths
 _REDISEARCH_SPECIAL_CHARS = re.compile(r"[|&\-@()~$:*\\/]")
 
 
@@ -1502,49 +1493,6 @@ class EntityManager:
         )
         add_fields(task_fields)
 
-        if isinstance(entity, AgentRecord):
-            add_fields(
-                (
-                    "agent_type",
-                    "spawn_source",
-                    "status",
-                    "project_id",
-                    "task_id",
-                    "worktree_id",
-                    "worktree_path",
-                    "worktree_branch",
-                    "parent_agent_id",
-                    "standalone",
-                    "started_at",
-                    "last_heartbeat",
-                    "completed_at",
-                )
-            )
-        elif isinstance(entity, WorktreeRecord):
-            add_fields(
-                (
-                    "task_id",
-                    "agent_id",
-                    "path",
-                    "branch",
-                    "base_commit",
-                    "status",
-                    "last_used",
-                    "has_uncommitted",
-                    "last_commit",
-                )
-            )
-        elif isinstance(entity, AgentCheckpoint):
-            add_fields(
-                (
-                    "agent_id",
-                    "session_id",
-                    "pending_approval_id",
-                    "waiting_for_task_id",
-                    "current_step",
-                )
-            )
-
         return props
 
     def _serialize_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
@@ -1618,86 +1566,6 @@ class EntityManager:
             metadata["author_type"] = entity.author_type.value if entity.author_type else "user"
             metadata["author_name"] = entity.author_name
 
-        # Add AgentRecord-specific fields
-        elif isinstance(entity, AgentRecord):
-            metadata["agent_type"] = entity.agent_type.value if entity.agent_type else "general"
-            metadata["spawn_source"] = entity.spawn_source.value if entity.spawn_source else "user"
-            metadata["status"] = entity.status.value if entity.status else "initializing"
-            metadata["project_id"] = entity.project_id
-            metadata["task_id"] = entity.task_id
-            metadata["worktree_id"] = entity.worktree_id
-            metadata["created_by"] = entity.created_by
-            metadata["worktree_path"] = entity.worktree_path
-            metadata["worktree_branch"] = entity.worktree_branch
-            metadata["parent_agent_id"] = entity.parent_agent_id
-            metadata["standalone"] = entity.standalone
-            metadata["session_id"] = entity.session_id
-            metadata["checkpoint_id"] = entity.checkpoint_id
-            metadata["conversation_turns"] = entity.conversation_turns
-            metadata["tokens_used"] = entity.tokens_used
-            metadata["cost_usd"] = entity.cost_usd
-            if entity.initial_prompt:
-                metadata["initial_prompt"] = entity.initial_prompt
-            if entity.system_prompt_hash:
-                metadata["system_prompt_hash"] = entity.system_prompt_hash
-            if entity.started_at:
-                metadata["started_at"] = entity.started_at.isoformat()
-            if entity.last_heartbeat:
-                metadata["last_heartbeat"] = entity.last_heartbeat.isoformat()
-            if entity.completed_at:
-                metadata["completed_at"] = entity.completed_at.isoformat()
-            if entity.paused_reason:
-                metadata["paused_reason"] = entity.paused_reason
-
-        # Add WorktreeRecord-specific fields
-        elif isinstance(entity, WorktreeRecord):
-            metadata["task_id"] = entity.task_id
-            metadata["agent_id"] = entity.agent_id
-            metadata["path"] = entity.path
-            metadata["branch"] = entity.branch
-            metadata["base_commit"] = entity.base_commit
-            metadata["status"] = entity.status.value if entity.status else "active"
-            metadata["last_used"] = entity.last_used.isoformat()
-            metadata["has_uncommitted"] = entity.has_uncommitted
-            metadata["last_commit"] = entity.last_commit
-
-        # Add ApprovalRecord-specific fields
-        elif isinstance(entity, ApprovalRecord):
-            metadata["project_id"] = entity.project_id
-            metadata["agent_id"] = entity.agent_id
-            metadata["task_id"] = entity.task_id
-            metadata["approval_type"] = (
-                entity.approval_type.value if entity.approval_type else "dangerous_operation"
-            )
-            metadata["status"] = entity.status.value if entity.status else "pending"
-            metadata["priority"] = entity.priority
-            metadata["title"] = entity.title
-            metadata["summary"] = entity.summary
-            metadata["actions"] = entity.actions
-            if entity.response_by:
-                metadata["response_by"] = entity.response_by
-            if entity.responded_at:
-                metadata["responded_at"] = entity.responded_at.isoformat()
-            if entity.response_message:
-                metadata["response_message"] = entity.response_message
-
-        # Add AgentCheckpoint-specific fields
-        elif isinstance(entity, AgentCheckpoint):
-            metadata["agent_id"] = entity.agent_id
-            metadata["session_id"] = entity.session_id
-            metadata["conversation_history"] = entity.conversation_history or []
-            metadata["pending_tool_calls"] = entity.pending_tool_calls or []
-            metadata["files_modified"] = entity.files_modified or []
-            metadata["uncommitted_changes"] = entity.uncommitted_changes
-            if entity.current_step:
-                metadata["current_step"] = entity.current_step
-            if entity.completed_steps:
-                metadata["completed_steps"] = entity.completed_steps
-            if entity.pending_approval_id:
-                metadata["pending_approval_id"] = entity.pending_approval_id
-            if entity.waiting_for_task_id:
-                metadata["waiting_for_task_id"] = entity.waiting_for_task_id
-
         # Common fields (use getattr since not all entity types have these)
         if languages := getattr(entity, "languages", None):
             metadata["languages"] = languages
@@ -1721,29 +1589,12 @@ class EntityManager:
 
     def _coerce_entity(self, entity: Entity) -> Entity:
         """Convert generic entities into their typed models when possible."""
-        if isinstance(
-            entity,
-            (
-                Task,
-                AgentRecord,
-                WorktreeRecord,
-                AgentCheckpoint,
-                ApprovalRecord,
-            ),
-        ):
+        if isinstance(entity, Task):
             return entity
 
         try:
             if entity.entity_type == EntityType.TASK:
                 return self._entity_to_task(entity)
-            if entity.entity_type == EntityType.AGENT:
-                return AgentRecord.from_entity(entity, self._group_id)
-            if entity.entity_type == EntityType.WORKTREE:
-                return self._entity_to_worktree(entity)
-            if entity.entity_type == EntityType.CHECKPOINT:
-                return AgentCheckpoint.from_entity(entity)
-            if entity.entity_type == EntityType.APPROVAL:
-                return self._entity_to_approval(entity)
         except Exception as exc:
             log.debug(
                 "Failed to coerce entity",
@@ -1799,118 +1650,6 @@ class EntityManager:
             started_at=meta.get("started_at"),
             completed_at=meta.get("completed_at"),
             reviewed_at=meta.get("reviewed_at"),
-            assigned_agent=meta.get("assigned_agent"),
-            claimed_at=meta.get("claimed_at"),
-            heartbeat_at=meta.get("heartbeat_at"),
-            worktree_path=meta.get("worktree_path"),
-            worktree_branch=meta.get("worktree_branch"),
-            collaborators=meta.get("collaborators", []),
-            handoff_history=meta.get("handoff_history", []),
-            last_checkpoint=meta.get("last_checkpoint"),
-        )
-
-    def _entity_to_worktree(self, entity: Entity) -> Entity:
-        """Hydrate a WorktreeRecord when required fields are present."""
-        meta = entity.metadata or {}
-        path = meta.get("path") or meta.get("worktree_path")
-        branch = meta.get("branch") or meta.get("worktree_branch") or entity.name
-        base_commit = meta.get("base_commit")
-        task_id = meta.get("task_id")
-
-        if not path or not branch or not base_commit or not task_id:
-            return entity
-
-        return WorktreeRecord(
-            id=entity.id,
-            entity_type=EntityType.WORKTREE,
-            name=entity.name,
-            description=entity.description,
-            content=entity.content,
-            organization_id=entity.organization_id or self._group_id,
-            created_by=entity.created_by,
-            modified_by=entity.modified_by,
-            metadata=meta,
-            created_at=entity.created_at,
-            updated_at=entity.updated_at,
-            source_file=entity.source_file,
-            task_id=task_id,
-            agent_id=meta.get("agent_id"),
-            path=path,
-            branch=branch,
-            base_commit=base_commit,
-            status=self._coerce_enum(
-                WorktreeStatus,
-                meta.get("status"),
-                WorktreeStatus.ACTIVE,
-            ),
-            last_used=meta.get("last_used") or datetime.now(UTC),
-            has_uncommitted=meta.get("has_uncommitted", False),
-            last_commit=meta.get("last_commit"),
-        )
-
-    def _entity_to_approval(self, entity: Entity) -> Entity:
-        """Hydrate an ApprovalRecord when required fields are present."""
-        meta = entity.metadata or {}
-        project_id = meta.get("project_id")
-        agent_id = meta.get("agent_id")
-        if not project_id or not agent_id:
-            return entity
-
-        approval_metadata = meta.get("metadata")
-        if not isinstance(approval_metadata, dict):
-            excluded_keys = {
-                "project_id",
-                "agent_id",
-                "task_id",
-                "approval_type",
-                "priority",
-                "title",
-                "summary",
-                "actions",
-                "status",
-                "expires_at",
-                "responded_at",
-                "response_by",
-                "response_message",
-                "created_by",
-                "modified_by",
-            }
-            approval_metadata = {k: v for k, v in meta.items() if k not in excluded_keys}
-
-        return ApprovalRecord(
-            id=entity.id,
-            entity_type=EntityType.APPROVAL,
-            name=entity.name,
-            description=entity.description,
-            content=entity.content,
-            organization_id=entity.organization_id or self._group_id,
-            created_by=entity.created_by,
-            modified_by=entity.modified_by,
-            metadata=approval_metadata,
-            created_at=entity.created_at,
-            updated_at=entity.updated_at,
-            source_file=entity.source_file,
-            project_id=project_id,
-            agent_id=agent_id,
-            task_id=meta.get("task_id"),
-            approval_type=self._coerce_enum(
-                ApprovalType,
-                meta.get("approval_type"),
-                ApprovalType.DESTRUCTIVE_COMMAND,
-            ),
-            priority=meta.get("priority") or "medium",
-            title=meta.get("title") or entity.name,
-            summary=meta.get("summary") or entity.description or "",
-            actions=meta.get("actions", ["approve", "deny"]),
-            status=self._coerce_enum(
-                ApprovalStatus,
-                meta.get("status"),
-                ApprovalStatus.PENDING,
-            ),
-            expires_at=meta.get("expires_at"),
-            responded_at=meta.get("responded_at"),
-            response_by=meta.get("response_by"),
-            response_message=meta.get("response_message"),
         )
 
     async def bulk_create_direct(

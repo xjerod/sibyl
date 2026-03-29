@@ -40,7 +40,7 @@ class EntityType(StrEnum):
     # Collaboration types
     NOTE = "note"  # Timestamped note on a task
 
-    # Agent Harness types
+    # Legacy runtime types retained for backward-compatible graph reads
     AGENT = "agent"  # An AI agent instance
     WORKTREE = "worktree"  # An isolated git worktree for an agent
     APPROVAL = "approval"  # A human approval request
@@ -81,14 +81,14 @@ class RelationshipType(StrEnum):
     CHILD_OF = "CHILD_OF"  # Document -> Document (page hierarchy)
     MENTIONS = "MENTIONS"  # Document -> Entity (extracted reference)
 
-    # Agent Harness relationships
+    # Legacy runtime relationships retained for backward-compatible graph reads
     WORKS_ON = "WORKS_ON"  # Agent -> Task
     USES_WORKTREE = "USES_WORKTREE"  # Agent -> Worktree
     CHECKPOINTED_AS = "CHECKPOINTED_AS"  # Agent -> Checkpoint
     REQUESTED_BY = "REQUESTED_BY"  # Approval -> Agent
     HANDED_OFF_TO = "HANDED_OFF_TO"  # Agent -> Agent (task handoff)
 
-    # Agent hierarchy relationships
+    # Legacy runtime hierarchy relationships retained for backward-compatible graph reads
     ORCHESTRATES = "ORCHESTRATES"  # Parent Agent -> Child Agent
 
 
