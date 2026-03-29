@@ -131,8 +131,6 @@ def _configure_stdlib_logging(level: str) -> None:
         "mcp",
         "fastmcp",
         "neo4j",
-        # Claude SDK - can be noisy during agent termination
-        "claude_agent_sdk",
         "claude_code",
     ]
     for logger_name in noisy_loggers:
