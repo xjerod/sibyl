@@ -37,7 +37,7 @@ CLAUDE_SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
 CODEX_SKILLS_DIR = Path.home() / ".codex" / "skills"
 
 # Skills to install
-SKILL_NAMES = ["sibyl", "agent-orchestrate"]
+SKILL_NAMES = ["sibyl"]
 
 # ============================================================================
 # Prompt Snippet
