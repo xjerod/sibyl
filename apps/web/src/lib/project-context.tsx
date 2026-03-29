@@ -191,7 +191,8 @@ export function useProjectContext(): ProjectContextValue {
 
 /**
  * Hook that returns project filter params for API calls.
- * Returns undefined when "all projects" or on cross-project pages.
+ * Returns undefined when "all projects", when multiple projects are selected,
+ * or on cross-project pages.
  */
 export function useProjectFilter(): string | undefined {
   const { selectedProjects, isAll, contextEnabled } = useProjectContext();
@@ -200,7 +201,5 @@ export function useProjectFilter(): string | undefined {
     return undefined;
   }
 
-  // For now, API supports single project filter
-  // When multi-project is needed, update API to accept array
-  return selectedProjects[0];
+  return selectedProjects.length === 1 ? selectedProjects[0] : undefined;
 }

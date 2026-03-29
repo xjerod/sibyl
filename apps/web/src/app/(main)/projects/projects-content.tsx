@@ -228,10 +228,8 @@ export function ProjectsContent({ initialProjects }: ProjectsContentProps) {
     return allTasks.filter(t => t.metadata.project_id === selectedProjectId);
   }, [allTasks, selectedProjectId]);
 
-  // Auto-select first project if none selected (use sorted order)
-  const effectiveSelectedId = selectedProjectId ?? sortedProjects[0]?.id ?? null;
-  const selectedProject = sortedProjects.find(p => p.id === effectiveSelectedId);
-  const selectedStats = effectiveSelectedId ? projectStatsMap.get(effectiveSelectedId) : null;
+  const selectedProject = sortedProjects.find(p => p.id === selectedProjectId);
+  const selectedStats = selectedProjectId ? projectStatsMap.get(selectedProjectId) : null;
 
   const handleSelectProject = useCallback(
     (projectId: string) => {
@@ -388,7 +386,7 @@ export function ProjectsContent({ initialProjects }: ProjectsContentProps) {
                         <ProjectCard
                           project={project}
                           stats={stats}
-                          isSelected={project.id === effectiveSelectedId}
+                          isSelected={project.id === selectedProjectId}
                           onClick={() => handleSelectProject(project.id)}
                         />
                       </motion.div>
