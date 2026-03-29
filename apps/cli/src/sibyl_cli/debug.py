@@ -211,7 +211,6 @@ def status(
     - FalkorDB graph database
     - Job queue
     - Recent errors
-    - Active agents
 
     Examples:
         sibyl debug status
@@ -252,7 +251,6 @@ def status(
                 console.print(f"  Uptime:       [{CORAL}]{uptime_str}[/{CORAL}]")
                 console.print(f"  Entities:     [{CORAL}]{data.get('entity_count', 0):,}[/{CORAL}]")
                 console.print(f"  Queue depth:  [{CORAL}]{data.get('queue_depth', 0)}[/{CORAL}]")
-                console.print(f"  Active agents:[{CORAL}]{data.get('active_agents', 0)}[/{CORAL}]")
                 console.print()
 
                 # Recent errors
