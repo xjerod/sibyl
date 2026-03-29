@@ -170,8 +170,8 @@ Here's the actual CLAUDE.md from the Sibyl project:
 
 ## Project Overview
 
-**Sibyl** is a Collective Intelligence Runtime - an MCP server providing AI agents shared memory,
-task orchestration, and collaborative knowledge through a Graphiti-powered knowledge graph.
+**Sibyl** is a knowledge graph and task workflow server that gives assistants durable project
+memory through a Graphiti-powered knowledge graph.
 
 ## Sibyl Integration
 
@@ -317,8 +317,8 @@ Tell the agent what it's working on:
 ```markdown
 ## Project Overview
 
-**Sibyl** is a knowledge graph for AI agents. We use FalkorDB for the graph database and OpenAI for
-embeddings.
+**Sibyl** is a knowledge graph for durable project memory. We use FalkorDB for the graph database
+and OpenAI for embeddings.
 ```
 
 ### 2. Be Specific About Commands

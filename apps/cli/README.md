@@ -1,6 +1,6 @@
 # sibyl-cli
 
-Command-line interface for Sibyl. REST API client with Rich terminal output, designed for humans and AI agents.
+Command-line interface for Sibyl. REST API client with Rich terminal output, designed for humans, external assistants, and scripts.
 
 ## Quick Reference
 

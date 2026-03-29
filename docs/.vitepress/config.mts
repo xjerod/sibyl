@@ -10,28 +10,28 @@ export default defineConfig({
     },
 
     title: 'Sibyl',
-    description: 'Collective Intelligence Runtime - Shared memory and task orchestration for AI agents',
+    description: 'Knowledge graph, semantic search, and task workflow for durable project memory',
     base: '/sibyl/',
 
     head: [
         ['meta', { name: 'theme-color', content: '#e135ff' }],
         ['meta', { property: 'og:type', content: 'website' }],
-        ['meta', { property: 'og:title', content: 'Sibyl - Collective Intelligence Runtime' }],
+        ['meta', { property: 'og:title', content: 'Sibyl - Knowledge Graph + Task Workflow' }],
         [
             'meta',
             {
                 property: 'og:description',
                 content:
-                    'Give your AI agents persistent memory, semantic search, and collaborative knowledge through a graph-powered runtime.',
+                    'Give your projects durable memory with a knowledge graph, semantic search, and task workflow.',
             },
         ],
         ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-        ['meta', { name: 'twitter:title', content: 'Sibyl - Collective Intelligence Runtime' }],
+        ['meta', { name: 'twitter:title', content: 'Sibyl - Knowledge Graph + Task Workflow' }],
         [
             'meta',
             {
                 name: 'twitter:description',
-                content: 'Persistent memory and task orchestration for AI agents.',
+                content: 'Durable project memory with semantic search and task workflow.',
             },
         ],
         ['link', { rel: 'icon', type: 'image/svg+xml', href: '/sibyl/favicon.svg' }],
@@ -59,9 +59,9 @@ export default defineConfig({
                     ],
                 },
                 {
-                    text: 'Working with Agents',
+                    text: 'Working with Assistants',
                     items: [
-                        { text: 'The Human Guide', link: '/guide/working-with-agents' },
+                        { text: 'Human Workflow', link: '/guide/working-with-agents' },
                         { text: 'Setting Up Prompts', link: '/guide/setting-up-prompts' },
                         { text: 'Skills & Hooks', link: '/guide/skills' },
                         { text: 'Conventions Repository', link: '/guide/conventions-repository' },
@@ -86,12 +86,12 @@ export default defineConfig({
                     ],
                 },
                 {
-                    text: 'Agent Workflows',
+                    text: 'External Assistants',
                     items: [
-                        { text: 'Working with Agents', link: '/guide/working-with-agents' },
+                        { text: 'Assistants Overview', link: '/guide/working-with-agents' },
                         { text: 'Claude Code', link: '/guide/claude-code' },
                         { text: 'MCP Configuration', link: '/guide/mcp-configuration' },
-                        { text: 'Agent Collaboration', link: '/guide/agent-collaboration' },
+                        { text: 'Assistant Collaboration', link: '/guide/agent-collaboration' },
                     ],
                 },
             ],

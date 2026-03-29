@@ -1,5 +1,5 @@
-# Sibyl - Collective Intelligence Runtime
-# Shared memory, task orchestration, and collaborative knowledge for AI agents
+# Sibyl daemon
+# Knowledge graph, semantic search, and task workflow server
 
 [build-system]
 requires = ["hatchling"]
@@ -16,12 +16,12 @@ pattern = "(?P<version>.+)"
 [project]
 name = "sibyld"
 dynamic = ["version"]
-description = "Sibyl daemon - Collective Intelligence Runtime server"
+description = "Sibyl daemon - knowledge graph and task workflow server"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.13"
 authors = [{ name = "Stefanie Jane", email = "stef@hyperbliss.tech" }]
-keywords = ["ai-agents", "multi-agent", "knowledge-graph", "task-orchestration", "collective-intelligence", "graph-rag"]
+keywords = ["knowledge-graph", "task-workflow", "persistent-memory", "semantic-search", "developer-tools", "graph-rag"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

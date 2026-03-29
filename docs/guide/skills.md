@@ -496,5 +496,5 @@ sibyl task complete task_xyz --learnings "Key insights from review..." \`\`\`
 ## Next Steps
 
 - [Claude Code Integration](./claude-code.md) - Full MCP setup
-- [Agent Collaboration](./agent-collaboration.md) - Multi-agent patterns
+- [Agent Collaboration](./agent-collaboration.md) - Shared-assistant patterns
 - [Capturing Knowledge](./capturing-knowledge.md) - What to teach Claude

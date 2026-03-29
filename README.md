@@ -503,7 +503,7 @@ AGPL-3.0 — See [LICENSE](LICENSE)
 
 <p align="center">
   <sub>
-    If Sibyl helps your agents remember, give us a ⭐ or <a href="https://ko-fi.com/hyperb1iss">support the project</a>
+    If Sibyl helps your team remember, give us a ⭐ or <a href="https://ko-fi.com/hyperb1iss">support the project</a>
     <br><br>
     ✦ Built with obsession by <a href="https://hyperbliss.tech"><strong>Hyperbliss Technologies</strong></a> ✦
   </sub>

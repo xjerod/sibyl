@@ -444,4 +444,4 @@ manage("complete_task", entity_id="task_oauth",
 
 - [Skills Development](./skills.md) - Create custom skills
 - [MCP Configuration](./mcp-configuration.md) - Advanced configuration
-- [Agent Collaboration](./agent-collaboration.md) - Multi-agent patterns
+- [Agent Collaboration](./agent-collaboration.md) - Shared-assistant patterns

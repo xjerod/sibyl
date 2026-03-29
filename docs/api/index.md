@@ -1,7 +1,7 @@
 # Sibyl API Reference
 
-Sibyl provides a dual-interface API: a 4-tool MCP interface for AI agents and a full REST API for
-applications and integrations.
+Sibyl provides a dual-interface API: a 4-tool MCP interface for assistant clients and automation,
+plus a full REST API for applications and integrations.
 
 ## Architecture Overview
 
@@ -22,7 +22,7 @@ Sibyl Combined App (Starlette, port 3334)
 
 ## API Interfaces
 
-### MCP Tools (for AI Agents)
+### MCP Tools (for Assistant Clients)
 
 The MCP interface exposes 4 consolidated tools that cover all Sibyl operations:
 

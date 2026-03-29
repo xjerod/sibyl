@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: Sibyl
-  text: Your AI's Memory
+  text: Durable Project Memory
   tagline:
     Stop rediscovering the same solutions every session. Sibyl gives your projects persistent
     memory, semantic search, and durable task context.
@@ -49,7 +49,7 @@ configuration quirk that took forever to figure out? Lost to the void.
 
 ## The Solution
 
-Sibyl is a **Collective Intelligence Runtime**—a persistent knowledge graph that gives your team:
+Sibyl is a **knowledge graph and task workflow** that gives your team:
 
 - **Memory**: Store patterns, learnings, and solutions that persist forever
 - **Task Tracking**: Manage work across sessions with full lifecycle support

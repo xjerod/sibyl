@@ -1,7 +1,8 @@
 # CLI Reference
 
 The Sibyl CLI (`sibyl`) is a REST API client for interacting with your knowledge graph. Designed for
-both human users and AI agents, it provides rich terminal output with the SilkCircuit color palette.
+human users, assistants, and scripts, it provides rich terminal output with the SilkCircuit color
+palette.
 
 ## Installation
 
@@ -68,7 +69,7 @@ Most commands support three output formats:
 | Option          | Description  | Use Case                             |
 | --------------- | ------------ | ------------------------------------ |
 | (default)       | Table format | Human-readable terminal output       |
-| `--json` / `-j` | JSON output  | AI agents, scripting, piping to `jq` |
+| `--json` / `-j` | JSON output  | Automation, scripting, piping to `jq` |
 | `--csv`         | CSV output   | Spreadsheets, data analysis          |
 
 ```bash

@@ -52,7 +52,7 @@ tasks:
   install-dev:
     command: uv tool install . --editable --force
     preset: server
-  setup-agent:
+  setup-assistants:
     command: uv run sibyl local setup
     preset: server
 tags:

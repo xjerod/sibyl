@@ -5,7 +5,7 @@ description: Build a knowledge graph your team can actually reuse
 
 # Introduction
 
-Welcome to Sibyl—the Collective Intelligence Runtime that turns scattered notes, tasks, and
+Welcome to Sibyl—the knowledge graph and task workflow that turns scattered notes, tasks, and
 hard-won debugging lessons into reusable project memory.
 
 ## What You'll Learn

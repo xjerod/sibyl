@@ -86,7 +86,7 @@ sibyl search "deployment" --all
 
 ### JSON Output
 
-For scripting and AI agents:
+For automation and scripts:
 
 ```bash
 sibyl search "testing" --json
