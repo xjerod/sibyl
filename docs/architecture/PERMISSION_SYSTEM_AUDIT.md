@@ -7,6 +7,10 @@ Scope: `apps/api`, `apps/cli`, `apps/web`, `packages/python/sibyl-core`
 This is a code-audit report of Sibyl’s authentication/authorization/multi-tenancy system, with an
 emphasis on security properties, correctness gaps, and operational/performance risks.
 
+Update (2026-03-29): Sibyl's internal agent runtime, approval flow, and sandbox control plane were
+removed after this audit was written. The findings below have been trimmed so the document reflects
+the remaining live surfaces.
+
 ## TL;DR (Highest-Risk Items)
 
 1. **Project RBAC appears effectively disabled by default** because Postgres `projects` rows are not
@@ -15,16 +19,15 @@ emphasis on security properties, correctness gaps, and operational/performance r
 2. **`/api/projects/{project_id}/members` uses Postgres project UUIDs**, but the rest of the system
    (web + graph) uses graph project IDs like `project_<hash>`. The web calls this endpoint with
    graph IDs, which will 422. This blocks project membership management and undermines project RBAC.
-3. **Agents and approvals are missing project-level authorization** (and, for agents, missing basic
-   ownership checks). Any org member can fetch/operate on other people’s agents and respond to any
-   approval in the org.
+3. **`verify_entity_project_access()` can bypass required project roles** when entities are missing
+   project metadata or the backing Postgres project row.
 4. **Postgres RLS policies are intentionally “ALLOW ALL when context is NULL”** and the app does not
    set RLS session variables anywhere in the request DB session. This means RLS is currently not
    providing defense-in-depth for tenant isolation.
 
 If you want one “first security pass” patch list: fix project registration + fix project member
-endpoints (graph ID vs UUID) + add project checks to agents/approvals + decide what RLS is supposed
-to do.
+endpoints (graph ID vs UUID) + remove the project access bypasses + decide what RLS is supposed to
+do.
 
 ---
 
@@ -150,77 +153,15 @@ not require org membership** (`OrganizationMember`) and does not use `require_or
 
 **Recommendation**:
 
-- Change the route to accept **graph project IDs** (the canonical ID used by tasks, epics, agents),
-  and resolve Postgres projects internally (like `resolve_project_by_graph_id()` does).
+- Change the route to accept **graph project IDs** (the canonical ID used by tasks, epics, and graph
+  entities), and resolve Postgres projects internally (like `resolve_project_by_graph_id()` does).
 - Enforce org membership (e.g., `dependencies=[Depends(require_org_role(...))]`) and/or enforce a DB
   invariant (foreign keys / triggers / service-layer cleanup) so removing an org member removes all
   project memberships and revokes sessions.
 
 ---
 
-### C. High — Agents API missing authorization (project + ownership)
-
-**What**: The agents router requires only org write role, but does not enforce:
-
-- project access for a given `project_id`
-- ownership (creator) constraints for controlling an agent
-- admin-only gating for `all_users=true`
-
-Examples:
-
-- List agents: any member can set `all_users=true` and see other users’ agents.
-  - `apps/api/src/sibyl/api/routes/agents.py#L201-L241`
-- Get agent by ID: no user dependency, no ownership check.
-  - `apps/api/src/sibyl/api/routes/agents.py#L272-L289`
-- Pause/resume/terminate: no ownership check and no project access check.
-  - `apps/api/src/sibyl/api/routes/agents.py#L365-L430` (pause/resume)
-- Spawn agent: does not verify `request.project_id` access.
-  - `apps/api/src/sibyl/api/routes/agents.py#L292-L338`
-
-**Why it matters**:
-
-- Cross-user control: any org member can stop/modify other users’ agents.
-- Cross-project leakage: if projects become private, this becomes a bypass vector.
-- Sensitive metadata exposure (worktree paths, prompts) via agent records.
-
-**Recommendation**:
-
-- Require project access for any agent operation based on the agent’s stored `project_id`.
-- Require “owner-or-admin” for destructive agent actions (pause/terminate) at minimum.
-- Restrict `all_users=true` to org admin/owner.
-
----
-
-### D. High — Approvals API missing authorization (project + ownership)
-
-**What**: Any org member can list and respond to approvals across the org; there is no project role
-enforcement and no ownership/assignee model enforced.
-
-- Router is org-write-only:
-  - `apps/api/src/sibyl/api/routes/approvals.py#L23-L27`
-- List approvals: no project RBAC filtering.
-  - `apps/api/src/sibyl/api/routes/approvals.py#L88-L126`
-- Respond to approval: no authorization beyond org membership.
-  - `apps/api/src/sibyl/api/routes/approvals.py#L212-L319`
-
-**Additional correctness/security risk**: responding updates `agent_messages` without an org filter.
-
-- `apps/api/src/sibyl/api/routes/approvals.py#L271-L281` (matches only `agent_id` + JSON)
-- `apps/api/src/sibyl/db/models.py#L1147-L1171` (`AgentMessage` is org-scoped)
-
-If Postgres RLS is not actively enforcing isolation (see section G), this is an accidental cross-org
-write risk if agent IDs collide.
-
-**Recommendation**:
-
-- Enforce project access based on `approval.metadata.project_id`.
-- Decide the approval model: “any org member can approve” vs “project maintainers only” vs “only the
-  requesting user + admins”. Implement explicitly.
-- Add `organization_id == org.id` filters to DB updates/reads for org-scoped tables.
-
----
-
-### E. High — `verify_entity_project_access()` bypasses `required_role` in important cases
+### C. High — `verify_entity_project_access()` bypasses `required_role` in important cases
 
 **What**:
 
@@ -249,7 +190,7 @@ write risk if agent IDs collide.
 
 ---
 
-### F. High — MCP bypasses project RBAC and lacks user context
+### D. High — MCP bypasses project RBAC and lacks user context
 
 **What**: MCP tools are scoped by org only (`_require_org_id()` reads `org` claim). They do not
 compute accessible projects for a user and therefore cannot filter per-project. This is a direct
@@ -273,7 +214,7 @@ grant MCP access unless a more explicit “audience/scope” strategy is adopted
 
 ---
 
-### G. Medium/High — Postgres RLS is “allow-all on NULL context” and is not wired into request sessions
+### E. Medium/High — Postgres RLS is “allow-all on NULL context” and is not wired into request sessions
 
 **What**:
 
@@ -306,7 +247,7 @@ grant MCP access unless a more explicit “audience/scope” strategy is adopted
 
 ---
 
-### H. Medium — Setup endpoints stay unauthenticated after setup
+### F. Medium — Setup endpoints stay unauthenticated after setup
 
 **What**: `/api/setup/*` endpoints have no auth and remain callable after users/orgs exist.
 
@@ -322,7 +263,7 @@ for rate/usage pressure even if it doesn’t leak secrets.
 
 ---
 
-### I. Medium — Web server-side caching may risk cross-user cache pollution
+### G. Medium — Web server-side caching may risk cross-user cache pollution
 
 **What**: `apps/web/src/lib/api-server.ts` performs `fetch()` with cookies attached and uses Next
 fetch caching strategies (`force-cache`, `revalidate`). Depending on Next.js caching semantics, this
@@ -338,7 +279,7 @@ can risk caching authenticated responses across users/orgs.
 
 ---
 
-### J. Low/Medium — API keys: coarse scopes; project scoping not enforced
+### H. Low/Medium — API keys: coarse scopes; project scoping not enforced
 
 **What**:
 
@@ -374,9 +315,8 @@ can risk caching authenticated responses across users/orgs.
    - Accept graph project IDs, not Postgres UUIDs, and resolve Postgres project row internally.
 2. Automatically create/update Postgres `projects` rows when graph projects are created.
 3. Add org RBAC guard (`require_org_role`) to `project_members` endpoints.
-4. Add ownership + project RBAC enforcement to agents endpoints (and restrict `all_users=true`).
-5. Add project RBAC enforcement to approvals endpoints; define “who can approve” explicitly.
-6. Remove/write-gate `verify_entity_project_access()` bypasses for write paths.
+4. Remove/write-gate `verify_entity_project_access()` bypasses for write paths.
+5. Gate setup endpoints after initial bootstrap.
 
 ### Phase 1 — Hardening / defense-in-depth
 
@@ -388,9 +328,9 @@ can risk caching authenticated responses across users/orgs.
 ### Phase 2 — Tests + tooling
 
 1. Add tests proving:
-   - agent ownership + project scoping
-   - approval scoping rules
    - “removed org member cannot manage project members”
+   - project access checks fail closed when Postgres project rows are missing
+   - MCP requests do not bypass project filtering once project RBAC is enforced
 2. Add an admin endpoint/job that shows whether Postgres projects are synced to graph projects.
 
 ---

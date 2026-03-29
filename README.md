@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Build With Memory That Compounds</strong><br>
-  <sub>✦ A Collective Intelligence Runtime ✦</sub>
+  <sub>✦ Knowledge Graph + Task Workflow ✦</sub>
 </p>
 
 <p align="center">
@@ -423,21 +423,20 @@ assign tasks, and collaborate on the same graph.
 ### Is it production-ready?
 
 Sibyl is in active development (v0.1.x). The core features work well, but expect rough edges. **We
-use Sibyl to build Sibyl**—every feature, task, and learning you see here was tracked and
-orchestrated through the system itself.
+use Sibyl to build Sibyl**—every feature, task, and learning you see here was tracked inside the
+system itself.
 
 ## 🗺️ Roadmap
 
 **Where we're headed:**
 
-- **Multi-vendor agents** — Orchestrate Claude, Codex, Gemini, and future models from one place
-- **Meta-orchestrator** — A higher-order agent that manages your fleet: distributing tasks,
-  monitoring progress, responding to your plans
+- **Stronger project boundaries** — Finish project membership and permission flows end to end
+- **Deeper graph retrieval** — Better ranking, traversal, deduplication, and relationship-aware search
 - **Brainstorming spaces** — Dedicated areas for ideation before execution
-- **External data connectors** — Feed more sources into the collective intelligence
-- **Deeper reasoning** — Multi-hop graph traversal, community-based retrieval, agentic reflection
+- **External data connectors** — Feed more docs, repos, and notes into the graph
+- **Workflow polish** — Sharper epic/task planning, progress views, and review loops
 
-The collective gets smarter. The orchestration gets deeper.
+The graph gets smarter. The workflow gets sharper.
 
 ## 💜 Philosophy
 

@@ -12,12 +12,12 @@ pattern = "(?P<version>.+)"
 [project]
 name = "sibyl-dev"
 dynamic = ["version"]
-description = "CLI for Sibyl - Collective Intelligence Runtime for AI agents"
+description = "CLI for Sibyl knowledge graph and task workflow"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.13"
 authors = [{ name = "Stefanie Jane", email = "stef@hyperbliss.tech" }]
-keywords = ["ai-agents", "knowledge-graph", "cli", "mcp"]
+keywords = ["knowledge-graph", "tasks", "cli", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -39,7 +39,7 @@ dependencies = [
     # Config
     "pyyaml>=6.0",
     "tomli-w>=1.2.0",
-    # WebSocket (sandbox shell/logs --follow)
+    # WebSocket (logs --follow)
     "websockets>=12.0",
     # Shared library
     "sibyl-core",

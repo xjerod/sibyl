@@ -1,6 +1,6 @@
-"""Agent integration setup for Claude Code and Codex.
+"""Sibyl integration setup for Claude Code and Codex.
 
-Installs skills and hooks for AI agent integration:
+Installs the Sibyl skill and optional Claude hooks for assistant tooling:
   - Skills: ~/.claude/skills/sibyl/ and ~/.codex/skills/sibyl/
   - Hooks: ~/.claude/hooks/sibyl/ (Claude Code only)
 """
@@ -415,7 +415,7 @@ def setup_agent_integration(verbose: bool = True) -> bool:
 
     if verbose:
         console.print()
-        success("Agent integration setup complete!")
+        success("Sibyl integration setup complete!")
         console.print()
         console.print(f"  [{NEON_CYAN}]Claude Code:[/{NEON_CYAN}]  Skills and hooks installed")
         console.print(f"  [{NEON_CYAN}]Codex CLI:[/{NEON_CYAN}]    Skills installed (no hooks)")
@@ -426,9 +426,11 @@ def setup_agent_integration(verbose: bool = True) -> bool:
 
 
 def print_prompt_snippet() -> None:
-    """Print the prompt snippet for users to add to their agent config."""
+    """Print the prompt snippet for users to add to their assistant config."""
     console.print()
-    console.print(f"[{ELECTRIC_PURPLE}][bold]Add to Your Agent Config[/bold][/{ELECTRIC_PURPLE}]")
+    console.print(
+        f"[{ELECTRIC_PURPLE}][bold]Add to Your Assistant Config[/bold][/{ELECTRIC_PURPLE}]"
+    )
     console.print()
     console.print(
         "Copy this to your [bold]~/.claude/CLAUDE.md[/bold] or [bold]~/.codex/AGENTS.md[/bold]:"
