@@ -10,11 +10,11 @@ Two patterns are provided:
 
 Example usage:
     # Pattern 1: Direct raise
-    raise_not_found("Agent", resource_id=agent_id)
+    raise_not_found("Task", resource_id=task_id)
 
     # Pattern 2: Factory (for inline conditionals)
     if not entity:
-        raise not_found("Agent", agent_id)
+        raise not_found("Task", task_id)
 """
 
 import uuid
@@ -42,7 +42,7 @@ def not_found(resource: str, resource_id: str | None = None) -> HTTPException:
     """Create a 404 exception for a missing resource.
 
     Args:
-        resource: Type of resource (e.g., "Agent", "Task", "Entity")
+        resource: Type of resource (e.g., "Task", "Project", "Entity")
         resource_id: Optional ID to include in message
 
     Returns:
@@ -50,7 +50,7 @@ def not_found(resource: str, resource_id: str | None = None) -> HTTPException:
 
     Example:
         if not entity:
-            raise not_found("Agent", agent_id)
+            raise not_found("Task", task_id)
     """
     detail = f"{resource} not found"
     if resource_id:
@@ -101,7 +101,7 @@ def no_org_context(action: str | None = None) -> HTTPException:
 
     Example:
         if not ctx.organization:
-            raise no_org_context("list agents")
+            raise no_org_context("list projects")
     """
     if action:
         detail = f"Organization context required to {action}"
@@ -162,11 +162,6 @@ def internal_error(error_id: str | None = None) -> HTTPException:
 # =============================================================================
 # Entity-Specific Helpers
 # =============================================================================
-def agent_not_found(agent_id: str) -> HTTPException:
-    """Create 404 for missing agent."""
-    return not_found("Agent", agent_id)
-
-
 def task_not_found(task_id: str) -> HTTPException:
     """Create 404 for missing task."""
     return not_found("Task", task_id)
@@ -195,11 +190,6 @@ def document_not_found(document_id: str) -> HTTPException:
 def entity_not_found(entity_id: str) -> HTTPException:
     """Create 404 for missing entity."""
     return not_found("Entity", entity_id)
-
-
-def approval_not_found(approval_id: str) -> HTTPException:
-    """Create 404 for missing approval."""
-    return not_found("Approval", approval_id)
 
 
 # =============================================================================

@@ -4,11 +4,11 @@ These decorators reduce boilerplate in route handlers by handling
 common concerns like exception translation and logging.
 
 Usage:
-    @router.get("/agents/{agent_id}")
-    @handle_not_found("Agent", "agent_id")
-    async def get_agent(agent_id: str) -> AgentResponse:
-        entity = await manager.get(agent_id)
-        return AgentResponse.from_entity(entity)
+    @router.get("/tasks/{task_id}")
+    @handle_not_found("Task", "task_id")
+    async def get_task(task_id: str) -> TaskResponse:
+        task = await manager.get(task_id)
+        return TaskResponse.from_entity(task)
 """
 
 from __future__ import annotations
@@ -44,18 +44,18 @@ def handle_not_found(
             raise HTTPException(status_code=404, detail=f"X not found: {id}")
 
     Args:
-        entity_type: Type name for error message (e.g., "Agent", "Task")
+        entity_type: Type name for error message (e.g., "Task", "Project")
         id_param: Name of the route parameter containing the entity ID
 
     Returns:
         Decorated function that translates EntityNotFoundError to 404
 
     Example:
-        @router.get("/agents/{agent_id}")
-        @handle_not_found("Agent", "agent_id")
-        async def get_agent(agent_id: str) -> AgentResponse:
-            entity = await manager.get(agent_id)  # If not found, 404 is raised
-            return AgentResponse.from_entity(entity)
+        @router.get("/tasks/{task_id}")
+        @handle_not_found("Task", "task_id")
+        async def get_task(task_id: str) -> TaskResponse:
+            task = await manager.get(task_id)  # If not found, 404 is raised
+            return TaskResponse.from_entity(task)
     """
 
     def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
@@ -89,9 +89,9 @@ def log_operation(
         Decorated function with logging
 
     Example:
-        @router.post("/agents")
-        @log_operation("spawn_agent")
-        async def spawn_agent(request: SpawnRequest) -> AgentResponse:
+        @router.post("/tasks")
+        @log_operation("create_task")
+        async def create_task(request: CreateTaskRequest) -> TaskResponse:
             ...
     """
 
@@ -154,9 +154,9 @@ def require_state(
         Decorated function that validates state
 
     Example:
-        @router.post("/agents/{agent_id}/pause")
-        @require_state("working", "waiting_approval", operation="pause agent")
-        async def pause_agent(agent_id: str, entity: Entity) -> Response:
+        @router.post("/tasks/{task_id}/submit")
+        @require_state("doing", operation="submit task for review")
+        async def submit_task(task_id: str, entity: Entity) -> Response:
             ...
     """
     valid_set = set(valid_states)

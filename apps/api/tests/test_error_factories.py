@@ -15,8 +15,6 @@ from sibyl.api.errors import (
     FORBIDDEN_ERROR,
     INTERNAL_ERROR,
     NO_ORG_CONTEXT,
-    agent_not_found,
-    approval_not_found,
     bad_request,
     conflict,
     document_not_found,
@@ -233,12 +231,6 @@ class TestInternalError:
 class TestEntityHelpers:
     """Tests for entity-specific not_found helpers."""
 
-    def test_agent_not_found(self) -> None:
-        """agent_not_found creates correct exception."""
-        result = agent_not_found("agent_123")
-        assert result.status_code == 404
-        assert result.detail == "Agent not found: agent_123"
-
     def test_task_not_found(self) -> None:
         """task_not_found creates correct exception."""
         result = task_not_found("task_456")
@@ -274,12 +266,6 @@ class TestEntityHelpers:
         result = entity_not_found("ent_jkl")
         assert result.status_code == 404
         assert result.detail == "Entity not found: ent_jkl"
-
-    def test_approval_not_found(self) -> None:
-        """approval_not_found creates correct exception."""
-        result = approval_not_found("apr_mno")
-        assert result.status_code == 404
-        assert result.detail == "Approval not found: apr_mno"
 
 
 # =============================================================================
