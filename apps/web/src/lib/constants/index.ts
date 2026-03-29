@@ -3,15 +3,6 @@
 // Re-exports for backwards compatibility
 // =============================================================================
 
-// Agents
-export {
-  AGENT_STATUS_CONFIG,
-  AGENT_STATUSES,
-  AGENT_TYPE_CONFIG,
-  AGENT_TYPES,
-  type AgentStatusType,
-  type AgentTypeValue,
-} from './agents';
 // Application
 export { APP_CONFIG, TIMING } from './app';
 
