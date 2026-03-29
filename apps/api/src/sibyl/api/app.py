@@ -3,7 +3,6 @@
 Creates the REST API app that gets mounted alongside MCP.
 """
 
-import asyncio
 import time
 import uuid
 from collections.abc import AsyncGenerator

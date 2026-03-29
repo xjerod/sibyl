@@ -11,8 +11,6 @@ from typing import Annotated
 
 import typer
 
-# Import subcommand apps
-from sibyl_cli.agent import app as agent_app
 from sibyl_cli.auth import app as auth_app
 from sibyl_cli.client import SibylClientError, get_client
 from sibyl_cli.common import (
@@ -40,8 +38,6 @@ from sibyl_cli.local import app as local_app
 from sibyl_cli.logs import app as logs_app
 from sibyl_cli.org import app as org_app
 from sibyl_cli.project import app as project_app
-from sibyl_cli.runner import app as runner_app
-from sibyl_cli.sandbox import app as sandbox_app
 from sibyl_cli.source import app as source_app
 from sibyl_cli.state import set_context_override
 from sibyl_cli.task import app as task_app
@@ -73,11 +69,9 @@ app = typer.Typer(
 
 
 # Register subcommand groups
-app.add_typer(agent_app, name="agent")
 app.add_typer(task_app, name="task")
 app.add_typer(epic_app, name="epic")
 app.add_typer(project_app, name="project")
-app.add_typer(runner_app, name="runner")
 app.add_typer(entity_app, name="entity")
 app.add_typer(explore_app, name="explore")
 app.add_typer(source_app, name="source")
@@ -91,7 +85,6 @@ app.add_typer(config_app, name="config")
 app.add_typer(context_app, name="context")
 app.add_typer(local_app, name="local")
 app.add_typer(logs_app, name="logs")
-app.add_typer(sandbox_app, name="sandbox")
 app.add_typer(update_app, name="update")
 
 
