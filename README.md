@@ -387,7 +387,6 @@ moon run docker-down      # Stop databases
 | `rule`     | Sacred constraints, invariants  |
 | `source`   | Knowledge origins (URLs, repos) |
 | `document` | Crawled/ingested content        |
-| `agent`    | AI agent records and state      |
 
 ## FAQ
 

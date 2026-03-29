@@ -91,8 +91,8 @@ export const AccordionBasic: StoryObj = {
       <AccordionItem value="item-1">
         <AccordionTrigger>What is Sibyl?</AccordionTrigger>
         <AccordionContent>
-          Sibyl is a Graph-RAG Knowledge Oracle that provides AI agents with development wisdom
-          through a Graphiti-powered knowledge graph.
+          Sibyl is a Graph-RAG knowledge graph and task workflow that preserves development wisdom
+          through durable, connected memory.
         </AccordionContent>
       </AccordionItem>
       <AccordionItem value="item-2">

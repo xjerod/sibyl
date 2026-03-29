@@ -10,7 +10,6 @@ import {
   KanbanBoard,
   List,
   Search,
-  Sparks,
 } from '@/components/ui/icons';
 
 interface EmptyStateAction {
@@ -262,17 +261,6 @@ export function EpicsEmptyState({
         ...(onCreateEpic ? [{ label: 'Create Epic', onClick: onCreateEpic }] : []),
         { label: 'View Tasks', href: '/tasks', variant: 'secondary' },
       ]}
-    />
-  );
-}
-
-export function AgentsEmptyState() {
-  return (
-    <EnhancedEmptyState
-      icon={<Sparks width={40} height={40} className="text-sc-purple" />}
-      title="No agents running"
-      description="Agents are spawned when you run background tasks in Claude Code. They'll appear here with their progress and conversation history."
-      actions={[{ label: 'Learn More', href: '/docs/agents', variant: 'secondary' }]}
     />
   );
 }

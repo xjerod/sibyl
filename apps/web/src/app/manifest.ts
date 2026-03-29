@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Sibyl',
     short_name: 'Sibyl',
-    description: 'Collective Intelligence Runtime - shared memory for AI agents',
+    description: 'Knowledge graph and task workflow for durable development memory',
     start_url: '/',
     display: 'standalone',
     background_color: '#0a0a0f',

@@ -422,7 +422,7 @@ export default function AIServicesPage() {
         />
         <ApiKeyCard
           name="Anthropic"
-          description="Powers entity extraction and built-in agents. Uses Claude Haiku for extraction."
+          description="Powers entity extraction workflows. Uses Claude Haiku for extraction."
           setting={settings?.settings?.anthropic_api_key}
           valid={anthropicValid}
           error={

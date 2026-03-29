@@ -1,6 +1,6 @@
 """Sibyl API Server.
 
-Graphiti-powered knowledge graph providing AI agents access to development
+Graphiti-powered knowledge graph and task workflow for development
 conventions, patterns, templates, and hard-won wisdom.
 """
 

@@ -268,7 +268,7 @@ def version() -> None:
         create_panel(
             f"[{ELECTRIC_PURPLE}]Sibyld[/{ELECTRIC_PURPLE}] [{NEON_CYAN}]Sibyl Daemon[/{NEON_CYAN}]\n"
             f"Version 0.1.0\n"
-            f"[dim]Collective Intelligence Runtime server[/dim]"
+            f"[dim]Knowledge graph and task workflow server[/dim]"
         )
     )
 

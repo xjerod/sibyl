@@ -129,7 +129,7 @@ export function ApiKeysStep({ initialStatus, onBack, onValidated }: ApiKeysStepP
         />
         <ApiKeyInput
           name="Anthropic"
-          description="Used for entity extraction and agents"
+          description="Used for entity extraction workflows"
           placeholder="sk-ant-..."
           value={anthropicKey}
           onChange={setAnthropicKey}
