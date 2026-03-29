@@ -729,7 +729,6 @@ async def get_document_related_entities(
             raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
 
         # Enforce project-level graph visibility for related entities.
-        # None means migration mode: skip project filtering.
         accessible_projects = await list_accessible_project_graph_ids(session, auth)
         doc_title = doc.title
 

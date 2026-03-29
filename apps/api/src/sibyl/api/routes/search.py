@@ -69,23 +69,17 @@ async def search(
         group_id = str(org.id)
 
         # Get accessible project IDs for filtering
-        # Returns None during migration (no projects in Postgres) - skip filtering
         accessible_projects = await list_accessible_project_graph_ids(session, ctx)
 
-        # If user specified a project, validate they have access (if filtering is active)
+        # If user specified a project, validate they have access
         project_filter = request.project
-        if (
-            project_filter
-            and accessible_projects is not None
-            and project_filter not in accessible_projects
-        ):
+        if project_filter and project_filter not in accessible_projects:
             raise ProjectAccessDeniedError(
                 project_id=project_filter,
                 required_role="viewer",
             )
 
         # Pass accessible projects to filter results
-        # None means skip filtering (migration mode)
         # If a specific project is requested, use that; otherwise use accessible set
         result = await core_search(
             query=request.query,
@@ -137,16 +131,11 @@ async def explore(
         group_id = str(org.id)
 
         # Get accessible project IDs for filtering
-        # Returns None during migration (no projects in Postgres) - skip filtering
         accessible_projects = await list_accessible_project_graph_ids(session, ctx)
 
-        # If user specified a project, validate they have access (if filtering is active)
+        # If user specified a project, validate they have access
         project_filter = request.project
-        if (
-            project_filter
-            and accessible_projects is not None
-            and project_filter not in accessible_projects
-        ):
+        if project_filter and project_filter not in accessible_projects:
             raise ProjectAccessDeniedError(
                 project_id=project_filter,
                 required_role="viewer",

@@ -1,6 +1,6 @@
 """Tests for project-level authorization module."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -381,8 +381,11 @@ class TestListAccessibleProjectGraphIds:
         assert result == {"proj_org1", "proj_org2", "proj_direct", "proj_team"}
 
     @pytest.mark.asyncio
-    async def test_migration_mode_returns_none(self) -> None:
-        """Returns None when no projects exist in Postgres (migration mode)."""
+    @patch("sibyl.auth.authorization.get_graph_projects")
+    async def test_migration_mode_returns_graph_project_ids(
+        self, mock_get_graph_projects: MagicMock
+    ) -> None:
+        """Returns explicit graph IDs when Postgres projects are not backfilled yet."""
         ctx = MagicMock()
         ctx.organization = MagicMock()
         ctx.organization.id = uuid4()
@@ -393,19 +396,26 @@ class TestListAccessibleProjectGraphIds:
         # Migration check returns None (no projects in Postgres)
         migration_result = MagicMock()
         migration_result.first.return_value = None
+        mock_get_graph_projects.return_value = [
+            {"id": "project_alpha", "name": "Alpha"},
+            {"id": "project_beta", "name": "Beta"},
+        ]
 
         mock_session = AsyncMock()
         mock_session.execute.return_value = migration_result
 
         result = await list_accessible_project_graph_ids(mock_session, ctx)
 
-        # Should return None to indicate skip filtering
-        assert result is None
+        assert result == {"project_alpha", "project_beta"}
         # Should only do the migration check query
         assert mock_session.execute.call_count == 1
+        mock_get_graph_projects.assert_awaited_once_with(str(ctx.organization.id))
 
     @pytest.mark.asyncio
-    async def test_migration_mode_no_org_role_returns_empty(self) -> None:
+    @patch("sibyl.auth.authorization.get_graph_projects")
+    async def test_migration_mode_no_org_role_returns_empty(
+        self, mock_get_graph_projects: MagicMock
+    ) -> None:
         """Returns empty set in migration mode when user has no org role."""
         ctx = MagicMock()
         ctx.organization = MagicMock()
@@ -425,6 +435,7 @@ class TestListAccessibleProjectGraphIds:
 
         # Should return empty set (no access without org membership)
         assert result == set()
+        mock_get_graph_projects.assert_not_called()
 
 
 class TestProjectAuthorizationError:

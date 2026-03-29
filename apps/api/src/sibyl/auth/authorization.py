@@ -32,6 +32,7 @@ from sibyl.db.models import (
     TeamMember,
     TeamProject,
 )
+from sibyl.db.sync import get_graph_projects
 
 log = structlog.get_logger()
 
@@ -202,7 +203,7 @@ async def get_effective_project_role(
 async def list_accessible_project_graph_ids(
     session: AsyncSession,
     ctx: AuthContext,
-) -> set[str] | None:
+) -> set[str]:
     """Get all graph project IDs the user can access.
 
     Used for filtering graph queries. Returns graph_project_id strings.
@@ -212,8 +213,9 @@ async def list_accessible_project_graph_ids(
         ctx: Auth context with user and org info
 
     Returns:
-        Set of accessible graph_project_id strings, or None to skip filtering
-        (during migration period when no projects are registered in Postgres)
+        Set of accessible graph_project_id strings. During legacy migration
+        periods where no Postgres projects exist yet, this falls back to the
+        org's graph project IDs instead of skipping filtering entirely.
     """
     if ctx.organization is None:
         return set()
@@ -222,17 +224,28 @@ async def list_accessible_project_graph_ids(
     user_id = ctx.user.id
     org_role = ctx.org_role
 
-    # Check if ANY projects exist in Postgres for this org
-    # If not, we're in migration period - skip filtering for org members
+    # Check if ANY projects exist in Postgres for this org.
+    # If not, derive an explicit accessible set from the graph instead of
+    # skipping filtering entirely.
     count_result = await session.execute(
         select(Project.id).where(Project.organization_id == org_id).limit(1)
     )
     if count_result.first() is None:
-        # No projects registered yet - allow org members to access everything
-        if ctx.org_role is not None:
-            log.debug("project_rbac_migration_mode", org_id=str(org_id))
-            return None  # None means "skip filtering"
-        return set()
+        if ctx.org_role is None:
+            return set()
+
+        graph_projects = await get_graph_projects(str(org_id))
+        accessible = {
+            graph_id
+            for project in graph_projects
+            if (graph_id := project.get("id") or project.get("uuid"))
+        }
+        log.warning(
+            "project_rbac_migration_mode_graph_filter",
+            org_id=str(org_id),
+            project_count=len(accessible),
+        )
+        return accessible
 
     # Org owner/admin can access all projects in org
     if org_role in ORG_ADMIN_ROLES:
@@ -570,8 +583,8 @@ async def filter_accessible_entities(
     result = []
     for entity in entities:
         project_id = project_id_getter(entity)
-        # Include if: no project (unassigned), skip filtering (None), or project is accessible
-        if project_id is None or accessible_graph_ids is None or project_id in accessible_graph_ids:
+        # Include if: no project (unassigned) or project is accessible
+        if project_id is None or project_id in accessible_graph_ids:
             result.append(entity)
 
     return result
