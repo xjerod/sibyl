@@ -50,6 +50,8 @@ class MockGraphClientForDedup:
     entities_with_embeddings: list[tuple[str, str, str, list[float]]] = field(default_factory=list)
     redirect_count: int = 0
     query_history: list[str] = field(default_factory=list)
+    read_calls: list[str] = field(default_factory=list)
+    read_org_calls: list[tuple[str, str]] = field(default_factory=list)
     write_org_calls: list[tuple[str, str]] = field(default_factory=list)
 
     class MockDriver:
@@ -82,12 +84,14 @@ class MockGraphClientForDedup:
 
     async def execute_read(self, query: str, **params: Any) -> list[Any]:
         """Execute an unscoped read."""
+        self.read_calls.append(query)
         return await self.MockDriver(self).execute_query(query, **params)
 
     async def execute_read_org(
         self, query: str, organization_id: str, **params: Any
     ) -> list[Any]:
         """Execute an org-scoped read."""
+        self.read_org_calls.append((organization_id, query))
         return await self.MockDriver(self).execute_query(query, **params)
 
     async def execute_write(self, query: str, **params: Any) -> list[Any]:
@@ -138,6 +142,7 @@ class MockEntityManagerForHybrid:
 
     search_results: list[tuple[Entity, float]] = field(default_factory=list)
     search_calls: list[dict[str, Any]] = field(default_factory=list)
+    _group_id: str = "org-123"
 
     async def search(
         self,
@@ -159,6 +164,8 @@ class MockGraphClientForHybrid:
 
     traversal_results: list[dict[str, Any]] = field(default_factory=list)
     query_history: list[str] = field(default_factory=list)
+    read_calls: list[str] = field(default_factory=list)
+    read_org_calls: list[tuple[str, str]] = field(default_factory=list)
 
     class MockDriver:
         """Mock driver for execute_query."""
@@ -180,6 +187,7 @@ class MockGraphClientForHybrid:
 
     async def execute_read(self, query: str, **params: Any) -> list[dict[str, Any]]:
         """Execute an unscoped read."""
+        self.read_calls.append(query)
         self.query_history.append(query)
         return self.traversal_results
 
@@ -187,6 +195,7 @@ class MockGraphClientForHybrid:
         self, query: str, organization_id: str, **params: Any
     ) -> list[dict[str, Any]]:
         """Execute an org-scoped read."""
+        self.read_org_calls.append((organization_id, query))
         self.query_history.append(query)
         return self.traversal_results
 
@@ -500,6 +509,8 @@ class TestEntityDeduplicatorFindDuplicates:
 
         # Verify query was made
         assert len(client.query_history) >= 1
+        assert client.read_calls == []
+        assert client.read_org_calls[0][0] == manager._group_id
 
 
 class TestEntityDeduplicatorMerge:
@@ -729,7 +740,13 @@ class TestGraphTraversal:
         client = MockGraphClientForHybrid()
         client.traversal_results = []
 
-        await graph_traversal(["id1", "id2"], client, depth=3, limit=15)  # type: ignore[arg-type]
+        await graph_traversal(
+            ["id1", "id2"],
+            client,
+            depth=3,
+            limit=15,
+            group_id="org-123",
+        )  # type: ignore[arg-type]
 
         assert len(client.query_history) == 1
         query = client.query_history[0]
@@ -752,7 +769,12 @@ class TestGraphTraversal:
             {"id": "far", "name": "Far Entity", "type": "topic", "description": "", "distance": 3},
         ]
 
-        results = await graph_traversal(["seed"], client, depth=5)  # type: ignore[arg-type]
+        results = await graph_traversal(
+            ["seed"],
+            client,
+            depth=5,
+            group_id="org-123",
+        )  # type: ignore[arg-type]
 
         assert len(results) == 2
         # Closer entity should have higher score
@@ -770,6 +792,16 @@ class TestGraphTraversal:
 
         query = client.query_history[0]
         assert "group_id" in query
+        assert client.read_calls == []
+        assert client.read_org_calls[0][0] == "org-123"
+
+    @pytest.mark.asyncio
+    async def test_graph_traversal_requires_group_id(self) -> None:
+        """Graph traversal fails closed without org scope."""
+        client = MockGraphClientForHybrid()
+
+        with pytest.raises(ValueError, match="group_id is required for graph traversal"):
+            await graph_traversal(["id1"], client, depth=2)  # type: ignore[arg-type]
 
 
 class TestHybridSearch:
@@ -888,6 +920,28 @@ class TestHybridSearch:
         )
 
         assert result.total == 5
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_uses_entity_manager_group_id_for_graph_traversal(self) -> None:
+        """Hybrid search derives org scope from the entity manager."""
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        manager.search_results = [(make_entity_for_test("id1", name="Python"), 0.9)]
+        client.traversal_results = [
+            {
+                "id": "id2",
+                "name": "Related",
+                "type": "topic",
+                "description": "",
+                "distance": 1,
+            }
+        ]
+
+        await hybrid_search("Python", client, manager)  # type: ignore[arg-type]
+
+        assert client.read_calls == []
+        assert client.read_org_calls[0][0] == manager._group_id
 
 
 class TestSimpleHybridSearch:
@@ -1110,7 +1164,12 @@ class TestEdgeCases:
     async def test_graph_traversal_handles_query_exception(self) -> None:
         """Graph traversal returns empty on exception."""
         client = MockGraphClientForHybrid()
-        client.client.driver.execute_query = AsyncMock(side_effect=Exception("DB error"))
+        client.execute_read_org = AsyncMock(side_effect=Exception("DB error"))
 
-        results = await graph_traversal(["id1"], client, depth=2)  # type: ignore[arg-type]
+        results = await graph_traversal(
+            ["id1"],
+            client,
+            depth=2,
+            group_id="org-123",
+        )  # type: ignore[arg-type]
         assert results == []

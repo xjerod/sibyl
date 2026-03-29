@@ -150,6 +150,13 @@ class EntityDeduplicator:
     # Internal state
     _duplicate_pairs: list[DuplicatePair] = field(default_factory=list, init=False)
 
+    def _require_group_id(self) -> str:
+        """Require org scope for multi-tenant dedup queries."""
+        group_id = getattr(self.entity_manager, "_group_id", None)
+        if not group_id:
+            raise ValueError("group_id is required for dedup operations")
+        return str(group_id)
+
     async def find_duplicates(
         self,
         entity_types: list[str] | None = None,
@@ -371,11 +378,8 @@ class EntityDeduplicator:
         """
 
         try:
-            group_id = getattr(self.entity_manager, "_group_id", None)
-            if group_id:
-                result = await self.client.execute_read_org(query, group_id, **params)
-            else:
-                result = await self.client.execute_read(query, **params)
+            group_id = self._require_group_id()
+            result = await self.client.execute_read_org(query, group_id, **params)
 
             entities: list[tuple[str, str, str, list[float]]] = []
             for record in result:
@@ -441,13 +445,10 @@ class EntityDeduplicator:
         params = {"from_id": from_id, "to_id": to_id}
 
         try:
-            group_id = getattr(self.entity_manager, "_group_id", None)
+            group_id = self._require_group_id()
             # Execute both redirections
             for query in [outgoing_query, incoming_query]:
-                if group_id:
-                    result = await self.client.execute_write_org(query, group_id, **params)
-                else:
-                    result = await self.client.execute_write(query, **params)
+                result = await self.client.execute_write_org(query, group_id, **params)
                 if result:
                     for record in result:
                         if isinstance(record, (list, tuple)) and len(record) > 0:

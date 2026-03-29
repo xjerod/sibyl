@@ -27,6 +27,25 @@ log = structlog.get_logger()
 T = TypeVar("T")
 
 
+def _require_group_id(group_id: str | None, operation: str) -> str:
+    """Require explicit org scope for graph-backed retrieval helpers."""
+    if not group_id:
+        raise ValueError(f"group_id is required for {operation}")
+    return str(group_id)
+
+
+def _resolve_group_id(entity_manager: EntityManager, group_id: str | None) -> str:
+    """Resolve the organization scope for hybrid retrieval.
+
+    Hybrid retrieval traverses the graph directly, so it must never fall back
+    to the default graph in a multi-tenant deployment.
+    """
+    resolved = group_id or getattr(entity_manager, "_group_id", None)
+    if not resolved:
+        raise ValueError("group_id is required for hybrid retrieval")
+    return str(resolved)
+
+
 @dataclass
 class HybridConfig:
     """Configuration for hybrid retrieval.
@@ -134,19 +153,22 @@ async def graph_traversal(
     if not seed_ids:
         return []
 
+    resolved_group_id = _require_group_id(group_id, "graph traversal")
+
     try:
-        group_filter = ""
-        params: dict[str, Any] = {"seed_ids": seed_ids, "limit": limit}
-        if group_id:
-            group_filter = "AND seed.group_id = $group_id AND related.group_id = $group_id"
-            params["group_id"] = group_id
+        params: dict[str, Any] = {
+            "seed_ids": seed_ids,
+            "limit": limit,
+            "group_id": resolved_group_id,
+        }
 
         # Query for related entities up to depth
         query = f"""
         MATCH (seed)-[r:RELATIONSHIP*1..{depth}]-(related)
         WHERE seed.uuid IN $seed_ids
           AND NOT related.uuid IN $seed_ids
-          {group_filter}
+          AND seed.group_id = $group_id
+          AND related.group_id = $group_id
         RETURN DISTINCT related.uuid as id,
                related.name as name,
                related.entity_type as type,
@@ -156,10 +178,7 @@ async def graph_traversal(
         LIMIT $limit
         """
 
-        if group_id:
-            rows = await client.execute_read_org(query, group_id, **params)
-        else:
-            rows = await client.execute_read(query, **params)
+        rows = await client.execute_read_org(query, resolved_group_id, **params)
 
         # Convert to Entity objects with distance-based scores
         results: list[tuple[Entity, float]] = []
@@ -241,6 +260,8 @@ async def hybrid_search(
     if config is None:
         config = HybridConfig()
 
+    resolved_group_id = _resolve_group_id(entity_manager, group_id)
+
     log.info("hybrid_search_start", query=query[:50], limit=limit)
 
     # Phase 1: Parallel vector and BM25 search
@@ -264,7 +285,7 @@ async def hybrid_search(
                 client,
                 depth=config.graph_depth,
                 limit=limit * 2,
-                group_id=group_id,
+                group_id=resolved_group_id,
             )
 
     # Phase 3: Merge results using RRF

@@ -264,6 +264,8 @@ class TestEntityDeduplicator:
         assert pairs[0].entity1_id == "id1"
         assert pairs[0].entity2_id == "id2"
         assert pairs[0].similarity > 0.9
+        mock_client.execute_read.assert_not_called()
+        mock_client.execute_read_org.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_find_duplicates_same_type_only(
