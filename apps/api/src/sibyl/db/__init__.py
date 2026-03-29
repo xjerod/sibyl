@@ -36,7 +36,6 @@ from sibyl.db.models import (
     OrganizationRole,
     SourceType,
     User,
-    UserSSHKey,
 )
 
 __all__ = [
@@ -58,7 +57,6 @@ __all__ = [
     "OrganizationRole",
     "OrganizationInvitation",
     "User",
-    "UserSSHKey",
     # Enums
     "ChunkType",
     "CrawlStatus",

@@ -1255,51 +1255,6 @@ class Backup(TimestampMixin, table=True):
     def __repr__(self) -> str:
         return f"<Backup {self.backup_id} status={self.status}>"
 
-
-class UserSSHKey(TimestampMixin, table=True):
-    """User-managed SSH public key used for sandbox access."""
-
-    __tablename__ = "user_ssh_keys"
-    __table_args__ = (
-        Index("ix_user_ssh_keys_user_fingerprint_unique", "user_id", "fingerprint", unique=True),
-    )
-
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    user_id: UUID = Field(
-        foreign_key="users.id",
-        index=True,
-        description="Owner of this SSH key",
-    )
-
-    name: str = Field(max_length=255, description="Display name for this key")
-    public_key: str = Field(sa_type=Text, description="OpenSSH public key")
-    key_type: str = Field(
-        default="ssh-ed25519",
-        max_length=32,
-        description="Key algorithm type",
-    )
-    fingerprint: str = Field(
-        max_length=128,
-        index=True,
-        description="Canonical fingerprint for dedupe and lookup",
-    )
-    comment: str | None = Field(
-        default=None,
-        max_length=255,
-        description="Optional user-supplied key comment",
-    )
-    is_active: bool = Field(default=True, description="Whether this key may be used")
-    last_used_at: datetime | None = Field(default=None, description="Last successful key usage")
-
-    extra: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB, nullable=False, server_default=text("'{}'::jsonb")),
-        description="Additional metadata for audit/integration",
-    )
-
-    def __repr__(self) -> str:
-        return f"<UserSSHKey user={self.user_id} fingerprint={self.fingerprint}>"
-
 # =============================================================================
 # Utility functions
 # =============================================================================

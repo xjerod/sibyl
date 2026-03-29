@@ -32,7 +32,6 @@ from sibyl.db.models import (  # noqa: F401
     Team,
     TeamMember,
     User,
-    UserSSHKey,
     UserSession,
 )
 

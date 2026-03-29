@@ -930,7 +930,7 @@ def _resolve_backup_source(
         extract_dir = Path(tempfile.mkdtemp(prefix="sibyl_restore_"))
         info(f"Extracting {source.name}...")
         with tarfile.open(source, "r:gz") as tar:
-            tar.extractall(extract_dir, filter="data")  # noqa: S202
+            tar.extractall(extract_dir, filter="data")
         backup_dir = extract_dir
     elif source.is_dir():
         backup_dir = source
