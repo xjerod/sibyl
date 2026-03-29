@@ -418,7 +418,7 @@ def start(
     console.print(f"[{ELECTRIC_PURPLE}][bold]Next Steps[/bold][/{ELECTRIC_PURPLE}]")
     console.print()
     console.print("  1. Complete the setup wizard in your browser")
-    console.print("  2. Set up agent skills & hooks:")
+    console.print("  2. Set up Claude/Codex skills & hooks:")
     console.print("     [dim]sibyl local setup[/dim]")
     console.print()
 
@@ -567,10 +567,10 @@ def setup(
     ] = False,
     show_snippet: Annotated[
         bool,
-        typer.Option("--snippet", help="Show prompt snippet for agent config"),
+        typer.Option("--snippet", help="Show prompt snippet for Claude/Codex config"),
     ] = False,
 ) -> None:
-    """Set up agent integration (skills + hooks for Claude/Codex).
+    """Set up Claude/Codex integration (skills + hooks).
 
     Installs:
       • Skills for Claude Code (~/.claude/skills/sibyl/)

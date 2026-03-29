@@ -351,14 +351,14 @@ def configure_claude_hooks() -> bool:
 
 
 def setup_agent_integration(verbose: bool = True) -> bool:
-    """Set up agent integration for Claude Code and Codex.
+    """Set up Claude/Codex integration for external assistants.
 
     Returns True if setup was successful.
     """
     if verbose:
         console.print()
         console.print(
-            f"[{ELECTRIC_PURPLE}][bold]Agent Integration Setup[/bold][/{ELECTRIC_PURPLE}]"
+            f"[{ELECTRIC_PURPLE}][bold]Claude/Codex Integration Setup[/bold][/{ELECTRIC_PURPLE}]"
         )
         console.print()
 

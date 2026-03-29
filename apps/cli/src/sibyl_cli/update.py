@@ -274,7 +274,7 @@ def update_containers(restart: bool = True) -> bool:
 
 
 def update_skills() -> bool:
-    """Update skills and hooks."""
+    """Update Claude/Codex skills and hooks."""
     from sibyl_cli.setup import setup_agent_integration
 
     return setup_agent_integration(verbose=False)
@@ -311,7 +311,7 @@ def update(
 ) -> None:
     """Check for and apply Sibyl updates.
 
-    Updates the CLI, Docker containers, and agent skills/hooks.
+    Updates the CLI, Docker containers, and Claude/Codex skills/hooks.
     Only works for easy install deployments (uv tool install).
     """
     # Check for dev mode
