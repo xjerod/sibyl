@@ -88,11 +88,12 @@ export const queryKeys = {
   },
   tasks: {
     all: ['tasks'] as const,
-    list: (params?: { project?: string; status?: TaskStatus }) => {
+    list: (params?: { project?: string; project_ids?: string[]; status?: TaskStatus }) => {
       const normalized =
-        params && (params.project || params.status)
+        params && (params.project || params.project_ids?.length || params.status)
           ? {
               ...(params.project ? { project: params.project } : {}),
+              ...(params.project_ids?.length ? { project_ids: [...params.project_ids] } : {}),
               ...(params.status ? { status: params.status } : {}),
             }
           : undefined;
@@ -109,11 +110,12 @@ export const queryKeys = {
   },
   epics: {
     all: ['epics'] as const,
-    list: (params?: { project?: string; status?: EpicStatus }) => {
+    list: (params?: { project?: string; project_ids?: string[]; status?: EpicStatus }) => {
       const normalized =
-        params && (params.project || params.status)
+        params && (params.project || params.project_ids?.length || params.status)
           ? {
               ...(params.project ? { project: params.project } : {}),
+              ...(params.project_ids?.length ? { project_ids: [...params.project_ids] } : {}),
               ...(params.status ? { status: params.status } : {}),
             }
           : undefined;
@@ -888,11 +890,16 @@ export function useRealtimeUpdates(isAuthenticated = false) {
 // Task Hooks
 // =============================================================================
 
-export function useTasks(params?: { project?: string; status?: TaskStatus }) {
+export function useTasks(params?: {
+  project?: string;
+  project_ids?: string[];
+  status?: TaskStatus;
+}) {
   const normalized =
-    params && (params.project || params.status)
+    params && (params.project || params.project_ids?.length || params.status)
       ? {
           ...(params.project ? { project: params.project } : {}),
+          ...(params.project_ids?.length ? { project_ids: [...params.project_ids] } : {}),
           ...(params.status ? { status: params.status } : {}),
         }
       : undefined;
@@ -1102,11 +1109,16 @@ export function useRemoveProjectMember() {
 // Epic Hooks
 // =============================================================================
 
-export function useEpics(params?: { project?: string; status?: EpicStatus }) {
+export function useEpics(params?: {
+  project?: string;
+  project_ids?: string[];
+  status?: EpicStatus;
+}) {
   const normalized =
-    params && (params.project || params.status)
+    params && (params.project || params.project_ids?.length || params.status)
       ? {
           ...(params.project ? { project: params.project } : {}),
+          ...(params.project_ids?.length ? { project_ids: [...params.project_ids] } : {}),
           ...(params.status ? { status: params.status } : {}),
         }
       : undefined;

@@ -948,6 +948,36 @@ class TestExploreTool:
             assert response.filters["priority"] == "high"
 
     @pytest.mark.asyncio
+    async def test_explore_list_mode_builds_multi_project_filters(self) -> None:
+        """Explore list mode preserves multi-project filters."""
+        from sibyl_core.tools.explore import explore
+
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.list_by_type = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "sibyl_core.tools.explore.get_graph_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "sibyl_core.tools.explore.EntityManager",
+                return_value=mock_entity_manager,
+            ),
+        ):
+            response = await explore(
+                mode="list",
+                types=["task"],
+                project_ids=["proj_123", "proj_456"],
+                status="todo",
+                organization_id="org_123",
+            )
+            assert response.filters["types"] == ["task"]
+            assert response.filters["project_ids"] == ["proj_123", "proj_456"]
+            assert response.filters["status"] == "todo"
+
+    @pytest.mark.asyncio
     async def test_explore_related_requires_entity_id(self) -> None:
         """Explore related mode returns error without entity_id."""
         from sibyl_core.tools.explore import explore
@@ -1111,6 +1141,47 @@ class TestExploreEntityFilters:
             feature=None,
             tags=None,
             include_archived=False,
+        )
+
+    def test_passes_entity_filters_project_ids(self) -> None:
+        """Filter by multiple project IDs works."""
+        from sibyl_core.tools.explore import _passes_entity_filters
+
+        entity = MockEntity(
+            id="1",
+            entity_type=EntityType.TASK,
+            name="Task",
+            project_id="proj_b",
+        )
+        assert _passes_entity_filters(
+            entity,
+            language=None,
+            category=None,
+            project=None,
+            accessible_projects=None,
+            epic=None,
+            status=None,
+            priority=None,
+            complexity=None,
+            feature=None,
+            tags=None,
+            include_archived=False,
+            project_ids={"proj_a", "proj_b"},
+        )
+        assert not _passes_entity_filters(
+            entity,
+            language=None,
+            category=None,
+            project=None,
+            accessible_projects=None,
+            epic=None,
+            status=None,
+            priority=None,
+            complexity=None,
+            feature=None,
+            tags=None,
+            include_archived=False,
+            project_ids={"proj_a"},
         )
         assert not _passes_entity_filters(
             entity,

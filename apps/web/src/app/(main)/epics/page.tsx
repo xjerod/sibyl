@@ -11,7 +11,7 @@ import { ErrorState } from '@/components/ui/tooltip';
 import type { EpicStatus } from '@/lib/api';
 import { EPIC_STATUS_CONFIG } from '@/lib/constants';
 import { useEpics, useProjects } from '@/lib/hooks';
-import { useProjectFilter } from '@/lib/project-context';
+import { useProjectFilters } from '@/lib/project-context';
 import { readStorage, writeStorage } from '@/lib/storage';
 
 const EPIC_STATUSES: EpicStatus[] = ['planning', 'in_progress', 'blocked', 'completed', 'archived'];
@@ -38,7 +38,7 @@ function EpicsPageContent() {
   const searchParams = useSearchParams();
 
   // Project filtering is handled by global context (header selector)
-  const projectFilter = useProjectFilter();
+  const projectFilters = useProjectFilters();
 
   // Parse multi-status filter from URL (comma-separated)
   const statusParam = searchParams.get('status');
@@ -89,7 +89,7 @@ function EpicsPageContent() {
   }, [hasRestoredFromStorage, statusParam, sortOption]);
 
   // Fetch all epics (filtering done client-side for multi-status)
-  const { data: epicsData, isLoading, error } = useEpics({ project: projectFilter });
+  const { data: epicsData, isLoading, error } = useEpics({ project_ids: projectFilters });
   const { data: projectsData } = useProjects();
 
   const projects = projectsData?.entities ?? [];
@@ -343,9 +343,9 @@ function EpicsPageContent() {
         <EpicList
           epics={epics}
           projectNames={projectNames}
-          showProject={!projectFilter}
+          showProject={projectFilters?.length !== 1}
           isLoading={isLoading}
-          isFiltered={!!searchQuery || !!projectFilter || selectedStatuses.size > 0}
+          isFiltered={!!searchQuery || !!projectFilters?.length || selectedStatuses.size > 0}
         />
       )}
     </div>

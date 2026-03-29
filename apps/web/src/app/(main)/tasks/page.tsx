@@ -15,14 +15,14 @@ import { TagChip } from '@/components/ui/toggle';
 import { ErrorState } from '@/components/ui/tooltip';
 import type { TaskStatus } from '@/lib/api';
 import { useCreateEntity, useEpics, useProjects, useTasks, useTaskUpdateStatus } from '@/lib/hooks';
-import { useProjectFilter } from '@/lib/project-context';
+import { useProjectFilters } from '@/lib/project-context';
 
 function TasksPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   // Project filtering is handled by global context (header selector)
-  const projectFilter = useProjectFilter();
+  const projectFilters = useProjectFilters();
   const tagFilter = searchParams.get('tag') || undefined;
 
   // State for modals and search
@@ -30,7 +30,7 @@ function TasksPageContent() {
   const [isQuickTaskOpen, setIsQuickTaskOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: tasksData, isLoading, error } = useTasks({ project: projectFilter });
+  const { data: tasksData, isLoading, error } = useTasks({ project_ids: projectFilters });
   const { data: projectsData } = useProjects();
   const { data: epicsData } = useEpics();
   const updateStatus = useTaskUpdateStatus();
@@ -267,7 +267,7 @@ function TasksPageContent() {
         onSubmit={handleCreateTask}
         projects={projects.map(p => ({ id: p.id, name: p.name }))}
         epics={epics}
-        defaultProjectId={projectFilter}
+        defaultProjectId={projectFilters?.length === 1 ? projectFilters[0] : undefined}
         isSubmitting={createEntity.isPending}
       />
 

@@ -415,6 +415,40 @@ class TestExploreWithHarness:
             assert isinstance(result, ExploreResponse)
             assert result.filters.get("language") == "python"
 
+    @pytest.mark.asyncio
+    async def test_explore_with_multi_project_filter(self) -> None:
+        """Explore should filter tasks across multiple selected projects."""
+        async with mock_tools() as ctx:
+            task_a = create_test_entity(
+                entity_type=EntityType.TASK,
+                name="Task A",
+                metadata={"project_id": "proj_a", "status": "todo"},
+            )
+            task_b = create_test_entity(
+                entity_type=EntityType.TASK,
+                name="Task B",
+                metadata={"project_id": "proj_b", "status": "todo"},
+            )
+            task_c = create_test_entity(
+                entity_type=EntityType.TASK,
+                name="Task C",
+                metadata={"project_id": "proj_c", "status": "todo"},
+            )
+            ctx.entity_manager.add_entity(task_a)
+            ctx.entity_manager.add_entity(task_b)
+            ctx.entity_manager.add_entity(task_c)
+
+            result = await explore(
+                mode="list",
+                types=["task"],
+                project_ids=["proj_a", "proj_b"],
+                organization_id=TEST_ORG_ID,
+            )
+
+            assert isinstance(result, ExploreResponse)
+            assert {entity.id for entity in result.entities} == {task_a.id, task_b.id}
+            assert result.filters.get("project_ids") == ["proj_a", "proj_b"]
+
 
 class TestAddWithHarness:
     """Tests for add() function using test harness."""

@@ -199,6 +199,7 @@ export async function fetchSearchResults(params: {
  */
 export async function fetchTasks(params?: {
   project?: string;
+  project_ids?: string[];
   status?: string;
 }): Promise<TaskListResponse> {
   return serverFetch<TaskListResponse>('/search/explore', {
@@ -207,6 +208,7 @@ export async function fetchTasks(params?: {
       mode: 'list',
       types: ['task'],
       project: params?.project,
+      project_ids: params?.project_ids,
       status: params?.status,
       limit: 200,
     }),

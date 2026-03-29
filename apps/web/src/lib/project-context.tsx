@@ -203,3 +203,17 @@ export function useProjectFilter(): string | undefined {
 
   return selectedProjects.length === 1 ? selectedProjects[0] : undefined;
 }
+
+/**
+ * Hook that returns all selected project IDs for pages that support
+ * multi-project filtering.
+ */
+export function useProjectFilters(): string[] | undefined {
+  const { selectedProjects, isAll, contextEnabled } = useProjectContext();
+
+  if (!contextEnabled || isAll || selectedProjects.length === 0) {
+    return undefined;
+  }
+
+  return selectedProjects;
+}

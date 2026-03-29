@@ -1585,13 +1585,14 @@ export const api = {
 
   // Tasks
   tasks: {
-    list: (params?: { project?: string; status?: TaskStatus }) =>
+    list: (params?: { project?: string; project_ids?: string[]; status?: TaskStatus }) =>
       fetchApi<TaskListResponse>('/search/explore', {
         method: 'POST',
         body: JSON.stringify({
           mode: 'list',
           types: ['task'],
           project: params?.project,
+          project_ids: params?.project_ids,
           status: params?.status,
           limit: 200,
         }),
@@ -1691,13 +1692,14 @@ export const api = {
 
   // Epics - feature grouping for tasks
   epics: {
-    list: (params?: { project?: string; status?: EpicStatus }) =>
+    list: (params?: { project?: string; project_ids?: string[]; status?: EpicStatus }) =>
       fetchApi<EpicListResponse>('/search/explore', {
         method: 'POST',
         body: JSON.stringify({
           mode: 'list',
           types: ['epic'],
           project: params?.project,
+          project_ids: params?.project_ids,
           status: params?.status,
           limit: 200,
         }),

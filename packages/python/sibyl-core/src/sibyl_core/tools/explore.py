@@ -30,6 +30,22 @@ log = structlog.get_logger()
 __all__ = ["DependencyNode", "explore"]
 
 
+def _normalize_project_ids(
+    project: str | None,
+    project_ids: list[str] | None,
+) -> list[str] | None:
+    """Normalize single- and multi-project filters into a deduplicated list."""
+    raw_ids = project_ids or ([project] if project else [])
+    if not raw_ids:
+        return None
+
+    normalized: list[str] = []
+    for project_id in raw_ids:
+        if project_id and project_id not in normalized:
+            normalized.append(project_id)
+    return normalized or None
+
+
 async def explore(
     mode: Literal["list", "related", "traverse", "dependencies"] = "list",
     types: list[str] | None = None,
@@ -39,6 +55,7 @@ async def explore(
     language: str | None = None,
     category: str | None = None,
     project: str | None = None,
+    project_ids: list[str] | None = None,
     accessible_projects: set[str] | None = None,
     epic: str | None = None,
     no_epic: bool = False,
@@ -88,7 +105,8 @@ async def explore(
         depth: Traversal depth for traverse mode (1-3, default 1).
         language: Filter by programming language.
         category: Filter by category/domain.
-        project: Optional project filter (recommended for task/epic listing).
+        project: Optional single-project filter (recommended for task/epic listing).
+        project_ids: Optional multi-project filter for task/epic listing.
         epic: Optional epic filter (for listing tasks within an epic).
         no_epic: Filter for tasks without an epic (mutually exclusive with epic).
         status: Filter tasks by workflow status (backlog, todo, doing, blocked, review, done).
@@ -124,9 +142,12 @@ async def explore(
         types=types,
         entity_id=entity_id,
         project=project,
+        project_ids=project_ids,
         status=status,
         depth=depth,
     )
+
+    requested_project_ids = _normalize_project_ids(project, project_ids)
 
     filters = {}
     if types:
@@ -137,8 +158,11 @@ async def explore(
         filters["category"] = category
     if entity_id:
         filters["entity_id"] = entity_id
-    if project:
-        filters["project"] = project
+    if requested_project_ids:
+        if len(requested_project_ids) == 1:
+            filters["project"] = requested_project_ids[0]
+        else:
+            filters["project_ids"] = requested_project_ids
     if epic:
         filters["epic"] = epic
     if no_epic:
@@ -182,6 +206,7 @@ async def explore(
             language=language,
             category=category,
             project=project,
+            project_ids=requested_project_ids,
             accessible_projects=accessible_projects,
             epic=epic,
             no_epic=no_epic,
@@ -215,6 +240,7 @@ def _passes_entity_filters(
     feature: str | None,
     tags: str | None,
     include_archived: bool,
+    project_ids: set[str] | None = None,
 ) -> bool:
     """Check if an entity passes all specified filters."""
     # RBAC: Filter by accessible projects
@@ -238,6 +264,8 @@ def _passes_entity_filters(
 
     # Project filter (for tasks and epics)
     if project and _get_field(entity, "project_id") != project:
+        return False
+    if project_ids and _get_field(entity, "project_id") not in project_ids:
         return False
 
     # Epic filter (for tasks)
@@ -306,6 +334,7 @@ async def _explore_list(
     language: str | None,
     category: str | None,
     project: str | None,
+    project_ids: list[str] | None,
     accessible_projects: set[str] | None,
     epic: str | None,
     no_epic: bool,
@@ -339,6 +368,9 @@ async def _explore_list(
 
     # Parse tags into list if provided
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
+    requested_project_ids = _normalize_project_ids(project, project_ids)
+    project_id_filter = requested_project_ids[0] if requested_project_ids and len(requested_project_ids) == 1 else None
+    requested_project_id_set = set(requested_project_ids) if requested_project_ids else None
 
     # Fetch with DB-level filtering for efficiency
     # Over-fetch to detect has_more after any remaining client-side filters
@@ -348,7 +380,7 @@ async def _explore_list(
         entities = await entity_manager.list_by_type(
             entity_type,
             limit=fetch_limit,
-            project_id=project,
+            project_id=project_id_filter,
             epic_id=epic,
             no_epic=no_epic,
             status=status,
@@ -365,18 +397,19 @@ async def _explore_list(
         entity
         for entity in all_entities
         if _passes_entity_filters(
-            entity,
-            language,
-            category,
-            None,  # project already filtered by DB
-            accessible_projects,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            include_archived,
+            entity=entity,
+            language=language,
+            category=category,
+            project=None,  # project already filtered by DB when only one is requested
+            project_ids=requested_project_id_set,
+            accessible_projects=accessible_projects,
+            epic=None,
+            status=None,
+            priority=None,
+            complexity=None,
+            feature=None,
+            tags=None,
+            include_archived=include_archived,
         )
     ]
 

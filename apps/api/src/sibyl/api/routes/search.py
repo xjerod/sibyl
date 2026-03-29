@@ -133,11 +133,22 @@ async def explore(
         # Get accessible project IDs for filtering
         accessible_projects = await list_accessible_project_graph_ids(session, ctx)
 
-        # If user specified a project, validate they have access
-        project_filter = request.project
-        if project_filter and project_filter not in accessible_projects:
+        project_ids = request.project_ids or ([request.project] if request.project else None)
+
+        if request.mode == "dependencies" and request.project_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="dependencies mode does not support project_ids",
+            )
+
+        # If user specified projects, validate they have access
+        invalid_project_id = next(
+            (project_id for project_id in (project_ids or []) if project_id not in accessible_projects),
+            None,
+        )
+        if invalid_project_id:
             raise ProjectAccessDeniedError(
-                project_id=project_filter,
+                project_id=invalid_project_id,
                 required_role="viewer",
             )
 
@@ -149,8 +160,9 @@ async def explore(
             depth=request.depth,
             language=request.language,
             category=request.category,
-            project=project_filter,
-            accessible_projects=accessible_projects if not project_filter else None,
+            project=request.project if request.mode == "dependencies" else None,
+            project_ids=project_ids if request.mode != "dependencies" else None,
+            accessible_projects=accessible_projects if not project_ids else None,
             epic=request.epic,
             no_epic=request.no_epic,
             status=request.status,
