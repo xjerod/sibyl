@@ -363,11 +363,13 @@ def main():
 
         if not search_query:
             sys.exit(0)
+        assert search_query is not None
 
         # Search Sibyl (target: <150ms)
         output = run_sibyl("search", search_query, "--limit", "3", "-j", timeout=3)
         if not output:
             sys.exit(0)
+        assert output is not None
 
         # Parse results
         try:

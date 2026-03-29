@@ -73,6 +73,8 @@ def callback(
         _show_path_context(linked_project, json_out)
         return
 
+    assert active is not None
+
     # Resolve effective project (linked > default)
     linked_project = resolve_project_from_cwd()
     effective_project = linked_project or active.default_project
