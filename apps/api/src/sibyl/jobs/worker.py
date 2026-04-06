@@ -19,6 +19,7 @@ from sibyl.config import settings
 
 # Import job functions from their modules
 from sibyl.jobs.backup import cleanup_old_backups, run_backup, run_scheduled_backups
+from sibyl.jobs.consolidation import consolidate_all_orgs, consolidate_org, priority_decay
 from sibyl.jobs.crawl import crawl_source, sync_all_sources, sync_source
 from sibyl.jobs.entities import create_entity, create_learning_episode, update_entity, update_task
 
@@ -104,6 +105,10 @@ class WorkerSettings:
         run_backup,
         cleanup_old_backups,
         run_scheduled_backups,
+        # Consolidation jobs
+        consolidate_org,
+        consolidate_all_orgs,
+        priority_decay,
     ]
 
     # Cron jobs for scheduled tasks
@@ -153,6 +158,17 @@ class WorkerSettings:
                 log.warning(
                     "cron_schedule_parse_failed", schedule=settings.backup_schedule, error=str(e)
                 )
+
+        # Nightly consolidation: merge duplicates + archive stale entities (3 AM)
+        cron_jobs.append(
+            cron(
+                consolidate_all_orgs,
+                hour=3,
+                minute=0,
+                unique=True,
+            )
+        )
+        log.info("cron_job_registered", job="consolidate_all_orgs", schedule="0 3 * * *")
 
         return cron_jobs
 
