@@ -152,42 +152,33 @@ async def rebuild_indices(
 
     start_time = time.time()
     indices_rebuilt: list[str] = []
+    target = (index_type or "all").strip().lower()
+    valid_targets = {"search", "relationships", "all"}
 
-    try:
-        # Get client to verify connectivity (actual rebuild uses it)
-        _client = await get_graph_client()
-        _ = _client  # Mark as used; actual index rebuild operations are TODO
-
-        target = index_type or "all"
-
-        if target in ("search", "all"):
-            # TODO: Implement actual Graphiti index rebuild
-            # This would call _client.rebuild_search_index() or similar
-            log.info("Rebuilding search indices")
-            indices_rebuilt.append("search")
-
-        if target in ("relationships", "all"):
-            # TODO: Implement actual Graphiti relationship index rebuild
-            log.info("Rebuilding relationship indices")
-            indices_rebuilt.append("relationships")
-
-        duration = time.time() - start_time
-
-        return RebuildResult(
-            success=True,
-            indices_rebuilt=indices_rebuilt,
-            duration_seconds=duration,
-            message=f"Successfully rebuilt {len(indices_rebuilt)} index(es)",
-        )
-
-    except Exception as e:
-        log.error("Index rebuild failed", error=str(e))
+    if target not in valid_targets:
         return RebuildResult(
             success=False,
-            indices_rebuilt=indices_rebuilt,
+            indices_rebuilt=[],
             duration_seconds=time.time() - start_time,
-            message=f"Rebuild failed: {e}",
+            message=(
+                f"Unknown index type: {target}. "
+                "Valid options are: search, relationships, all."
+            ),
         )
+
+    log.warning(
+        "index_rebuild_not_implemented",
+        index_type=target,
+    )
+    return RebuildResult(
+        success=False,
+        indices_rebuilt=indices_rebuilt,
+        duration_seconds=time.time() - start_time,
+        message=(
+            "Index rebuild is not implemented for the current FalkorDB/Graphiti runtime. "
+            f"Requested target: {target}."
+        ),
+    )
 
 
 async def get_stats(*, organization_id: str | None = None) -> dict[str, object]:
