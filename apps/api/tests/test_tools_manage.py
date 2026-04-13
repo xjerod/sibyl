@@ -436,87 +436,90 @@ class TestSourceActions:
 
     @pytest.mark.asyncio
     async def test_crawl_creates_source(self) -> None:
-        """crawl action should create a source entity."""
-        with patch("sibyl_core.tools.manage.get_graph_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with patch("sibyl_core.tools.manage.EntityManager") as mock_manager_class:
-                mock_manager = MagicMock()
-                mock_manager.create = AsyncMock(return_value="source_abc123")
-                mock_manager_class.return_value = mock_manager
+        """crawl action should create or reuse a relational crawl source."""
+        with (
+            patch(
+                "sibyl_core.tools.manage._create_or_get_crawl_source",
+                new=AsyncMock(return_value=("source_abc123", True)),
+            ) as create_or_get,
+            patch(
+                "sibyl_core.tools.manage._enqueue_source_crawl",
+                new=AsyncMock(return_value="crawl:source_abc123"),
+            ) as enqueue,
+        ):
+            result = await manage(
+                action="crawl",
+                data={"url": "https://docs.example.com", "depth": 3},
+                organization_id=TEST_ORG_ID,
+            )
 
-                result = await manage(
-                    action="crawl",
-                    data={"url": "https://docs.example.com", "depth": 3},
-                    organization_id=TEST_ORG_ID,
-                )
-
-                assert result.success is True
-                assert "queued" in result.message.lower()
-                assert result.data["url"] == "https://docs.example.com"
-                mock_manager.create.assert_called_once()
+            assert result.success is True
+            assert "queued" in result.message.lower()
+            assert result.data["url"] == "https://docs.example.com"
+            assert result.data["status"] == "queued"
+            assert result.data["job_id"] == "crawl:source_abc123"
+            create_or_get.assert_awaited_once()
+            enqueue.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_sync_source_not_found(self) -> None:
         """sync action should fail gracefully if source not found."""
-        with patch("sibyl_core.tools.manage.get_graph_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with patch("sibyl_core.tools.manage.EntityManager") as mock_manager_class:
-                mock_manager = MagicMock()
-                mock_manager.get = AsyncMock(side_effect=Exception("Not found"))
-                mock_manager_class.return_value = mock_manager
+        with patch(
+            "sibyl_core.tools.manage._crawl_source_exists",
+            new=AsyncMock(return_value=False),
+        ):
+            result = await manage(
+                action="sync",
+                entity_id="source_nonexistent",
+                organization_id=TEST_ORG_ID,
+            )
 
-                result = await manage(
-                    action="sync",
-                    entity_id="source_nonexistent",
-                    organization_id=TEST_ORG_ID,
-                )
-
-                assert result.success is False
-                assert "not found" in result.message.lower()
+            assert result.success is False
+            assert "not found" in result.message.lower()
 
     @pytest.mark.asyncio
     async def test_sync_source_success(self) -> None:
-        """sync action should update source status to pending."""
-        with patch("sibyl_core.tools.manage.get_graph_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with patch("sibyl_core.tools.manage.EntityManager") as mock_manager_class:
-                mock_manager = MagicMock()
-                mock_manager.get = AsyncMock(return_value=MagicMock(id="source_123"))
-                mock_manager.update = AsyncMock(return_value=MagicMock())
-                mock_manager_class.return_value = mock_manager
+        """sync action should enqueue a relational source-sync job."""
+        with (
+            patch(
+                "sibyl_core.tools.manage._crawl_source_exists",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "sibyl_core.tools.manage._enqueue_source_sync",
+                new=AsyncMock(return_value="sync:source_123"),
+            ) as enqueue,
+        ):
+            result = await manage(
+                action="sync",
+                entity_id="source_123",
+                organization_id=TEST_ORG_ID,
+            )
 
-                result = await manage(
-                    action="sync",
-                    entity_id="source_123",
-                    organization_id=TEST_ORG_ID,
-                )
-
-                assert result.success is True
-                assert "queued" in result.message.lower()
-                mock_manager.update.assert_called_once()
+            assert result.success is True
+            assert "queued" in result.message.lower()
+            assert result.data["status"] == "queued"
+            assert result.data["job_id"] == "sync:source_123"
+            enqueue.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_refresh_all_sources(self) -> None:
-        """refresh action should queue updates for all sources."""
-        mock_sources = [
-            MagicMock(id="source_1"),
-            MagicMock(id="source_2"),
-            MagicMock(id="source_3"),
-        ]
+        """refresh action should enqueue sync jobs for all org sources."""
+        with (
+            patch(
+                "sibyl_core.tools.manage._list_crawl_source_ids",
+                new=AsyncMock(return_value=["source_1", "source_2", "source_3"]),
+            ),
+            patch(
+                "sibyl_core.tools.manage._enqueue_source_sync",
+                new=AsyncMock(side_effect=["sync:1", "sync:2", "sync:3"]),
+            ) as enqueue,
+        ):
+            result = await manage(action="refresh", organization_id=TEST_ORG_ID)
 
-        with patch("sibyl_core.tools.manage.get_graph_client") as mock_client:
-            mock_client.return_value = MagicMock()
-            with patch("sibyl_core.tools.manage.EntityManager") as mock_manager_class:
-                mock_manager = MagicMock()
-                mock_manager.list_by_type = AsyncMock(return_value=mock_sources)
-                mock_manager.update = AsyncMock(return_value=MagicMock())
-                mock_manager_class.return_value = mock_manager
-
-                result = await manage(action="refresh", organization_id=TEST_ORG_ID)
-
-                assert result.success is True
-                assert result.data["sources_queued"] == 3
-                assert mock_manager.update.call_count == 3
+            assert result.success is True
+            assert result.data["sources_queued"] == 3
+            assert enqueue.await_count == 3
 
 
 class TestAnalysisActions:

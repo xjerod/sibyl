@@ -19,7 +19,6 @@ from sibyl_core.graph.client import get_graph_client
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import EntityType
-from sibyl_core.models.sources import CrawlStatus, Source, SourceType
 
 log = structlog.get_logger()
 
@@ -731,22 +730,18 @@ async def _handle_source_action(
             message="organization_id required for source actions",
         )
 
-    # Now connect after validation passes
-    client = await get_graph_client()
-    entity_manager = EntityManager(client, group_id=organization_id)
-
     if action == "crawl":
         url = data.get("url")
         assert isinstance(url, str)  # validated above
         depth = data.get("depth", 2)
-        return await _crawl_source(entity_manager, url, depth, data)
+        return await _crawl_source(url, depth, data, organization_id=organization_id)
 
     if action == "sync":
         assert entity_id is not None  # validated above
-        return await _sync_source(entity_manager, entity_id)
+        return await _sync_source(entity_id, organization_id=organization_id)
 
     if action == "refresh":
-        return await _refresh_all_sources(entity_manager)
+        return await _refresh_all_sources(organization_id)
 
     if action == "link_graph":
         return await _link_graph(entity_id, data, organization_id)
@@ -757,59 +752,204 @@ async def _handle_source_action(
     return ManageResponse(success=False, action=action, message="Unknown source action")
 
 
-async def _crawl_source(
-    entity_manager: EntityManager,
+def _normalize_pattern_list(value: Any) -> list[str]:
+    """Normalize a source pattern input into a string list."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, list | tuple | set):
+        return [str(item) for item in value if item]
+    return [str(value)]
+
+
+async def _create_or_get_crawl_source(
     url: str,
     depth: int,
     data: dict[str, Any],
-) -> ManageResponse:
-    """Trigger crawl of a URL."""
-    import hashlib
+    *,
+    organization_id: str,
+) -> tuple[str, bool]:
+    """Create or reuse a relational crawl source for the given URL."""
+    from uuid import UUID
 
-    # Generate source ID from URL
-    url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
-    source_id = f"source_{url_hash}"
+    from sibyl.db import CrawlSource, SourceType, get_session
+    from sqlalchemy import select
+    from sqlmodel import col
 
-    # Create source entity
-    source = Source(  # type: ignore[call-arg]  # model_validator sets name from url
-        id=source_id,
-        url=url,
-        source_type=SourceType.WEBSITE,
-        crawl_depth=min(depth, 10),
-        crawl_patterns=data.get("patterns", []),
-        exclude_patterns=data.get("exclude", []),
-        crawl_status=CrawlStatus.PENDING,
+    normalized_url = url.rstrip("/")
+    source_name = str(data.get("name") or normalized_url.split("//")[-1].split("/")[0])
+    source_type = str(data.get("source_type") or "website").lower()
+
+    try:
+        source_type_enum = SourceType(source_type)
+    except ValueError:
+        source_type_enum = SourceType.WEBSITE
+
+    include_patterns = _normalize_pattern_list(
+        data.get("include_patterns") or data.get("patterns")
+    )
+    exclude_patterns = _normalize_pattern_list(
+        data.get("exclude_patterns") or data.get("exclude")
     )
 
-    # Store source (use actual created ID)
-    created_id = await entity_manager.create(source)
+    async with get_session() as session:
+        result = await session.execute(
+            select(CrawlSource).where(
+                col(CrawlSource.organization_id) == UUID(organization_id),
+                col(CrawlSource.url) == normalized_url,
+            )
+        )
+        source = result.scalar_one_or_none()
+        if source is not None:
+            return str(source.id), False
 
-    # TODO: Trigger actual crawl pipeline (async job)
-    # For now, just mark as pending
+        source = CrawlSource(
+            name=source_name,
+            url=normalized_url,
+            organization_id=UUID(organization_id),
+            source_type=source_type_enum,
+            description=data.get("description"),
+            crawl_depth=max(0, min(int(depth), 10)),
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+        )
+        session.add(source)
+        await session.flush()
+        await session.refresh(source)
+        return str(source.id), True
+
+
+async def _crawl_source_exists(source_id: str, organization_id: str) -> bool:
+    """Return whether a crawl source exists within the organization."""
+    from uuid import UUID
+
+    from sibyl.db import CrawlSource, get_session
+    from sqlalchemy import select
+    from sqlmodel import col
+
+    async with get_session() as session:
+        result = await session.execute(
+            select(CrawlSource).where(
+                col(CrawlSource.id) == UUID(source_id),
+                col(CrawlSource.organization_id) == UUID(organization_id),
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+
+async def _list_crawl_source_ids(organization_id: str) -> list[str]:
+    """List crawl source IDs for an organization."""
+    from uuid import UUID
+
+    from sibyl.db import CrawlSource, get_session
+    from sqlalchemy import select
+    from sqlmodel import col
+
+    async with get_session() as session:
+        result = await session.execute(
+            select(CrawlSource).where(col(CrawlSource.organization_id) == UUID(organization_id))
+        )
+        return [str(source.id) for source in result.scalars().all()]
+
+
+async def _enqueue_source_crawl(
+    source_id: str,
+    *,
+    organization_id: str,
+    max_pages: int = 50,
+    max_depth: int = 3,
+    generate_embeddings: bool = True,
+    force: bool = False,
+) -> str:
+    """Enqueue a crawl job and sync its pending state to the relational source."""
+    from uuid import UUID
+
+    from sibyl.db import CrawlSource, CrawlStatus, get_session
+    from sibyl.jobs.queue import enqueue_crawl
+    from sqlalchemy import select
+    from sqlmodel import col
+
+    job_id = await enqueue_crawl(
+        source_id,
+        max_pages=max_pages,
+        max_depth=max_depth,
+        generate_embeddings=generate_embeddings,
+        force=force,
+    )
+
+    async with get_session() as session:
+        result = await session.execute(
+            select(CrawlSource).where(
+                col(CrawlSource.id) == UUID(source_id),
+                col(CrawlSource.organization_id) == UUID(organization_id),
+            )
+        )
+        source = result.scalar_one_or_none()
+        if source is not None:
+            source.current_job_id = job_id
+            source.crawl_status = CrawlStatus.PENDING
+            source.last_error = None
+            session.add(source)
+
+    return job_id
+
+
+async def _enqueue_source_sync(source_id: str) -> str:
+    """Enqueue a source-stat sync job."""
+    from sibyl.jobs.queue import enqueue_sync
+
+    return await enqueue_sync(source_id)
+
+
+async def _crawl_source(
+    url: str,
+    depth: int,
+    data: dict[str, Any],
+    *,
+    organization_id: str,
+) -> ManageResponse:
+    """Trigger crawl of a URL."""
+    source_id, created = await _create_or_get_crawl_source(
+        url,
+        depth,
+        data,
+        organization_id=organization_id,
+    )
+    max_pages = int(data.get("max_pages", 50))
+    generate_embeddings = bool(data.get("generate_embeddings", True))
+    job_id = await _enqueue_source_crawl(
+        source_id,
+        organization_id=organization_id,
+        max_pages=max_pages,
+        max_depth=max(1, min(int(depth), 5)),
+        generate_embeddings=generate_embeddings,
+        force=not created or bool(data.get("force", False)),
+    )
 
     return ManageResponse(
         success=True,
         action="crawl",
-        entity_id=created_id,
+        entity_id=source_id,
         message=f"Crawl queued for {url}",
         data={
-            "source_id": created_id,
+            "source_id": source_id,
             "url": url,
             "depth": depth,
-            "status": CrawlStatus.PENDING.value,
+            "status": "queued",
+            "job_id": job_id,
+            "created": created,
         },
     )
 
 
 async def _sync_source(
-    entity_manager: EntityManager,
     source_id: str,
+    *,
+    organization_id: str,
 ) -> ManageResponse:
-    """Re-crawl an existing source."""
-    # Validate source exists
-    try:
-        await entity_manager.get(source_id)
-    except Exception:
+    """Sync an existing source's persisted stats."""
+    if not await _crawl_source_exists(source_id, organization_id):
         return ManageResponse(
             success=False,
             action="sync",
@@ -817,42 +957,31 @@ async def _sync_source(
             message=f"Source not found: {source_id}",
         )
 
-    # Update crawl status to pending
-    updates = {
-        "crawl_status": CrawlStatus.PENDING.value,
-    }
-    await entity_manager.update(source_id, updates)
-
-    # TODO: Trigger actual re-crawl pipeline (async job)
+    job_id = await _enqueue_source_sync(source_id)
 
     return ManageResponse(
         success=True,
         action="sync",
         entity_id=source_id,
         message="Sync queued",
-        data={"status": CrawlStatus.PENDING.value},
+        data={"status": "queued", "job_id": job_id},
     )
 
 
 async def _refresh_all_sources(
-    entity_manager: EntityManager,
+    organization_id: str,
 ) -> ManageResponse:
     """Sync all sources."""
-    sources = await entity_manager.list_by_type(EntityType.SOURCE, limit=100)
+    source_ids = await _list_crawl_source_ids(organization_id)
 
-    queued = 0
-    for source in sources:
-        updates = {"crawl_status": CrawlStatus.PENDING.value}
-        await entity_manager.update(source.id, updates)
-        queued += 1
-
-    # TODO: Trigger actual refresh pipeline (async job)
+    for source_id in source_ids:
+        await _enqueue_source_sync(source_id)
 
     return ManageResponse(
         success=True,
         action="refresh",
-        message=f"Refresh queued for {queued} sources",
-        data={"sources_queued": queued},
+        message=f"Refresh queued for {len(source_ids)} sources",
+        data={"sources_queued": len(source_ids)},
     )
 
 
