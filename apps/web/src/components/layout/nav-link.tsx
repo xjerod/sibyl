@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
 import type { IconComponent } from '@/components/ui/icons';
+import { withProjectsContext } from '@/lib/constants';
 
 interface NavLinkProps {
   href: string;
@@ -20,10 +21,7 @@ export function NavLink({ href, icon: Icon, children, onClick, badge }: NavLinkP
 
   // Preserve project context across navigation
   const hrefWithContext = useMemo(() => {
-    const projects = searchParams.get('projects');
-    if (!projects) return href;
-    const separator = href.includes('?') ? '&' : '?';
-    return `${href}${separator}projects=${projects}`;
+    return withProjectsContext(href, searchParams.get('projects'));
   }, [href, searchParams]);
 
   return (

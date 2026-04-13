@@ -1,30 +1,10 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  BookOpen,
-  Boxes,
-  FolderKanban,
-  KanbanBoard,
-  LayoutDashboard,
-  List,
-  ListTodo,
-  Network,
-  Search,
-} from '@/components/ui/icons';
-
-// Navigation items with Iconoir icons
-const COMMAND_NAV: Array<{ name: string; href: string; icon: ReactNode }> = [
-  { name: 'Dashboard', href: '/', icon: <LayoutDashboard width={18} height={18} /> },
-  { name: 'Projects', href: '/projects', icon: <FolderKanban width={18} height={18} /> },
-  { name: 'Tasks', href: '/tasks', icon: <ListTodo width={18} height={18} /> },
-  { name: 'Sources', href: '/sources', icon: <BookOpen width={18} height={18} /> },
-  { name: 'Graph', href: '/graph', icon: <Network width={18} height={18} /> },
-  { name: 'Entities', href: '/entities', icon: <Boxes width={18} height={18} /> },
-  { name: 'Search', href: '/search', icon: <Search width={18} height={18} /> },
-];
+import { KanbanBoard, List, Search } from '@/components/ui/icons';
+import { NAVIGATION, withProjectsContext } from '@/lib/constants';
 
 interface CommandItem {
   id: string;
@@ -50,6 +30,7 @@ export function CommandPalette({
   onCreateProject,
 }: CommandPaletteProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -89,14 +70,14 @@ export function CommandPalette({
         ]
       : []),
     // Navigation
-    ...COMMAND_NAV.map(item => ({
+    ...NAVIGATION.map(item => ({
       id: `nav-${item.href}`,
       label: item.name,
       description: `Go to ${item.name}`,
-      icon: item.icon,
+      icon: <item.icon width={18} height={18} />,
       action: () => {
         onClose();
-        router.push(item.href);
+        router.push(withProjectsContext(item.href, searchParams.get('projects')));
       },
       category: 'navigation' as const,
     })),
@@ -109,7 +90,7 @@ export function CommandPalette({
       shortcut: '/',
       action: () => {
         onClose();
-        router.push('/search');
+        router.push(withProjectsContext('/search', searchParams.get('projects')));
         // Focus search input after navigation
         setTimeout(() => {
           const input = document.getElementById('global-search');

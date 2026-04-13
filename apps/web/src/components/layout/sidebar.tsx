@@ -3,35 +3,11 @@
 import { AnimatePresence, motion } from 'motion/react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
-import {
-  BookOpen,
-  Boxes,
-  FolderKanban,
-  type IconComponent,
-  Layers,
-  LayoutDashboard,
-  ListTodo,
-  Network,
-  Search,
-  X,
-} from '@/components/ui/icons';
-import { APP_CONFIG } from '@/lib/constants';
+import { X } from '@/components/ui/icons';
+import { APP_CONFIG, NAVIGATION } from '@/lib/constants';
 import { useMobileNav } from './mobile-nav-context';
 import { NavLink } from './nav-link';
-
-// Navigation with Iconoir icons
-const NAVIGATION: Array<{ name: string; href: string; icon: IconComponent }> = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Projects', href: '/projects', icon: FolderKanban },
-  { name: 'Epics', href: '/epics', icon: Layers },
-  { name: 'Tasks', href: '/tasks', icon: ListTodo },
-  { name: 'Sources', href: '/sources', icon: BookOpen },
-  { name: 'Graph', href: '/graph', icon: Network },
-  { name: 'Entities', href: '/entities', icon: Boxes },
-  { name: 'Search', href: '/search', icon: Search },
-];
 
 interface SidebarContentProps {
   onNavClick?: () => void;
@@ -84,7 +60,6 @@ function SidebarContent({ onNavClick }: SidebarContentProps) {
 
 export function Sidebar() {
   const { isOpen, close } = useMobileNav();
-  const _pathname = usePathname();
 
   // Close mobile nav on route change
   useEffect(() => {

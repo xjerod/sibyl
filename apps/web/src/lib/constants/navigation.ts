@@ -1,22 +1,37 @@
-// =============================================================================
-// Navigation & Quick Actions
-// =============================================================================
+import {
+  BookOpen,
+  Boxes,
+  FolderKanban,
+  type IconComponent,
+  Layers,
+  LayoutDashboard,
+  ListTodo,
+  Network,
+  Search,
+} from '@/components/ui/icons';
 
-// Navigation items for sidebar (legacy - use COMMAND_NAV in command-palette.tsx)
-export const NAVIGATION = [
-  { name: 'Dashboard', href: '/', icon: '◆' },
-  { name: 'Projects', href: '/projects', icon: '◇' },
-  { name: 'Tasks', href: '/tasks', icon: '☰' },
-  { name: 'Sources', href: '/sources', icon: '▤' },
-  { name: 'Graph', href: '/graph', icon: '⬡' },
-  { name: 'Entities', href: '/entities', icon: '▣' },
-  { name: 'Search', href: '/search', icon: '⌕' },
-] as const;
+export interface NavigationItem {
+  name: string;
+  href: string;
+  icon: IconComponent;
+}
 
-// Quick actions for dashboard
-export const QUICK_ACTIONS = [
-  { label: 'Explore Graph', href: '/graph', icon: '⬡', color: 'purple' as const },
-  { label: 'Browse Entities', href: '/entities', icon: '▣', color: 'cyan' as const },
-  { label: 'Search Knowledge', href: '/search', icon: '⌕', color: 'coral' as const },
-  { label: 'Add Source', href: '/sources', icon: '▤', color: 'yellow' as const },
-] as const;
+export const NAVIGATION: NavigationItem[] = [
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Projects', href: '/projects', icon: FolderKanban },
+  { name: 'Epics', href: '/epics', icon: Layers },
+  { name: 'Tasks', href: '/tasks', icon: ListTodo },
+  { name: 'Sources', href: '/sources', icon: BookOpen },
+  { name: 'Graph', href: '/graph', icon: Network },
+  { name: 'Entities', href: '/entities', icon: Boxes },
+  { name: 'Search', href: '/search', icon: Search },
+];
+
+export function withProjectsContext(href: string, projects: string | null): string {
+  if (!projects) {
+    return href;
+  }
+
+  const separator = href.includes('?') ? '&' : '?';
+  return `${href}${separator}projects=${projects}`;
+}
