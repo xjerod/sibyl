@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import time
 from collections import defaultdict
@@ -67,6 +68,67 @@ def recall_at_k(rankings: list[int], correct_ids: set[str], corpus_ids: list[str
 
 _bench_client = chromadb.EphemeralClient()
 
+_HYBRID_STOP_WORDS = {
+    "what",
+    "when",
+    "where",
+    "who",
+    "how",
+    "which",
+    "did",
+    "do",
+    "was",
+    "were",
+    "have",
+    "has",
+    "had",
+    "is",
+    "are",
+    "am",
+    "the",
+    "a",
+    "an",
+    "my",
+    "me",
+    "i",
+    "you",
+    "your",
+    "their",
+    "it",
+    "its",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "and",
+    "or",
+    "but",
+    "ago",
+    "last",
+    "that",
+    "this",
+    "there",
+    "about",
+    "get",
+    "got",
+    "give",
+    "gave",
+    "buy",
+    "bought",
+    "made",
+    "make",
+    "been",
+}
+
+
+def _extract_keywords(text: str) -> list[str]:
+    return [word for word in re.findall(r"\b[a-z]{3,}\b", text.lower()) if word not in _HYBRID_STOP_WORDS]
+
 
 def _fresh_collection(name: str = "sibyl_bench") -> chromadb.Collection:
     try:
@@ -107,8 +169,6 @@ def retrieve_raw(entry: dict, n_results: int = 50) -> tuple[list[int], list[str]
 
 def retrieve_hybrid(entry: dict, n_results: int = 50) -> tuple[list[int], list[str]]:
     """Sibyl-style hybrid: embedding + keyword overlap + temporal proximity."""
-    import re
-    from datetime import datetime, timedelta
 
     corpus, corpus_ids = _build_corpus(entry)
     timestamps = entry.get("haystack_dates", [])
@@ -135,13 +195,7 @@ def retrieve_hybrid(entry: dict, n_results: int = 50) -> tuple[list[int], list[s
     )
 
     # Keyword overlap scoring
-    stop_words = {
-        "what", "when", "where", "who", "how", "which", "did", "do", "was", "were",
-        "have", "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you",
-        "your", "their", "it", "its", "in", "on", "at", "to", "for", "of", "with",
-        "by", "from", "ago", "last", "that", "this", "there", "about",
-    }
-    query_kws = [w for w in re.findall(r"\b[a-z]{3,}\b", query.lower()) if w not in stop_words]
+    query_kws = _extract_keywords(query)
 
     # Temporal parsing
     question_date = _parse_date(entry.get("question_date", ""))
@@ -180,16 +234,7 @@ def retrieve_hybrid(entry: dict, n_results: int = 50) -> tuple[list[int], list[s
                 elif days_diff <= 14:
                     temporal_boost = 0.1
 
-        # Name boost (proper nouns in query)
-        name_boost = 0.0
-        names = re.findall(r"\b[A-Z][a-z]{2,}\b", query)
-        if names:
-            doc_text = doc
-            name_hits = sum(1 for n in names if n in doc_text)
-            if name_hits:
-                name_boost = 0.4 * (name_hits / len(names))
-
-        fused = base_score * (1 + kw_boost) * (1 + temporal_boost) * (1 + name_boost)
+        fused = base_score * (1 + kw_boost) * (1 + temporal_boost)
         scored.append((idx, fused))
 
     scored.sort(key=lambda x: x[1], reverse=True)
@@ -236,21 +281,24 @@ def _parse_date(date_str: str):
 
 def _parse_temporal_reference(query: str, question_date):
     """Extract temporal target from query like 'a week ago', '10 days ago'."""
-    import re
     from datetime import timedelta
 
     if not question_date:
         return None
 
     patterns = [
-        (r"(\d+)\s+days?\s+ago", lambda m: timedelta(days=int(m.group(1)))),
-        (r"(\d+)\s+weeks?\s+ago", lambda m: timedelta(weeks=int(m.group(1)))),
-        (r"(\d+)\s+months?\s+ago", lambda m: timedelta(days=int(m.group(1)) * 30)),
-        (r"a\s+week\s+ago", lambda m: timedelta(weeks=1)),
-        (r"a\s+month\s+ago", lambda m: timedelta(days=30)),
-        (r"last\s+week", lambda m: timedelta(weeks=1)),
-        (r"last\s+month", lambda m: timedelta(days=30)),
-        (r"recently", lambda m: timedelta(days=7)),
+        (r"\b(\d+)\s+days?\s+ago\b", lambda m: timedelta(days=int(m.group(1)))),
+        (r"\ba\s+couple\s+(?:of\s+)?days?\s+ago\b", lambda m: timedelta(days=2)),
+        (r"\byesterday\b", lambda m: timedelta(days=1)),
+        (r"\b(\d+)\s+weeks?\s+ago\b", lambda m: timedelta(weeks=int(m.group(1)))),
+        (r"\b(\d+)\s+months?\s+ago\b", lambda m: timedelta(days=int(m.group(1)) * 30)),
+        (r"\ba\s+week\s+ago\b", lambda m: timedelta(weeks=1)),
+        (r"\ba\s+month\s+ago\b", lambda m: timedelta(days=30)),
+        (r"\blast\s+week\b", lambda m: timedelta(weeks=1)),
+        (r"\blast\s+month\b", lambda m: timedelta(days=30)),
+        (r"\blast\s+year\b", lambda m: timedelta(days=365)),
+        (r"\ba\s+year\s+ago\b", lambda m: timedelta(days=365)),
+        (r"\brecently\b", lambda m: timedelta(days=7)),
     ]
 
     for pattern, delta_fn in patterns:
