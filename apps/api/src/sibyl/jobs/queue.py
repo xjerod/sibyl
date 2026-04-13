@@ -4,6 +4,7 @@ This module provides the client-side interface for enqueuing jobs
 and checking their status. Jobs are processed by the worker.
 """
 
+import asyncio
 import contextlib
 from dataclasses import dataclass
 from datetime import datetime
@@ -441,26 +442,36 @@ async def list_jobs(
     """
     pool = await get_pool()
 
-    # Get job IDs from the queue
-    # Note: arq doesn't have a built-in list function, so we track manually
-    # This is a simplified implementation
-    job_ids = await pool.keys("arq:job:*")
+    job_ids = [
+        key.decode().removeprefix("arq:job:")
+        if isinstance(key, bytes)
+        else key.removeprefix("arq:job:")
+        async for key in pool.scan_iter(match="arq:job:*")
+    ]
 
-    jobs = []
-    for key in job_ids[:limit]:
-        job_id = (
-            key.decode().replace("arq:job:", "")
-            if isinstance(key, bytes)
-            else key.replace("arq:job:", "")
-        )
-        try:
-            info = await get_job_status(job_id)
-            if function is None or info.function == function:
-                jobs.append(info)
-        except Exception:
-            continue
+    if not job_ids:
+        return []
 
-    return jobs
+    semaphore = asyncio.Semaphore(25)
+
+    async def load_job(job_id: str) -> JobInfo | None:
+        async with semaphore:
+            try:
+                return await get_job_status(job_id)
+            except Exception:
+                return None
+
+    jobs = [
+        info
+        for info in await asyncio.gather(*(load_job(job_id) for job_id in job_ids))
+        if info is not None and (function is None or info.function == function)
+    ]
+    jobs.sort(
+        key=lambda info: info.enqueue_time.timestamp() if info.enqueue_time is not None else 0,
+        reverse=True,
+    )
+
+    return jobs[:limit]
 
 
 async def cancel_job(job_id: str) -> bool:
