@@ -144,12 +144,10 @@ jobs:
         run: moon run api:db-migrate
 
       # =========================================================================
-      # Unit Tests
+      # Package Test Suites
       # =========================================================================
-      - name: Run unit tests
-        run: |
-          cd apps/api
-          uv run pytest --ignore=tests/e2e --cov=src --cov-report=xml --cov-report=term -v
+      - name: Run package test suites
+        run: moon run api:test-cov cli:test-cov core:test-cov web:test-cov
 
       # =========================================================================
       # E2E Tests
@@ -214,7 +212,7 @@ jobs:
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
-          files: apps/api/coverage.xml
+          files: apps/api/coverage.xml,apps/cli/coverage.xml,packages/python/sibyl-core/coverage.xml
           fail_ci_if_error: false
 
       - name: Upload build artifacts
