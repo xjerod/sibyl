@@ -185,6 +185,8 @@ async def cancel_job(
             "cancelled": False,
             "message": "Job not found or already running",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         log.warning("Failed to cancel job", job_id=job_id, error=str(e))
         raise HTTPException(
