@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/icons';
 import type { StatsResponse } from '@/lib/api';
 import { ENTITY_COLORS, formatUptime } from '@/lib/constants';
-import { useHealth, useOrgMetrics, useProjects, useStats, useTasks } from '@/lib/hooks';
+import { useHealth, useOrgMetrics, useProjects, useStats } from '@/lib/hooks';
 
 interface DashboardContentProps {
   initialStats: StatsResponse;
@@ -111,7 +111,6 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
   const [mounted, setMounted] = useState(false);
   const { data: health, isLoading: healthLoading } = useHealth();
   const { data: stats } = useStats(initialStats);
-  const { data: tasksData } = useTasks();
   const { data: projectsData } = useProjects();
   const { data: orgMetrics } = useOrgMetrics();
 
@@ -122,14 +121,16 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
   // Calculate task stats in single pass
   const taskStats = useMemo(() => {
-    const tasks = tasksData?.entities ?? [];
-    const stats = { total: tasks.length, doing: 0, todo: 0, review: 0, done: 0, blocked: 0 };
-    for (const task of tasks) {
-      const status = task.metadata.status as keyof typeof stats;
-      if (status in stats) stats[status]++;
-    }
-    return stats;
-  }, [tasksData]);
+    const status = orgMetrics?.status_distribution;
+    return {
+      total: orgMetrics?.total_tasks ?? 0,
+      doing: status?.doing ?? 0,
+      todo: status?.todo ?? 0,
+      review: status?.review ?? 0,
+      done: status?.done ?? 0,
+      blocked: status?.blocked ?? 0,
+    };
+  }, [orgMetrics]);
 
   const projectCount = projectsData?.entities?.length ?? 0;
 
