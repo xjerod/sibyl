@@ -20,12 +20,12 @@ sibyl session bundle --json
 
 ## Options
 
-| Option           | Short | Default | Description                                 |
-| ---------------- | ----- | ------- | ------------------------------------------- |
-| `--task-limit`   | —     | `5`     | Maximum active tasks to include             |
-| `--memory-limit` | —     | `3`     | Maximum relevant memories to include        |
-| `--all`          | `-a`  | false   | Search across all projects                  |
-| `--json`         | `-j`  | false   | Output machine-readable bundle JSON         |
+| Option           | Short | Default | Description                          |
+| ---------------- | ----- | ------- | ------------------------------------ |
+| `--task-limit`   | —     | `5`     | Maximum active tasks to include      |
+| `--memory-limit` | —     | `3`     | Maximum relevant memories to include |
+| `--all`          | `-a`  | false   | Search across all projects           |
+| `--json`         | `-j`  | false   | Output machine-readable bundle JSON  |
 
 ## Examples
 

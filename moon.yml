@@ -146,6 +146,55 @@ tasks:
       - infra:lint
 
   # ==========================================================================
+  # Quality (all packages)
+  # ==========================================================================
+  lint:
+    deps:
+      - core:lint
+      - api:lint
+      - cli:lint
+      - web:lint
+      - hooks:lint
+      - docs:lint
+      - skills:lint
+      - infra:lint
+
+  fix:
+    deps:
+      - core:fix
+      - api:fix
+      - cli:fix
+      - web:fix
+      - hooks:fix
+    preset: server
+
+  typecheck:
+    deps:
+      - core:typecheck
+      - api:typecheck
+      - cli:typecheck
+      - web:typecheck
+      - hooks:typecheck
+
+  check:
+    deps:
+      - core:check
+      - api:check
+      - cli:check
+      - web:check
+      - hooks:check
+      - docs:lint
+      - skills:lint
+      - infra:lint
+
+  test:
+    deps:
+      - core:test
+      - api:test
+      - cli:test
+      - web:test
+
+  # ==========================================================================
   # Coverage
   # ==========================================================================
   coverage:
