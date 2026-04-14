@@ -748,7 +748,7 @@ async def _handle_source_action(
         return await _link_graph(entity_id, data, organization_id)
 
     if action == "link_graph_status":
-        return await _link_graph_status()
+        return await _link_graph_status(organization_id)
 
     return ManageResponse(success=False, action=action, message="Unknown source action")
 
@@ -992,30 +992,31 @@ async def _link_graph(
     organization_id: str,
 ) -> ManageResponse:
     """Link document chunks to knowledge graph entities via LLM extraction."""
+    from uuid import UUID
+
     from sibyl.crawler.graph_integration import GraphIntegrationService
-    from sibyl.db import CrawledDocument, DocumentChunk, get_session
+    from sibyl.db import CrawledDocument, CrawlSource, DocumentChunk, get_session
     from sqlalchemy import select
     from sqlmodel import col
 
     from sibyl_core.graph.client import get_graph_client
 
     max_chunks = data.get("max_chunks", 1000)
+    create_new_entities = bool(data.get("create_new_entities", False))
+    org_uuid = UUID(organization_id)
 
     # Build query for unlinked chunks
-    query = select(DocumentChunk).where(col(DocumentChunk.has_entities) == False)  # noqa: E712
+    query = (
+        select(DocumentChunk)
+        .join(CrawledDocument, col(CrawledDocument.id) == col(DocumentChunk.document_id))
+        .join(CrawlSource, col(CrawlSource.id) == col(CrawledDocument.source_id))
+        .where(col(CrawlSource.organization_id) == org_uuid)
+        .where(col(DocumentChunk.has_entities) == False)  # noqa: E712
+    )
 
     if source_id:
         # Filter to specific source via document join
-        from uuid import UUID
-
-        from sibyl.db import CrawlSource
-
-        # SQLAlchemy comparisons produce ColumnElement but pyright sees them as bool
-        query = (
-            query.join(CrawledDocument, CrawledDocument.id == DocumentChunk.document_id)  # type: ignore[arg-type]
-            .join(CrawlSource, CrawlSource.id == CrawledDocument.source_id)  # type: ignore[arg-type]
-            .where(CrawlSource.id == UUID(source_id))  # type: ignore[arg-type]
-        )
+        query = query.where(CrawlSource.id == UUID(source_id))  # type: ignore[arg-type]
 
     query = query.limit(max_chunks)
 
@@ -1029,61 +1030,99 @@ async def _link_graph(
             action="link_graph",
             entity_id=source_id,
             message="No unlinked chunks to process",
-            data={"chunks_processed": 0, "entities_linked": 0},
+            data={
+                "chunks_processed": 0,
+                "entities_extracted": 0,
+                "entities_linked": 0,
+                "new_entities_created": 0,
+                "errors": 0,
+                "create_new_entities": create_new_entities,
+            },
         )
 
     # Process chunks
     client = await get_graph_client()
-    integration = GraphIntegrationService(client, organization_id)
+    integration = GraphIntegrationService(
+        client,
+        organization_id,
+        create_new_entities=create_new_entities,
+    )
 
     source_name = source_id or "all_sources"
     stats = await integration.process_chunks(list(chunks), source_name=source_name)
+
+    message = f"Linked {stats.entities_linked} entities from {stats.chunks_processed} chunks"
+    if stats.new_entities_created > 0:
+        message += f" and created {stats.new_entities_created} new graph entities"
 
     return ManageResponse(
         success=True,
         action="link_graph",
         entity_id=source_id,
-        message=f"Linked {stats.entities_linked} entities from {stats.chunks_processed} chunks",
+        message=message,
         data={
             "chunks_processed": stats.chunks_processed,
             "entities_extracted": stats.entities_extracted,
             "entities_linked": stats.entities_linked,
             "new_entities_created": stats.new_entities_created,
             "errors": stats.errors,
+            "create_new_entities": create_new_entities,
         },
     )
 
 
-async def _link_graph_status() -> ManageResponse:
+async def _link_graph_status(organization_id: str) -> ManageResponse:
     """Get status of graph linking (pending chunks per source)."""
+    from uuid import UUID
+
     from sibyl.db import CrawledDocument, CrawlSource, DocumentChunk, get_session
     from sqlalchemy import func, select
     from sqlmodel import col
 
+    org_uuid = UUID(organization_id)
+
     async with get_session() as session:
         # Total chunks (pyright doesn't understand SQLAlchemy func.count)
-        total_result = await session.execute(select(func.count(DocumentChunk.id)))
+        total_result = await session.execute(
+            select(func.count(DocumentChunk.id))
+            .join(CrawledDocument, col(CrawledDocument.id) == col(DocumentChunk.document_id))
+            .join(CrawlSource, col(CrawlSource.id) == col(CrawledDocument.source_id))
+            .where(col(CrawlSource.organization_id) == org_uuid)
+        )
         total_chunks = total_result.scalar() or 0
 
         # Chunks with entities
         linked_result = await session.execute(
-            select(func.count(DocumentChunk.id)).where(col(DocumentChunk.has_entities) == True)  # noqa: E712
+            select(func.count(DocumentChunk.id))
+            .join(CrawledDocument, col(CrawledDocument.id) == col(DocumentChunk.document_id))
+            .join(CrawlSource, col(CrawlSource.id) == col(CrawledDocument.source_id))
+            .where(
+                col(CrawlSource.organization_id) == org_uuid,
+                col(DocumentChunk.has_entities) == True,  # noqa: E712
+            )
         )
         chunks_with_entities = linked_result.scalar() or 0
 
         # Pending per source (complex select with joins)
         pending_query = (
             select(  # type: ignore[call-overload]
+                col(CrawlSource.id).label("source_id"),
                 CrawlSource.name,
                 func.count(DocumentChunk.id).label("pending"),
             )
-            .join(CrawledDocument, CrawledDocument.source_id == CrawlSource.id)
-            .join(DocumentChunk, DocumentChunk.document_id == CrawledDocument.id)
-            .where(col(DocumentChunk.has_entities) == False)  # noqa: E712
-            .group_by(CrawlSource.name)
+            .join(CrawledDocument, col(CrawledDocument.source_id) == col(CrawlSource.id))
+            .join(DocumentChunk, col(DocumentChunk.document_id) == col(CrawledDocument.id))
+            .where(
+                col(CrawlSource.organization_id) == org_uuid,
+                col(DocumentChunk.has_entities) == False,  # noqa: E712
+            )
+            .group_by(CrawlSource.id, CrawlSource.name)
         )
         pending_result = await session.execute(pending_query)
-        sources = [{"name": row.name, "pending": row.pending} for row in pending_result.all()]
+        sources = [
+            {"source_id": str(row.source_id), "name": row.name, "pending": row.pending}
+            for row in pending_result.all()
+        ]
 
     return ManageResponse(
         success=True,

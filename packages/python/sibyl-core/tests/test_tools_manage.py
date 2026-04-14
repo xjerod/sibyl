@@ -9,7 +9,9 @@ Covers the manage() function and its action handlers:
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1032,6 +1034,154 @@ class TestSourceActions:
         )
         assert response.success is False
         assert "entity_id" in response.message or "source ID" in response.message
+
+    @pytest.mark.asyncio
+    async def test_link_graph_scopes_chunks_by_org_and_forwards_create_new(self) -> None:
+        """link_graph should only inspect org-owned chunks and pass create-new through."""
+        org_id = "00000000-0000-0000-0000-000000000111"
+        source_id = "00000000-0000-0000-0000-000000000222"
+        chunk = MagicMock()
+        graph_client = MagicMock()
+
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [chunk]
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result)
+
+        @asynccontextmanager
+        async def mock_session():
+            yield session
+
+        stats = MagicMock(
+            chunks_processed=1,
+            entities_extracted=2,
+            entities_linked=2,
+            new_entities_created=1,
+            errors=0,
+        )
+        integration = MagicMock()
+        integration.process_chunks = AsyncMock(return_value=stats)
+
+        with (
+            patch("sibyl.db.get_session", mock_session),
+            patch(
+                "sibyl_core.graph.client.get_graph_client",
+                AsyncMock(return_value=graph_client),
+            ),
+            patch(
+                "sibyl.crawler.graph_integration.GraphIntegrationService",
+                return_value=integration,
+            ) as integration_cls,
+        ):
+            response = await manage(
+                action="link_graph",
+                entity_id=source_id,
+                data={"create_new_entities": True},
+                organization_id=org_id,
+            )
+
+        query_sql = str(session.execute.await_args.args[0])
+        assert response.success is True
+        assert response.data["create_new_entities"] is True
+        assert response.data["new_entities_created"] == 1
+        assert response.data["entities_linked"] == 2
+        assert "organization_id" in query_sql
+        integration_cls.assert_called_once_with(
+            graph_client,
+            org_id,
+            create_new_entities=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_link_graph_empty_result_preserves_response_contract(self) -> None:
+        """link_graph should include the full response shape when nothing needs linking."""
+        org_id = "00000000-0000-0000-0000-000000000111"
+        source_id = "00000000-0000-0000-0000-000000000222"
+
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=result)
+
+        @asynccontextmanager
+        async def mock_session():
+            yield session
+
+        with patch("sibyl.db.get_session", mock_session):
+            response = await manage(
+                action="link_graph",
+                entity_id=source_id,
+                data={"create_new_entities": True},
+                organization_id=org_id,
+            )
+
+        assert response.success is True
+        assert response.message == "No unlinked chunks to process"
+        assert response.data == {
+            "chunks_processed": 0,
+            "entities_extracted": 0,
+            "entities_linked": 0,
+            "new_entities_created": 0,
+            "errors": 0,
+            "create_new_entities": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_link_graph_status_is_org_scoped_and_keeps_sources_distinct(self) -> None:
+        """link_graph_status should scope counts by org and avoid merging same-name sources."""
+        org_id = "00000000-0000-0000-0000-000000000111"
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                MagicMock(scalar=MagicMock(return_value=12)),
+                MagicMock(scalar=MagicMock(return_value=5)),
+                MagicMock(
+                    all=MagicMock(
+                        return_value=[
+                            SimpleNamespace(
+                                source_id="00000000-0000-0000-0000-000000000aaa",
+                                name="Docs",
+                                pending=4,
+                            ),
+                            SimpleNamespace(
+                                source_id="00000000-0000-0000-0000-000000000bbb",
+                                name="Docs",
+                                pending=3,
+                            ),
+                        ]
+                    )
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def mock_session():
+            yield session
+
+        with patch("sibyl.db.get_session", mock_session):
+            response = await manage(
+                action="link_graph_status",
+                organization_id=org_id,
+            )
+
+        rendered_queries = [str(call.args[0]) for call in session.execute.await_args_list]
+        assert response.success is True
+        assert response.data["total_chunks"] == 12
+        assert response.data["chunks_with_entities"] == 5
+        assert response.data["chunks_pending"] == 7
+        assert response.data["sources"] == [
+            {
+                "source_id": "00000000-0000-0000-0000-000000000aaa",
+                "name": "Docs",
+                "pending": 4,
+            },
+            {
+                "source_id": "00000000-0000-0000-0000-000000000bbb",
+                "name": "Docs",
+                "pending": 3,
+            },
+        ]
+        assert all("organization_id" in query for query in rendered_queries)
 
 
 # =============================================================================
