@@ -363,11 +363,13 @@ def main():
 
         if not search_query:
             sys.exit(0)
+        assert search_query is not None
 
         # Search Sibyl (target: <150ms)
         output = run_sibyl("search", search_query, "--limit", "3", "-j", timeout=3)
         if not output:
             sys.exit(0)
+        assert output is not None
 
         # Parse results
         try:
@@ -391,7 +393,7 @@ def main():
             debug_info = f"\n_Query: `{search_query}` ({elapsed:.2f}s)_"
 
         # Output as additional context
-        # Include a reminder about the /sibyl skill for agents that haven't loaded it
+        # Include a reminder about the /sibyl skill for assistants that haven't loaded it
         sibyl_hint = "Sibyl is your knowledge graph. Run `/sibyl` for full CLI instructions."
         response = {
             "hookSpecificOutput": {
