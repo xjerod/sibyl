@@ -212,7 +212,7 @@ jobs:
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
-          files: apps/api/coverage.xml,apps/cli/coverage.xml,packages/python/sibyl-core/coverage.xml
+          files: apps/api/coverage.xml,apps/cli/coverage.xml,packages/python/sibyl-core/coverage.xml,apps/web/coverage.xml
           fail_ci_if_error: false
 
       - name: Upload build artifacts
