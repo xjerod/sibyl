@@ -42,18 +42,21 @@ or any web content as easily as they search your own patterns.
 
 ```bash
 # Add a documentation source
-sibyl source add "https://react.dev/reference/react" --name "React Reference"
+sibyl crawl add "https://react.dev/reference/react" --name "React Reference"
 
 # Add with crawl depth
-sibyl source add "https://docs.aws.amazon.com/lambda/" \
+sibyl crawl add "https://docs.aws.amazon.com/lambda/" \
   --name "AWS Lambda Docs" \
   --depth 2
 
-# Add with specific patterns to follow
-sibyl source add "https://nextjs.org/docs" \
+# Add with specific include patterns
+sibyl crawl add "https://nextjs.org/docs" \
   --name "Next.js Docs" \
   --include "docs/**"
 ```
+
+`--include` is the preferred spelling for crawl filters. `--pattern` still works for backward
+compatibility.
 
 ### Via Web UI
 
@@ -278,10 +281,10 @@ sibyl source sync source_abc123
 
 ```bash
 # Good
-sibyl source add "https://react.dev/reference" --name "React 19 Reference"
+sibyl crawl add "https://react.dev/reference" --name "React 19 Reference"
 
 # Less good
-sibyl source add "https://react.dev/reference" --name "docs"
+sibyl crawl add "https://react.dev/reference" --name "docs"
 ```
 
 ### Monitor Crawl Health

@@ -145,3 +145,67 @@ class TestCrawlCliQueuedStatus:
             max_depth=3,
             generate_embeddings=True,
         )
+
+
+class TestCrawlCliAddFlags:
+    """Crawler add CLI should accept both include flag spellings."""
+
+    @patch("sibyl_cli.crawl.get_client")
+    def test_add_accepts_include_alias(self, mock_get_client: MagicMock) -> None:
+        """crawl add should forward --include to include_patterns."""
+        mock_client = MagicMock()
+        mock_client.create_crawl_source = AsyncMock(return_value={"id": "src_123"})
+        mock_get_client.return_value = mock_client
+
+        runner = CliRunner()
+        result = runner.invoke(
+            crawl.app,
+            [
+                "add",
+                "https://docs.example.com",
+                "--name",
+                "Example Docs",
+                "--include",
+                "docs/**",
+                "--include",
+                "guides/**",
+            ],
+        )
+
+        assert result.exit_code == 0
+        mock_client.create_crawl_source.assert_called_once_with(
+            name="Example Docs",
+            url="https://docs.example.com",
+            source_type="website",
+            crawl_depth=2,
+            include_patterns=["docs/**", "guides/**"],
+        )
+
+    @patch("sibyl_cli.crawl.get_client")
+    def test_add_still_accepts_pattern_flag(self, mock_get_client: MagicMock) -> None:
+        """crawl add should keep the legacy --pattern spelling working."""
+        mock_client = MagicMock()
+        mock_client.create_crawl_source = AsyncMock(return_value={"id": "src_123"})
+        mock_get_client.return_value = mock_client
+
+        runner = CliRunner()
+        result = runner.invoke(
+            crawl.app,
+            [
+                "add",
+                "https://docs.example.com",
+                "--name",
+                "Example Docs",
+                "--pattern",
+                "docs/**",
+            ],
+        )
+
+        assert result.exit_code == 0
+        mock_client.create_crawl_source.assert_called_once_with(
+            name="Example Docs",
+            url="https://docs.example.com",
+            source_type="website",
+            crawl_depth=2,
+            include_patterns=["docs/**"],
+        )

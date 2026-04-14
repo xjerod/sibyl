@@ -114,7 +114,13 @@ def add_source(
     ] = "website",
     depth: Annotated[int, typer.Option("--depth", "-d", help="Crawl depth")] = 2,
     pattern: Annotated[
-        list[str] | None, typer.Option("--pattern", "-p", help="URL patterns to include")
+        list[str] | None,
+        typer.Option(
+            "--pattern",
+            "--include",
+            "-p",
+            help="URL patterns to include",
+        ),
     ] = None,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")

@@ -38,6 +38,7 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 | `epic`     | Epic management (list, start, complete, roadmap)         |
 | `entity`   | Entity CRUD                                              |
 | `explore`  | Graph navigation (related, traverse, dependencies, path) |
+| `crawl`    | Documentation crawling and ingestion                     |
 | `source`   | Documentation sources (list, create, crawl)              |
 | `document` | View crawled documents                                   |
 | `auth`     | Login, logout, API keys                                  |
@@ -53,6 +54,16 @@ sibyl task list              # Table output (default)
 sibyl task list --json       # JSON for scripts
 sibyl task list --csv        # Spreadsheets
 ```
+
+## Source Ingestion
+
+```bash
+sibyl crawl add "https://nextjs.org/docs" --include "docs/**"
+sibyl crawl ingest <source_id>
+```
+
+`--include` is the preferred spelling for crawl filters. `--pattern` still works for backward
+compatibility.
 
 ## Context System
 
