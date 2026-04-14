@@ -294,10 +294,6 @@ sibyl
     set               Set config value
     get               Get config value
 
-  source              Knowledge sources
-    list              List sources
-    create            Create source
-
   crawl               Web crawling
     <source_id>       Trigger crawl
 ```
