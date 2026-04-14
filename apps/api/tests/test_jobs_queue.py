@@ -1,6 +1,7 @@
 import importlib.util
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -33,6 +34,15 @@ class FakePool:
         assert match == "arq:job:*"
         for key in self._keys:
             yield key
+
+
+class RecordingEnqueuePool:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, object]]] = []
+
+    async def enqueue_job(self, function: str, organization_id: str, **kwargs: object):
+        self.calls.append((function, organization_id, kwargs))
+        return SimpleNamespace(job_id=kwargs["_job_id"])
 
 
 @pytest.mark.asyncio
@@ -119,3 +129,37 @@ async def test_list_jobs_filters_limits_and_skips_failed_statuses(
 
     assert [job.job_id for job in jobs] == ["gamma"]
     assert get_job_status.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_enqueue_backup_uses_unique_backup_id_for_job_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pool = RecordingEnqueuePool()
+    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+
+    first_job_id = await queue_module.enqueue_backup("org-123", backup_id="backup_a")
+    second_job_id = await queue_module.enqueue_backup("org-123", backup_id="backup_b")
+
+    assert first_job_id == "backup:backup_a"
+    assert second_job_id == "backup:backup_b"
+    assert pool.calls[0][2]["backup_id"] == "backup_a"
+    assert pool.calls[1][2]["backup_id"] == "backup_b"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_backup_generates_backup_id_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pool = RecordingEnqueuePool()
+    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    monkeypatch.setattr(
+        queue_module,
+        "generate_backup_id",
+        lambda organization_id: f"backup_generated_for_{organization_id}",
+    )
+
+    job_id = await queue_module.enqueue_backup("org-123")
+
+    assert job_id == "backup:backup_generated_for_org-123"
+    assert pool.calls[0][2]["backup_id"] == "backup_generated_for_org-123"

@@ -17,6 +17,7 @@ from arq import ArqRedis, create_pool
 from arq.connections import RedisSettings
 from arq.jobs import Job, JobStatus as ArqJobStatus
 
+from sibyl.backup_ids import generate_backup_id
 from sibyl.config import settings
 
 log = structlog.get_logger()
@@ -516,25 +517,22 @@ async def enqueue_backup(
     Returns:
         Job ID for tracking
     """
-    from datetime import UTC, datetime
-
     pool = await get_pool()
 
-    # Use timestamp in job ID to allow multiple backups
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    job_id = f"backup:{organization_id}:{timestamp}"
+    resolved_backup_id = backup_id or generate_backup_id(organization_id)
+    job_id = f"backup:{resolved_backup_id}"
 
     job = await pool.enqueue_job(
         "run_backup",
         organization_id,
         include_postgres=include_postgres,
         include_graph=include_graph,
-        backup_id=backup_id,
+        backup_id=resolved_backup_id,
         _job_id=job_id,
     )
 
     if job is None:
-        # Shouldn't happen with timestamped IDs, but handle gracefully
+        # Shouldn't happen with unique backup IDs, but handle gracefully
         log.info("Backup job already exists", job_id=job_id)
         return job_id
 
