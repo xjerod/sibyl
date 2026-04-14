@@ -5,7 +5,10 @@ description: Installing Sibyl and its dependencies
 
 # Installation
 
-This guide covers installing Sibyl for both local development and production use.
+This guide covers the two main ways to run Sibyl:
+
+- install the published CLI and run a local instance with `sibyl local ...`
+- work on the monorepo in development mode with `moon run ...`
 
 ## Prerequisites
 
@@ -30,50 +33,52 @@ curl -fsSL https://moonrepo.dev/install/proto.sh | bash
 
 ## Quick Install
 
-### Using uv (Recommended)
+### Published CLI
 
-The fastest way to install Sibyl for development:
+The fastest way to run Sibyl locally:
+
+```bash
+# Install the published CLI
+uv tool install sibyl-dev
+
+# Start local services
+sibyl local start
+
+# Install Claude/Codex skills and hooks
+sibyl local setup
+```
+
+### Monorepo Development
 
 ```bash
 # Clone the repository
 git clone https://github.com/hyperb1iss/sibyl.git
 cd sibyl
 
-# Install Python dependencies
-uv sync
-
-# Install the CLI tool globally
-uv tool install sibyl-dev
-
-# Or install in development mode (editable)
-moon run cli:install-dev
+# Bootstrap toolchain and dependencies
+./setup-dev.sh
 ```
 
-### Install Individual Components
+Or manually:
 
 ```bash
-# Install just the CLI
-uv tool install sibyl-dev
+curl -fsSL https://moonrepo.dev/install/proto.sh | bash
+proto use
+proto install moon
+uv sync --all-groups
+pnpm install
 
-# Install sibyl-core library
-uv add sibyl-core
+# Optional: install repo-local CLI entrypoints into your user tool path
+moon run cli:install-dev
+moon run api:install-dev
 ```
 
 ## Infrastructure Setup
 
 ### Start FalkorDB
 
-Sibyl uses FalkorDB (a Redis-compatible graph database) on port 6380:
-
 ```bash
-# Using Docker
-docker run -d \
-  --name falkordb \
-  -p 6380:6379 \
-  -v falkordb-data:/data \
-  falkordb/falkordb:latest
-
-# Or using moon
+# Start repo development infrastructure
 moon run docker-up
 ```
 
@@ -82,21 +87,10 @@ Redis installation. :::
 
 ### PostgreSQL Setup
 
-PostgreSQL stores users, sessions, API keys, and crawled documents:
-
 ```bash
-# Using Docker
-docker run -d \
-  --name sibyl-postgres \
-  -e POSTGRES_USER=sibyl \
-  -e POSTGRES_PASSWORD=sibyl \
-  -e POSTGRES_DB=sibyl \
-  -p 5432:5432 \
-  postgres:16
-
-# Run migrations
-cd apps/api
-uv run alembic upgrade head
+# Migrations run automatically during moon run dev,
+# but you can also run them directly when needed
+moon run api:db-migrate
 ```
 
 ## Configuration
@@ -151,9 +145,19 @@ SIBYL_ANTHROPIC_API_KEY=...        # For LLM operations
 
 ## Running Sibyl
 
+### Local CLI Mode
+
+Run the published CLI's local stack:
+
+```bash
+sibyl local start
+sibyl local status
+sibyl local logs
+```
+
 ### Development Mode
 
-Start all services with a single command:
+Start all repo services with a single command:
 
 ```bash
 moon run dev
@@ -175,17 +179,17 @@ moon run dev-api
 moon run dev-web
 
 # Background worker
-cd apps/api && uv run arq sibyl.jobs.WorkerSettings
+moon run api:worker
 ```
 
 ### Direct Commands
 
 ```bash
 # Start the API server
-cd apps/api
-uv run sibyld serve
+moon run api:serve
 
 # Start in stdio mode (for MCP subprocess)
+cd apps/api
 uv run sibyld serve -t stdio
 ```
 
@@ -194,12 +198,12 @@ uv run sibyld serve -t stdio
 ### Check Server Health
 
 ```bash
+# If you installed the published CLI
+sibyl local status
+sibyl local setup --status
+
+# Basic health check
 curl http://localhost:3334/api/health
-```
-
-### Check CLI
-
-```bash
 sibyl health
 sibyl version
 ```

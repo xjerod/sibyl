@@ -345,5 +345,5 @@ sibyl config
 ### Setup (First Time)
 
 ```bash
-sibyl setup
+sibyl local setup
 ```
