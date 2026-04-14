@@ -20,6 +20,9 @@ from sibyl.api.schemas import (
     EntityListResponse,
     EntityResponse,
     EntityUpdate,
+    RawCaptureListResponse,
+    RawCaptureResponse,
+    RawCaptureSummary,
     RelatedEntitySummary,
 )
 from sibyl.api.websocket import broadcast_event
@@ -268,6 +271,103 @@ async def _enrich_entity_with_related(
 # =============================================================================
 # List / Read
 # =============================================================================
+
+
+@router.get("/captures", response_model=RawCaptureListResponse)
+async def list_raw_captures(
+    org: Organization = Depends(get_current_organization),
+    session: AsyncSession = Depends(get_session_dependency),
+    entity_type: str | None = Query(default=None, description="Filter by entity type"),
+    capture_surface: str | None = Query(default=None, description="Filter by capture surface"),
+    limit: int = Query(default=50, ge=1, le=200, description="Items per page"),
+    offset: int = Query(default=0, ge=0, description="Results to skip"),
+) -> RawCaptureListResponse:
+    """List archived raw quick captures for the current organization."""
+    try:
+        stmt = (
+            select(RawCapture)
+            .where(col(RawCapture.organization_id) == org.id)
+            .order_by(col(RawCapture.created_at).desc())
+            .offset(offset)
+            .limit(limit + 1)
+        )
+        if entity_type:
+            stmt = stmt.where(col(RawCapture.entity_type) == entity_type)
+        if capture_surface:
+            stmt = stmt.where(col(RawCapture.capture_surface) == capture_surface)
+
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        has_more = len(rows) > limit
+        captures = rows[:limit]
+
+        return RawCaptureListResponse(
+            captures=[
+                RawCaptureSummary(
+                    id=str(capture.id),
+                    entity_id=capture.entity_id,
+                    title=capture.title,
+                    entity_type=capture.entity_type,
+                    tags=list(capture.tags or []),
+                    metadata=dict(capture.metadata_ or {}),
+                    capture_surface=capture.capture_surface,
+                    created_by_user_id=str(capture.created_by_user_id)
+                    if capture.created_by_user_id
+                    else None,
+                    created_at=capture.created_at,
+                )
+                for capture in captures
+            ],
+            limit=limit,
+            offset=offset,
+            has_more=has_more,
+        )
+    except Exception as e:
+        log.exception("list_raw_captures_failed", error=str(e))
+        raise HTTPException(
+            status_code=500, detail="Failed to list raw captures. Please try again."
+        ) from e
+
+
+@router.get("/captures/{capture_id}", response_model=RawCaptureResponse)
+async def get_raw_capture(
+    capture_id: UUID,
+    org: Organization = Depends(get_current_organization),
+    session: AsyncSession = Depends(get_session_dependency),
+) -> RawCaptureResponse:
+    """Get a single archived raw quick capture."""
+    try:
+        result = await session.execute(
+            select(RawCapture).where(
+                col(RawCapture.id) == capture_id,
+                col(RawCapture.organization_id) == org.id,
+            )
+        )
+        capture = result.scalar_one_or_none()
+        if not capture:
+            raise HTTPException(status_code=404, detail=f"Raw capture not found: {capture_id}")
+
+        return RawCaptureResponse(
+            id=str(capture.id),
+            entity_id=capture.entity_id,
+            title=capture.title,
+            raw_content=capture.raw_content,
+            entity_type=capture.entity_type,
+            tags=list(capture.tags or []),
+            metadata=dict(capture.metadata_ or {}),
+            capture_surface=capture.capture_surface,
+            created_by_user_id=str(capture.created_by_user_id)
+            if capture.created_by_user_id
+            else None,
+            created_at=capture.created_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("get_raw_capture_failed", capture_id=str(capture_id), error=str(e))
+        raise HTTPException(
+            status_code=500, detail="Failed to get raw capture. Please try again."
+        ) from e
 
 
 @router.get("", response_model=EntityListResponse)

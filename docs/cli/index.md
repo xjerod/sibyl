@@ -41,6 +41,7 @@ sibyl search "authentication"
 | ------------------------------- | -------------------------------------------- |
 | [`sibyl search`](./search.md)   | Semantic search across the knowledge graph   |
 | [`sibyl add`](./add.md)         | Quick knowledge capture                      |
+| [`sibyl archive`](./archive.md) | Browse archived raw quick captures           |
 | [`sibyl session`](./session.md) | Package wake-up context for the next session |
 | [`sibyl task`](./task-list.md)  | Task lifecycle management                    |
 | [`sibyl project`](./project.md) | Project management                           |

@@ -13,6 +13,7 @@ from typing import Annotated
 
 import typer
 
+from sibyl_cli.archive import app as archive_app
 from sibyl_cli.auth import app as auth_app
 from sibyl_cli.client import SibylClientError, get_client
 from sibyl_cli.common import (
@@ -74,6 +75,7 @@ app = typer.Typer(
 app.add_typer(task_app, name="task")
 app.add_typer(epic_app, name="epic")
 app.add_typer(project_app, name="project")
+app.add_typer(archive_app, name="archive")
 app.add_typer(session_app, name="session")
 app.add_typer(entity_app, name="entity")
 app.add_typer(explore_app, name="explore")

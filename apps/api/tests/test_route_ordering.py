@@ -8,6 +8,7 @@ from pathlib import Path
 
 from sibyl.api.routes.backups import router as backups_router
 from sibyl.api.routes.crawler import router as crawler_router
+from sibyl.api.routes.entities import router as entities_router
 from sibyl.backup_ids import generate_backup_id
 
 
@@ -60,3 +61,9 @@ class TestRouteOrdering:
 
         assert paths.index("/sources/link-graph/status") < paths.index("/sources/{source_id}")
         assert paths.index("/sources/link-graph") < paths.index("/sources/{source_id}")
+
+    def test_entity_capture_routes_precede_dynamic_entity_id_route(self) -> None:
+        paths = [route.path for route in entities_router.routes]
+
+        assert paths.index("/entities/captures") < paths.index("/entities/{entity_id}")
+        assert paths.index("/entities/captures/{capture_id}") < paths.index("/entities/{entity_id}")

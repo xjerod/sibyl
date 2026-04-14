@@ -36,6 +36,7 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 | `add`      | Add knowledge                                            |
 | `task`     | Task lifecycle (list, start, complete, block, review)    |
 | `project`  | Project management (list, link, create)                  |
+| `archive`  | Read archived raw quick captures                         |
 | `epic`     | Epic management (list, start, complete, roadmap)         |
 | `entity`   | Entity CRUD                                              |
 | `explore`  | Graph navigation (related, traverse, dependencies, path) |

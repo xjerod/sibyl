@@ -7,6 +7,7 @@ Subcommand groups:
 - task: Task lifecycle management
 - epic: Epic/feature grouping
 - project: Project operations
+- archive: Raw capture archive browsing
 - session: Wake-up context packaging
 - entity: Generic entity CRUD
 - explore: Graph traversal and exploration

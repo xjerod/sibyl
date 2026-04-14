@@ -80,6 +80,35 @@ class EntityListResponse(BaseModel):
     has_more: bool
 
 
+class RawCaptureSummary(BaseModel):
+    """Summary view of a raw archived capture."""
+
+    id: str = Field(..., description="Raw capture ID")
+    entity_id: str | None = Field(default=None, description="Created graph entity ID")
+    title: str = Field(..., description="Captured title")
+    entity_type: str = Field(..., description="Captured entity type")
+    tags: list[str] = Field(default_factory=list, description="Captured tags")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Original request metadata")
+    capture_surface: str | None = Field(default=None, description="Where the capture originated")
+    created_by_user_id: str | None = Field(default=None, description="User who initiated the capture")
+    created_at: datetime = Field(..., description="Archive creation timestamp")
+
+
+class RawCaptureResponse(RawCaptureSummary):
+    """Detailed raw capture response."""
+
+    raw_content: str = Field(..., description="Verbatim captured content")
+
+
+class RawCaptureListResponse(BaseModel):
+    """Paginated raw capture list response."""
+
+    captures: list[RawCaptureSummary]
+    limit: int = Field(default=50, description="Results per page")
+    offset: int = Field(default=0, description="Current offset")
+    has_more: bool = Field(default=False, description="Whether more results exist")
+
+
 # =============================================================================
 # Search Schemas
 # =============================================================================

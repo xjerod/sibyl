@@ -475,6 +475,26 @@ class SibylClient:
         """Get a single entity by ID with related context."""
         return await self._request("GET", f"/entities/{entity_id}")
 
+    async def list_raw_captures(
+        self,
+        *,
+        entity_type: str | None = None,
+        capture_surface: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """List archived raw quick captures."""
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if entity_type:
+            params["entity_type"] = entity_type
+        if capture_surface:
+            params["capture_surface"] = capture_surface
+        return await self._request("GET", "/entities/captures", params=params)
+
+    async def get_raw_capture(self, capture_id: str) -> dict[str, Any]:
+        """Get a single archived raw quick capture."""
+        return await self._request("GET", f"/entities/captures/{capture_id}")
+
     async def create_entity(
         self,
         name: str,
