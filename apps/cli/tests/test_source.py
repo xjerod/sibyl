@@ -31,7 +31,7 @@ class TestSourceCliCompatibility:
             crawl_depth=2,
         )
 
-    @patch("sibyl_cli.source.get_client")
+    @patch("sibyl_cli.crawl_shared.get_client")
     def test_source_status_uses_crawl_source_endpoints(self, mock_get_client: MagicMock) -> None:
         """source status should read from crawl source and crawl status APIs."""
         mock_client = MagicMock()
@@ -145,6 +145,39 @@ class TestCrawlCliQueuedStatus:
             max_depth=3,
             generate_embeddings=True,
         )
+
+    @patch("sibyl_cli.crawl_shared.get_client")
+    def test_status_uses_source_status_contract(self, mock_get_client: MagicMock) -> None:
+        """crawl status should reuse the current source status API contract."""
+        mock_client = MagicMock()
+        mock_client.get_crawl_source = AsyncMock(
+            return_value={
+                "id": "src_123",
+                "name": "Example Docs",
+                "url": "https://docs.example.com",
+                "crawl_status": "completed",
+                "document_count": 12,
+                "chunk_count": 24,
+            }
+        )
+        mock_client.get_crawl_status = AsyncMock(
+            return_value={
+                "crawl_status": "completed",
+                "document_count": 12,
+                "chunk_count": 24,
+                "current_job_id": None,
+                "last_crawled_at": "2026-04-13T12:00:00",
+                "last_error": None,
+            }
+        )
+        mock_get_client.return_value = mock_client
+
+        runner = CliRunner()
+        result = runner.invoke(crawl.app, ["status", "src_123", "--json"])
+
+        assert result.exit_code == 0
+        mock_client.get_crawl_source.assert_called_once_with("src_123")
+        mock_client.get_crawl_status.assert_called_once_with("src_123")
 
 
 class TestCrawlCliAddFlags:

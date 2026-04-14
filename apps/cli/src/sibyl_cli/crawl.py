@@ -24,6 +24,7 @@ from sibyl_cli.common import (
     success,
     truncate,
 )
+from sibyl_cli.crawl_shared import show_source_status
 
 app = typer.Typer(
     name="crawl",
@@ -220,53 +221,12 @@ def crawl_status(
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
 ) -> None:
-    """Get status of a crawl job. Default: table output."""
-
-    @run_async
-    async def _status() -> None:
-        client = get_client()
-
-        try:
-            response = await client.get_crawl_status(source_id)
-
-            # JSON output (default)
-            if json_out:
-                print_json(response)
-                return
-
-            # Table output
-            running = response.get("running", False)
-            status_color = ELECTRIC_YELLOW if running else SUCCESS_GREEN
-
-            console.print(f"\n[{ELECTRIC_PURPLE}]Crawl Status[/{ELECTRIC_PURPLE}]\n")
-            console.print(f"  Source: [{NEON_CYAN}]{source_id}[/{NEON_CYAN}]")
-            console.print(f"  Running: [{status_color}]{running}[/{status_color}]")
-
-            if response.get("documents_crawled"):
-                console.print(
-                    f"  Documents Crawled: [{CORAL}]{response['documents_crawled']}[/{CORAL}]"
-                )
-            if response.get("documents_stored"):
-                console.print(
-                    f"  Documents Stored: [{CORAL}]{response['documents_stored']}[/{CORAL}]"
-                )
-            if response.get("chunks_created"):
-                console.print(f"  Chunks Created: [{CORAL}]{response['chunks_created']}[/{CORAL}]")
-            if response.get("embeddings_generated"):
-                console.print(
-                    f"  Embeddings: [{CORAL}]{response['embeddings_generated']}[/{CORAL}]"
-                )
-            if response.get("errors"):
-                console.print(f"  Errors: [{CORAL}]{response['errors']}[/{CORAL}]")
-            if response.get("duration_seconds"):
-                console.print(f"  Duration: [{CORAL}]{response['duration_seconds']:.1f}s[/{CORAL}]")
-            if response.get("error"):
-                error(f"  Error: {response['error']}")
-
-        except SibylClientError as e:
-            _handle_client_error(e)
-
-    _status()
+    """Get status of a crawl source using the current source-status contract."""
+    show_source_status(
+        source_id,
+        json_out=json_out,
+        handle_client_error=_handle_client_error,
+    )
 
 
 @app.command("documents")
