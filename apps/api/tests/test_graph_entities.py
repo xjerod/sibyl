@@ -1026,6 +1026,7 @@ class TestBulkCreateDirect:
         """bulk_create_direct should return correct counts."""
         client = MockGraphClient()
         manager = EntityManager(client, group_id=TEST_ORG_ID)
+        manager._driver.execute_query = AsyncMock(return_value=([{"upserted": 5}], None, None))
 
         entities = [
             Entity(
@@ -1036,21 +1037,19 @@ class TestBulkCreateDirect:
             for i in range(5)
         ]
 
-        with patch("sibyl_core.graph.entities.EntityNode") as mock_entity_node:
-            mock_instance = MagicMock()
-            mock_instance.save = AsyncMock()
-            mock_entity_node.return_value = mock_instance
+        created, failed = await manager.bulk_create_direct(entities)
 
-            created, failed = await manager.bulk_create_direct(entities)
-
-            assert created == 5
-            assert failed == 0
+        assert created == 5
+        assert failed == 0
+        query = manager._driver.execute_query.await_args.args[0]
+        assert "UNWIND $entity_rows AS entity_data" in query
 
     @pytest.mark.asyncio
     async def test_bulk_create_handles_failures(self) -> None:
         """bulk_create_direct should count failures."""
         client = MockGraphClient()
         manager = EntityManager(client, group_id=TEST_ORG_ID)
+        manager._driver.execute_query = AsyncMock(side_effect=RuntimeError("Batch failed"))
 
         entities = [
             Entity(
@@ -1078,6 +1077,7 @@ class TestBulkCreateDirect:
 
             assert created == 2
             assert failed == 1
+            assert manager._driver.execute_query.await_count == 1
 
 
 class TestFormatSpecializedFields:

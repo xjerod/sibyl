@@ -1659,6 +1659,7 @@ class TestBulkCreateDirect:
     async def test_bulk_create_direct(
         self,
         entity_manager: EntityManager,
+        mock_driver: MagicMock,
     ) -> None:
         """bulk_create_direct() creates multiple entities."""
         entities = [
@@ -1671,17 +1672,20 @@ class TestBulkCreateDirect:
             for i in range(5)
         ]
 
-        with patch.object(EntityNode, "save", new_callable=AsyncMock):
-            created, failed = await entity_manager.bulk_create_direct(entities)
+        mock_driver.execute_query.return_value = ([{"upserted": 5}], None, None)
 
-            assert created == 5
-            assert failed == 0
+        created, failed = await entity_manager.bulk_create_direct(entities)
+
+        assert created == 5
+        assert failed == 0
+        query = mock_driver.execute_query.await_args.args[0]
+        assert "UNWIND $entity_rows AS entity_data" in query
 
     @pytest.mark.asyncio
     async def test_bulk_create_direct_partial_failure(
         self,
         entity_manager: EntityManager,
-        mock_graph_client: MagicMock,
+        mock_driver: MagicMock,
     ) -> None:
         """bulk_create_direct() tracks failed creations."""
         entities = [
@@ -1704,12 +1708,13 @@ class TestBulkCreateDirect:
                 raise Exception("Random failure")
             return None
 
-        # Make EntityNode.save fail on second call
+        mock_driver.execute_query.side_effect = Exception("Batch write failed")
         with patch.object(EntityNode, "save", new_callable=AsyncMock, side_effect=flaky_save):
             created, failed = await entity_manager.bulk_create_direct(entities)
 
         assert created == 2
         assert failed == 1
+        assert mock_driver.execute_query.await_count == 1
 
 
 # =============================================================================

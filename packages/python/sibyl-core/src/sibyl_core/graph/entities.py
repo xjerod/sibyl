@@ -9,6 +9,7 @@ import contextlib
 import json
 import random
 import re
+from collections import defaultdict
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, TypeVar
@@ -1744,6 +1745,42 @@ class EntityManager:
             reviewed_at=meta.get("reviewed_at"),
         )
 
+    def _build_bulk_direct_row(self, entity: Entity) -> dict[str, Any]:
+        """Build the property map used for batched direct entity upserts."""
+        props = {k: v for k, v in self._collect_properties(entity).items() if v is not None}
+        props["group_id"] = self._group_id
+        props["summary"] = entity.description[:500] if entity.description else entity.name
+        props["created_at"] = (entity.created_at or datetime.now(UTC)).isoformat()
+        props["updated_at"] = datetime.now(UTC).isoformat()
+        props["metadata"] = json.dumps(self._entity_to_metadata(entity) or {})
+        props["name_embedding"] = None
+        props["_generated"] = True
+        return props
+
+    async def _save_entity_node_direct(self, entity: Entity) -> None:
+        """Persist one entity through Graphiti's EntityNode.save fallback path."""
+        metadata = self._entity_to_metadata(entity)
+        attributes = {
+            "entity_type": entity.entity_type.value,
+            "description": entity.description or "",
+            "content": entity.content or "",
+            "source_file": entity.source_file or "",
+            "updated_at": datetime.now(UTC).isoformat(),
+            "_generated": True,
+            "metadata": json.dumps(metadata),
+        }
+
+        node = EntityNode(
+            uuid=entity.id,
+            name=entity.name,
+            group_id=self._group_id,
+            labels=[entity.entity_type.value],
+            created_at=entity.created_at or datetime.now(UTC),
+            summary=entity.description[:500] if entity.description else entity.name,
+            attributes=attributes,
+        )
+        await node.save(self._driver)
+
     async def bulk_create_direct(
         self,
         entities: list[Entity],
@@ -1761,46 +1798,46 @@ class EntityManager:
         Returns:
             Tuple of (created_count, failed_count).
         """
-        import json
-
         created = 0
         failed = 0
 
         for i in range(0, len(entities), batch_size):
             batch = entities[i : i + batch_size]
-
+            batch_groups: dict[str, list[Entity]] = defaultdict(list)
             for entity in batch:
+                batch_groups[entity.entity_type.value].append(entity)
+
+            for entity_type, typed_batch in batch_groups.items():
+                entity_rows = [self._build_bulk_direct_row(entity) for entity in typed_batch]
+                batch_query = f"""
+                    UNWIND $entity_rows AS entity_data
+                    MERGE (n:Entity {{uuid: entity_data.uuid}})
+                    SET n:{entity_type}
+                    SET n = entity_data
+                    SET n.name_embedding = vecf32(entity_data.name_embedding)
+                    RETURN count(n) AS upserted
+                """
                 try:
-                    # Build attributes dict - serialize nested dicts to JSON strings
-                    metadata = self._entity_to_metadata(entity)
-                    attributes = {
-                        "entity_type": entity.entity_type.value,
-                        "description": entity.description or "",
-                        "content": entity.content or "",
-                        "source_file": entity.source_file or "",
-                        "updated_at": datetime.now(UTC).isoformat(),
-                        "_generated": True,
-                        "metadata": json.dumps(metadata),  # Serialize to JSON string
-                    }
-
-                    # Create EntityNode instance
-                    node = EntityNode(
-                        uuid=entity.id,
-                        name=entity.name,
-                        group_id=self._group_id,
-                        labels=[entity.entity_type.value],
-                        created_at=entity.created_at or datetime.now(UTC),
-                        summary=entity.description[:500] if entity.description else entity.name,
-                        attributes=attributes,
-                    )
-
-                    # Save using Graphiti's API
-                    await node.save(self._driver)
-
-                    created += 1
+                    await self._driver.execute_query(batch_query, entity_rows=entity_rows)
+                    created += len(typed_batch)
                 except Exception as e:
-                    log.debug("Failed to create entity", entity_id=entity.id, error=str(e))
-                    failed += 1
+                    log.warning(
+                        "bulk direct upsert failed, falling back to per-entity saves",
+                        entity_type=entity_type,
+                        batch_size=len(typed_batch),
+                        error=str(e),
+                    )
+                    for entity in typed_batch:
+                        try:
+                            await self._save_entity_node_direct(entity)
+                            created += 1
+                        except Exception as item_error:
+                            log.debug(
+                                "Failed to create entity",
+                                entity_id=entity.id,
+                                error=str(item_error),
+                            )
+                            failed += 1
 
         log.info("Bulk create complete", created=created, failed=failed)
         return created, failed
