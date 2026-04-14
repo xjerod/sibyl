@@ -79,8 +79,11 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
             </h2>
             <p className="text-xs sm:text-sm text-sc-fg-muted">
               {isNewUser
-                ? "Your knowledge graph is ready. Let's add some knowledge."
-                : `You have ${totalEntities} entities. Keep building!`}
+                ? 'Your local memory stack is ready. Capture and search here first, then wire in MCP tools when you want them.'
+                : `You have ${totalEntities} entities. Sibyl stays strongest when the local capture and review loop keeps moving.`}
+            </p>
+            <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-sc-fg-subtle">
+              Local-first where possible. Org-safe by default.
             </p>
           </div>
         </div>
@@ -91,7 +94,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
           <ChecklistStep
             step={1}
             title="Connect Claude Code"
-            description="Add Sibyl as an MCP server to enable AI-powered knowledge management."
+            description="Optional after local setup: add Sibyl as an MCP server for AI-assisted recall and task context."
             color="purple"
             isComplete={checklist.connected_claude}
             action={
@@ -177,6 +180,9 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
 
         {/* Status indicators */}
         <div className="flex flex-wrap items-center gap-3 text-xs">
+          <div className="rounded-full border border-sc-cyan/20 bg-sc-cyan/10 px-2.5 py-1 text-sc-cyan">
+            Local stack first
+          </div>
           <div className="flex items-center gap-1.5">
             <div
               className={`w-2 h-2 rounded-full ${apisReady ? 'bg-sc-green shadow-[0_0_6px_rgba(80,250,123,0.6)]' : 'bg-sc-fg-subtle'}`}

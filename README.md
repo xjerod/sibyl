@@ -122,6 +122,25 @@ sibyl local logs     # Follow logs
 sibyl local reset    # Nuke and start fresh
 ```
 
+### First Five Minutes
+
+Everything below runs against your local Sibyl stack. MCP wiring is optional.
+
+```bash
+# Capture a fresh learning right away
+sibyl capture "Redis TTL mismatch caused the stale auth token bug" --type episode --tags auth,redis
+
+# Search it back semantically
+sibyl search "stale auth token redis ttl"
+
+# Package wake-up context for the next coding session
+sibyl session bundle
+
+# Review raw captures that still need graph linkage
+sibyl archive list --surface cli
+# Then visit http://localhost:3337/archive?link=unlinked
+```
+
 ### Development Setup
 
 ```bash
@@ -192,6 +211,9 @@ Sibyl is strongest when it stays close to the work itself:
 3. **Track execution** with projects, epics, and tasks
 4. **Ingest docs** so external references live beside internal learnings
 5. **Explore the graph** to see how ideas, tasks, and sources connect
+
+The happy path is local-first: start the stack, capture something useful, search it back, then add
+MCP clients or broader automation once the core loop feels good.
 
 ## The CLI
 
