@@ -33,6 +33,22 @@ def _document_result_key(result: SearchResult) -> str:
     return str(document_id or result.id)
 
 
+def _document_language_predicates(
+    *,
+    language: str | None,
+    chunk_type_column: Any,
+    language_column: Any,
+    code_chunk_type: Any,
+) -> tuple[Any, ...]:
+    if not language:
+        return ()
+
+    return (
+        chunk_type_column == code_chunk_type,
+        language_column.ilike(language),
+    )
+
+
 def _dedupe_document_rows(
     rows: Sequence[Any],
 ) -> list[tuple[Any, Any, str, Any, float]]:
@@ -179,11 +195,13 @@ async def _search_documents(
             if source_name:
                 base_query = base_query.where(col(CrawlSource.name).ilike(f"%{source_name}%"))
 
-            if language:
-                base_query = base_query.where(
-                    (col(DocumentChunk.language).ilike(language))
-                    | (col(DocumentChunk.chunk_type) != ChunkType.CODE)
-                )
+            for predicate in _document_language_predicates(
+                language=language,
+                chunk_type_column=DocumentChunk.chunk_type,
+                language_column=DocumentChunk.language,
+                code_chunk_type=ChunkType.CODE,
+            ):
+                base_query = base_query.where(predicate)
 
             vector_results: list[SearchResult] = []
             if query_embedding is not None:
