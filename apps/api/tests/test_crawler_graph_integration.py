@@ -4,6 +4,7 @@ Tests entity extraction, linking, and bidirectional relationships
 between crawled documents and the knowledge graph.
 """
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -17,7 +18,9 @@ from sibyl.crawler.graph_integration import (
     GraphIntegrationService,
     IntegrationStats,
     integrate_document_with_graph,
+    normalize_extracted_entity_type,
 )
+from sibyl_core.models.entities import EntityType
 
 # Test organization ID for multi-tenancy
 TEST_ORG_ID = "test-org-crawler-graph"
@@ -281,6 +284,30 @@ class TestEntityLinker:
         assert link is None
 
     @pytest.mark.asyncio
+    async def test_link_entity_normalizes_extracted_type_for_lookup(self, mock_graph_client):
+        """Extractor-only types should map onto runtime graph entity types."""
+        mock_graph_client.execute_read_org = AsyncMock(
+            return_value=[{"uuid": "topic-123", "name": "Authentication", "entity_type": "topic"}]
+        )
+
+        linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
+
+        extracted = ExtractedEntity(
+            name="Authentication",
+            entity_type="concept",
+            description="General auth concept",
+            confidence=0.8,
+        )
+
+        link = await linker.link_entity(extracted)
+
+        assert link is not None
+        query = mock_graph_client.execute_read_org.await_args.args[0]
+        assert "n.entity_type = $entity_type" in query
+        assert mock_graph_client.execute_read_org.await_args.kwargs["entity_type"] == "topic"
+        assert link.entity_uuid == "topic-123"
+
+    @pytest.mark.asyncio
     async def test_link_batch(self, mock_graph_client):
         """Test batch entity linking."""
         mock_graph_client.execute_read_org = AsyncMock(
@@ -369,6 +396,79 @@ class TestGraphIntegrationService:
 
         assert stats.chunks_processed == 3
         assert stats.entities_extracted == 1
+
+    @pytest.mark.asyncio
+    async def test_process_chunks_creates_new_entities_for_unlinked(
+        self, mock_graph_client, mock_document_chunks
+    ):
+        """Unlinked extracted entities can be materialized into the graph once per unique key."""
+        extracted = [
+            ExtractedEntity(
+                name="FastAPI",
+                entity_type="tool",
+                description="Web framework",
+                confidence=0.9,
+                source_chunk_id=str(mock_document_chunks[0].id),
+            ),
+            ExtractedEntity(
+                name="Retry timeout",
+                entity_type="warning",
+                description="Timeouts should be retried",
+                confidence=0.8,
+                source_chunk_id=str(mock_document_chunks[0].id),
+            ),
+            ExtractedEntity(
+                name="Retry timeout",
+                entity_type="warning",
+                description="Timeouts should be retried quickly",
+                confidence=0.7,
+                source_chunk_id=str(mock_document_chunks[1].id),
+            ),
+        ]
+
+        linker = MagicMock()
+        linker.link_batch = AsyncMock(return_value=([], extracted))
+        linker.invalidate_cache = MagicMock()
+
+        session = AsyncMock()
+        session.add = MagicMock()
+
+        @asynccontextmanager
+        async def mock_session():
+            yield session
+
+        service = GraphIntegrationService(
+            mock_graph_client,
+            TEST_ORG_ID,
+            extract_entities=True,
+            create_new_entities=True,
+        )
+        service.extractor = AsyncMock()
+        service.extractor.extract_batch = AsyncMock(return_value=extracted)
+        service.linker = linker
+        service.entity_manager = MagicMock()
+        service.entity_manager.create_direct = AsyncMock(
+            side_effect=["tool:fastapi", "error_pattern:retry-timeout"]
+        )
+
+        with patch("sibyl.crawler.graph_integration.get_session", mock_session):
+            stats = await service.process_chunks(mock_document_chunks, "Test Source")
+
+        created_types = [
+            call.args[0].entity_type.value for call in service.entity_manager.create_direct.await_args_list
+        ]
+        assert created_types == ["tool", "error_pattern"]
+        assert stats.entities_linked == 3
+        assert stats.new_entities_created == 2
+        assert stats.errors == 0
+        assert mock_document_chunks[0].has_entities is True
+        assert mock_document_chunks[1].has_entities is True
+        assert mock_document_chunks[2].has_entities is False
+        assert mock_document_chunks[0].entity_ids == ["tool:fastapi", "error_pattern:retry-timeout"]
+        assert mock_document_chunks[1].entity_ids == ["error_pattern:retry-timeout"]
+        linker.invalidate_cache.assert_called_once()
+        assert set(linker.invalidate_cache.call_args.args) == {"tool", "error_pattern"}
+        session.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_chunks_disabled_extraction(
@@ -541,6 +641,20 @@ class TestExtractedEntity:
 
         assert entity.source_chunk_id is None
         assert entity.source_url is None
+
+    @pytest.mark.parametrize(
+        ("raw_type", "expected"),
+        [
+            ("concept", EntityType.TOPIC),
+            ("warning", EntityType.ERROR_PATTERN),
+            ("example", EntityType.PATTERN),
+            ("tool", EntityType.TOOL),
+            ("weird-new-type", EntityType.TOPIC),
+        ],
+    )
+    def test_normalize_extracted_entity_type(self, raw_type: str, expected: EntityType):
+        """Extractor labels should collapse onto supported graph entity types."""
+        assert normalize_extracted_entity_type(raw_type) == expected
 
 
 # =============================================================================

@@ -385,6 +385,10 @@ def link_graph(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", "-n", help="Show what would be processed")
     ] = False,
+    create_new_entities: Annotated[
+        bool,
+        typer.Option("--create-new", help="Create graph entities for unlinked extractions"),
+    ] = False,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
@@ -408,6 +412,7 @@ def link_graph(
                 source_id=sid,
                 batch_size=batch_size,
                 dry_run=dry_run,
+                create_new_entities=create_new_entities,
             )
         except SibylClientError as e:
             _handle_client_error(e)
@@ -446,6 +451,10 @@ def link_graph(
             f"  Entities extracted: [{CORAL}]{response.get('entities_extracted', 0)}[/{CORAL}]"
         )
         console.print(f"  Entities linked: [{CORAL}]{response.get('entities_linked', 0)}[/{CORAL}]")
+        if create_new_entities or response.get("new_entities_created", 0) > 0:
+            console.print(
+                f"  New entities created: [{CORAL}]{response.get('new_entities_created', 0)}[/{CORAL}]"
+            )
 
         remaining = response.get("chunks_remaining", 0)
         if remaining > 0:

@@ -924,7 +924,7 @@ async def _process_graph_linking(
             graph_client,
             organization_id,
             extract_entities=True,
-            create_new_entities=False,
+            create_new_entities=request.create_new_entities,
         )
     except ValueError as e:
         log.warning("Entity extraction configuration error", error=str(e))
@@ -964,6 +964,7 @@ async def _process_graph_linking(
         total_chunks = 0
         total_extracted = 0
         total_linked = 0
+        total_created = 0
         sources_processed = []
 
         for source in sources:
@@ -994,6 +995,7 @@ async def _process_graph_linking(
                 total_chunks += len(batch)
                 total_extracted += stats.entities_extracted
                 total_linked += stats.entities_linked
+                total_created += stats.new_entities_created
 
     # Count remaining unprocessed chunks
     async with get_session() as session:
@@ -1017,6 +1019,7 @@ async def _process_graph_linking(
             status="dry_run",
             chunks_processed=total_chunks,
             chunks_remaining=chunks_remaining,
+            new_entities_created=0,
             sources_processed=sources_processed,
             message=f"Would process {total_chunks} chunks from {len(sources_processed)} source(s)",
         )
@@ -1031,9 +1034,16 @@ async def _process_graph_linking(
 
     await broadcast_event(
         WSEvent.GRAPH_UPDATED,
-        {"chunks_processed": total_chunks},
+        {
+            "chunks_processed": total_chunks,
+            "new_entities_created": total_created,
+        },
         org_id=str(org_uuid),
     )
+
+    message = f"Processed {total_chunks} chunks, extracted {total_extracted} entities"
+    if total_created > 0:
+        message += f", created {total_created} new graph entities"
 
     return LinkGraphResponse(
         source_id=source_id,
@@ -1042,8 +1052,9 @@ async def _process_graph_linking(
         chunks_remaining=chunks_remaining,
         entities_extracted=total_extracted,
         entities_linked=total_linked,
+        new_entities_created=total_created,
         sources_processed=sources_processed,
-        message=f"Processed {total_chunks} chunks, extracted {total_extracted} entities",
+        message=message,
     )
 
 

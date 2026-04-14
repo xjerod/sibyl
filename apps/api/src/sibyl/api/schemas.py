@@ -493,6 +493,10 @@ class LinkGraphRequest(BaseModel):
 
     batch_size: int = Field(default=50, ge=1, le=200, description="Chunks per batch")
     dry_run: bool = Field(default=False, description="Preview without processing")
+    create_new_entities: bool = Field(
+        default=False,
+        description="Create graph entities for unlinked extractions",
+    )
 
 
 class LinkGraphResponse(BaseModel):
@@ -504,6 +508,7 @@ class LinkGraphResponse(BaseModel):
     chunks_remaining: int = 0  # Unprocessed chunks still pending
     entities_extracted: int = 0
     entities_linked: int = 0
+    new_entities_created: int = 0
     sources_processed: list[str] = Field(default_factory=list)
     message: str | None = None
     error: str | None = None

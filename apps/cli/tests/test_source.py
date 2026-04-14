@@ -92,6 +92,36 @@ class TestSourceCliCompatibility:
         assert result.exit_code == 0
         mock_client.start_crawl.assert_called_once_with("src_123")
 
+    @patch("sibyl_cli.source.get_client")
+    def test_source_link_graph_can_create_new_entities(
+        self, mock_get_client: MagicMock
+    ) -> None:
+        """source link-graph should forward the create-new flag to the API."""
+        mock_client = MagicMock()
+        mock_client.link_graph = AsyncMock(
+            return_value={
+                "status": "completed",
+                "chunks_processed": 3,
+                "entities_extracted": 5,
+                "entities_linked": 2,
+                "new_entities_created": 2,
+                "chunks_remaining": 0,
+            }
+        )
+        mock_get_client.return_value = mock_client
+
+        runner = CliRunner()
+        result = runner.invoke(source.app, ["link-graph", "src_123", "--create-new"])
+
+        assert result.exit_code == 0
+        mock_client.link_graph.assert_called_once_with(
+            source_id="src_123",
+            batch_size=50,
+            dry_run=False,
+            create_new_entities=True,
+        )
+        assert "New entities created" in result.stdout
+
 
 class TestCrawlCliQueuedStatus:
     """Crawler ingest CLI should accept the API's queued success status."""

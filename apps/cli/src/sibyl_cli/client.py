@@ -882,6 +882,7 @@ class SibylClient:
         source_id: str | None = None,
         batch_size: int = 50,
         dry_run: bool = False,
+        create_new_entities: bool = False,
     ) -> dict[str, Any]:
         """Link document chunks to knowledge graph via entity extraction.
 
@@ -889,11 +890,16 @@ class SibylClient:
             source_id: Specific source ID, or None for all sources
             batch_size: Chunks per batch
             dry_run: Preview without processing
+            create_new_entities: Create graph entities for unlinked extractions
 
         Returns:
             LinkGraphResponse with stats
         """
-        data = {"batch_size": batch_size, "dry_run": dry_run}
+        data = {
+            "batch_size": batch_size,
+            "dry_run": dry_run,
+            "create_new_entities": create_new_entities,
+        }
         if source_id:
             return await self._request("POST", f"/sources/{source_id}/link-graph", json=data)
         return await self._request("POST", "/sources/link-graph", json=data)

@@ -17,20 +17,52 @@ References:
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import structlog
 
 from sibyl.db import DocumentChunk, get_session
 from sibyl.services.settings import get_settings_service
 from sibyl_core.graph.client import GraphClient
+from sibyl_core.graph.entities import EntityManager
+from sibyl_core.models.entities import Entity, EntityType
 
 if TYPE_CHECKING:
     from uuid import UUID
     # GraphClient imported above for normalize_result
 
 log = structlog.get_logger()
+
+_EXTRACTED_TYPE_MAP: dict[str, EntityType] = {
+    "api": EntityType.TOPIC,
+    "concept": EntityType.TOPIC,
+    "example": EntityType.PATTERN,
+    "warning": EntityType.ERROR_PATTERN,
+}
+
+
+def normalize_extracted_entity_type(entity_type: str | None) -> EntityType:
+    """Map extractor labels onto the runtime graph entity taxonomy."""
+    raw_type = (entity_type or "").strip().lower()
+    if not raw_type:
+        return EntityType.TOPIC
+
+    mapped = _EXTRACTED_TYPE_MAP.get(raw_type)
+    if mapped:
+        return mapped
+
+    try:
+        return EntityType(raw_type)
+    except ValueError:
+        return EntityType.TOPIC
+
+
+def normalize_extracted_entity_name(name: str) -> str:
+    """Normalize extracted names for dedupe and cache lookups."""
+    return " ".join(name.split()).casefold()
 
 
 # =============================================================================
@@ -303,6 +335,16 @@ class EntityLinker:
         self.similarity_threshold = similarity_threshold
         self._entity_cache: dict[str, list[dict]] = {}
 
+    def invalidate_cache(self, *entity_types: str) -> None:
+        """Invalidate cached entity lists after graph writes."""
+        if not entity_types:
+            self._entity_cache.clear()
+            return
+
+        self._entity_cache.pop("all", None)
+        for entity_type in entity_types:
+            self._entity_cache.pop(entity_type, None)
+
     async def _get_graph_entities(self, entity_type: str | None = None) -> list[dict]:
         """Get entities from graph, with caching.
 
@@ -321,15 +363,21 @@ class EntityLinker:
             WHERE (n:Episodic OR n:Entity)
             AND n.entity_type IS NOT NULL
             """
+            params: dict[str, str] = {}
 
             if entity_type:
-                query += f" AND n.entity_type = '{entity_type}'"
+                query += " AND n.entity_type = $entity_type"
+                params["entity_type"] = entity_type
 
             query += (
                 " RETURN n.uuid AS uuid, n.name AS name, n.entity_type AS entity_type LIMIT 1000"
             )
 
-            records = await self.graph_client.execute_read_org(query, self.organization_id)
+            records = await self.graph_client.execute_read_org(
+                query,
+                self.organization_id,
+                **params,
+            )
 
             self._entity_cache[cache_key] = [
                 {"uuid": r["uuid"], "name": r["name"], "entity_type": r["entity_type"]}
@@ -352,7 +400,8 @@ class EntityLinker:
             EntityLink if match found, None otherwise
         """
         # Get candidate entities of matching type
-        candidates = await self._get_graph_entities(extracted.entity_type)
+        normalized_type = normalize_extracted_entity_type(extracted.entity_type).value
+        candidates = await self._get_graph_entities(normalized_type)
 
         if not candidates:
             return None
@@ -461,6 +510,96 @@ class GraphIntegrationService:
 
         self.extractor = EntityExtractor() if extract_entities else None
         self.linker = EntityLinker(graph_client, organization_id)
+        self.entity_manager = (
+            EntityManager(graph_client, group_id=organization_id) if create_new_entities else None
+        )
+
+    async def _create_entities_for_unlinked(
+        self,
+        entities: list[ExtractedEntity],
+    ) -> tuple[list[EntityLink], int]:
+        """Create graph entities for extracted items that could not be matched."""
+        if not entities:
+            return [], 0
+
+        if self.entity_manager is None:
+            self.entity_manager = EntityManager(self.graph_client, group_id=self.organization_id)
+
+        prepared: list[tuple[ExtractedEntity, tuple[str, str]]] = []
+        entity_map: dict[tuple[str, str], Entity] = {}
+
+        for extracted in entities:
+            normalized_name = normalize_extracted_entity_name(extracted.name)
+            if not normalized_name:
+                continue
+
+            entity_type = normalize_extracted_entity_type(extracted.entity_type)
+            key = (entity_type.value, normalized_name)
+            prepared.append((extracted, key))
+
+            if key in entity_map:
+                existing = entity_map[key]
+                if len(extracted.description.strip()) > len(existing.description):
+                    description = extracted.description.strip()
+                    existing.description = description
+                    existing.content = description
+                continue
+
+            description = extracted.description.strip()
+            entity_map[key] = Entity(
+                id=f"{entity_type.value}:{uuid4()}",
+                entity_type=entity_type,
+                name=" ".join(extracted.name.split()).strip(),
+                description=description,
+                content=description,
+                organization_id=self.organization_id,
+                metadata={
+                    "created_by": "crawler_graph_integration",
+                    "extracted_type": extracted.entity_type,
+                    "source_url": extracted.source_url,
+                },
+            )
+
+        if not entity_map:
+            return [], 0
+
+        created_ids: dict[tuple[str, str], str] = {}
+        created_types: set[str] = set()
+        errors = 0
+
+        for key, entity in entity_map.items():
+            try:
+                created_ids[key] = await self.entity_manager.create_direct(entity)
+                created_types.add(entity.entity_type.value)
+            except Exception as e:
+                errors += 1
+                log.warning(
+                    "Failed to create extracted graph entity",
+                    name=entity.name,
+                    entity_type=entity.entity_type.value,
+                    error=str(e),
+                )
+
+        if created_types:
+            self.linker.invalidate_cache(*created_types)
+
+        created_links = []
+        for extracted, key in prepared:
+            entity_uuid = created_ids.get(key)
+            entity = entity_map.get(key)
+            if not entity_uuid or entity is None:
+                continue
+            created_links.append(
+                EntityLink(
+                    chunk_id=extracted.source_chunk_id or "",
+                    entity_uuid=entity_uuid,
+                    entity_name=entity.name,
+                    entity_type=entity.entity_type.value,
+                    confidence=extracted.confidence,
+                )
+            )
+
+        return created_links, errors
 
     async def process_chunks(
         self,
@@ -493,24 +632,32 @@ class GraphIntegrationService:
 
         # Link to existing graph entities
         linked, unlinked = await self.linker.link_batch(extracted)
+
+        # Optionally create new entities for unlinked
+        if self.create_new_entities and unlinked:
+            created_links, creation_errors = await self._create_entities_for_unlinked(unlinked)
+            linked.extend(created_links)
+            stats.new_entities_created = len({link.entity_uuid for link in created_links})
+            stats.errors += creation_errors
+
         stats.entities_linked = len(linked)
+
+        links_by_chunk: dict[str, list[EntityLink]] = defaultdict(list)
+        for link in linked:
+            if link.chunk_id:
+                links_by_chunk[link.chunk_id].append(link)
 
         # Update chunk entity_ids in database
         async with get_session() as session:
             for chunk in chunks:
-                # Find links for this chunk
-                chunk_links = [link for link in linked if link.chunk_id == str(chunk.id)]
+                chunk_links = links_by_chunk.get(str(chunk.id), [])
+                if not chunk_links:
+                    continue
 
-                if chunk_links:
-                    chunk.entity_ids = [link.entity_uuid for link in chunk_links]
-                    chunk.has_entities = True
-                    session.add(chunk)
+                chunk.entity_ids = list(dict.fromkeys(link.entity_uuid for link in chunk_links))
+                chunk.has_entities = True
+                session.add(chunk)
             await session.commit()
-
-        # Optionally create new entities for unlinked
-        if self.create_new_entities and unlinked:
-            # TODO: Implement new entity creation via Graphiti
-            stats.new_entities_created = 0
 
         log.info(
             "Graph integration complete",
@@ -518,6 +665,7 @@ class GraphIntegrationService:
             chunks=stats.chunks_processed,
             extracted=stats.entities_extracted,
             linked=stats.entities_linked,
+            created=stats.new_entities_created,
         )
 
         return stats
