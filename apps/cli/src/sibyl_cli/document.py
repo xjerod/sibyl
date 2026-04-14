@@ -13,13 +13,12 @@ from sibyl_cli.common import (
     ELECTRIC_PURPLE,
     NEON_CYAN,
     console,
-    create_panel,
     handle_client_error,
     info,
-    print_json,
     run_async,
     truncate,
 )
+from sibyl_cli.view_shared import maybe_print_json, render_detail_panel, render_table_or_empty
 
 app = typer.Typer(
     name="documents",
@@ -55,8 +54,7 @@ def show_document(
         try:
             doc = await client.get_crawl_document(document_id)
 
-            if json_out:
-                print_json(doc)
+            if maybe_print_json(doc, json_out=json_out):
                 return
 
             if raw:
@@ -101,11 +99,15 @@ def show_document(
             else:
                 lines.append("[dim]No content available[/dim]")
 
-            panel = create_panel("\n".join(lines), title="Document")
-            console.print(panel)
-
-            if url:
-                console.print(f"\n[dim]Open in browser:[/dim] [{NEON_CYAN}]{url}[/{NEON_CYAN}]")
+            render_detail_panel(
+                title="Document",
+                lines=lines,
+                footer=(
+                    f"\n[dim]Open in browser:[/dim] [{NEON_CYAN}]{url}[/{NEON_CYAN}]"
+                    if url
+                    else None
+                ),
+            )
 
         except SibylClientError as e:
             _handle_client_error(e)
@@ -133,27 +135,26 @@ def list_documents(
             response = await client.list_crawl_documents(source_id=source_id, limit=limit)
             docs: list[dict[str, Any]] = response.get("documents", [])
 
-            if json_out:
-                print_json(docs)
+            if maybe_print_json(docs, json_out=json_out):
                 return
 
-            if not docs:
-                info("No documents found")
-                return
-
-            from sibyl_cli.common import create_table
-
-            table = create_table("Documents", "ID", "Title", "URL", "Chunks")
-            for doc in docs:
-                table.add_row(
+            rows = [
+                (
                     truncate(doc.get("id", ""), 36),
                     truncate(doc.get("title", ""), 30),
                     truncate(doc.get("url", ""), 40),
                     str(len(doc.get("chunks", []))),
                 )
-
-            console.print(table)
-            console.print(f"\n[dim]Showing {len(docs)} document(s)[/dim]")
+                for doc in docs
+            ]
+            render_table_or_empty(
+                title="Documents",
+                columns=("ID", "Title", "URL", "Chunks"),
+                rows=rows,
+                empty_message="No documents found",
+                empty_printer=info,
+                footer=f"\n[dim]Showing {len(docs)} document(s)[/dim]" if docs else None,
+            )
 
         except SibylClientError as e:
             _handle_client_error(e)

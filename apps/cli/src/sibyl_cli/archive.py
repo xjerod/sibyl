@@ -9,15 +9,12 @@ from sibyl_cli.common import (
     CORAL,
     ELECTRIC_PURPLE,
     NEON_CYAN,
-    console,
-    create_panel,
-    create_table,
-    print_json,
     run_async,
     success,
     truncate,
 )
 from sibyl_cli.common import handle_client_error as _handle_client_error
+from sibyl_cli.view_shared import maybe_print_json, render_detail_panel, render_table_or_empty
 
 app = typer.Typer(
     name="archive",
@@ -53,29 +50,31 @@ def list_archive(
                     offset=offset,
                 )
 
-                if json_out:
-                    print_json(response)
+                if maybe_print_json(response, json_out=json_out):
                     return
 
                 captures = response.get("captures", [])
-                if not captures:
-                    success("No archived raw captures found")
-                    return
-
-                table = create_table("Raw Capture Archive", "ID", "Title", "Type", "Surface")
-                for capture in captures:
-                    table.add_row(
+                rows = [
+                    (
                         capture.get("id", ""),
                         truncate(capture.get("title", ""), 46),
                         capture.get("entity_type", ""),
                         capture.get("capture_surface") or "unknown",
                     )
-                console.print(table)
-
-                if response.get("has_more"):
-                    console.print(
+                    for capture in captures
+                ]
+                render_table_or_empty(
+                    title="Raw Capture Archive",
+                    columns=("ID", "Title", "Type", "Surface"),
+                    rows=rows,
+                    empty_message="No archived raw captures found",
+                    empty_printer=success,
+                    footer=(
                         f"\n[dim]More captures available. Try --offset {offset + limit}.[/dim]"
-                    )
+                        if response.get("has_more")
+                        else None
+                    ),
+                )
         except SibylClientError as e:
             _handle_client_error(e)
 
@@ -97,8 +96,7 @@ def show_archive_capture(
             async with get_client() as client:
                 capture = await client.get_raw_capture(capture_id)
 
-                if json_out:
-                    print_json(capture)
+                if maybe_print_json(capture, json_out=json_out):
                     return
 
                 lines = [
@@ -138,7 +136,7 @@ def show_archive_capture(
                     ]
                 )
 
-                console.print(create_panel("\n".join(lines), title="Raw Capture"))
+                render_detail_panel(title="Raw Capture", lines=lines)
         except SibylClientError as e:
             _handle_client_error(e)
 
