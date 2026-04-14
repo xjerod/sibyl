@@ -53,9 +53,6 @@ class HybridConfig:
     Attributes:
         vector_weight: Weight for Graphiti node-hybrid seed results.
         graph_weight: Weight for graph traversal results.
-        bm25_weight: Reserved for a future explicit BM25 leg. Runtime keyword
-            retrieval currently comes from Graphiti's node-hybrid search inside
-            EntityManager.search().
         rrf_k: RRF constant (higher = more uniform).
         graph_depth: Maximum depth for graph traversal.
         apply_temporal: Whether to apply temporal boosting.
@@ -67,9 +64,6 @@ class HybridConfig:
 
     vector_weight: float = 1.0
     graph_weight: float = 0.8
-    # Reserved for a future explicit BM25 branch. Current runtime keyword
-    # retrieval is handled inside Graphiti's node-hybrid search.
-    bm25_weight: float = 0.5
     rrf_k: float = 60.0
     graph_depth: int = 2
     apply_temporal: bool = True

@@ -19,7 +19,7 @@ moon run core:test        # Pytest
 
 - **models/** — Domain entities (Task, Project, Epic, Source, etc.)
 - **graph/** — FalkorDB/Graphiti client, entity management
-- **retrieval/** — Hybrid search (semantic + BM25), fusion, deduplication
+- **retrieval/** — Graphiti node-hybrid search, fusion, deduplication
 - **tools/** — MCP tool implementations (search, explore, add, manage)
 - **tasks/** — Workflow engine, dependency resolution
 - **auth/** — JWT primitives, password hashing

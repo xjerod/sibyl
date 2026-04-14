@@ -631,7 +631,6 @@ class TestHybridConfig:
         config = HybridConfig()
         assert config.vector_weight == 1.0
         assert config.graph_weight == 0.8
-        assert config.bm25_weight == 0.5
         assert config.rrf_k == 60.0
         assert config.graph_depth == 2
         assert config.apply_temporal is True

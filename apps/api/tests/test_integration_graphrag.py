@@ -346,7 +346,7 @@ class TestEndToEndRetrieval:
     """End-to-end tests for the complete retrieval pipeline."""
 
     def test_full_pipeline_ranking(self) -> None:
-        """Test complete pipeline: BM25 + vector + temporal + RRF."""
+        """Test complete pipeline: keyword-aware seeds + temporal + RRF."""
         now = datetime.now(UTC)
 
         # Entities with various characteristics
