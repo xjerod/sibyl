@@ -22,6 +22,7 @@ sibyl project link <project_id>
 ```bash
 sibyl search "query"                    # Semantic search
 sibyl add "title" "content"             # Add knowledge
+sibyl capture "content"                 # Quick capture from the CLI
 sibyl session bundle                    # Wake up with active context
 sibyl task list --status todo,doing     # List tasks
 sibyl task start <id>                   # Start task
@@ -30,23 +31,31 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 
 ## All Commands
 
-| Command    | Purpose                                                  |
-| ---------- | -------------------------------------------------------- |
-| `search`   | Semantic search                                          |
-| `add`      | Add knowledge                                            |
-| `task`     | Task lifecycle (list, start, complete, block, review)    |
-| `project`  | Project management (list, link, create)                  |
-| `archive`  | Read archived raw quick captures                         |
-| `epic`     | Epic management (list, start, complete, roadmap)         |
-| `entity`   | Entity CRUD                                              |
-| `explore`  | Graph navigation (related, traverse, dependencies, path) |
-| `crawl`    | Documentation sources, crawling, and graph linking       |
-| `auth`     | Login, logout, API keys                                  |
-| `org`      | Organization switching, member management                |
-| `config`   | Configuration                                            |
-| `context`  | Multi-server context management                          |
-| `local`    | Supabase-style local dev (start, stop, logs, reset)      |
-| `session`  | Package wake-up context for a session or agent           |
+| Command     | Purpose                                                  |
+| ----------- | -------------------------------------------------------- |
+| `health`    | Check API connectivity and health                        |
+| `search`    | Semantic search                                          |
+| `add`       | Add knowledge                                            |
+| `capture`   | Quick capture from CLI arguments or stdin                |
+| `stats`     | Show knowledge graph statistics                          |
+| `version`   | Show CLI version information                             |
+| `task`      | Task lifecycle (list, start, complete, block, review)    |
+| `epic`      | Epic management (list, start, complete, roadmap)         |
+| `project`   | Project management (list, link, create)                  |
+| `archive`   | Browse archived raw captures                             |
+| `session`   | Package wake-up context for a session or agent           |
+| `entity`    | Entity CRUD                                              |
+| `explore`   | Graph navigation (related, traverse, dependencies, path) |
+| `crawl`     | Documentation sources, crawling, and graph linking       |
+| `debug`     | Debug tools for development                              |
+| `dev`       | Devcontainer shell and lifecycle commands                |
+| `auth`      | Login, logout, API keys                                  |
+| `org`       | Organization switching, member management                |
+| `config`    | Configuration                                            |
+| `context`   | Multi-server context management                          |
+| `local`     | Manage a local Docker-based Sibyl instance               |
+| `logs`      | Tail server logs                                         |
+| `update`    | Update Sibyl components                                  |
 
 ## Output Formats
 
@@ -67,6 +76,14 @@ sibyl crawl documents list --source <source_id>
 
 `--include` is the preferred spelling for crawl filters. `--pattern` still works for backward
 compatibility.
+
+## Capture And Archive
+
+```bash
+sibyl capture "Redis TTL mismatch caused the stale auth token bug"
+sibyl archive list --surface cli
+sibyl archive show <capture_id>
+```
 
 ## Context System
 
