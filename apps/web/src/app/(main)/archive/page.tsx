@@ -32,6 +32,7 @@ import { formatDateTime, formatDistanceToNow } from '@/lib/constants';
 import { useRawCapture, useRawCaptures } from '@/lib/hooks';
 
 const MAX_CAPTURE_RESULTS = 200;
+type LinkFilter = 'all' | 'linked' | 'unlinked';
 
 function titleCase(value: string): string {
   return value
@@ -73,6 +74,10 @@ function archiveMeta(capturesCount: number, filteredCount: number, hasMore: bool
   return hasMore ? `${countLabel} | newest ${MAX_CAPTURE_RESULTS}` : countLabel;
 }
 
+function normalizeLinkFilter(value: string | null): LinkFilter {
+  return value === 'linked' || value === 'unlinked' ? value : 'all';
+}
+
 export default function ArchivePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -80,7 +85,9 @@ export default function ArchivePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [surfaceFilter, setSurfaceFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [linkFilter, setLinkFilter] = useState<'all' | 'linked' | 'unlinked'>('all');
+  const [linkFilter, setLinkFilter] = useState<LinkFilter>(() =>
+    normalizeLinkFilter(searchParams.get('link'))
+  );
 
   const { data, isLoading, error } = useRawCaptures({
     limit: MAX_CAPTURE_RESULTS,
@@ -138,6 +145,13 @@ export default function ArchivePage() {
 
     return filteredCaptures[0]?.id ?? '';
   }, [filteredCaptures, requestedCaptureId]);
+  const activeCaptureIndex = filteredCaptures.findIndex(capture => capture.id === activeCaptureId);
+  const previousCaptureId =
+    activeCaptureIndex > 0 ? filteredCaptures[activeCaptureIndex - 1]?.id : '';
+  const nextCaptureId =
+    activeCaptureIndex >= 0 && activeCaptureIndex < filteredCaptures.length - 1
+      ? filteredCaptures[activeCaptureIndex + 1]?.id
+      : '';
 
   const {
     data: selectedCapture,
@@ -147,13 +161,15 @@ export default function ArchivePage() {
     enabled: Boolean(activeCaptureId),
   });
 
-  const updateSelection = useCallback(
-    (captureId: string | null) => {
+  const replaceArchiveParams = useCallback(
+    (updates: Record<string, string | null>) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (captureId) {
-        params.set('id', captureId);
-      } else {
-        params.delete('id');
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          params.set(key, value);
+        } else {
+          params.delete(key);
+        }
       }
       const nextUrl = params.toString() ? `/archive?${params.toString()}` : '/archive';
       router.replace(nextUrl, { scroll: false });
@@ -161,12 +177,28 @@ export default function ArchivePage() {
     [router, searchParams]
   );
 
+  const updateSelection = useCallback(
+    (captureId: string | null) => {
+      replaceArchiveParams({ id: captureId });
+    },
+    [replaceArchiveParams]
+  );
+
   const clearFilters = useCallback(() => {
     setSearchQuery('');
     setSurfaceFilter('all');
     setTypeFilter('all');
     setLinkFilter('all');
-  }, []);
+    replaceArchiveParams({ link: null });
+  }, [replaceArchiveParams]);
+
+  const updateLinkFilter = useCallback(
+    (next: LinkFilter) => {
+      setLinkFilter(next);
+      replaceArchiveParams({ link: next === 'all' ? null : next });
+    },
+    [replaceArchiveParams]
+  );
 
   useEffect(() => {
     if (!requestedCaptureId || requestedCaptureId === activeCaptureId) {
@@ -175,6 +207,11 @@ export default function ArchivePage() {
 
     updateSelection(activeCaptureId || null);
   }, [activeCaptureId, requestedCaptureId, updateSelection]);
+
+  useEffect(() => {
+    const next = normalizeLinkFilter(searchParams.get('link'));
+    setLinkFilter(current => (current === next ? current : next));
+  }, [searchParams]);
 
   const stats = useMemo(() => {
     return {
@@ -271,7 +308,7 @@ export default function ArchivePage() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setLinkFilter(option.value as typeof linkFilter)}
+                    onClick={() => updateLinkFilter(option.value as LinkFilter)}
                     className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                       active
                         ? 'border-sc-purple/30 bg-sc-purple/15 text-sc-purple'
@@ -425,6 +462,43 @@ export default function ArchivePage() {
             />
           ) : (
             <div className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-2xl border border-sc-fg-subtle/20 bg-sc-bg-highlight/30 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
+                    {linkFilter === 'unlinked'
+                      ? 'Needs Link Queue'
+                      : linkFilter === 'linked'
+                        ? 'Linked Capture Review'
+                        : 'Archive Review'}
+                  </p>
+                  <p className="mt-1 text-sm text-sc-fg-muted">
+                    Reviewing {activeCaptureIndex + 1} of {filteredCaptures.length}
+                    {linkFilter === 'unlinked'
+                      ? ` | ${stats.unlinked} captures still need graph linkage`
+                      : ''}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!previousCaptureId}
+                    onClick={() => updateSelection(previousCaptureId || null)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!nextCaptureId}
+                    onClick={() => updateSelection(nextCaptureId || null)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-sc-fg-subtle/20 bg-sc-bg-highlight/40 p-5">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">

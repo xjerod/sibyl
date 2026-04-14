@@ -116,4 +116,24 @@ describe('ArchivePage', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText('remember this exact text from the terminal')).toBeInTheDocument();
   });
+
+  it('starts in the needs-link queue when requested in the url', () => {
+    navigationState.searchParams = new URLSearchParams('link=unlinked');
+
+    render(<ArchivePage />);
+
+    expect(screen.getByText('Needs Link Queue')).toBeInTheDocument();
+    expect(screen.getByText('remember this exact text from the terminal')).toBeInTheDocument();
+    expect(
+      screen.queryByText('remember this exact text from the dashboard')
+    ).not.toBeInTheDocument();
+  });
+
+  it('advances review navigation from the detail pane', async () => {
+    const { user } = render(<ArchivePage />);
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(replace).toHaveBeenCalledWith('/archive?id=raw-2', { scroll: false });
+  });
 });

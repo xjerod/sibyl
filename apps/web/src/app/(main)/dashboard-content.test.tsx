@@ -120,4 +120,13 @@ describe('DashboardContent', () => {
 
     expect(openCaptureMemory).toHaveBeenCalledWith('dashboard');
   });
+
+  it('links the dashboard to the archive review queue', () => {
+    render(<DashboardContent initialStats={initialStats} />);
+
+    expect(screen.getByRole('link', { name: /review archive/i })).toHaveAttribute(
+      'href',
+      '/archive?link=unlinked'
+    );
+  });
 });
