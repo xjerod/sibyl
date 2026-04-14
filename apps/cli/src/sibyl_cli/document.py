@@ -21,8 +21,8 @@ from sibyl_cli.common import (
 )
 
 app = typer.Typer(
-    name="document",
-    help="View crawled documents",
+    name="documents",
+    help="Browse crawled documents",
     no_args_is_help=True,
 )
 
@@ -55,7 +55,7 @@ def show_document(
     Example:
         sibyl search "proto config"
         # Note the document_id in metadata
-        sibyl document show 22d4cf79-8561-4be0-8067-da8673e3439d
+        sibyl crawl documents show 22d4cf79-8561-4be0-8067-da8673e3439d
     """
 
     @run_async

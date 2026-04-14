@@ -53,7 +53,6 @@ sibyl search "authentication"
 | `sibyl org`                     | Organization management                      |
 | `sibyl config`                  | Configuration management                     |
 | `sibyl crawl`                   | Documentation source management and crawling |
-| `sibyl document`                | Browse crawled documents                     |
 
 ## Global Options
 

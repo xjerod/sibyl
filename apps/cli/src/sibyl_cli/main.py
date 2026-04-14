@@ -33,7 +33,6 @@ from sibyl_cli.context import app as context_app
 from sibyl_cli.crawl import app as crawl_app
 from sibyl_cli.debug import app as debug_app
 from sibyl_cli.dev import app as dev_app
-from sibyl_cli.document import app as document_app
 from sibyl_cli.entity import app as entity_app
 from sibyl_cli.epic import app as epic_app
 from sibyl_cli.explore import app as explore_app
@@ -82,7 +81,6 @@ app.add_typer(explore_app, name="explore")
 app.add_typer(crawl_app, name="crawl")
 app.add_typer(debug_app, name="debug")
 app.add_typer(dev_app, name="dev")
-app.add_typer(document_app, name="document")
 app.add_typer(auth_app, name="auth")
 app.add_typer(org_app, name="org")
 app.add_typer(config_app, name="config")
@@ -297,7 +295,7 @@ def search(
                 if has_entities:
                     hints.append(f"[{NEON_CYAN}]sibyl entity show <id>[/{NEON_CYAN}]")
                 if has_docs:
-                    hints.append(f"[{NEON_CYAN}]sibyl document show <doc>[/{NEON_CYAN}]")
+                    hints.append(f"[{NEON_CYAN}]sibyl crawl documents show <doc>[/{NEON_CYAN}]")
 
                 if hints:
                     console.print(f"[dim]Full content:[/dim] {' [dim]or[/dim] '.join(hints)}")

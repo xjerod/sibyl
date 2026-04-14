@@ -30,12 +30,14 @@ from sibyl_cli.crawl_shared import (
     show_source_status,
     start_crawl_source,
 )
+from sibyl_cli.document import app as document_app
 
 app = typer.Typer(
     name="crawl",
     help="Web crawling and documentation ingestion",
     no_args_is_help=True,
 )
+app.add_typer(document_app, name="documents")
 
 
 def _handle_client_error(e: SibylClientError) -> None:
@@ -53,7 +55,7 @@ def _handle_client_error(e: SibylClientError) -> None:
     raise typer.Exit(1)
 
 
-@app.command("sources")
+@app.command("list")
 def list_sources(
     status: Annotated[str | None, typer.Option("--status", "-s", help="Filter by status")] = None,
     limit: Annotated[int, typer.Option("--limit", "-n", help="Max results")] = 20,
@@ -61,7 +63,7 @@ def list_sources(
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
 ) -> None:
-    """List all crawl sources. Default: table output."""
+    """List crawl sources. Default: table output."""
 
     @run_async
     async def _list() -> None:

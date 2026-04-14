@@ -355,15 +355,15 @@ sibyl local setup
 ### List Crawled Documents
 
 ```bash
-sibyl document list
-sibyl document list --source source_a1b2c3d4e5f6
+sibyl crawl documents list
+sibyl crawl documents list --source source_a1b2c3d4e5f6
 ```
 
 ### Show Document Content
 
 ```bash
-sibyl document show doc_a1b2c3d4e5f6
-sibyl document show doc_a1b2c3d4e5f6 --raw    # Raw markdown
+sibyl crawl documents show doc_a1b2c3d4e5f6
+sibyl crawl documents show doc_a1b2c3d4e5f6 --raw    # Raw markdown
 ```
 
 ---

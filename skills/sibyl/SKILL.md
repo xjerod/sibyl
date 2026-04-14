@@ -361,7 +361,7 @@ Sibyl can crawl and index external documentation for RAG search.
 
 ```bash
 # List crawl sources
-sibyl crawl sources
+sibyl crawl list
 
 # Add a documentation source
 sibyl crawl add "https://docs.example.com" --name "Example Docs" --depth 2
@@ -373,10 +373,10 @@ sibyl crawl ingest source_a1b2c3d4e5f6
 sibyl crawl status source_a1b2c3d4e5f6
 
 # List crawled documents
-sibyl document list --source source_a1b2c3d4e5f6
+sibyl crawl documents list --source source_a1b2c3d4e5f6
 
 # Read a crawled document
-sibyl document show doc_a1b2c3d4e5f6
+sibyl crawl documents show doc_a1b2c3d4e5f6
 ```
 
 ---

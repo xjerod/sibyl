@@ -169,7 +169,7 @@ Results are merged and ranked by semantic relevance.
 ### List Sources
 
 ```bash
-sibyl crawl sources
+sibyl crawl list
 ```
 
 Output:
@@ -343,7 +343,7 @@ sibyl crawl show source_abc123
 sibyl stats
 
 # Try direct document search
-sibyl document list --source source_abc123
+sibyl crawl documents list --source source_abc123
 ```
 
 ## Next Steps

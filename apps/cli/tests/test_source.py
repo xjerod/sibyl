@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
-from sibyl_cli import crawl, document
+from sibyl_cli import crawl
 
 
 class TestCrawlCliSurface:
@@ -56,14 +56,19 @@ class TestCrawlCliSurface:
         mock_client.get_crawl_source.assert_called_once_with("src_123")
 
     @patch("sibyl_cli.document.get_client")
-    def test_document_list_uses_crawl_documents_api(self, mock_get_client: MagicMock) -> None:
-        """document list should use the crawler document listing endpoint."""
+    def test_crawl_documents_list_uses_crawl_documents_api(
+        self, mock_get_client: MagicMock
+    ) -> None:
+        """crawl documents list should use the crawler document listing endpoint."""
         mock_client = MagicMock()
         mock_client.list_crawl_documents = AsyncMock(return_value={"documents": []})
         mock_get_client.return_value = mock_client
 
         runner = CliRunner()
-        result = runner.invoke(document.app, ["list", "--source", "src_123", "--json"])
+        result = runner.invoke(
+            crawl.app,
+            ["documents", "list", "--source", "src_123", "--json"],
+        )
 
         assert result.exit_code == 0
         mock_client.list_crawl_documents.assert_called_once_with(source_id="src_123", limit=20)
@@ -230,6 +235,16 @@ def test_main_help_omits_source_group() -> None:
     result = runner.invoke(main_cli.app, ["--help"])
 
     assert result.exit_code == 0
-    assert "crawl" in result.stdout
-    assert "document" in result.stdout
-    assert "source" not in result.stdout
+    assert "│ crawl " in result.stdout
+    assert "│ document " not in result.stdout
+    assert "│ source " not in result.stdout
+
+
+def test_crawl_help_shows_nested_documents_group() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(crawl.app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "list" in result.stdout
+    assert "documents" in result.stdout

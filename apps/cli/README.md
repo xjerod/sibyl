@@ -41,7 +41,6 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 | `entity`   | Entity CRUD                                              |
 | `explore`  | Graph navigation (related, traverse, dependencies, path) |
 | `crawl`    | Documentation sources, crawling, and graph linking       |
-| `document` | View crawled documents                                   |
 | `auth`     | Login, logout, API keys                                  |
 | `org`      | Organization switching, member management                |
 | `config`   | Configuration                                            |
@@ -60,8 +59,10 @@ sibyl task list --csv        # Spreadsheets
 ## Source Ingestion
 
 ```bash
+sibyl crawl list
 sibyl crawl add "https://nextjs.org/docs" --include "docs/**"
 sibyl crawl ingest <source_id>
+sibyl crawl documents list --source <source_id>
 ```
 
 `--include` is the preferred spelling for crawl filters. `--pattern` still works for backward
