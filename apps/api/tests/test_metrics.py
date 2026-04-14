@@ -1,5 +1,6 @@
 """Tests for metrics endpoints and computation functions."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -344,6 +345,33 @@ def create_mock_org(org_id: str = "test-org-123") -> MagicMock:
     return org
 
 
+def create_metric_task_row(
+    *,
+    project_id: str | None = None,
+    status: str | None = None,
+    priority: str | None = None,
+    assignees: list[str] | str | None = None,
+    created_at: str | None = None,
+    completed_at: str | None = None,
+    updated_at: str | None = None,
+    due_date: str | None = None,
+    metadata: dict | str | None = None,
+) -> dict[str, object]:
+    """Create a raw task row for org metrics queries."""
+    timestamp = updated_at or datetime.now(UTC).isoformat()
+    return {
+        "project_id": project_id,
+        "status": status,
+        "priority": priority,
+        "assignees": assignees,
+        "created_at": created_at,
+        "completed_at": completed_at,
+        "updated_at": timestamp,
+        "due_date": due_date,
+        "metadata": metadata or {},
+    }
+
+
 class TestGetProjectMetrics:
     """Tests for get_project_metrics endpoint."""
 
@@ -492,69 +520,37 @@ class TestGetOrgMetrics:
         ]
 
         now = datetime.now(UTC)
+        recent = now.isoformat()
 
         mock_entity_manager = AsyncMock()
         mock_entity_manager.list_by_type.return_value = mock_projects
         mock_client.execute_read_org = AsyncMock(
-            side_effect=[
-                [
-                    {
-                        "total_tasks": 3,
-                        "backlog_tasks": 0,
-                        "todo_tasks": 1,
-                        "doing_tasks": 1,
-                        "blocked_tasks": 0,
-                        "review_tasks": 0,
-                        "done_tasks": 1,
-                        "medium_tasks": 1,
-                        "critical_tasks": 1,
-                        "high_tasks": 1,
-                        "low_tasks": 0,
-                        "someday_tasks": 0,
-                        "tasks_created_last_7d": 3,
-                    }
-                ],
-                [
-                    {
-                        "project_id": "proj_a",
-                        "total": 2,
-                        "completed": 1,
-                        "doing": 1,
-                        "blocked": 0,
-                        "review": 0,
-                        "todo": 0,
-                        "backlog": 0,
-                        "critical": 1,
-                        "high": 1,
-                        "overdue": 0,
-                    },
-                    {
-                        "project_id": "proj_b",
-                        "total": 1,
-                        "completed": 0,
-                        "doing": 0,
-                        "blocked": 0,
-                        "review": 0,
-                        "todo": 1,
-                        "backlog": 0,
-                        "critical": 0,
-                        "high": 0,
-                        "overdue": 0,
-                    },
-                ],
-                [
-                    {
-                        "name": "alice",
-                        "total": 2,
-                        "completed": 1,
-                        "in_progress": 1,
-                    }
-                ],
-                [
-                    {"date": (now - timedelta(days=2)).strftime("%Y-%m-%d"), "value": 1},
-                    {"date": (now - timedelta(days=1)).strftime("%Y-%m-%d"), "value": 1},
-                    {"date": now.strftime("%Y-%m-%d"), "value": 1},
-                ],
+            return_value=[
+                create_metric_task_row(
+                    project_id="proj_a",
+                    status="done",
+                    priority="critical",
+                    assignees=["alice"],
+                    created_at=recent,
+                    completed_at=recent,
+                    updated_at=recent,
+                ),
+                create_metric_task_row(
+                    project_id="proj_a",
+                    status="doing",
+                    priority="high",
+                    assignees=["alice"],
+                    created_at=recent,
+                    updated_at=recent,
+                ),
+                create_metric_task_row(
+                    project_id="proj_b",
+                    status="todo",
+                    priority="medium",
+                    assignees=[],
+                    created_at=recent,
+                    updated_at=recent,
+                ),
             ]
         )
 
@@ -571,7 +567,7 @@ class TestGetOrgMetrics:
                 EntityType.PROJECT,
                 limit=500,
             )
-            assert mock_client.execute_read_org.call_count == 4
+            assert mock_client.execute_read_org.call_count == 1
             assert result.total_projects == 2
             assert result.total_tasks == 3
             assert result.status_distribution.done == 1
@@ -596,7 +592,7 @@ class TestGetOrgMetrics:
 
         mock_entity_manager = AsyncMock()
         mock_entity_manager.list_by_type.return_value = []
-        mock_client.execute_read_org = AsyncMock(side_effect=[[], [], [], []])
+        mock_client.execute_read_org = AsyncMock(return_value=[])
 
         with (
             patch("sibyl.api.routes.metrics.get_graph_client", return_value=mock_client),
@@ -611,7 +607,7 @@ class TestGetOrgMetrics:
                 EntityType.PROJECT,
                 limit=500,
             )
-            assert mock_client.execute_read_org.call_count == 4
+            assert mock_client.execute_read_org.call_count == 1
             assert result.total_projects == 0
             assert result.total_tasks == 0
             assert result.completion_rate == 0.0
@@ -634,54 +630,10 @@ class TestGetOrgMetrics:
         mock_entity_manager = AsyncMock()
         mock_entity_manager.list_by_type.return_value = mock_projects
         mock_client.execute_read_org = AsyncMock(
-            side_effect=[
-                [
-                    {
-                        "total_tasks": 3,
-                        "backlog_tasks": 0,
-                        "todo_tasks": 2,
-                        "doing_tasks": 0,
-                        "blocked_tasks": 0,
-                        "review_tasks": 0,
-                        "done_tasks": 1,
-                        "medium_tasks": 3,
-                        "critical_tasks": 0,
-                        "high_tasks": 0,
-                        "low_tasks": 0,
-                        "someday_tasks": 0,
-                        "tasks_created_last_7d": 3,
-                    }
-                ],
-                [
-                    {
-                        "project_id": "proj_l",
-                        "total": 2,
-                        "completed": 1,
-                        "doing": 0,
-                        "blocked": 0,
-                        "review": 0,
-                        "todo": 1,
-                        "backlog": 0,
-                        "critical": 0,
-                        "high": 0,
-                        "overdue": 0,
-                    },
-                    {
-                        "project_id": "proj_s",
-                        "total": 1,
-                        "completed": 0,
-                        "doing": 0,
-                        "blocked": 0,
-                        "review": 0,
-                        "todo": 1,
-                        "backlog": 0,
-                        "critical": 0,
-                        "high": 0,
-                        "overdue": 0,
-                    },
-                ],
-                [],
-                [],
+            return_value=[
+                create_metric_task_row(project_id="proj_l", status="done", updated_at="2026-04-12T10:00:00+00:00"),
+                create_metric_task_row(project_id="proj_l", status="todo", updated_at="2026-04-11T10:00:00+00:00"),
+                create_metric_task_row(project_id="proj_s", status="todo", updated_at="2026-04-10T10:00:00+00:00"),
             ]
         )
 
@@ -719,41 +671,16 @@ class TestGetOrgMetrics:
         mock_entity_manager = AsyncMock()
         mock_entity_manager.list_by_type.return_value = mock_projects
         mock_client.execute_read_org = AsyncMock(
-            side_effect=[
-                [
-                    {
-                        "total_tasks": 4,
-                        "backlog_tasks": 0,
-                        "todo_tasks": 0,
-                        "doing_tasks": 1,
-                        "blocked_tasks": 1,
-                        "review_tasks": 1,
-                        "done_tasks": 1,
-                        "medium_tasks": 0,
-                        "critical_tasks": 2,
-                        "high_tasks": 2,
-                        "low_tasks": 0,
-                        "someday_tasks": 0,
-                        "tasks_created_last_7d": 4,
-                    }
-                ],
-                [
-                    {
-                        "project_id": "proj_a",
-                        "total": 4,
-                        "completed": 1,
-                        "doing": 1,
-                        "blocked": 1,
-                        "review": 1,
-                        "todo": 0,
-                        "backlog": 0,
-                        "critical": 1,
-                        "high": 2,
-                        "overdue": 1,
-                    }
-                ],
-                [],
-                [],
+            return_value=[
+                create_metric_task_row(
+                    project_id="proj_a",
+                    status="doing",
+                    priority="critical",
+                    due_date=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
+                ),
+                create_metric_task_row(project_id="proj_a", status="blocked", priority="high"),
+                create_metric_task_row(project_id="proj_a", status="review", priority="high"),
+                create_metric_task_row(project_id="proj_a", status="done", priority="critical"),
             ]
         )
 
@@ -778,6 +705,90 @@ class TestGetOrgMetrics:
             assert summary.blocked == 1
             assert summary.critical == 1
             assert summary.high == 2
+            assert summary.overdue == 1
+
+    @pytest.mark.asyncio
+    async def test_org_metrics_preserves_metadata_fallbacks_and_bad_row_tolerance(self) -> None:
+        """Legacy metadata-backed rows still contribute correctly without crashing metrics."""
+        from sibyl.api.routes.metrics import get_org_metrics
+
+        mock_org = create_mock_org()
+        mock_client = AsyncMock()
+
+        mock_projects = [
+            create_mock_entity(entity_type="project", name="Legacy", entity_id="proj_legacy"),
+        ]
+
+        recent = datetime.now(UTC).isoformat()
+        overdue = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.list_by_type.return_value = mock_projects
+        mock_client.execute_read_org = AsyncMock(
+            return_value=[
+                create_metric_task_row(
+                    metadata=json.dumps(
+                        {
+                            "project_id": "proj_legacy",
+                            "status": "done",
+                            "priority": "critical",
+                            "assignees": "alice",
+                            "created_at": recent,
+                            "completed_at": recent,
+                        }
+                    ),
+                    updated_at=recent,
+                ),
+                create_metric_task_row(
+                    metadata={
+                        "project_id": "proj_legacy",
+                        "status": "doing",
+                        "priority": "critical",
+                        "assignees": ["bob"],
+                        "created_at": recent,
+                        "due_date": overdue,
+                    },
+                    updated_at=recent,
+                ),
+                create_metric_task_row(
+                    project_id="proj_legacy",
+                    metadata={
+                        "status": "todo",
+                        "priority": "high",
+                        "created_at": "not-a-date",
+                        "assignees": "carol",
+                    },
+                    updated_at=recent,
+                ),
+            ]
+        )
+
+        with (
+            patch("sibyl.api.routes.metrics.get_graph_client", return_value=mock_client),
+            patch(
+                "sibyl.api.routes.metrics.EntityManager",
+                return_value=mock_entity_manager,
+            ),
+        ):
+            result = await get_org_metrics(org=mock_org)
+
+            assert result.total_tasks == 3
+            assert result.status_distribution.done == 1
+            assert result.status_distribution.doing == 1
+            assert result.status_distribution.todo == 1
+            assert result.priority_distribution.critical == 2
+            assert result.priority_distribution.high == 1
+            assert result.tasks_created_last_7d == 2
+            assert result.tasks_completed_last_7d == 1
+            assert [assignee.name for assignee in result.top_assignees[:2]] == ["alice", "bob"]
+
+            summary = result.projects_summary[0]
+            assert summary.total == 3
+            assert summary.completed == 1
+            assert summary.doing == 1
+            assert summary.todo == 1
+            assert summary.critical == 1
+            assert summary.high == 1
             assert summary.overdue == 1
 
 

@@ -1,7 +1,9 @@
 """Metrics endpoints for project and org-level analytics."""
 
+import json
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -162,6 +164,73 @@ def _empty_project_task_counts() -> dict[str, int]:
         "high": 0,
         "overdue": 0,
     }
+
+
+def _parse_metadata_dict(metadata: Any) -> dict[str, Any]:
+    """Parse graph metadata payloads into dictionaries."""
+    if isinstance(metadata, dict):
+        return metadata
+    if isinstance(metadata, str):
+        try:
+            parsed = json.loads(metadata)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def _normalize_metric_task_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Normalize raw task rows into the legacy task-shaped metrics format."""
+    metadata = _parse_metadata_dict(row.get("metadata"))
+
+    assignees = row.get("assignees")
+    if assignees is None:
+        assignees = metadata.get("assignees", [])
+
+    created_at = row.get("created_at") or metadata.get("created_at")
+    completed_at = row.get("completed_at") or metadata.get("completed_at")
+    due_date = row.get("due_date") or metadata.get("due_date")
+
+    normalized_metadata = {
+        **metadata,
+        "project_id": row.get("project_id") or metadata.get("project_id"),
+        "status": row.get("status") or metadata.get("status") or "backlog",
+        "priority": row.get("priority") or metadata.get("priority") or "medium",
+        "assignees": assignees,
+        "created_at": created_at,
+        "completed_at": completed_at,
+        "due_date": due_date,
+    }
+
+    return {
+        "created_at": created_at,
+        "completed_at": completed_at,
+        "updated_at": row.get("updated_at"),
+        "metadata": normalized_metadata,
+    }
+
+
+async def _fetch_org_metric_tasks(client, organization_id: str) -> list[dict[str, Any]]:
+    """Fetch raw task rows and normalize legacy metadata fallbacks in Python."""
+    rows = await client.execute_read_org(
+        f"""
+        {_task_metrics_where_clause()}
+        RETURN n.project_id AS project_id,
+               n.status AS status,
+               n.priority AS priority,
+               n.assignees AS assignees,
+               n.created_at AS created_at,
+               n.completed_at AS completed_at,
+               n.updated_at AS updated_at,
+               n.due_date AS due_date,
+               n.metadata AS metadata
+        """,
+        organization_id,
+        group_id=organization_id,
+    )
+
+    return [_normalize_metric_task_row(row) for row in rows]
 
 
 def _task_metrics_where_clause() -> str:
@@ -436,22 +505,60 @@ async def get_org_metrics(
         group_id = str(org.id)
         client = await get_graph_client()
         entity_manager = EntityManager(client, group_id=group_id)
-        now = datetime.now(UTC)
 
         # Get all projects
         projects = await entity_manager.list_by_type(EntityType.PROJECT, limit=500)
-        (
-            status_dist,
-            priority_dist,
-            total_tasks,
-            tasks_created_7d,
-        ) = await _fetch_task_overview(client, group_id, now)
-        project_task_counts = await _fetch_project_task_counts(client, group_id, now)
-        assignees = await _fetch_top_assignees(client, group_id)
-        velocity, tasks_completed_7d = await _fetch_velocity_trend(client, group_id, now)
+        tasks = await _fetch_org_metric_tasks(client, group_id)
+
+        status_dist = _compute_status_distribution(tasks)
+        priority_dist = _compute_priority_distribution(tasks)
+        assignees = _compute_assignee_stats(tasks)
+        velocity = _compute_velocity_trend(tasks)
+
+        total_tasks = len(tasks)
+        tasks_created_7d = _count_recent_tasks(tasks, 7, "created_at")
+        tasks_completed_7d = (
+            sum(p.value for p in velocity[-7:])
+            if len(velocity) >= 7
+            else sum(p.value for p in velocity)
+        )
 
         completed = status_dist.done
         completion_rate = (completed / total_tasks * 100) if total_tasks > 0 else 0.0
+
+        project_task_counts: dict[str, dict[str, int]] = defaultdict(_empty_project_task_counts)
+        now = datetime.now(UTC)
+        for task in tasks:
+            metadata = task.get("metadata", {})
+            proj_id = metadata.get("project_id", "")
+            if proj_id:
+                counts = project_task_counts[proj_id]
+                counts["total"] += 1
+
+                status = metadata.get("status", "backlog")
+                if status == "done":
+                    counts["completed"] += 1
+                elif status == "doing":
+                    counts["doing"] += 1
+                elif status == "blocked":
+                    counts["blocked"] += 1
+                elif status == "review":
+                    counts["review"] += 1
+                elif status == "todo":
+                    counts["todo"] += 1
+                elif status == "backlog":
+                    counts["backlog"] += 1
+
+                if _is_open_status(status):
+                    priority = metadata.get("priority", "")
+                    if priority == "critical":
+                        counts["critical"] += 1
+                    elif priority == "high":
+                        counts["high"] += 1
+
+                    due_date = _parse_iso_date(metadata.get("due_date"))
+                    if due_date and due_date < now:
+                        counts["overdue"] += 1
 
         projects_summary: list[ProjectSummary] = []
         for project in projects:
