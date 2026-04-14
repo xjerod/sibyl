@@ -29,6 +29,38 @@ class TestSourceCliCompatibility:
             url="https://docs.example.com",
             source_type="website",
             crawl_depth=2,
+            include_patterns=[],
+        )
+
+    @patch("sibyl_cli.source.get_client")
+    def test_source_add_accepts_include_alias(self, mock_get_client: MagicMock) -> None:
+        """source add should accept the same include-pattern flag as crawl add."""
+        mock_client = MagicMock()
+        mock_client.create_crawl_source = AsyncMock(return_value={"id": "src_123"})
+        mock_get_client.return_value = mock_client
+
+        runner = CliRunner()
+        result = runner.invoke(
+            source.app,
+            [
+                "add",
+                "https://docs.example.com",
+                "--name",
+                "Example Docs",
+                "--include",
+                "docs/**",
+                "--include",
+                "guides/**",
+            ],
+        )
+
+        assert result.exit_code == 0
+        mock_client.create_crawl_source.assert_called_once_with(
+            name="Example Docs",
+            url="https://docs.example.com",
+            source_type="website",
+            crawl_depth=2,
+            include_patterns=["docs/**", "guides/**"],
         )
 
     @patch("sibyl_cli.crawl_shared.get_client")

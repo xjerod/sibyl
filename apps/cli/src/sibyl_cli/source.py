@@ -108,6 +108,15 @@ def add_source(
         str, typer.Option("--type", "-T", help="Source type: website, github, api_docs")
     ] = "website",
     depth: Annotated[int, typer.Option("--depth", "-d", help="Crawl depth")] = 2,
+    pattern: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--pattern",
+            "--include",
+            "-p",
+            help="URL patterns to include",
+        ),
+    ] = None,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
@@ -126,6 +135,7 @@ def add_source(
                 url=url,
                 source_type=source_type,
                 crawl_depth=depth,
+                include_patterns=pattern or [],
             )
 
             # JSON output (default)
