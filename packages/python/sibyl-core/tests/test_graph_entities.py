@@ -741,7 +741,15 @@ class TestEntityListByType:
         assert results[0].id == "task-001"
         query = mock_driver.execute_query.await_args.args[0]
         assert "toLower(n.status) IN $status_values" in query
+        assert "legacy_status_0_compact" in query
+        assert "n.status IS NULL OR n.status = ''" in query
         assert mock_driver.execute_query.await_args.kwargs["status_values"] == ["doing"]
+        assert mock_driver.execute_query.await_args.kwargs["legacy_status_0_compact"] == (
+            '"status":"doing"'
+        )
+        assert mock_driver.execute_query.await_args.kwargs["legacy_status_0_spaced"] == (
+            '"status": "doing"'
+        )
 
     @pytest.mark.asyncio
     async def test_list_by_type_multiple_statuses(
@@ -849,6 +857,15 @@ class TestEntityListByType:
 
         assert len(results) == 1
         assert results[0].id == "task-001"
+        query = mock_driver.execute_query.await_args.args[0]
+        assert "legacy_project_compact" in query
+        assert "n.project_id IS NULL OR n.project_id = ''" in query
+        assert mock_driver.execute_query.await_args.kwargs["legacy_project_compact"] == (
+            '"project_id":"project-001"'
+        )
+        assert mock_driver.execute_query.await_args.kwargs["legacy_project_spaced"] == (
+            '"project_id": "project-001"'
+        )
 
     @pytest.mark.asyncio
     async def test_list_by_type_with_tags_filter(
@@ -1140,6 +1157,32 @@ class TestEntityListByType:
 
         assert [result.id for result in results] == ["task-001"]
         assert mock_driver.execute_query.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_list_by_type_skips_duplicate_hydration(
+        self,
+        entity_manager: EntityManager,
+        mock_driver: MagicMock,
+    ) -> None:
+        """Repeated UUIDs are skipped before entity hydration work."""
+        duplicate_record = {
+            "uuid": "task-001",
+            "name": "Task 1",
+            "entity_type": "task",
+            "group_id": "test-org-123",
+            "metadata": json.dumps({"status": "todo"}),
+        }
+        mock_driver.execute_query.return_value = ([duplicate_record, duplicate_record], None, None)
+
+        with patch.object(
+            entity_manager,
+            "_record_to_entity",
+            wraps=entity_manager._record_to_entity,
+        ) as record_to_entity:
+            results = await entity_manager.list_by_type(EntityType.TASK, include_archived=True)
+
+        assert [result.id for result in results] == ["task-001"]
+        assert record_to_entity.call_count == 1
 
     @pytest.mark.asyncio
     async def test_list_by_type_empty_results(

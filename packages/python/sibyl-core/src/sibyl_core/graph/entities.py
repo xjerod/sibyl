@@ -72,6 +72,27 @@ def _metadata_json_contains_params(prefix: str, field: str, value: str) -> tuple
     )
 
 
+def _metadata_json_contains_any_params(
+    prefix: str,
+    field: str,
+    values: list[str],
+) -> tuple[dict[str, str], str]:
+    """Build ORed CONTAINS params for legacy JSON-string metadata matching."""
+    params: dict[str, str] = {}
+    clauses: list[str] = []
+    for index, value in enumerate(values):
+        value_params, value_clause = _metadata_json_contains_params(
+            f"{prefix}_{index}",
+            field,
+            value,
+        )
+        params.update(value_params)
+        clauses.append(f"({value_clause})")
+    if not clauses:
+        return {}, "FALSE"
+    return params, " OR ".join(clauses)
+
+
 class EntityManager:
     """Manages entity CRUD operations in the knowledge graph."""
 
@@ -721,22 +742,74 @@ class EntityManager:
 
         if project_id:
             params["project_id"] = project_id
-            where_clauses.append("(n.project_id = $project_id OR n.project_id IS NULL)")
+            legacy_project_params, legacy_project_match = _metadata_json_contains_params(
+                "legacy_project",
+                "project_id",
+                project_id,
+            )
+            params.update(legacy_project_params)
+            where_clauses.append(
+                f"""(
+                    n.project_id = $project_id
+                    OR (
+                        (n.project_id IS NULL OR n.project_id = '')
+                        AND ({legacy_project_match})
+                    )
+                )"""
+            )
 
         if status_list:
             params["status_values"] = status_list
-            where_clauses.append("(n.status IS NULL OR toLower(n.status) IN $status_values)")
+            legacy_status_params, legacy_status_match = _metadata_json_contains_any_params(
+                "legacy_status",
+                "status",
+                status_list,
+            )
+            params.update(legacy_status_params)
+            where_clauses.append(
+                f"""(
+                    toLower(n.status) IN $status_values
+                    OR (
+                        (n.status IS NULL OR n.status = '')
+                        AND ({legacy_status_match})
+                    )
+                )"""
+            )
 
         if priority_list:
             params["priority_values"] = priority_list
+            legacy_priority_params, legacy_priority_match = _metadata_json_contains_any_params(
+                "legacy_priority",
+                "priority",
+                priority_list,
+            )
+            params.update(legacy_priority_params)
             where_clauses.append(
-                "(n.priority IS NULL OR toLower(n.priority) IN $priority_values)"
+                f"""(
+                    toLower(n.priority) IN $priority_values
+                    OR (
+                        (n.priority IS NULL OR n.priority = '')
+                        AND ({legacy_priority_match})
+                    )
+                )"""
             )
 
         if complexity_list:
             params["complexity_values"] = complexity_list
+            legacy_complexity_params, legacy_complexity_match = _metadata_json_contains_any_params(
+                "legacy_complexity",
+                "complexity",
+                complexity_list,
+            )
+            params.update(legacy_complexity_params)
             where_clauses.append(
-                "(n.complexity IS NULL OR toLower(n.complexity) IN $complexity_values)"
+                f"""(
+                    toLower(n.complexity) IN $complexity_values
+                    OR (
+                        (n.complexity IS NULL OR n.complexity = '')
+                        AND ({legacy_complexity_match})
+                    )
+                )"""
             )
 
         if feature:
@@ -815,6 +888,9 @@ class EntityManager:
                 seen_pages.add(page_signature)
 
                 for record in records:
+                    record_uuid = record.get("uuid")
+                    if isinstance(record_uuid, str) and record_uuid in seen_entity_ids:
+                        continue
                     try:
                         entity = self._record_to_entity(record)
                         entity = self._coerce_entity(entity)
