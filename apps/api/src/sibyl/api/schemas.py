@@ -90,6 +90,10 @@ class RawCaptureSummary(BaseModel):
     tags: list[str] = Field(default_factory=list, description="Captured tags")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Original request metadata")
     capture_surface: str | None = Field(default=None, description="Where the capture originated")
+    review_state: Literal["pending", "deferred", "archived"] = Field(
+        default="pending",
+        description="Review queue state",
+    )
     created_by_user_id: str | None = Field(
         default=None, description="User who initiated the capture"
     )
@@ -109,6 +113,15 @@ class RawCaptureListResponse(BaseModel):
     limit: int = Field(default=50, description="Results per page")
     offset: int = Field(default=0, description="Current offset")
     has_more: bool = Field(default=False, description="Whether more results exist")
+
+
+class RawCaptureReviewUpdate(BaseModel):
+    """Review-state update for a raw capture."""
+
+    review_state: Literal["pending", "deferred", "archived"] = Field(
+        ...,
+        description="Next review queue state",
+    )
 
 
 # =============================================================================

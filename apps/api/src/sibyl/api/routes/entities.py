@@ -22,6 +22,7 @@ from sibyl.api.schemas import (
     EntityUpdate,
     RawCaptureListResponse,
     RawCaptureResponse,
+    RawCaptureReviewUpdate,
     RawCaptureSummary,
     RelatedEntitySummary,
 )
@@ -29,7 +30,11 @@ from sibyl.api.websocket import broadcast_event
 from sibyl.auth.audit import AuditLogger
 from sibyl.auth.authorization import ProjectRole, verify_entity_project_access
 from sibyl.auth.context import AuthContext
-from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
+from sibyl.auth.dependencies import (
+    get_auth_context,
+    get_current_organization,
+    require_org_role,
+)
 from sibyl.db import CrawledDocument, CrawlSource, DocumentChunk, get_session
 from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import Organization, OrganizationRole, RawCapture
@@ -120,6 +125,32 @@ async def _archive_raw_capture(
         )
     )
     await session.commit()
+
+
+def _raw_capture_review_state(capture: RawCapture) -> str:
+    return str((capture.metadata_ or {}).get("review_state") or "pending")
+
+
+def _serialize_raw_capture_summary(capture: RawCapture) -> RawCaptureSummary:
+    return RawCaptureSummary(
+        id=str(capture.id),
+        entity_id=capture.entity_id,
+        title=capture.title,
+        entity_type=capture.entity_type,
+        tags=list(capture.tags or []),
+        metadata=dict(capture.metadata_ or {}),
+        capture_surface=capture.capture_surface,
+        review_state=_raw_capture_review_state(capture),
+        created_by_user_id=str(capture.created_by_user_id) if capture.created_by_user_id else None,
+        created_at=capture.created_at,
+    )
+
+
+def _serialize_raw_capture(capture: RawCapture) -> RawCaptureResponse:
+    return RawCaptureResponse(
+        **_serialize_raw_capture_summary(capture).model_dump(),
+        raw_content=capture.raw_content,
+    )
 
 
 async def _list_all_entities_paginated(
@@ -273,6 +304,7 @@ async def list_raw_captures(
     session: AsyncSession = Depends(get_session_dependency),
     entity_type: str | None = Query(default=None, description="Filter by entity type"),
     capture_surface: str | None = Query(default=None, description="Filter by capture surface"),
+    review_state: str | None = Query(default=None, description="Filter by review queue state"),
     limit: int = Query(default=50, ge=1, le=200, description="Items per page"),
     offset: int = Query(default=0, ge=0, description="Results to skip"),
 ) -> RawCaptureListResponse:
@@ -289,6 +321,14 @@ async def list_raw_captures(
             stmt = stmt.where(col(RawCapture.entity_type) == entity_type)
         if capture_surface:
             stmt = stmt.where(col(RawCapture.capture_surface) == capture_surface)
+        if review_state:
+            if review_state == "pending":
+                stmt = stmt.where(
+                    col(RawCapture.metadata_).op("->>")("review_state").is_(None)
+                    | (col(RawCapture.metadata_).op("->>")("review_state") == "pending")
+                )
+            else:
+                stmt = stmt.where(col(RawCapture.metadata_).op("->>")("review_state") == review_state)
 
         result = await session.execute(stmt)
         rows = result.scalars().all()
@@ -296,22 +336,7 @@ async def list_raw_captures(
         captures = rows[:limit]
 
         return RawCaptureListResponse(
-            captures=[
-                RawCaptureSummary(
-                    id=str(capture.id),
-                    entity_id=capture.entity_id,
-                    title=capture.title,
-                    entity_type=capture.entity_type,
-                    tags=list(capture.tags or []),
-                    metadata=dict(capture.metadata_ or {}),
-                    capture_surface=capture.capture_surface,
-                    created_by_user_id=str(capture.created_by_user_id)
-                    if capture.created_by_user_id
-                    else None,
-                    created_at=capture.created_at,
-                )
-                for capture in captures
-            ],
+            captures=[_serialize_raw_capture_summary(capture) for capture in captures],
             limit=limit,
             offset=offset,
             has_more=has_more,
@@ -341,26 +366,63 @@ async def get_raw_capture(
         if not capture:
             raise HTTPException(status_code=404, detail=f"Raw capture not found: {capture_id}")
 
-        return RawCaptureResponse(
-            id=str(capture.id),
-            entity_id=capture.entity_id,
-            title=capture.title,
-            raw_content=capture.raw_content,
-            entity_type=capture.entity_type,
-            tags=list(capture.tags or []),
-            metadata=dict(capture.metadata_ or {}),
-            capture_surface=capture.capture_surface,
-            created_by_user_id=str(capture.created_by_user_id)
-            if capture.created_by_user_id
-            else None,
-            created_at=capture.created_at,
-        )
+        return _serialize_raw_capture(capture)
     except HTTPException:
         raise
     except Exception as e:
         log.exception("get_raw_capture_failed", capture_id=str(capture_id), error=str(e))
         raise HTTPException(
             status_code=500, detail="Failed to get raw capture. Please try again."
+        ) from e
+
+
+@router.patch(
+    "/captures/{capture_id}",
+    response_model=RawCaptureResponse,
+    dependencies=[Depends(require_org_role(*_WRITE_ROLES))],
+)
+async def update_raw_capture_review_state(
+    capture_id: UUID,
+    update: RawCaptureReviewUpdate,
+    org: Organization = Depends(get_current_organization),
+    session: AsyncSession = Depends(get_session_dependency),
+) -> RawCaptureResponse:
+    """Update review-state metadata for a raw capture."""
+    try:
+        result = await session.execute(
+            select(RawCapture).where(
+                col(RawCapture.id) == capture_id,
+                col(RawCapture.organization_id) == org.id,
+            )
+        )
+        capture = result.scalar_one_or_none()
+        if not capture:
+            raise HTTPException(status_code=404, detail=f"Raw capture not found: {capture_id}")
+
+        metadata = dict(capture.metadata_ or {})
+        metadata["review_state"] = update.review_state
+        metadata["reviewed_at"] = datetime.now(UTC).isoformat()
+        if update.review_state == "pending":
+            metadata.pop("deferred_at", None)
+            metadata.pop("archived_at", None)
+        elif update.review_state == "deferred":
+            metadata["deferred_at"] = metadata["reviewed_at"]
+            metadata.pop("archived_at", None)
+        else:
+            metadata["archived_at"] = metadata["reviewed_at"]
+            metadata.pop("deferred_at", None)
+
+        capture.metadata_ = metadata
+        session.add(capture)
+        await session.commit()
+        await session.refresh(capture)
+        return _serialize_raw_capture(capture)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("update_raw_capture_review_state_failed", capture_id=str(capture_id), error=str(e))
+        raise HTTPException(
+            status_code=500, detail="Failed to update raw capture review state. Please try again."
         ) from e
 
 

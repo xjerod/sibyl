@@ -7,7 +7,12 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from sibyl.api.routes.entities import get_raw_capture, list_raw_captures
+from sibyl.api.routes.entities import (
+    get_raw_capture,
+    list_raw_captures,
+    update_raw_capture_review_state,
+)
+from sibyl.api.schemas import RawCaptureReviewUpdate
 from sibyl.db.models import RawCapture
 
 
@@ -17,7 +22,18 @@ def _org() -> MagicMock:
     return org
 
 
-def _capture(*, org_id, title: str, surface: str, entity_type: str = "episode") -> RawCapture:
+def _capture(
+    *,
+    org_id,
+    title: str,
+    surface: str,
+    entity_type: str = "episode",
+    review_state: str | None = None,
+) -> RawCapture:
+    metadata = {"capture_mode": "quick", "capture_surface": surface}
+    if review_state is not None:
+        metadata["review_state"] = review_state
+
     return RawCapture(
         id=uuid4(),
         organization_id=org_id,
@@ -26,7 +42,7 @@ def _capture(*, org_id, title: str, surface: str, entity_type: str = "episode") 
         raw_content=f"raw::{title}",
         entity_type=entity_type,
         tags=["alpha"],
-        metadata_={"capture_mode": "quick", "capture_surface": surface},
+        metadata_=metadata,
         capture_surface=surface,
         created_by_user_id=uuid4(),
         created_at=datetime(2026, 4, 14, 16, 0, tzinfo=UTC),
@@ -59,6 +75,31 @@ async def test_list_raw_captures_returns_paginated_summaries() -> None:
     assert response.has_more is True
     assert [capture.title for capture in response.captures] == ["Newest", "Older"]
     assert response.captures[0].metadata["capture_surface"] == "dashboard"
+    assert response.captures[0].review_state == "pending"
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_list_raw_captures_supports_review_state_filter() -> None:
+    org = _org()
+    session = MagicMock()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [
+        _capture(org_id=org.id, title="Deferred", surface="dashboard", review_state="deferred"),
+    ]
+    session.execute = AsyncMock(return_value=result)
+
+    response = await list_raw_captures(
+        org=org,
+        session=session,
+        entity_type=None,
+        capture_surface=None,
+        review_state="deferred",
+        limit=10,
+        offset=0,
+    )
+
+    assert [capture.review_state for capture in response.captures] == ["deferred"]
     session.execute.assert_awaited_once()
 
 
@@ -77,6 +118,7 @@ async def test_get_raw_capture_returns_verbatim_content() -> None:
     assert response.title == "Quick memory"
     assert response.raw_content == "raw::Quick memory"
     assert response.capture_surface == "dashboard"
+    assert response.review_state == "pending"
 
 
 @pytest.mark.asyncio
@@ -90,3 +132,31 @@ async def test_get_raw_capture_raises_not_found_for_other_org() -> None:
         await get_raw_capture(uuid4(), org=_org(), session=session)
 
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_raw_capture_review_state_updates_metadata() -> None:
+    org = _org()
+    capture = _capture(org_id=org.id, title="Quick memory", surface="dashboard")
+    session = MagicMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = capture
+    session.execute = AsyncMock(return_value=result)
+    session.add = MagicMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+
+    response = await update_raw_capture_review_state(
+        capture.id,
+        RawCaptureReviewUpdate(review_state="deferred"),
+        org=org,
+        session=session,
+    )
+
+    assert response.review_state == "deferred"
+    assert capture.metadata_["review_state"] == "deferred"
+    assert "reviewed_at" in capture.metadata_
+    assert "deferred_at" in capture.metadata_
+    session.add.assert_called_once_with(capture)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(capture)

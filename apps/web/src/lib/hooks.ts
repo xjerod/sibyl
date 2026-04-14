@@ -536,6 +536,24 @@ export function useRawCapture(
   });
 }
 
+export function useUpdateRawCaptureReviewState() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      reviewState,
+    }: {
+      id: string;
+      reviewState: import('./api').RawCaptureReviewState;
+    }) => api.rawCaptures.updateReviewState(id, reviewState),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.rawCaptures.all });
+      queryClient.setQueryData(queryKeys.rawCaptures.detail(variables.id), data);
+    },
+  });
+}
+
 export function useCreateEntity() {
   const queryClient = useQueryClient();
 

@@ -181,6 +181,7 @@ export interface RawCaptureSummary {
   tags: string[];
   metadata: Record<string, unknown>;
   capture_surface: string | null;
+  review_state: 'pending' | 'deferred' | 'archived';
   created_by_user_id: string | null;
   created_at: string;
 }
@@ -195,6 +196,8 @@ export interface RawCaptureListResponse {
   offset: number;
   has_more: boolean;
 }
+
+export type RawCaptureReviewState = 'pending' | 'deferred' | 'archived';
 
 export type EntitySortField = 'name' | 'created_at' | 'updated_at' | 'entity_type';
 export type SortOrder = 'asc' | 'desc';
@@ -1360,12 +1363,14 @@ export const api = {
     list: (params?: {
       entity_type?: string;
       capture_surface?: string;
+      review_state?: RawCaptureReviewState;
       limit?: number;
       offset?: number;
     }) => {
       const searchParams = new URLSearchParams();
       if (params?.entity_type) searchParams.set('entity_type', params.entity_type);
       if (params?.capture_surface) searchParams.set('capture_surface', params.capture_surface);
+      if (params?.review_state) searchParams.set('review_state', params.review_state);
       if (params?.limit) searchParams.set('limit', params.limit.toString());
       if (params?.offset) searchParams.set('offset', params.offset.toString());
       const query = searchParams.toString();
@@ -1373,6 +1378,11 @@ export const api = {
     },
 
     get: (id: string) => fetchApi<RawCapture>(`/entities/captures/${encodeURIComponent(id)}`),
+    updateReviewState: (id: string, review_state: RawCaptureReviewState) =>
+      fetchApi<RawCapture>(`/entities/captures/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ review_state }),
+      }),
   },
 
   // Search

@@ -5,10 +5,15 @@ const replace = vi.fn();
 const navigationState = vi.hoisted(() => ({
   searchParams: new URLSearchParams(),
 }));
+const toast = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+}));
 
 const hooks = vi.hoisted(() => ({
   useRawCaptures: vi.fn(),
   useRawCapture: vi.fn(),
+  useUpdateRawCaptureReviewState: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -18,6 +23,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/lib/hooks', () => hooks);
+vi.mock('sonner', () => ({ toast }));
 
 import ArchivePage from './page';
 
@@ -31,6 +37,7 @@ const captureList = {
       tags: ['alpha'],
       metadata: { capture_mode: 'quick', capture_surface: 'dashboard' },
       capture_surface: 'dashboard',
+      review_state: 'pending',
       created_by_user_id: 'user-1',
       created_at: '2026-04-14T16:00:00Z',
     },
@@ -42,6 +49,7 @@ const captureList = {
       tags: ['beta'],
       metadata: { capture_mode: 'quick', capture_surface: 'cli' },
       capture_surface: 'cli',
+      review_state: 'pending',
       created_by_user_id: null,
       created_at: '2026-04-14T15:30:00Z',
     },
@@ -54,11 +62,17 @@ const captureList = {
 describe('ArchivePage', () => {
   beforeEach(() => {
     replace.mockReset();
+    toast.success.mockReset();
+    toast.error.mockReset();
     navigationState.searchParams = new URLSearchParams();
     hooks.useRawCaptures.mockReturnValue({
       data: captureList,
       isLoading: false,
       error: null,
+    });
+    hooks.useUpdateRawCaptureReviewState.mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: false,
     });
     hooks.useRawCapture.mockImplementation((id: string) => ({
       data:
@@ -135,5 +149,23 @@ describe('ArchivePage', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }));
 
     expect(replace).toHaveBeenCalledWith('/archive?id=raw-2', { scroll: false });
+  });
+
+  it('sends a defer action for the selected capture', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({
+      ...captureList.captures[0],
+      raw_content: 'remember this exact text from the dashboard',
+      review_state: 'deferred',
+    });
+    hooks.useUpdateRawCaptureReviewState.mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    });
+
+    const { user } = render(<ArchivePage />);
+
+    await user.click(screen.getByRole('button', { name: 'Defer' }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({ id: 'raw-1', reviewState: 'deferred' });
   });
 });

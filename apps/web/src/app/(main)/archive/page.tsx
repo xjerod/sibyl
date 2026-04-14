@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Breadcrumb } from '@/components/layout/breadcrumb';
 import { PageHeader } from '@/components/layout/page-header';
 import { EntityBadge } from '@/components/ui/badge';
@@ -29,10 +30,11 @@ import {
 import { LoadingState } from '@/components/ui/spinner';
 import { ErrorState } from '@/components/ui/tooltip';
 import { formatDateTime, formatDistanceToNow } from '@/lib/constants';
-import { useRawCapture, useRawCaptures } from '@/lib/hooks';
+import { useRawCapture, useRawCaptures, useUpdateRawCaptureReviewState } from '@/lib/hooks';
 
 const MAX_CAPTURE_RESULTS = 200;
 type LinkFilter = 'all' | 'linked' | 'unlinked';
+type ReviewFilter = 'all' | 'pending' | 'deferred' | 'archived';
 
 function titleCase(value: string): string {
   return value
@@ -78,15 +80,31 @@ function normalizeLinkFilter(value: string | null): LinkFilter {
   return value === 'linked' || value === 'unlinked' ? value : 'all';
 }
 
+function normalizeReviewFilter(value: string | null, linkFilter: LinkFilter): ReviewFilter {
+  if (value === 'pending' || value === 'deferred' || value === 'archived') {
+    return value;
+  }
+
+  return linkFilter === 'unlinked' ? 'pending' : 'all';
+}
+
+function reviewStateLabel(value: ReviewFilter | 'pending' | 'deferred' | 'archived'): string {
+  if (value === 'all') return 'All states';
+  if (value === 'pending') return 'Open';
+  return titleCase(value);
+}
+
 export default function ArchivePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const initialLinkFilter = normalizeLinkFilter(searchParams.get('link'));
 
   const [searchQuery, setSearchQuery] = useState('');
   const [surfaceFilter, setSurfaceFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [linkFilter, setLinkFilter] = useState<LinkFilter>(() =>
-    normalizeLinkFilter(searchParams.get('link'))
+  const [linkFilter, setLinkFilter] = useState<LinkFilter>(initialLinkFilter);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>(() =>
+    normalizeReviewFilter(searchParams.get('review'), initialLinkFilter)
   );
 
   const { data, isLoading, error } = useRawCaptures({
@@ -94,6 +112,7 @@ export default function ArchivePage() {
     entity_type: typeFilter === 'all' ? undefined : typeFilter,
     capture_surface: surfaceFilter === 'all' ? undefined : surfaceFilter,
   });
+  const updateReviewState = useUpdateRawCaptureReviewState();
 
   const captures = data?.captures ?? [];
   const surfaceOptions = useMemo(
@@ -121,6 +140,9 @@ export default function ArchivePage() {
       if (linkFilter === 'unlinked' && capture.entity_id) {
         return false;
       }
+      if (reviewFilter !== 'all' && capture.review_state !== reviewFilter) {
+        return false;
+      }
       if (!query) {
         return true;
       }
@@ -135,7 +157,7 @@ export default function ArchivePage() {
         metadata.includes(query)
       );
     });
-  }, [captures, linkFilter, searchQuery]);
+  }, [captures, linkFilter, reviewFilter, searchQuery]);
 
   const requestedCaptureId = searchParams.get('id');
   const activeCaptureId = useMemo(() => {
@@ -189,13 +211,27 @@ export default function ArchivePage() {
     setSurfaceFilter('all');
     setTypeFilter('all');
     setLinkFilter('all');
-    replaceArchiveParams({ link: null });
+    setReviewFilter('all');
+    replaceArchiveParams({ link: null, review: null });
   }, [replaceArchiveParams]);
 
   const updateLinkFilter = useCallback(
     (next: LinkFilter) => {
       setLinkFilter(next);
-      replaceArchiveParams({ link: next === 'all' ? null : next });
+      const nextReview = next === 'unlinked' && reviewFilter === 'all' ? 'pending' : reviewFilter;
+      setReviewFilter(nextReview);
+      replaceArchiveParams({
+        link: next === 'all' ? null : next,
+        review: nextReview === 'all' ? null : nextReview,
+      });
+    },
+    [replaceArchiveParams, reviewFilter]
+  );
+
+  const updateReviewFilter = useCallback(
+    (next: ReviewFilter) => {
+      setReviewFilter(next);
+      replaceArchiveParams({ review: next === 'all' ? null : next });
     },
     [replaceArchiveParams]
   );
@@ -213,14 +249,39 @@ export default function ArchivePage() {
     setLinkFilter(current => (current === next ? current : next));
   }, [searchParams]);
 
+  useEffect(() => {
+    const nextLink = normalizeLinkFilter(searchParams.get('link'));
+    const nextReview = normalizeReviewFilter(searchParams.get('review'), nextLink);
+    setReviewFilter(current => (current === nextReview ? current : nextReview));
+  }, [searchParams]);
+
   const stats = useMemo(() => {
     return {
       total: captures.length,
       surfaces: new Set(captures.map(capture => capture.capture_surface).filter(Boolean)).size,
       linked: captures.filter(capture => capture.entity_id).length,
       unlinked: captures.filter(capture => !capture.entity_id).length,
+      deferred: captures.filter(capture => capture.review_state === 'deferred').length,
+      archived: captures.filter(capture => capture.review_state === 'archived').length,
     };
   }, [captures]);
+
+  async function handleReviewAction(next: 'pending' | 'deferred' | 'archived') {
+    if (!selectedCapture) return;
+
+    try {
+      await updateReviewState.mutateAsync({ id: selectedCapture.id, reviewState: next });
+      toast.success(
+        next === 'pending'
+          ? 'Capture returned to the review queue'
+          : next === 'deferred'
+            ? 'Capture deferred'
+            : 'Capture archived from the queue'
+      );
+    } catch {
+      toast.error('Failed to update capture review state');
+    }
+  }
 
   if (error) {
     return (
@@ -313,6 +374,38 @@ export default function ArchivePage() {
                       active
                         ? 'border-sc-purple/30 bg-sc-purple/15 text-sc-purple'
                         : 'border-sc-fg-subtle/20 bg-sc-bg-highlight text-sc-fg-muted hover:border-sc-cyan/30 hover:text-sc-fg-primary'
+                    }`}
+                  >
+                    <span>{option.label}</span>
+                    <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">
+                      {option.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: 'all', label: 'All states', count: captures.length },
+                {
+                  value: 'pending',
+                  label: 'Open',
+                  count: captures.length - stats.deferred - stats.archived,
+                },
+                { value: 'deferred', label: 'Deferred', count: stats.deferred },
+                { value: 'archived', label: 'Archived', count: stats.archived },
+              ].map(option => {
+                const active = reviewFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => updateReviewFilter(option.value as ReviewFilter)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      active
+                        ? 'border-sc-cyan/30 bg-sc-cyan/15 text-sc-cyan'
+                        : 'border-sc-fg-subtle/20 bg-sc-bg-highlight text-sc-fg-muted hover:border-sc-purple/30 hover:text-sc-fg-primary'
                     }`}
                   >
                     <span>{option.label}</span>
@@ -417,6 +510,11 @@ export default function ArchivePage() {
                           Needs link
                         </span>
                       )}
+                      {capture.review_state !== 'pending' && (
+                        <span className="rounded border border-sc-cyan/30 bg-sc-cyan/10 px-2 py-0.5 text-xs font-medium text-sc-cyan">
+                          {reviewStateLabel(capture.review_state)}
+                        </span>
+                      )}
                       {capture.tags.slice(0, 3).map(tag => (
                         <span
                           key={`${capture.id}-${tag}`}
@@ -483,6 +581,33 @@ export default function ArchivePage() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    loading={updateReviewState.isPending}
+                    disabled={selectedCapture.review_state === 'pending'}
+                    onClick={() => handleReviewAction('pending')}
+                  >
+                    Return to Queue
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={updateReviewState.isPending}
+                    disabled={selectedCapture.review_state === 'deferred'}
+                    onClick={() => handleReviewAction('deferred')}
+                  >
+                    Defer
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    loading={updateReviewState.isPending}
+                    disabled={selectedCapture.review_state === 'archived'}
+                    onClick={() => handleReviewAction('archived')}
+                  >
+                    Archive
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={!previousCaptureId}
                     onClick={() => updateSelection(previousCaptureId || null)}
                   >
@@ -511,6 +636,11 @@ export default function ArchivePage() {
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <EntityBadge type={selectedCapture.entity_type} size="md" showIcon />
                       <SurfaceBadge surface={selectedCapture.capture_surface} />
+                      {selectedCapture.review_state !== 'pending' && (
+                        <span className="rounded border border-sc-cyan/30 bg-sc-cyan/10 px-2 py-0.5 text-xs font-medium text-sc-cyan">
+                          {reviewStateLabel(selectedCapture.review_state)}
+                        </span>
+                      )}
                       {selectedCapture.tags.map(tag => (
                         <span
                           key={`${selectedCapture.id}-${tag}`}
