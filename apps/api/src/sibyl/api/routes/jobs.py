@@ -33,6 +33,7 @@ async def _job_visible_to_org(
     *,
     org: Organization,
     session: AsyncSession,
+    legacy_source_ids: set[UUID] | None = None,
 ) -> bool:
     """Return True if job's target belongs to this org.
 
@@ -58,6 +59,8 @@ async def _job_visible_to_org(
             source_uuid = UUID(str(args[0]))
         except ValueError:
             return False
+        if legacy_source_ids is not None:
+            return source_uuid in legacy_source_ids
         result = await session.execute(
             select(CrawlSource).where(
                 col(CrawlSource.id) == source_uuid,
@@ -68,6 +71,41 @@ async def _job_visible_to_org(
 
     # Unknown job type: hide by default.
     return False
+
+
+async def _resolve_visible_legacy_source_ids(
+    jobs: list[Any],
+    *,
+    org: Organization,
+    session: AsyncSession,
+) -> set[UUID]:
+    source_ids: set[UUID] = set()
+
+    for job in jobs:
+        fn = getattr(job, "function", "") or ""
+        if fn not in {"crawl_source", "sync_source"}:
+            continue
+
+        args: list[Any] = list(getattr(job, "args", None) or ())
+        kwargs = dict(getattr(job, "kwargs", None) or {})
+        if kwargs.get("organization_id") is not None or not args:
+            continue
+
+        try:
+            source_ids.add(UUID(str(args[0])))
+        except ValueError:
+            continue
+
+    if not source_ids:
+        return set()
+
+    result = await session.execute(
+        select(col(CrawlSource.id)).where(
+            col(CrawlSource.organization_id) == org.id,
+            col(CrawlSource.id).in_(source_ids),
+        )
+    )
+    return set(result.scalars().all())
 
 
 # IMPORTANT: Health endpoint must come before /{job_id} to avoid route matching issues
@@ -105,7 +143,21 @@ async def list_jobs(
 
     try:
         jobs = await _list_jobs(function=function, limit=limit)
-        visible = [j for j in jobs if await _job_visible_to_org(j, org=org, session=session)]
+        legacy_source_ids = await _resolve_visible_legacy_source_ids(
+            jobs,
+            org=org,
+            session=session,
+        )
+        visible = [
+            j
+            for j in jobs
+            if await _job_visible_to_org(
+                j,
+                org=org,
+                session=session,
+                legacy_source_ids=legacy_source_ids,
+            )
+        ]
         return {
             "jobs": [
                 {

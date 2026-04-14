@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 from fastapi import HTTPException
 
-from sibyl.api.routes.jobs import _job_visible_to_org, cancel_job
+from sibyl.api.routes.jobs import _job_visible_to_org, cancel_job, list_jobs
 
 
 class TestJobVisibility:
@@ -54,6 +54,90 @@ class TestJobVisibility:
 
         assert await _job_visible_to_org(job, org=org, session=session) is True
         session.execute.assert_awaited_once()
+
+
+class TestListJobsRoute:
+    @pytest.mark.asyncio
+    async def test_list_jobs_batches_legacy_source_visibility_checks(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        session = AsyncMock()
+
+        visible_legacy_source_id = UUID("00000000-0000-0000-0000-000000000222")
+        invisible_legacy_source_id = UUID("00000000-0000-0000-0000-000000000333")
+        embedded_visible_source_id = UUID("00000000-0000-0000-0000-000000000444")
+        embedded_hidden_source_id = UUID("00000000-0000-0000-0000-000000000555")
+
+        jobs = [
+            SimpleNamespace(
+                job_id="crawl:legacy-visible",
+                function="crawl_source",
+                status=SimpleNamespace(value="queued"),
+                enqueue_time=None,
+                start_time=None,
+                finish_time=None,
+                error=None,
+                args=(str(visible_legacy_source_id),),
+                kwargs=None,
+            ),
+            SimpleNamespace(
+                job_id="sync:legacy-hidden",
+                function="sync_source",
+                status=SimpleNamespace(value="queued"),
+                enqueue_time=None,
+                start_time=None,
+                finish_time=None,
+                error=None,
+                args=(str(invisible_legacy_source_id),),
+                kwargs=None,
+            ),
+            SimpleNamespace(
+                job_id="crawl:embedded-visible",
+                function="crawl_source",
+                status=SimpleNamespace(value="queued"),
+                enqueue_time=None,
+                start_time=None,
+                finish_time=None,
+                error=None,
+                args=(str(embedded_visible_source_id),),
+                kwargs={"organization_id": str(org.id)},
+            ),
+            SimpleNamespace(
+                job_id="crawl:embedded-hidden",
+                function="crawl_source",
+                status=SimpleNamespace(value="queued"),
+                enqueue_time=None,
+                start_time=None,
+                finish_time=None,
+                error=None,
+                args=(str(embedded_hidden_source_id),),
+                kwargs={"organization_id": "00000000-0000-0000-0000-000000000999"},
+            ),
+            SimpleNamespace(
+                job_id="other",
+                function="create_entity",
+                status=SimpleNamespace(value="queued"),
+                enqueue_time=None,
+                start_time=None,
+                finish_time=None,
+                error=None,
+                args=(),
+                kwargs=None,
+            ),
+        ]
+
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [visible_legacy_source_id]
+        session.execute.return_value = result
+
+        with patch("sibyl.jobs.queue.list_jobs", AsyncMock(return_value=jobs)):
+            response = await list_jobs(org=org, session=session)
+
+        session.execute.assert_awaited_once()
+        assert [job["job_id"] for job in response["jobs"]] == [
+            "crawl:legacy-visible",
+            "crawl:embedded-visible",
+        ]
+        assert response["total"] == 2
 
 
 class TestCancelJobRoute:
