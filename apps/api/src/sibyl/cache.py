@@ -3,7 +3,6 @@
 Provides in-memory LRU caching with TTL support for:
 - Search query results
 - Entity lookups by ID
-- Community summaries
 
 Supports optional Redis backend for distributed caching.
 """
@@ -169,33 +168,25 @@ class QueryCache:
     Manages separate caches for:
     - Search results (keyed by query + filters)
     - Entity lookups (keyed by entity ID)
-    - Community summaries (keyed by community ID)
     """
 
     def __init__(
         self,
         search_maxsize: int = 500,
         entity_maxsize: int = 2000,
-        community_maxsize: int = 100,
         search_ttl: float = 300.0,  # 5 minutes
         entity_ttl: float = 600.0,  # 10 minutes
-        community_ttl: float = 1800.0,  # 30 minutes
     ) -> None:
         """Initialize query caches.
 
         Args:
             search_maxsize: Max cached search queries.
             entity_maxsize: Max cached entities.
-            community_maxsize: Max cached communities.
             search_ttl: Search result TTL in seconds.
             entity_ttl: Entity lookup TTL in seconds.
-            community_ttl: Community summary TTL in seconds.
         """
         self._search_cache: LRUCache[Any] = LRUCache(maxsize=search_maxsize, default_ttl=search_ttl)
         self._entity_cache: LRUCache[Any] = LRUCache(maxsize=entity_maxsize, default_ttl=entity_ttl)
-        self._community_cache: LRUCache[Any] = LRUCache(
-            maxsize=community_maxsize, default_ttl=community_ttl
-        )
         self._redis: Redis | None = None
 
     @staticmethod
@@ -256,43 +247,14 @@ class QueryCache:
         log.info("cache_invalidate_by_type", entity_type=entity_type, count=count)
         return count
 
-    # -------------------------------------------------------------------------
-    # Community Cache
-    # -------------------------------------------------------------------------
-
-    def get_community(self, community_id: str) -> Any | None:
-        """Get cached community summary."""
-        return self._community_cache.get(f"community:{community_id}")
-
-    def set_community(self, community_id: str, summary: Any, ttl: float | None = None) -> None:
-        """Cache a community summary."""
-        self._community_cache.set(f"community:{community_id}", summary, ttl)
-
-    def invalidate_community(self, community_id: str) -> bool:
-        """Invalidate a community summary."""
-        return self._community_cache.delete(f"community:{community_id}")
-
-    def invalidate_all_communities(self) -> int:
-        """Invalidate all community summaries."""
-        count = self._community_cache.size
-        self._community_cache.clear()
-        log.info("cache_invalidate_communities", count=count)
-        return count
-
-    # -------------------------------------------------------------------------
-    # Global Operations
-    # -------------------------------------------------------------------------
-
     def clear_all(self) -> dict[str, int]:
         """Clear all caches."""
         counts = {
             "search": self._search_cache.size,
             "entity": self._entity_cache.size,
-            "community": self._community_cache.size,
         }
         self._search_cache.clear()
         self._entity_cache.clear()
-        self._community_cache.clear()
         log.info("cache_clear_all", **counts)
         return counts
 
@@ -306,10 +268,6 @@ class QueryCache:
             "entity": {
                 **self._entity_cache.stats.to_dict(),
                 "size": self._entity_cache.size,
-            },
-            "community": {
-                **self._community_cache.stats.to_dict(),
-                "size": self._community_cache.size,
             },
         }
 

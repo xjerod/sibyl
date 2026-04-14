@@ -189,24 +189,15 @@ class TestQueryCache:
         assert qc.get_entity("ent-1") is None
         assert qc.get_search("test") is None  # Also cleared
 
-    def test_community_cache(self) -> None:
-        """Community summaries are cached."""
-        qc = QueryCache()
-        summary = {"id": "comm-1", "members": 10}
-        qc.set_community("comm-1", summary)
-        assert qc.get_community("comm-1") == summary
-
     def test_clear_all(self) -> None:
         """Clear all removes everything."""
         qc = QueryCache()
         qc.set_search("q", [1])
         qc.set_entity("e", {"x": 1})
-        qc.set_community("c", {"y": 2})
 
         counts = qc.clear_all()
         assert counts["search"] == 1
         assert counts["entity"] == 1
-        assert counts["community"] == 1
         assert qc.get_search("q") is None
 
     def test_get_stats(self) -> None:
@@ -219,7 +210,6 @@ class TestQueryCache:
         stats = qc.get_stats()
         assert "search" in stats
         assert "entity" in stats
-        assert "community" in stats
         assert stats["search"]["hits"] == 1
         assert stats["search"]["misses"] == 1
 
