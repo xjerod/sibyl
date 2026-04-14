@@ -24,6 +24,7 @@ from sibyl.cli.common import (
 
 # Import server-only subcommand apps
 from sibyl.cli.db import app as db_app
+from sibyl.cli.export import app as export_app
 from sibyl.cli.generate import app as generate_app
 from sibyl.cli.up_cmd import down, status as up_status, up
 
@@ -37,6 +38,7 @@ app = typer.Typer(
 
 # Register subcommand groups
 app.add_typer(db_app, name="db")
+app.add_typer(export_app, name="export")
 app.add_typer(generate_app, name="generate")
 
 # Register top-level commands from up_cmd

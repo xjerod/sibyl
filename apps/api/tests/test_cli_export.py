@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 from typer.testing import CliRunner
 
 from sibyl.cli import export as export_cli
+from sibyl.cli.main import app as main_cli_app
 from sibyl_core.models.entities import EntityType
 
 
@@ -54,6 +55,15 @@ class _FakeRelationship:
 
 
 runner = CliRunner()
+
+
+def test_export_commands_are_registered_on_main_cli() -> None:
+    result = runner.invoke(main_cli_app, ["export", "--help"])
+
+    assert result.exit_code == 0
+    assert "graph" in result.stdout
+    assert "tasks" in result.stdout
+    assert "entities" in result.stdout
 
 
 def test_export_tasks_pages_all_results(tmp_path: Path, monkeypatch) -> None:
