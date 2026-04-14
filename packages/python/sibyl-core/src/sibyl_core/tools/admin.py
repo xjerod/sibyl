@@ -723,10 +723,27 @@ async def backfill_task_project_relationships(
         tasks = await entity_manager.list_by_type(EntityType.TASK, limit=10000)
         log.info("Found tasks to process", count=len(tasks))
 
-        # Get all projects for validation
-        projects = await entity_manager.list_by_type(EntityType.PROJECT, limit=1000)
-        project_ids = {p.id for p in projects}
-        log.info("Found projects", count=len(projects))
+        # Get all projects for validation.
+        project_ids: set[str] = set()
+        project_offset = 0
+        project_page_size = 1000
+        while True:
+            projects = await entity_manager.list_by_type(
+                EntityType.PROJECT,
+                limit=project_page_size,
+                offset=project_offset,
+                include_archived=True,
+            )
+            if not projects:
+                break
+
+            project_ids.update(p.id for p in projects)
+            project_offset += project_page_size
+
+            if len(projects) < project_page_size:
+                break
+
+        log.info("Found projects", count=len(project_ids))
 
         for task in tasks:
             task_id = task.id
