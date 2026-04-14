@@ -599,7 +599,11 @@ async def get_project_summaries(
         client = await get_graph_client()
         entity_manager = EntityManager(client, group_id=group_id)
 
-        projects = await entity_manager.list_by_type(EntityType.PROJECT, limit=500)
+        projects = await _list_entities_by_type_paginated(
+            entity_manager,
+            EntityType.PROJECT,
+            batch_size=500,
+        )
         counts_by_project = await _fetch_project_task_counts(client, group_id, datetime.now(UTC))
 
         return ProjectSummariesResponse(
@@ -624,7 +628,11 @@ async def get_org_metrics(
         entity_manager = EntityManager(client, group_id=group_id)
 
         # Get all projects
-        projects = await entity_manager.list_by_type(EntityType.PROJECT, limit=500)
+        projects = await _list_entities_by_type_paginated(
+            entity_manager,
+            EntityType.PROJECT,
+            batch_size=500,
+        )
         tasks = await _fetch_org_metric_tasks(client, group_id)
 
         status_dist = _compute_status_distribution(tasks)

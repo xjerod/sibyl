@@ -692,10 +692,13 @@ class TestGetOrgMetrics:
         ):
             result = await get_org_metrics(org=mock_org)
 
-            mock_entity_manager.list_by_type.assert_awaited_once_with(
-                EntityType.PROJECT,
-                limit=500,
-            )
+            assert mock_entity_manager.list_by_type.await_args_list == [
+                call(
+                    EntityType.PROJECT,
+                    limit=500,
+                    offset=0,
+                )
+            ]
             assert mock_client.execute_read_org.call_count == 1
             assert result.total_projects == 2
             assert result.total_tasks == 3
@@ -732,10 +735,13 @@ class TestGetOrgMetrics:
         ):
             result = await get_org_metrics(org=mock_org)
 
-            mock_entity_manager.list_by_type.assert_awaited_once_with(
-                EntityType.PROJECT,
-                limit=500,
-            )
+            assert mock_entity_manager.list_by_type.await_args_list == [
+                call(
+                    EntityType.PROJECT,
+                    limit=500,
+                    offset=0,
+                )
+            ]
             assert mock_client.execute_read_org.call_count == 1
             assert result.total_projects == 0
             assert result.total_tasks == 0
@@ -775,10 +781,13 @@ class TestGetOrgMetrics:
         ):
             result = await get_org_metrics(org=mock_org)
 
-            mock_entity_manager.list_by_type.assert_awaited_once_with(
-                EntityType.PROJECT,
-                limit=500,
-            )
+            assert mock_entity_manager.list_by_type.await_args_list == [
+                call(
+                    EntityType.PROJECT,
+                    limit=500,
+                    offset=0,
+                )
+            ]
             # First project should be the one with more tasks
             assert result.projects_summary[0].id == "proj_l"
             assert result.projects_summary[0].total == 2
@@ -822,10 +831,13 @@ class TestGetOrgMetrics:
         ):
             result = await get_org_metrics(org=mock_org)
 
-            mock_entity_manager.list_by_type.assert_awaited_once_with(
-                EntityType.PROJECT,
-                limit=500,
-            )
+            assert mock_entity_manager.list_by_type.await_args_list == [
+                call(
+                    EntityType.PROJECT,
+                    limit=500,
+                    offset=0,
+                )
+            ]
             summary = result.projects_summary[0]
             assert summary.total == 4
             assert summary.completed == 1
@@ -920,6 +932,48 @@ class TestGetOrgMetrics:
             assert summary.high == 1
             assert summary.overdue == 1
 
+    @pytest.mark.asyncio
+    async def test_org_metrics_pages_past_first_500_projects(self) -> None:
+        """Organization metrics should keep loading project pages after the first 500."""
+        from sibyl.api.routes.metrics import get_org_metrics
+
+        mock_org = create_mock_org()
+        mock_client = AsyncMock()
+        first_page = [
+            create_mock_entity(entity_type="project", name=f"Project {index}", entity_id=f"proj_{index}")
+            for index in range(500)
+        ]
+        second_page = [
+            create_mock_entity(entity_type="project", name="Project 500", entity_id="proj_500")
+        ]
+
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.list_by_type = AsyncMock(side_effect=[first_page, second_page])
+        mock_client.execute_read_org = AsyncMock(return_value=[])
+
+        with (
+            patch("sibyl.api.routes.metrics.get_graph_client", return_value=mock_client),
+            patch(
+                "sibyl.api.routes.metrics.EntityManager",
+                return_value=mock_entity_manager,
+            ),
+        ):
+            result = await get_org_metrics(org=mock_org)
+
+        assert result.total_projects == 501
+        assert mock_entity_manager.list_by_type.await_args_list == [
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                offset=0,
+            ),
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                offset=500,
+            ),
+        ]
+
 
 class TestGetProjectSummaries:
     """Tests for get_project_summaries endpoint."""
@@ -979,10 +1033,13 @@ class TestGetProjectSummaries:
         ):
             result = await get_project_summaries(org=mock_org)
 
-            mock_entity_manager.list_by_type.assert_awaited_once_with(
-                EntityType.PROJECT,
-                limit=500,
-            )
+            assert mock_entity_manager.list_by_type.await_args_list == [
+                call(
+                    EntityType.PROJECT,
+                    limit=500,
+                    offset=0,
+                )
+            ]
             assert mock_client.execute_read_org.call_count == 1
             assert len(result.projects_summary) == 2
             assert result.projects_summary[0].id == "proj_a"
@@ -992,6 +1049,48 @@ class TestGetProjectSummaries:
             assert result.projects_summary[1].id == "proj_b"
             assert result.projects_summary[1].doing == 1
             assert result.projects_summary[1].critical == 1
+
+    @pytest.mark.asyncio
+    async def test_project_summaries_pages_past_first_500_projects(self) -> None:
+        """Project summaries should keep loading projects after the first page."""
+        from sibyl.api.routes.metrics import get_project_summaries
+
+        mock_org = create_mock_org()
+        mock_client = AsyncMock()
+        first_page = [
+            create_mock_entity(entity_type="project", name=f"Project {index}", entity_id=f"proj_{index}")
+            for index in range(500)
+        ]
+        second_page = [
+            create_mock_entity(entity_type="project", name="Project 500", entity_id="proj_500")
+        ]
+
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.list_by_type = AsyncMock(side_effect=[first_page, second_page])
+        mock_client.execute_read_org = AsyncMock(return_value=[])
+
+        with (
+            patch("sibyl.api.routes.metrics.get_graph_client", return_value=mock_client),
+            patch(
+                "sibyl.api.routes.metrics.EntityManager",
+                return_value=mock_entity_manager,
+            ),
+        ):
+            result = await get_project_summaries(org=mock_org)
+
+        assert len(result.projects_summary) == 501
+        assert mock_entity_manager.list_by_type.await_args_list == [
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                offset=0,
+            ),
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                offset=500,
+            ),
+        ]
 
 
 class TestMetricsErrorHandling:
