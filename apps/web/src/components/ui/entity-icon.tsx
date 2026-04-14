@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   Book,
   Circle,
   Code,
@@ -37,6 +38,7 @@ const ENTITY_ICON_MAP: Record<EntityType, IconComponent> = {
   language: Code,
   topic: Hashtag,
   episode: Flare,
+  procedure: ArrowRight,
   knowledge_source: Book,
   config_file: Settings,
   slash_command: Terminal,

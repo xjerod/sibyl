@@ -64,4 +64,30 @@ describe('CaptureMemoryDialog', () => {
       metadata: { capture_mode: 'quick', capture_surface: 'dashboard' },
     });
   });
+
+  it('supports capturing a procedure directly', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({ id: 'entity_789' });
+    hooks.useCreateEntity.mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    });
+
+    const { user } = render(<CaptureMemoryDialog isOpen onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: /Procedure/ }));
+    await user.type(screen.getByLabelText('Title'), 'Nightly restore drill');
+    await user.type(
+      screen.getByLabelText('Memory'),
+      'Step 1 validate backup. Step 2 restore to scratch. Step 3 compare counts.'
+    );
+    await user.click(screen.getByRole('button', { name: 'Capture Memory' }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      name: 'Nightly restore drill',
+      content: 'Step 1 validate backup. Step 2 restore to scratch. Step 3 compare counts.',
+      entity_type: 'procedure',
+      tags: undefined,
+      metadata: { capture_mode: 'quick', capture_surface: 'dashboard' },
+    });
+  });
 });

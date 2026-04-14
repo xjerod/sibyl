@@ -210,6 +210,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   project: 'Projects',
   epic: 'Epics',
   pattern: 'Patterns',
+  procedure: 'Procedures',
   episode: 'Episodes',
   topic: 'Topics',
   concept: 'Concepts',
@@ -343,7 +344,16 @@ function GraphToolbar({
 
   const clearTypes = () => onTypesChange([]);
 
-  const primaryTypes = ['task', 'project', 'epic', 'pattern', 'episode', 'topic', 'concept'];
+  const primaryTypes = [
+    'task',
+    'project',
+    'epic',
+    'pattern',
+    'procedure',
+    'episode',
+    'topic',
+    'concept',
+  ];
   const secondaryTypes = ENTITY_TYPES.filter(t => !primaryTypes.includes(t));
 
   return (

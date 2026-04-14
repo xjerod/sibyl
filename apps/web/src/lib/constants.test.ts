@@ -45,6 +45,7 @@ describe('TASK_PRIORITIES', () => {
 describe('ENTITY_COLORS', () => {
   it('has color for common entity types', () => {
     expect(ENTITY_COLORS.pattern).toBeDefined();
+    expect(ENTITY_COLORS.procedure).toBeDefined();
     expect(ENTITY_COLORS.task).toBeDefined();
     expect(ENTITY_COLORS.project).toBeDefined();
     expect(ENTITY_COLORS.episode).toBeDefined();

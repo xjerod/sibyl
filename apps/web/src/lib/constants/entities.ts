@@ -12,6 +12,7 @@ export const ENTITY_TYPES = [
   'language',
   'topic',
   'episode',
+  'procedure',
   'knowledge_source',
   'config_file',
   'slash_command',
@@ -41,6 +42,7 @@ export const ENTITY_COLORS: Record<EntityType, string> = {
   language: '#ff6ac1', // Coral
   topic: '#ff00ff', // Magenta
   episode: '#50fa7b', // Success Green
+  procedure: '#8be9fd', // Light Cyan
   knowledge_source: '#8b85a0', // Muted
   config_file: '#bd93f9', // Soft Purple
   slash_command: '#8be9fd', // Light Cyan
@@ -70,6 +72,7 @@ export const ENTITY_ICONS: Record<EntityType, string> = {
   language: '⟨⟩',
   topic: '●',
   episode: '◉',
+  procedure: '⇶',
   knowledge_source: '▤',
   config_file: '⚙',
   slash_command: '/',
@@ -170,6 +173,15 @@ export const ENTITY_STYLES: Record<EntityType, EntityStyle> = {
     gradient: 'from-[#50fa7b]/15 via-transparent to-transparent',
     border: 'border-[#50fa7b]/30',
     glow: 'shadow-[#50fa7b]/20',
+  },
+  procedure: {
+    badge: 'bg-[#8be9fd]/20 text-[#8be9fd] border-[#8be9fd]/30',
+    card: 'hover:border-[#8be9fd]/50 hover:shadow-[#8be9fd]/20',
+    dot: 'bg-[#8be9fd]',
+    accent: 'bg-[#8be9fd]',
+    gradient: 'from-[#8be9fd]/15 via-transparent to-transparent',
+    border: 'border-[#8be9fd]/30',
+    glow: 'shadow-[#8be9fd]/20',
   },
   knowledge_source: {
     badge: 'bg-[#8b85a0]/20 text-[#8b85a0] border-[#8b85a0]/30',

@@ -23,7 +23,12 @@ import { useCodeExamples, useRAGHybridSearch, useSearch, useSources, useStats } 
 type SearchMode = 'knowledge' | 'docs' | 'code';
 
 const SEARCH_MODES: { id: SearchMode; label: string; icon: string; description: string }[] = [
-  { id: 'knowledge', label: 'Knowledge', icon: '◇', description: 'Patterns, rules, tasks' },
+  {
+    id: 'knowledge',
+    label: 'Knowledge',
+    icon: '◇',
+    description: 'Patterns, procedures, rules, tasks',
+  },
   { id: 'docs', label: 'Docs', icon: '▤', description: 'Crawled documentation' },
   { id: 'code', label: 'Code', icon: '⟨⟩', description: 'Code examples' },
 ];
@@ -31,6 +36,7 @@ const SEARCH_MODES: { id: SearchMode; label: string; icon: string; description: 
 // Curated searchable entity types for knowledge mode
 const SEARCHABLE_TYPES = [
   'pattern',
+  'procedure',
   'rule',
   'template',
   'task',
@@ -252,7 +258,7 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
               onChange={e => setQuery(e.target.value)}
               placeholder={
                 mode === 'knowledge'
-                  ? 'Search patterns, rules, templates...'
+                  ? 'Search patterns, procedures, rules, templates...'
                   : mode === 'docs'
                     ? 'Search documentation...'
                     : 'Search code examples...'

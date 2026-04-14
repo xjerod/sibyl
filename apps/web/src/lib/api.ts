@@ -112,6 +112,7 @@ export type EntityMetadataMap = {
   epic: EpicMetadata;
   // Generic entities use base metadata
   pattern: BaseMetadata;
+  procedure: BaseMetadata;
   episode: BaseMetadata;
   rule: BaseMetadata;
   template: BaseMetadata;

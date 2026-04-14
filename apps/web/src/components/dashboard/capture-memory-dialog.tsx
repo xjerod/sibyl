@@ -22,6 +22,12 @@ const CAPTURE_TYPES = [
     classes: 'border-sc-purple/30 bg-sc-purple/10 text-sc-purple',
   },
   {
+    value: 'procedure',
+    label: 'Procedure',
+    description: 'Capture a reusable step-by-step workflow',
+    classes: 'border-sc-cyan/30 bg-sc-cyan/10 text-sc-cyan',
+  },
+  {
     value: 'error_pattern',
     label: 'Failure Mode',
     description: 'Capture a trap worth avoiding later',
