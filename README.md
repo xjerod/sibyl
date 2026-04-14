@@ -290,7 +290,7 @@ moon run hooks:install     # Install context hooks
 
 | Hook                 | Trigger        | Action                                           |
 | -------------------- | -------------- | ------------------------------------------------ |
-| **SessionStart**     | Session begins | Shows active tasks, reminds to capture learnings |
+| **SessionStart**     | Session begins | Prints a compact session bundle with active tasks and relevant memory |
 | **UserPromptSubmit** | Every prompt   | Searches graph, injects relevant patterns        |
 
 The `UserPromptSubmit` hook extracts keywords from your prompt, searches Sibyl, and injects matching

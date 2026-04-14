@@ -27,7 +27,7 @@ No SDK needed - uses raw HTTP requests.
 
 | Hook                 | Trigger                  | Action                                        |
 | -------------------- | ------------------------ | --------------------------------------------- |
-| **SessionStart**     | Session begins           | Loads active tasks, reminds about `sibyl add` |
+| **SessionStart**     | Session begins           | Prints the current session bundle and next-step reminder |
 | **UserPromptSubmit** | Before processing prompt | Searches Sibyl, injects relevant knowledge    |
 
 ## Uninstall

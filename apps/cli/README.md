@@ -22,6 +22,7 @@ sibyl project link <project_id>
 ```bash
 sibyl search "query"                    # Semantic search
 sibyl add "title" "content"             # Add knowledge
+sibyl session bundle                    # Wake up with active context
 sibyl task list --status todo,doing     # List tasks
 sibyl task start <id>                   # Start task
 sibyl task complete <id> --learnings "..." # Complete with learnings
@@ -45,6 +46,7 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 | `config`   | Configuration                                            |
 | `context`  | Multi-server context management                          |
 | `local`    | Supabase-style local dev (start, stop, logs, reset)      |
+| `session`  | Package wake-up context for a session or agent           |
 
 ## Output Formats
 
