@@ -83,6 +83,11 @@ LIST_BY_TYPE_PAGE_SIZE = 1000
 # =============================================================================
 
 
+def _entity_is_archived(entity: Any) -> bool:
+    metadata = getattr(entity, "metadata", None) or {}
+    return bool(metadata.get("archived")) or str(metadata.get("status", "")).lower() == "archived"
+
+
 async def _list_all_entities_paginated(
     entity_manager: EntityManager,
     *,
@@ -104,7 +109,7 @@ async def _list_all_entities_paginated(
         entities.extend(
             entity
             for entity in batch
-            if not ((getattr(entity, "metadata", None) or {}).get("archived"))
+            if not _entity_is_archived(entity)
         )
         offset += batch_size
 
@@ -138,7 +143,7 @@ async def _list_entities_by_type_paginated(
         entities.extend(
             entity
             for entity in batch
-            if (getattr(entity, "metadata", None) or {}).get("status") != "archived"
+            if not _entity_is_archived(entity)
         )
         offset += batch_size
 

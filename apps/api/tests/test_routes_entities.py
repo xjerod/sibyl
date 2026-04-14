@@ -161,7 +161,7 @@ class TestListEntitiesRoute:
                         "ent-archived-1",
                         project_id="proj-1",
                         name="Archived 1",
-                        status="archived",
+                        archived=True,
                     ),
                     _entity(
                         "ent-archived-2",
