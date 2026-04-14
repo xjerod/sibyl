@@ -2,7 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import uuid4
 
 import pytest
@@ -499,16 +499,6 @@ class TestGetProjectMetrics:
                     "assignees": ["bob"],
                 },
             ),
-            create_mock_entity(
-                entity_type="task",
-                name="Task 3",
-                entity_id="task_3",
-                metadata={
-                    "status": "todo",
-                    "priority": "low",
-                    "project_id": "other_proj",  # Different project
-                },
-            ),
         ]
 
         mock_entity_manager = AsyncMock()
@@ -533,6 +523,14 @@ class TestGetProjectMetrics:
             assert result.metrics.priority_distribution.medium == 1
             assert len(result.metrics.assignees) == 2
             assert result.metrics.completion_rate == 50.0
+            assert mock_entity_manager.list_by_type.await_args_list == [
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    offset=0,
+                    project_id="proj_123",
+                )
+            ]
 
     @pytest.mark.asyncio
     async def test_project_metrics_empty_tasks(self) -> None:
@@ -562,6 +560,75 @@ class TestGetProjectMetrics:
             assert result.metrics.total_tasks == 0
             assert result.metrics.completion_rate == 0.0
             assert len(result.metrics.velocity_trend) == 14
+
+    @pytest.mark.asyncio
+    async def test_project_metrics_pages_past_first_1000_tasks(self) -> None:
+        """Project metrics should keep loading tasks after the first page."""
+        from sibyl.api.routes.metrics import get_project_metrics
+
+        mock_org = create_mock_org()
+        mock_client = AsyncMock()
+        mock_project = create_mock_entity(
+            entity_type="project", name="Big Project", entity_id="proj_big"
+        )
+        first_page = [
+            create_mock_entity(
+                entity_type="task",
+                name=f"Task {index}",
+                entity_id=f"task_{index:04}",
+                metadata={
+                    "status": "todo",
+                    "priority": "low",
+                    "project_id": "proj_big",
+                },
+            )
+            for index in range(1000)
+        ]
+        second_page = [
+            create_mock_entity(
+                entity_type="task",
+                name="Done task",
+                entity_id="task_done",
+                metadata={
+                    "status": "done",
+                    "priority": "high",
+                    "project_id": "proj_big",
+                },
+            )
+        ]
+
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.get.return_value = mock_project
+        mock_entity_manager.list_by_type = AsyncMock(side_effect=[first_page, second_page])
+
+        with (
+            patch("sibyl.api.routes.metrics.get_graph_client", return_value=mock_client),
+            patch(
+                "sibyl.api.routes.metrics.EntityManager",
+                return_value=mock_entity_manager,
+            ),
+        ):
+            result = await get_project_metrics("proj_big", org=mock_org)
+
+        assert result.metrics.total_tasks == 1001
+        assert result.metrics.status_distribution.done == 1
+        assert result.metrics.status_distribution.todo == 1000
+        assert result.metrics.priority_distribution.high == 1
+        assert result.metrics.priority_distribution.low == 1000
+        assert mock_entity_manager.list_by_type.await_args_list == [
+            call(
+                EntityType.TASK,
+                limit=1000,
+                offset=0,
+                project_id="proj_big",
+            ),
+            call(
+                EntityType.TASK,
+                limit=1000,
+                offset=1000,
+                project_id="proj_big",
+            ),
+        ]
 
 
 class TestGetOrgMetrics:

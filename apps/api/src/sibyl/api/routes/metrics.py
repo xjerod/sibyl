@@ -155,6 +155,36 @@ def _count_recent_tasks(tasks: list[dict], days: int, field: str = "created_at")
     return count
 
 
+async def _list_entities_by_type_paginated(
+    entity_manager: EntityManager,
+    entity_type: EntityType,
+    *,
+    batch_size: int = 1000,
+    **filters: Any,
+) -> list[Any]:
+    """List all matching entities by paging through the graph query."""
+    entities: list[Any] = []
+    offset = 0
+
+    while True:
+        batch = await entity_manager.list_by_type(
+            entity_type,
+            limit=batch_size,
+            offset=offset,
+            **filters,
+        )
+        if not batch:
+            break
+
+        entities.extend(batch)
+        if len(batch) < batch_size:
+            break
+
+        offset += batch_size
+
+    return entities
+
+
 def _build_project_summaries(
     projects: list[Any], counts_by_project: dict[str, dict[str, int]]
 ) -> list[ProjectSummary]:
@@ -508,10 +538,12 @@ async def get_project_metrics(
         if not project:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
-        # Get all tasks for this project
-        all_tasks = await entity_manager.list_by_type(EntityType.TASK, limit=1000)
-        # Filter to this project
-        tasks = [t.model_dump() for t in all_tasks if t.metadata.get("project_id") == project_id]
+        project_tasks = await _list_entities_by_type_paginated(
+            entity_manager,
+            EntityType.TASK,
+            project_id=project_id,
+        )
+        tasks = [task.model_dump() for task in project_tasks]
 
         # Compute metrics
         status_dist = _compute_status_distribution(tasks)
