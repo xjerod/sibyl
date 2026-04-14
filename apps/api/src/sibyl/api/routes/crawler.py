@@ -527,17 +527,26 @@ async def get_link_graph_status(
         # Pending per source
         pending_query = (
             select(
+                col(CrawlSource.id).label("source_id"),
                 CrawlSource.name,
                 func.count(DocumentChunk.id).label("pending"),
             )
-            .join(CrawledDocument, CrawledDocument.source_id == CrawlSource.id)
-            .join(DocumentChunk, DocumentChunk.document_id == CrawledDocument.id)
+            .join(CrawledDocument, col(CrawledDocument.source_id) == col(CrawlSource.id))
+            .join(DocumentChunk, col(DocumentChunk.document_id) == col(CrawledDocument.id))
             .where(col(CrawlSource.organization_id) == org.id)
             .where(col(DocumentChunk.has_entities) == False)  # noqa: E712
-            .group_by(CrawlSource.name)
+            .group_by(CrawlSource.id, CrawlSource.name)
+            .order_by(CrawlSource.name.asc(), CrawlSource.id.asc())
         )
         pending_result = await session.execute(pending_query)
-        sources = [{"name": row.name, "pending": row.pending} for row in pending_result.all()]
+        sources = [
+            {
+                "source_id": str(row.source_id),
+                "name": row.name,
+                "pending": row.pending,
+            }
+            for row in pending_result.all()
+        ]
 
     return LinkGraphStatusResponse(
         total_chunks=total_chunks,

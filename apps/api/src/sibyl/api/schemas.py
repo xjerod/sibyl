@@ -514,13 +514,21 @@ class LinkGraphResponse(BaseModel):
     error: str | None = None
 
 
+class LinkGraphSourceStatus(BaseModel):
+    """Pending graph-linking work for a single source."""
+
+    source_id: str
+    name: str
+    pending: int
+
+
 class LinkGraphStatusResponse(BaseModel):
     """Status of pending graph linking work."""
 
     total_chunks: int = 0
     chunks_with_entities: int = 0
     chunks_pending: int = 0
-    sources: list[dict[str, int | str]] = Field(default_factory=list)  # [{name, pending}]
+    sources: list[LinkGraphSourceStatus] = Field(default_factory=list)
 
 
 # =============================================================================
