@@ -29,7 +29,7 @@ from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.db import CrawledDocument, CrawlSource, DocumentChunk, get_session
 from sibyl.db.connection import get_session_dependency
-from sibyl.db.models import Organization, OrganizationRole
+from sibyl.db.models import Organization, OrganizationRole, RawCapture
 from sibyl.db.project_sync import sync_project_create, sync_project_delete, sync_project_update
 from sibyl_core.errors import EntityNotFoundError
 from sibyl_core.graph.client import get_graph_client
@@ -86,6 +86,35 @@ LIST_BY_TYPE_PAGE_SIZE = 1000
 def _entity_is_archived(entity: Any) -> bool:
     metadata = getattr(entity, "metadata", None) or {}
     return bool(metadata.get("archived")) or str(metadata.get("status", "")).lower() == "archived"
+
+
+async def _archive_raw_capture(
+    session: AsyncSession,
+    *,
+    organization_id: UUID,
+    user_id: UUID | None,
+    entity_id: str,
+    entity_name: str,
+    entity_content: str,
+    entity_type: str,
+    tags: list[str],
+    metadata: dict[str, Any],
+) -> None:
+    """Persist the write-once capture sidecar."""
+    session.add(
+        RawCapture(
+            organization_id=organization_id,
+            entity_id=entity_id,
+            title=entity_name,
+            raw_content=entity_content,
+            entity_type=entity_type,
+            tags=tags,
+            metadata_=metadata,
+            capture_surface=str(metadata.get("capture_surface")) if metadata.get("capture_surface") else None,
+            created_by_user_id=user_id,
+        )
+    )
+    await session.commit()
 
 
 async def _list_all_entities_paginated(
@@ -581,8 +610,9 @@ async def create_entity(
 
         # Use description as content fallback (frontend sends description, add() needs content)
         content = entity.content or entity.description or entity.name
+        request_metadata = dict(entity.metadata or {})
 
-        merged_metadata: dict[str, Any] = {**(entity.metadata or {}), "organization_id": group_id}
+        merged_metadata: dict[str, Any] = {**request_metadata, "organization_id": group_id}
 
         # Projects are always sync (foundational - tasks depend on them existing)
         # Other entities can be async unless caller explicitly requests sync
@@ -609,6 +639,19 @@ async def create_entity(
 
         if not result.success or not result.id:
             raise HTTPException(status_code=400, detail=result.message)
+
+        if request_metadata.get("capture_mode") == "quick":
+            await _archive_raw_capture(
+                session,
+                organization_id=org.id,
+                user_id=ctx.user.id if ctx.user else None,
+                entity_id=result.id,
+                entity_name=entity.name,
+                entity_content=content,
+                entity_type=entity.entity_type.value,
+                tags=list(entity.tags or []),
+                metadata=request_metadata,
+            )
 
         # For async creation, return immediately with pending response
         # Entity will be created in background via Graphiti

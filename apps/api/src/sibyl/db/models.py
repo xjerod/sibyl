@@ -416,6 +416,70 @@ class AuditLog(TimestampMixin, table=True):
 
 
 # =============================================================================
+# Raw Captures - Immutable sidecar for quick memory intake
+# =============================================================================
+
+
+class RawCapture(SQLModel, table=True):
+    """Write-once raw capture record for quick memory intake."""
+
+    __tablename__ = "raw_captures"
+    __table_args__ = (
+        Index("ix_raw_captures_organization_created_at", "organization_id", "created_at"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    organization_id: UUID = Field(
+        foreign_key="organizations.id",
+        index=True,
+        description="Organization that owns the capture",
+    )
+    entity_id: str | None = Field(
+        default=None,
+        max_length=128,
+        index=True,
+        description="Graph entity ID once creation completes",
+    )
+    title: str = Field(max_length=255, description="Captured title")
+    raw_content: str = Field(sa_type=Text, description="Verbatim captured content")
+    entity_type: str = Field(
+        max_length=64,
+        index=True,
+        description="Captured entity type",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        sa_type=ARRAY(String),
+        description="Captured tags",
+    )
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="metadata",
+        sa_column=Column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+        description="Captured request metadata",
+    )
+    capture_surface: str | None = Field(
+        default=None,
+        max_length=64,
+        index=True,
+        description="Where the capture originated",
+    )
+    created_by_user_id: UUID | None = Field(
+        default=None,
+        foreign_key="users.id",
+        index=True,
+        description="User who initiated the capture",
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow_naive,
+        description="When this capture was archived",
+    )
+
+    def __repr__(self) -> str:
+        return f"<RawCapture entity={self.entity_id!r} title={self.title!r}>"
+
+
+# =============================================================================
 # Org Invitations - Invite a user (by email) to an org
 # =============================================================================
 
