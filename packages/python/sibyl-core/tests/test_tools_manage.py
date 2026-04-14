@@ -1216,6 +1216,78 @@ class TestAnalysisActions:
         assert "entity_id required" in response.message
 
     @pytest.mark.asyncio
+    async def test_prioritize_pushes_project_filter_into_list_query(self) -> None:
+        """prioritize should scope the graph query to the requested project."""
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_rel_manager = AsyncMock()
+        mock_entity_manager.list_by_type = AsyncMock(
+            return_value=[
+                make_entity(
+                    entity_id="task_low",
+                    name="Low",
+                    entity_type=EntityType.TASK,
+                    metadata={
+                        "project_id": "project_123",
+                        "priority": "low",
+                        "status": "todo",
+                        "task_order": 1,
+                    },
+                ),
+                make_entity(
+                    entity_id="task_high",
+                    name="High",
+                    entity_type=EntityType.TASK,
+                    metadata={
+                        "project_id": "project_123",
+                        "priority": "high",
+                        "status": "doing",
+                        "task_order": 5,
+                    },
+                ),
+            ]
+        )
+
+        with (
+            patch("sibyl_core.tools.manage.get_graph_client", return_value=mock_client),
+            patch(
+                "sibyl_core.tools.manage.EntityManager",
+                return_value=mock_entity_manager,
+            ),
+            patch(
+                "sibyl_core.tools.manage.RelationshipManager",
+                return_value=mock_rel_manager,
+            ),
+        ):
+            response = await manage(
+                action="prioritize",
+                entity_id="project_123",
+                organization_id="org_123",
+            )
+
+        assert response.success is True
+        assert response.message == "Prioritized 2 tasks"
+        assert response.data["tasks"] == [
+            {
+                "id": "task_high",
+                "name": "High",
+                "priority": "high",
+                "status": "doing",
+            },
+            {
+                "id": "task_low",
+                "name": "Low",
+                "priority": "low",
+                "status": "todo",
+            },
+        ]
+        mock_entity_manager.list_by_type.assert_awaited_once_with(
+            EntityType.TASK,
+            limit=500,
+            project_id="project_123",
+        )
+
+    @pytest.mark.asyncio
     async def test_detect_cycles_returns_result(self) -> None:
         """detect_cycles returns cycle detection result."""
         mock_client = AsyncMock()

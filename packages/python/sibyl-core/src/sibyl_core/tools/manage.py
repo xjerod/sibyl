@@ -1185,11 +1185,11 @@ async def _prioritize_tasks(
     project_id: str,
 ) -> ManageResponse:
     """Get smart task ordering for a project."""
-    # Get all tasks for the project
-    all_tasks = await entity_manager.list_by_type(EntityType.TASK, limit=500)
-
-    # Filter by project
-    project_tasks = [t for t in all_tasks if t.metadata.get("project_id") == project_id]
+    project_tasks = await entity_manager.list_by_type(
+        EntityType.TASK,
+        limit=500,
+        project_id=project_id,
+    )
 
     if not project_tasks:
         return ManageResponse(
