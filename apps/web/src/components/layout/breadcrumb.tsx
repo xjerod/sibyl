@@ -3,37 +3,10 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Fragment, memo, useCallback, useMemo } from 'react';
-import {
-  Archive,
-  BookOpen,
-  Boxes,
-  ChevronRight,
-  FileText,
-  FolderKanban,
-  type IconComponent,
-  Layers,
-  LayoutDashboard,
-  ListTodo,
-  Network,
-  Search,
-} from '@/components/ui/icons';
+import { ChevronRight, type IconComponent } from '@/components/ui/icons';
+import { ROUTE_CONFIG, withProjectsContext } from '@/lib/constants/navigation';
 
-/**
- * Canonical route configuration - single source of truth for navigation icons.
- * Import this when you need consistent icons for routes.
- */
-export const ROUTE_CONFIG: Record<string, { label: string; icon: IconComponent }> = {
-  '': { label: 'Home', icon: LayoutDashboard },
-  projects: { label: 'Projects', icon: FolderKanban },
-  epics: { label: 'Epics', icon: Layers },
-  tasks: { label: 'Tasks', icon: ListTodo },
-  sources: { label: 'Sources', icon: BookOpen },
-  archive: { label: 'Archive', icon: Archive },
-  documents: { label: 'Documents', icon: FileText },
-  graph: { label: 'Graph', icon: Network },
-  entities: { label: 'Entities', icon: Boxes },
-  search: { label: 'Search', icon: Search },
-};
+export { ROUTE_CONFIG } from '@/lib/constants/navigation';
 
 interface BreadcrumbItem {
   label: string;
@@ -54,12 +27,7 @@ function BreadcrumbInner({ items, className = '' }: BreadcrumbProps) {
 
   // Preserve project context in breadcrumb links
   const withContext = useCallback(
-    (href: string) => {
-      const projects = searchParams.get('projects');
-      if (!projects) return href;
-      const separator = href.includes('?') ? '&' : '?';
-      return `${href}${separator}projects=${projects}`;
-    },
+    (href: string) => withProjectsContext(href, searchParams.get('projects')),
     [searchParams]
   );
 
@@ -70,7 +38,7 @@ function BreadcrumbInner({ items, className = '' }: BreadcrumbProps) {
     // Auto-generate from pathname
     const segments = pathname.split('/').filter(Boolean);
     const crumbs: BreadcrumbItem[] = [
-      { label: ROUTE_CONFIG[''].label, href: '/', icon: ROUTE_CONFIG[''].icon },
+      { label: ROUTE_CONFIG[''].label, href: ROUTE_CONFIG[''].href, icon: ROUTE_CONFIG[''].icon },
     ];
 
     let currentPath = '';
@@ -155,12 +123,16 @@ interface EntityBreadcrumbProps {
 
 export function EntityBreadcrumb({ entityType, entityName, parentProject }: EntityBreadcrumbProps) {
   const items: BreadcrumbItem[] = [
-    { label: ROUTE_CONFIG[''].label, href: '/', icon: ROUTE_CONFIG[''].icon },
+    { label: ROUTE_CONFIG[''].label, href: ROUTE_CONFIG[''].href, icon: ROUTE_CONFIG[''].icon },
   ];
 
   // Add parent context based on entity type
   if (entityType === 'task') {
-    items.push({ label: 'Tasks', href: '/tasks', icon: ROUTE_CONFIG.tasks.icon });
+    items.push({
+      label: ROUTE_CONFIG.tasks.label,
+      href: ROUTE_CONFIG.tasks.href,
+      icon: ROUTE_CONFIG.tasks.icon,
+    });
     if (parentProject) {
       items.push({
         label: parentProject.name,
@@ -169,7 +141,11 @@ export function EntityBreadcrumb({ entityType, entityName, parentProject }: Enti
       });
     }
   } else if (entityType === 'epic') {
-    items.push({ label: 'Epics', href: '/epics', icon: ROUTE_CONFIG.epics.icon });
+    items.push({
+      label: ROUTE_CONFIG.epics.label,
+      href: ROUTE_CONFIG.epics.href,
+      icon: ROUTE_CONFIG.epics.icon,
+    });
     if (parentProject) {
       items.push({
         label: parentProject.name,
@@ -178,11 +154,23 @@ export function EntityBreadcrumb({ entityType, entityName, parentProject }: Enti
       });
     }
   } else if (entityType === 'project') {
-    items.push({ label: 'Projects', href: '/projects', icon: ROUTE_CONFIG.projects.icon });
+    items.push({
+      label: ROUTE_CONFIG.projects.label,
+      href: ROUTE_CONFIG.projects.href,
+      icon: ROUTE_CONFIG.projects.icon,
+    });
   } else if (entityType === 'entity') {
-    items.push({ label: 'Entities', href: '/entities', icon: ROUTE_CONFIG.entities.icon });
+    items.push({
+      label: ROUTE_CONFIG.entities.label,
+      href: ROUTE_CONFIG.entities.href,
+      icon: ROUTE_CONFIG.entities.icon,
+    });
   } else if (entityType === 'source') {
-    items.push({ label: 'Sources', href: '/sources', icon: ROUTE_CONFIG.sources.icon });
+    items.push({
+      label: ROUTE_CONFIG.sources.label,
+      href: ROUTE_CONFIG.sources.href,
+      icon: ROUTE_CONFIG.sources.icon,
+    });
   }
 
   items.push({ label: entityName });

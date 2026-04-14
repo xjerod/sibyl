@@ -25,7 +25,13 @@ export { formatDateTime, formatDistanceToNow, formatUptime } from './formatting'
 // Graph
 export { CLUSTER_COLORS, GRAPH_DEFAULTS, getClusterColor } from './graph';
 // Navigation
-export { NAVIGATION, type NavigationItem, withProjectsContext } from './navigation';
+export {
+  NAVIGATION,
+  type NavigationItem,
+  ROUTE_CONFIG,
+  type RouteConfigItem,
+  withProjectsContext,
+} from './navigation';
 // Relationships
 export {
   getRelationshipConfig,

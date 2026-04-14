@@ -2,6 +2,7 @@ import {
   Archive,
   BookOpen,
   Boxes,
+  FileText,
   FolderKanban,
   type IconComponent,
   Layers,
@@ -9,6 +10,7 @@ import {
   ListTodo,
   Network,
   Search,
+  Settings,
 } from '@/components/ui/icons';
 
 export interface NavigationItem {
@@ -17,17 +19,41 @@ export interface NavigationItem {
   icon: IconComponent;
 }
 
-export const NAVIGATION: NavigationItem[] = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Projects', href: '/projects', icon: FolderKanban },
-  { name: 'Epics', href: '/epics', icon: Layers },
-  { name: 'Tasks', href: '/tasks', icon: ListTodo },
-  { name: 'Sources', href: '/sources', icon: BookOpen },
-  { name: 'Archive', href: '/archive', icon: Archive },
-  { name: 'Graph', href: '/graph', icon: Network },
-  { name: 'Entities', href: '/entities', icon: Boxes },
-  { name: 'Search', href: '/search', icon: Search },
-];
+export interface RouteConfigItem {
+  label: string;
+  href: string;
+  icon: IconComponent;
+  navLabel?: string;
+  showInNavigation?: boolean;
+}
+
+export const ROUTE_CONFIG: Record<string, RouteConfigItem> = {
+  '': {
+    label: 'Home',
+    href: '/',
+    icon: LayoutDashboard,
+    navLabel: 'Dashboard',
+    showInNavigation: true,
+  },
+  projects: { label: 'Projects', href: '/projects', icon: FolderKanban, showInNavigation: true },
+  epics: { label: 'Epics', href: '/epics', icon: Layers, showInNavigation: true },
+  tasks: { label: 'Tasks', href: '/tasks', icon: ListTodo, showInNavigation: true },
+  sources: { label: 'Sources', href: '/sources', icon: BookOpen, showInNavigation: true },
+  archive: { label: 'Archive', href: '/archive', icon: Archive, showInNavigation: true },
+  documents: { label: 'Documents', href: '/documents', icon: FileText },
+  graph: { label: 'Graph', href: '/graph', icon: Network, showInNavigation: true },
+  entities: { label: 'Entities', href: '/entities', icon: Boxes, showInNavigation: true },
+  search: { label: 'Search', href: '/search', icon: Search, showInNavigation: true },
+  settings: { label: 'Settings', href: '/settings', icon: Settings },
+};
+
+export const NAVIGATION: NavigationItem[] = Object.values(ROUTE_CONFIG)
+  .filter(route => route.showInNavigation)
+  .map(route => ({
+    name: route.navLabel ?? route.label,
+    href: route.href,
+    icon: route.icon,
+  }));
 
 export function withProjectsContext(href: string, projects: string | null): string {
   if (!projects) {
