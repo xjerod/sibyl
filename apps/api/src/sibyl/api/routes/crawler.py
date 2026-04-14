@@ -38,6 +38,11 @@ from sibyl.api.schemas import (
 )
 from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_organization, require_org_role
+from sibyl.crawler.service import (
+    SourceAlreadyExistsError,
+    create_org_source as create_crawl_source_record,
+    list_org_sources as list_org_crawl_sources,
+)
 from sibyl.db import (
     CrawledDocument,
     CrawlSource,
@@ -432,36 +437,23 @@ async def create_source(
     org: Organization = Depends(get_current_organization),
 ) -> CrawlSourceResponse:
     """Create a new crawl source."""
-    async with get_session() as session:
-        # Check for existing source with same URL (within org)
-        existing = await session.execute(
-            select(CrawlSource).where(
-                col(CrawlSource.url) == request.url.rstrip("/"),
-                col(CrawlSource.organization_id) == org.id,
-            )
-        )
-        if existing.scalar_one_or_none():
-            raise HTTPException(
-                status_code=409, detail=f"Source with URL {request.url} already exists"
-            )
-
-        source = CrawlSource(
+    try:
+        source = await create_crawl_source_record(
             name=request.name,
-            url=request.url.rstrip("/"),
+            url=request.url,
+            organization_id=org.id,
             source_type=SourceType(request.source_type),
             description=request.description,
             crawl_depth=request.crawl_depth,
             include_patterns=request.include_patterns,
             exclude_patterns=request.exclude_patterns,
-            organization_id=org.id,
         )
-        session.add(source)
-        await session.flush()
-        await session.refresh(source)
+    except SourceAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=409, detail=f"Source with URL {request.url} already exists"
+        ) from exc
 
-        log.info("Created crawl source", name=source.name, url=source.url, id=str(source.id))
-
-        response = _source_to_response(source)
+    response = _source_to_response(source)
 
     await broadcast_event(
         WSEvent.ENTITY_CREATED,
@@ -478,24 +470,15 @@ async def list_sources(
     org: Organization = Depends(get_current_organization),
 ) -> CrawlSourceListResponse:
     """List crawl sources for the current organization."""
-    async with get_session() as session:
-        query = select(CrawlSource).where(col(CrawlSource.organization_id) == org.id)
-        if status:
-            query = query.where(col(CrawlSource.crawl_status) == CrawlStatus(status))
-        query = query.order_by(col(CrawlSource.created_at).desc()).limit(limit)
-
-        result = await session.execute(query)
-        sources = list(result.scalars().all())
-
-        # Get total count (org-scoped)
-        count_result = await session.execute(
-            select(func.count(CrawlSource.id)).where(col(CrawlSource.organization_id) == org.id)
-        )
-        total = count_result.scalar() or 0
+    page = await list_org_crawl_sources(
+        organization_id=org.id,
+        status=CrawlStatus(status) if status else None,
+        limit=limit,
+    )
 
     return CrawlSourceListResponse(
-        sources=[_source_to_response(s) for s in sources],
-        total=total,
+        sources=[_source_to_response(source) for source in page.sources],
+        total=page.total,
     )
 
 

@@ -12,15 +12,18 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
+from uuid import UUID
 
 import httpx
 import structlog
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from sibyl.api.event_types import WSEvent
@@ -50,6 +53,18 @@ _NAV_CRUFT_PATTERNS = [
     # Table of contents markers
     re.compile(r"^(?:Table of [Cc]ontents|Contents)\s*$", re.MULTILINE),
 ]
+
+
+class SourceAlreadyExistsError(ValueError):
+    """Raised when an org already has a source for the requested URL."""
+
+
+@dataclass(slots=True)
+class CrawlSourcePage:
+    """Org-scoped crawl-source listing with total count."""
+
+    sources: list[CrawlSource]
+    total: int
 
 
 def _clean_nav_cruft(content: str) -> str:
@@ -804,28 +819,61 @@ async def create_source(
         Created CrawlSource
     """
     async with get_session() as session:
-        source = CrawlSource(
+        return await _persist_source(
+            session,
             name=name,
-            url=url.rstrip("/"),
+            url=url,
             organization_id=organization_id,
             source_type=source_type,
             description=description,
             crawl_depth=crawl_depth,
-            include_patterns=include_patterns or [],
-            exclude_patterns=exclude_patterns or [],
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
         )
-        session.add(source)
-        await session.flush()
-        await session.refresh(source)
-        log.info("Created crawl source", name=name, url=url, id=str(source.id))
-        return source
+
+
+async def create_org_source(
+    name: str,
+    url: str,
+    *,
+    organization_id: UUID,
+    source_type: SourceType = SourceType.WEBSITE,
+    description: str | None = None,
+    crawl_depth: int = 2,
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
+) -> CrawlSource:
+    """Create a crawl source for an organization, rejecting same-org duplicates."""
+    normalized_url = _normalize_source_url(url)
+
+    async with get_session() as session:
+        existing = await session.execute(
+            select(CrawlSource).where(
+                col(CrawlSource.url) == normalized_url,
+                col(CrawlSource.organization_id) == organization_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise SourceAlreadyExistsError(normalized_url)
+
+        return await _persist_source(
+            session,
+            name=name,
+            url=normalized_url,
+            organization_id=organization_id,
+            source_type=source_type,
+            description=description,
+            crawl_depth=crawl_depth,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+        )
 
 
 async def get_source_by_url(url: str) -> CrawlSource | None:
     """Get a crawl source by URL."""
     async with get_session() as session:
         result = await session.execute(
-            select(CrawlSource).where(col(CrawlSource.url) == url.rstrip("/"))
+            select(CrawlSource).where(col(CrawlSource.url) == _normalize_source_url(url))
         )
         return result.scalar_one_or_none()
 
@@ -843,3 +891,65 @@ async def list_sources(
         query = query.limit(limit)
         result = await session.execute(query)
         return list(result.scalars().all())
+
+
+async def list_org_sources(
+    *,
+    organization_id: UUID,
+    status: CrawlStatus | None = None,
+    limit: int = 50,
+) -> CrawlSourcePage:
+    """List crawl sources for a single organization."""
+    async with get_session() as session:
+        query = (
+            select(CrawlSource)
+            .where(col(CrawlSource.organization_id) == organization_id)
+            .order_by(col(CrawlSource.created_at).desc())
+            .limit(limit)
+        )
+        if status:
+            query = query.where(col(CrawlSource.crawl_status) == status)
+
+        result = await session.execute(query)
+        count_result = await session.execute(
+            select(func.count(CrawlSource.id)).where(col(CrawlSource.organization_id) == organization_id)
+        )
+
+        return CrawlSourcePage(
+            sources=list(result.scalars().all()),
+            total=count_result.scalar() or 0,
+        )
+
+
+def _normalize_source_url(url: str) -> str:
+    return url.rstrip("/")
+
+
+async def _persist_source(
+    session: AsyncSession,
+    *,
+    name: str,
+    url: str,
+    organization_id: UUID | str,
+    source_type: SourceType,
+    description: str | None,
+    crawl_depth: int,
+    include_patterns: list[str] | None,
+    exclude_patterns: list[str] | None,
+) -> CrawlSource:
+    normalized_url = _normalize_source_url(url)
+    source = CrawlSource(
+        name=name,
+        url=normalized_url,
+        organization_id=organization_id,
+        source_type=source_type,
+        description=description,
+        crawl_depth=crawl_depth,
+        include_patterns=include_patterns or [],
+        exclude_patterns=exclude_patterns or [],
+    )
+    session.add(source)
+    await session.flush()
+    await session.refresh(source)
+    log.info("Created crawl source", name=name, url=normalized_url, id=str(source.id))
+    return source
