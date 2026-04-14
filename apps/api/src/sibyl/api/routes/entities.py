@@ -80,6 +80,28 @@ router = APIRouter(
 # =============================================================================
 
 
+async def _list_all_entities_paginated(
+    entity_manager: EntityManager,
+    *,
+    batch_size: int = 2000,
+) -> list[Any]:
+    entities: list[Any] = []
+    offset = 0
+
+    while True:
+        batch = await entity_manager.list_all(limit=batch_size, offset=offset)
+        if not batch:
+            break
+
+        entities.extend(batch)
+        if len(batch) < batch_size:
+            break
+
+        offset += batch_size
+
+    return entities
+
+
 async def _enrich_entity_with_related(
     entity: Any,
     entity_id: str,
@@ -213,7 +235,7 @@ async def list_entities(
                 list_kwargs["project_id"] = single_project_id
             all_entities = await entity_manager.list_by_type(entity_type, **list_kwargs)
         else:
-            all_entities = await entity_manager.list_all(limit=2000)
+            all_entities = await _list_all_entities_paginated(entity_manager)
 
         # Apply filters
         filtered = []

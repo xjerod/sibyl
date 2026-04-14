@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import UUID
 
 import pytest
@@ -111,3 +111,42 @@ class TestListEntitiesRoute:
         ]
         assert response.total == 2
         assert response.has_more is False
+
+    @pytest.mark.asyncio
+    async def test_untyped_project_filters_page_list_all_fallback(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        client = object()
+        manager = MagicMock()
+        first_page = [
+            _entity(f"ent-{index}", project_id="proj-1", name=f"Match {index}")
+            for index in range(2000)
+        ]
+        second_page = [_entity("ent-unassigned", project_id=None, name="Unassigned")]
+        manager.list_by_type = AsyncMock()
+        manager.list_all = AsyncMock(side_effect=[first_page, second_page])
+
+        with (
+            patch("sibyl.api.routes.entities.get_graph_client", AsyncMock(return_value=client)),
+            patch("sibyl.api.routes.entities.EntityManager", return_value=manager),
+        ):
+            response = await list_entities(
+                org=org,
+                entity_type=None,
+                language=None,
+                category=None,
+                search=None,
+                project_ids=["proj-1", "__unassigned__"],
+                page=1,
+                page_size=50,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        manager.list_by_type.assert_not_awaited()
+        assert manager.list_all.await_args_list == [
+            call(limit=2000, offset=0),
+            call(limit=2000, offset=2000),
+        ]
+        assert response.total == 2001
+        assert len(response.entities) == 50
+        assert response.has_more is True
