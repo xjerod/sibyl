@@ -38,6 +38,16 @@ tasks:
     inputs:
     - '@group(sources)'
     - '@group(tests)'
+  bench-retrieval:
+    command: uv run pytest tests/test_retrieval_benchmarks.py -v
+    inputs:
+    - '@group(sources)'
+    - '@group(tests)'
+  bench-live:
+    command: uv run pytest tests/test_retrieval_live.py -v -s
+    inputs:
+    - '@group(sources)'
+    - '@group(tests)'
   test-cov:
     command: uv run pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml:coverage.xml
     inputs:

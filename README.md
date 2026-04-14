@@ -145,6 +145,19 @@ moon run dev
 curl http://localhost:3334/api/health
 ```
 
+### Retrieval Benchmarks
+
+```bash
+# Synthetic retrieval and ranking benchmarks
+moon run bench-retrieval
+
+# Live read-only benchmark against your running Sibyl stack
+moon run bench-live
+```
+
+`bench-live` exercises the real `/api/search` path with your CLI auth context and
+auto-skips when the local stack or auth is unavailable.
+
 **Ports:**
 
 | Service   | Port | URL                   |

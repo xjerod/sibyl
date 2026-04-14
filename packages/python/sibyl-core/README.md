@@ -165,4 +165,14 @@ SIBYL_MOCK_LLM=true uv run pytest tests/
 
 # Live model tests (costs money)
 uv run pytest tests/live --live-models
+
+# Retrieval benchmark suite
+moon run core:bench-retrieval
+
+# Live read-only search benchmark against a running stack
+moon run core:bench-live
 ```
+
+`core:bench-live` probes the real `/api/search` path with CLI auth and auto-skips
+when the local Sibyl stack or auth context is unavailable, so it is safe to run in
+normal development without mutating graph data.
