@@ -26,7 +26,9 @@ JobStatus = queue_module.JobStatus
 
 
 class FakePool:
-    def __init__(self, recent_ids: list[str | bytes], scan_ids: list[str | bytes] | None = None) -> None:
+    def __init__(
+        self, recent_ids: list[str | bytes], scan_ids: list[str | bytes] | None = None
+    ) -> None:
         self._recent_ids = recent_ids
         self._scan_ids = scan_ids
         self.keys = AsyncMock(side_effect=AssertionError("list_jobs should not call KEYS"))

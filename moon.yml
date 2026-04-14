@@ -121,6 +121,25 @@ tasks:
     preset: server
 
   # ==========================================================================
+  # Installation
+  # ==========================================================================
+  install:
+    deps:
+      - cli:install
+      - api:install
+      - skills:install
+      - hooks:install
+    preset: server
+
+  install-dev:
+    deps:
+      - cli:install-dev
+      - api:install-dev
+      - skills:install
+      - hooks:install
+    preset: server
+
+  # ==========================================================================
   # Formatting (aggregates individual project tasks)
   # ==========================================================================
   format:

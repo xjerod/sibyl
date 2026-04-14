@@ -328,7 +328,9 @@ async def list_raw_captures(
                     | (col(RawCapture.metadata_).op("->>")("review_state") == "pending")
                 )
             else:
-                stmt = stmt.where(col(RawCapture.metadata_).op("->>")("review_state") == review_state)
+                stmt = stmt.where(
+                    col(RawCapture.metadata_).op("->>")("review_state") == review_state
+                )
 
         result = await session.execute(stmt)
         rows = result.scalars().all()
@@ -420,7 +422,9 @@ async def update_raw_capture_review_state(
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("update_raw_capture_review_state_failed", capture_id=str(capture_id), error=str(e))
+        log.exception(
+            "update_raw_capture_review_state_failed", capture_id=str(capture_id), error=str(e)
+        )
         raise HTTPException(
             status_code=500, detail="Failed to update raw capture review state. Please try again."
         ) from e

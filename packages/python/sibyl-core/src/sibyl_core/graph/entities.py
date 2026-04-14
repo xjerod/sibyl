@@ -2227,20 +2227,20 @@ class EntityManager:
 
         return self._coerce_entity(
             Entity(
-            id=node.uuid,
-            entity_type=entity_type,
-            name=node.name,
-            description=description,
-            content=content,
-            organization_id=node.group_id,
-            created_by=metadata.get("created_by"),
-            modified_by=metadata.get("modified_by"),
-            metadata=metadata,
-            created_at=node.created_at,
-            updated_at=node.created_at,  # Graphiti doesn't track updated_at
-            source_file=source_file,
-            embedding=node.name_embedding if node.name_embedding else None,
-        )
+                id=node.uuid,
+                entity_type=entity_type,
+                name=node.name,
+                description=description,
+                content=content,
+                organization_id=node.group_id,
+                created_by=metadata.get("created_by"),
+                modified_by=metadata.get("modified_by"),
+                metadata=metadata,
+                created_at=node.created_at,
+                updated_at=node.created_at,  # Graphiti doesn't track updated_at
+                source_file=source_file,
+                embedding=node.name_embedding if node.name_embedding else None,
+            )
         )
 
     async def _get_node_entity_type(self, entity_id: str) -> EntityType | None:

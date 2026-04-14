@@ -157,6 +157,9 @@ uv sync && pnpm install
 cp apps/api/.env.example apps/api/.env
 # Add SIBYL_OPENAI_API_KEY + SIBYL_JWT_SECRET
 
+# Install CLIs globally (editable — source changes reflect immediately)
+moon run install-dev
+
 # Launch everything
 moon run dev
 
@@ -410,6 +413,12 @@ See [`docs/deployment/`](docs/deployment/) for detailed guides:
 ## Development
 
 ```bash
+# Install CLIs globally (editable — picks up source changes)
+moon run install-dev
+
+# Install CLIs globally (frozen copy, for CI / production)
+moon run install
+
 # Start everything
 moon run dev
 

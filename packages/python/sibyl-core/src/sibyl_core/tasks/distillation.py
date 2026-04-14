@@ -12,7 +12,9 @@ _SENTENCE_PREFIX_RE = re.compile(
     r"^\s*(?:first|then|next|after that|finally|lastly)[,:-]?\s*",
     re.IGNORECASE,
 )
-_METADATA_LINE_RE = re.compile(r"^\s*(?:##|###|\*\*.+?\*\*|status:|feature:|technologies:)", re.IGNORECASE)
+_METADATA_LINE_RE = re.compile(
+    r"^\s*(?:##|###|\*\*.+?\*\*|status:|feature:|technologies:)", re.IGNORECASE
+)
 
 
 def build_learning_episode(task: Task) -> Episode:

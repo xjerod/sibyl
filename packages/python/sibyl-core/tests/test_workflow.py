@@ -606,7 +606,9 @@ class TestWorkflowEngine:
         assert procedure.metadata["distillation_mode"] == "explicit_steps"
         assert procedure.metadata["notes_used"] == 1
         assert procedure.metadata["task_id"] == task.id
-        relationship_types = [rel.relationship_type for rel in mock_relationship_manager.relationships]
+        relationship_types = [
+            rel.relationship_type for rel in mock_relationship_manager.relationships
+        ]
         assert RelationshipType.USES_PROCEDURE in relationship_types
         assert RelationshipType.DERIVED_FROM in relationship_types
         assert RelationshipType.REFERENCES in relationship_types
