@@ -155,8 +155,8 @@ moon run bench-retrieval
 moon run bench-live
 ```
 
-`bench-live` exercises the real `/api/search` path with your CLI auth context and
-auto-skips when the local stack or auth is unavailable.
+`bench-live` exercises the real `/api/search` path with your CLI auth context and auto-skips when
+the local stack or auth is unavailable.
 
 **Ports:**
 

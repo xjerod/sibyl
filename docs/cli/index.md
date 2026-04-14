@@ -37,21 +37,21 @@ sibyl search "authentication"
 
 ## Command Groups
 
-| Command                         | Description                                |
-| ------------------------------- | ------------------------------------------ |
-| [`sibyl search`](./search.md)   | Semantic search across the knowledge graph |
-| [`sibyl add`](./add.md)         | Quick knowledge capture                    |
-| [`sibyl task`](./task-list.md)  | Task lifecycle management                  |
-| [`sibyl project`](./project.md) | Project management                         |
-| [`sibyl epic`](./epic.md)       | Epic (feature group) management            |
-| [`sibyl entity`](./entity.md)   | Generic entity CRUD operations             |
-| [`sibyl explore`](./explore.md) | Graph traversal and exploration            |
-| [`sibyl context`](./context.md) | Manage CLI contexts                        |
-| `sibyl auth`                    | Authentication and API keys                |
-| `sibyl org`                     | Organization management                    |
-| `sibyl config`                  | Configuration management                   |
+| Command                         | Description                                  |
+| ------------------------------- | -------------------------------------------- |
+| [`sibyl search`](./search.md)   | Semantic search across the knowledge graph   |
+| [`sibyl add`](./add.md)         | Quick knowledge capture                      |
+| [`sibyl task`](./task-list.md)  | Task lifecycle management                    |
+| [`sibyl project`](./project.md) | Project management                           |
+| [`sibyl epic`](./epic.md)       | Epic (feature group) management              |
+| [`sibyl entity`](./entity.md)   | Generic entity CRUD operations               |
+| [`sibyl explore`](./explore.md) | Graph traversal and exploration              |
+| [`sibyl context`](./context.md) | Manage CLI contexts                          |
+| `sibyl auth`                    | Authentication and API keys                  |
+| `sibyl org`                     | Organization management                      |
+| `sibyl config`                  | Configuration management                     |
 | `sibyl crawl`                   | Documentation source management and crawling |
-| `sibyl document`                | Browse crawled documents                   |
+| `sibyl document`                | Browse crawled documents                     |
 
 ## Global Options
 
