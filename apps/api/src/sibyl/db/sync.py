@@ -178,8 +178,24 @@ async def get_graph_projects(organization_id: str) -> list[dict]:
     client = await get_graph_client()
     manager = EntityManager(client, group_id=organization_id)
 
-    # List all project entities
-    projects = await manager.list_by_type(entity_type=EntityType.PROJECT, limit=1000)
+    projects = []
+    offset = 0
+    page_size = 1000
+
+    while True:
+        batch = await manager.list_by_type(
+            entity_type=EntityType.PROJECT,
+            limit=page_size,
+            offset=offset,
+        )
+        if not batch:
+            break
+
+        projects.extend(batch)
+        if len(batch) < page_size:
+            break
+
+        offset += page_size
 
     return [
         {
