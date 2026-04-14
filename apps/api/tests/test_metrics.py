@@ -14,6 +14,7 @@ from sibyl.api.routes.metrics import (
     _compute_status_distribution,
     _compute_velocity_trend,
     _count_recent_tasks,
+    _normalize_metric_task_row,
     _parse_iso_date,
 )
 from sibyl_core.models.entities import Entity, EntityType
@@ -39,6 +40,12 @@ class TestParseIsoDate:
         result = _parse_iso_date("2024-12-24T10:30:00+00:00")
         assert result is not None
         assert result.year == 2024
+
+    def test_datetime_input(self) -> None:
+        """Datetime input is normalized to UTC."""
+        source = datetime(2024, 12, 24, 10, 30, 0, tzinfo=UTC)
+        result = _parse_iso_date(source)
+        assert result == source
 
     def test_none_input(self) -> None:
         """None input returns None."""
@@ -124,6 +131,51 @@ class TestComputePriorityDistribution:
         assert result.medium == 0
         assert result.low == 0
         assert result.someday == 0
+
+
+class TestNormalizeMetricTaskRow:
+    """Tests for raw metric-row normalization."""
+
+    def test_prefers_metadata_values_over_top_level_duplicates(self) -> None:
+        """Metadata remains the canonical source when both representations exist."""
+        normalized = _normalize_metric_task_row(
+            {
+                "project_id": "proj_top_level",
+                "status": "todo",
+                "priority": "medium",
+                "assignees": ["top-level"],
+                "metadata": {
+                    "project_id": "proj_meta",
+                    "status": "doing",
+                    "priority": "critical",
+                    "assignees": ["meta"],
+                },
+            }
+        )
+
+        assert normalized["metadata"]["project_id"] == "proj_meta"
+        assert normalized["metadata"]["status"] == "doing"
+        assert normalized["metadata"]["priority"] == "critical"
+        assert normalized["metadata"]["assignees"] == ["meta"]
+
+    def test_falls_back_to_valid_metadata_datetime_when_top_level_is_malformed(self) -> None:
+        """Malformed top-level timestamps should not hide valid metadata values."""
+        valid_created_at = "2026-04-13T12:00:00+00:00"
+        normalized = _normalize_metric_task_row(
+            {
+                "created_at": "not-a-date",
+                "completed_at": "still-not-a-date",
+                "metadata": {
+                    "created_at": valid_created_at,
+                    "completed_at": valid_created_at,
+                },
+            }
+        )
+
+        assert normalized["created_at"] == valid_created_at
+        assert normalized["metadata"]["created_at"] == valid_created_at
+        assert normalized["completed_at"] == valid_created_at
+        assert normalized["metadata"]["completed_at"] == valid_created_at
 
     def test_mixed_priorities(self) -> None:
         """Count tasks with mixed priorities."""
@@ -302,6 +354,16 @@ class TestCountRecentTasks:
             {"metadata": {"created_at": recent}},
         ]
         assert _count_recent_tasks(tasks, days=7, field="created_at") == 1
+
+    def test_datetime_objects_are_counted(self) -> None:
+        """Native datetime values count as recent activity."""
+        now = datetime.now(UTC)
+
+        tasks = [
+            {"created_at": now - timedelta(days=1)},
+            {"created_at": now - timedelta(days=2)},
+        ]
+        assert _count_recent_tasks(tasks, days=7, field="created_at") == 2
 
 
 # =============================================================================

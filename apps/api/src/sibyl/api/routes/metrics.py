@@ -39,10 +39,14 @@ router = APIRouter(
 )
 
 
-def _parse_iso_date(date_str: str | None) -> datetime | None:
-    """Parse ISO date string to datetime."""
+def _parse_iso_date(date_str: str | datetime | None) -> datetime | None:
+    """Parse ISO date strings or datetime objects to UTC datetimes."""
     if not date_str:
         return None
+    if isinstance(date_str, datetime):
+        if date_str.tzinfo is None:
+            return date_str.replace(tzinfo=UTC)
+        return date_str.astimezone(UTC)
     try:
         parsed = datetime.fromisoformat(date_str)
         if parsed.tzinfo is None:
@@ -180,23 +184,49 @@ def _parse_metadata_dict(metadata: Any) -> dict[str, Any]:
     return {}
 
 
+def _prefer_metadata_value(metadata: dict[str, Any], row: dict[str, Any], field: str) -> Any:
+    """Prefer canonical metadata values and fall back to top-level properties."""
+    metadata_value = metadata.get(field)
+    if metadata_value not in (None, ""):
+        return metadata_value
+
+    row_value = row.get(field)
+    if row_value not in (None, ""):
+        return row_value
+
+    return None
+
+
+def _prefer_valid_datetime_value(metadata: dict[str, Any], row: dict[str, Any], field: str) -> str | None:
+    """Prefer the first parseable datetime value, falling back across representations."""
+    metadata_value = metadata.get(field)
+    if _parse_iso_date(metadata_value):
+        return metadata_value
+
+    row_value = row.get(field)
+    if _parse_iso_date(row_value):
+        return row_value
+
+    return metadata_value or row_value
+
+
 def _normalize_metric_task_row(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize raw task rows into the legacy task-shaped metrics format."""
     metadata = _parse_metadata_dict(row.get("metadata"))
 
-    assignees = row.get("assignees")
+    assignees = _prefer_metadata_value(metadata, row, "assignees")
     if assignees is None:
-        assignees = metadata.get("assignees", [])
+        assignees = []
 
-    created_at = row.get("created_at") or metadata.get("created_at")
-    completed_at = row.get("completed_at") or metadata.get("completed_at")
-    due_date = row.get("due_date") or metadata.get("due_date")
+    created_at = _prefer_valid_datetime_value(metadata, row, "created_at")
+    completed_at = _prefer_valid_datetime_value(metadata, row, "completed_at")
+    due_date = _prefer_valid_datetime_value(metadata, row, "due_date")
 
     normalized_metadata = {
         **metadata,
-        "project_id": row.get("project_id") or metadata.get("project_id"),
-        "status": row.get("status") or metadata.get("status") or "backlog",
-        "priority": row.get("priority") or metadata.get("priority") or "medium",
+        "project_id": _prefer_metadata_value(metadata, row, "project_id"),
+        "status": _prefer_metadata_value(metadata, row, "status") or "backlog",
+        "priority": _prefer_metadata_value(metadata, row, "priority") or "medium",
         "assignees": assignees,
         "created_at": created_at,
         "completed_at": completed_at,
