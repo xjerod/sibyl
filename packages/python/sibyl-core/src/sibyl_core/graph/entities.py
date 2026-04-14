@@ -684,8 +684,6 @@ class EntityManager:
         params: dict[str, Any] = {
             "entity_type": entity_type.value,
             "group_id": self._group_id,
-            "query_limit": max(limit + offset, 1),
-            "query_offset": 0,
         }
         match_clause = "MATCH (n)"
         where_clauses = [
@@ -739,6 +737,23 @@ class EntityManager:
         if not include_archived:
             where_clauses.append("(n.status IS NULL OR toLower(n.status) <> 'archived')")
 
+        requires_legacy_rechecks = any(
+            [
+                project_id is not None,
+                bool(status_list),
+                bool(priority_list),
+                bool(complexity_list),
+                feature is not None,
+                bool(tags),
+                no_epic,
+                not include_archived,
+            ]
+        )
+        target_count = offset + limit if requires_legacy_rechecks else limit
+        page_size = min(max(target_count, 1), 1000)
+        params["query_limit"] = page_size
+        params["query_offset"] = 0 if requires_legacy_rechecks else offset
+
         query = f"""
             {match_clause}
             WHERE {' AND '.join(where_clauses)}
@@ -762,7 +777,7 @@ class EntityManager:
             entities: list[Entity] = []
             seen_entity_ids: set[str] = set()
             seen_pages: set[tuple[str | None, ...]] = set()
-            while len(entities) < offset + limit:
+            while len(entities) < target_count:
                 result = await self._driver.execute_query(query, **params)
 
                 # Handle FalkorDB result format using normalize helper
@@ -851,9 +866,14 @@ class EntityManager:
             log.debug(
                 "Listed entities",
                 entity_type=entity_type,
-                returned=min(len(entities[offset : offset + limit]), limit),
+                returned=min(
+                    len(entities[offset : offset + limit]) if requires_legacy_rechecks else len(entities[:limit]),
+                    limit,
+                ),
             )
-            return entities[offset : offset + limit]
+            if requires_legacy_rechecks:
+                return entities[offset : offset + limit]
+            return entities[:limit]
 
         except Exception as e:
             log.exception("Failed to list entities", entity_type=entity_type, error=str(e))

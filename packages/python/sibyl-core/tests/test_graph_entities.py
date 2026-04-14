@@ -983,6 +983,52 @@ class TestEntityListByType:
         assert mock_driver.execute_query.await_args.kwargs["query_limit"] == 5
 
     @pytest.mark.asyncio
+    async def test_list_by_type_pushes_exact_pagination_to_cypher(
+        self,
+        entity_manager: EntityManager,
+        mock_driver: MagicMock,
+    ) -> None:
+        """Exact pagination uses DB offset when legacy metadata rechecks are not needed."""
+        mock_driver.execute_query.return_value = (
+            [
+                {
+                    "uuid": "task-003",
+                    "name": "Task 3",
+                    "entity_type": "task",
+                    "group_id": "test-org-123",
+                    "metadata": json.dumps({"status": "todo"}),
+                },
+                {
+                    "uuid": "task-004",
+                    "name": "Task 4",
+                    "entity_type": "task",
+                    "group_id": "test-org-123",
+                    "metadata": json.dumps({"status": "todo"}),
+                },
+                {
+                    "uuid": "task-005",
+                    "name": "Task 5",
+                    "entity_type": "task",
+                    "group_id": "test-org-123",
+                    "metadata": json.dumps({"status": "todo"}),
+                },
+            ],
+            None,
+            None,
+        )
+
+        results = await entity_manager.list_by_type(
+            EntityType.TASK,
+            limit=3,
+            offset=2,
+            include_archived=True,
+        )
+
+        assert [result.id for result in results] == ["task-003", "task-004", "task-005"]
+        assert mock_driver.execute_query.await_args.kwargs["query_offset"] == 2
+        assert mock_driver.execute_query.await_args.kwargs["query_limit"] == 3
+
+    @pytest.mark.asyncio
     async def test_list_by_type_pagination_survives_legacy_metadata_rechecks(
         self,
         entity_manager: EntityManager,
@@ -1029,6 +1075,37 @@ class TestEntityListByType:
 
         assert [result.id for result in results] == ["task-002", "task-003"]
         assert mock_driver.execute_query.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_list_by_type_caps_large_legacy_scan_batches(
+        self,
+        entity_manager: EntityManager,
+        mock_driver: MagicMock,
+    ) -> None:
+        """Large filtered scans page incrementally instead of requesting the full window."""
+        mock_driver.execute_query.side_effect = [
+            (
+                [
+                    {
+                        "uuid": f"task-{i:04d}",
+                        "name": f"Task {i}",
+                        "entity_type": "task",
+                        "group_id": "test-org-123",
+                        "metadata": json.dumps({"status": "doing"}),
+                    }
+                    for i in range(1000)
+                ],
+                None,
+                None,
+            ),
+            ([], None, None),
+        ]
+
+        await entity_manager.list_by_type(EntityType.TASK, status="doing", limit=1500, offset=600)
+
+        first_call = mock_driver.execute_query.await_args_list[0]
+        assert first_call.kwargs["query_offset"] == 0
+        assert first_call.kwargs["query_limit"] == 1000
 
     @pytest.mark.asyncio
     async def test_list_by_type_stops_on_repeated_page(
