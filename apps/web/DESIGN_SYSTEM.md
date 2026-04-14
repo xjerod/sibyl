@@ -247,29 +247,6 @@ import {
 </Table>;
 ```
 
-### Avatar
-
-```tsx
-import { Avatar, AvatarImage, AvatarFallback, UserAvatar, AvatarGroup } from '@/components/ui';
-
-// Basic
-<Avatar size="md">
-  <AvatarImage src="/photo.jpg" alt="Name" />
-  <AvatarFallback>JD</AvatarFallback>
-</Avatar>
-
-// Convenience component
-<UserAvatar src="/photo.jpg" name="Jane Doe" size="lg" status="online" />
-
-// Group with overflow
-<AvatarGroup max={3}>
-  <UserAvatar name="A" />
-  <UserAvatar name="B" />
-  <UserAvatar name="C" />
-  <UserAvatar name="D" /> {/* Shows +1 overflow */}
-</AvatarGroup>
-```
-
 ### Badge
 
 ```tsx
