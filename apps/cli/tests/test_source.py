@@ -1,12 +1,19 @@
 """Tests for crawl/document CLI commands."""
 
 from importlib import import_module
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
 from sibyl_cli import crawl
 from sibyl_cli.client import SibylClientError
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", text)
 
 
 class TestCrawlCliSurface:
@@ -274,11 +281,12 @@ def test_main_help_omits_source_group() -> None:
     main_cli = import_module("sibyl_cli.main")
 
     result = runner.invoke(main_cli.app, ["--help"])
+    help_text = _strip_ansi(result.stdout)
 
     assert result.exit_code == 0
-    assert "│ crawl " in result.stdout
-    assert "│ document " not in result.stdout
-    assert "│ source " not in result.stdout
+    assert "│ crawl " in help_text
+    assert "│ document " not in help_text
+    assert "│ source " not in help_text
 
 
 def test_crawl_help_shows_nested_documents_group() -> None:
