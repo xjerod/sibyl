@@ -200,8 +200,18 @@ async def list_entities(
         entity_manager = EntityManager(client, group_id=group_id)
 
         # Get entities - single query for all types, or filtered by type
+        unassigned_marker = "__unassigned__"
+        real_project_ids = [pid for pid in (project_ids or []) if pid != unassigned_marker]
+        unique_real_project_ids = list(dict.fromkeys(real_project_ids))
+        single_project_id = (
+            unique_real_project_ids[0] if len(unique_real_project_ids) == 1 and unassigned_marker not in (project_ids or []) else None
+        )
+
         if entity_type:
-            all_entities = await entity_manager.list_by_type(entity_type, limit=1000)
+            list_kwargs: dict[str, Any] = {"limit": 1000}
+            if single_project_id:
+                list_kwargs["project_id"] = single_project_id
+            all_entities = await entity_manager.list_by_type(entity_type, **list_kwargs)
         else:
             all_entities = await entity_manager.list_all(limit=2000)
 
@@ -209,9 +219,7 @@ async def list_entities(
         filtered = []
 
         # Prepare project filter
-        unassigned_marker = "__unassigned__"
         has_unassigned = project_ids and unassigned_marker in project_ids
-        real_project_ids = [pid for pid in (project_ids or []) if pid != unassigned_marker]
 
         for entity in all_entities:
             # Project filter
