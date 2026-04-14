@@ -66,7 +66,7 @@ Navigate to **Sources** in the web UI to:
 
 - Add new documentation sources
 - View crawl status and progress
-- Trigger manual syncs
+- Trigger manual crawls
 - See document counts per source
 
 ### Via MCP
@@ -108,14 +108,11 @@ with depth 2 and increase only if needed. :::
 ### Crawl Triggers
 
 ```bash
-# Trigger initial crawl after adding source
-sibyl source crawl source_abc123
+# Trigger a crawl after adding a source
+sibyl crawl ingest source_abc123
 
-# Re-sync an existing source (fetch updates)
-sibyl source sync source_abc123
-
-# Refresh all sources
-sibyl source refresh
+# Re-run a crawl when documentation changes
+sibyl crawl ingest source_abc123
 ```
 
 ## Document Structure
@@ -172,7 +169,7 @@ Results are merged and ranked by semantic relevance.
 ### List Sources
 
 ```bash
-sibyl source list
+sibyl crawl sources
 ```
 
 Output:
@@ -187,7 +184,7 @@ source_ghi789   Internal Wiki     https://wiki.company.com/dev      56         2
 ### View Source Details
 
 ```bash
-sibyl source show source_abc123
+sibyl crawl show source_abc123
 ```
 
 Output:
@@ -208,21 +205,16 @@ Source: React Docs (source_abc123)
   - useContext Hook (18 chunks)
 ```
 
-### Update Source
+### Change Source Settings
 
-```bash
-# Change crawl depth
-sibyl source update source_abc123 --depth 3
-
-# Update name
-sibyl source update source_abc123 --name "React 19 Reference"
-```
+Adjust crawl settings by deleting and re-adding the source with the new options, or use the web UI
+to edit the source interactively.
 
 ### Delete Source
 
 ```bash
 # Remove source and all its documents
-sibyl source delete source_abc123
+sibyl crawl delete source_abc123
 ```
 
 ::: danger Destructive Operation Deleting a source removes all associated documents and chunks. This
@@ -234,7 +226,7 @@ After documents are crawled, you can link them to your knowledge graph:
 
 ```bash
 # Link document chunks to related entities
-sibyl source link-graph source_abc123
+sibyl crawl link-graph source_abc123
 ```
 
 This creates `DOCUMENTED_IN` relationships between your patterns/episodes and relevant documentation
@@ -246,7 +238,7 @@ chunks. For example:
 ### Check Linking Status
 
 ```bash
-sibyl source link-graph-status source_abc123
+sibyl crawl link-status
 ```
 
 ## Best Practices
@@ -268,13 +260,11 @@ sibyl source link-graph-status source_abc123
 
 ### Keep Sources Updated
 
-Documentation changes. Set up regular syncs:
+Documentation changes. Re-run crawls when your sources update:
 
 ```bash
-# Manual sync when you know docs updated
-sibyl source sync source_abc123
-
-# Consider automation for critical sources
+# Re-crawl when you know docs changed
+sibyl crawl ingest source_abc123
 ```
 
 ### Use Meaningful Names
@@ -303,7 +293,7 @@ The Sources page shows:
 
 - **All sources** with document counts and sync status
 - **Crawl progress** for active crawls
-- **Quick actions** to sync, edit, or delete sources
+- **Quick actions** to crawl, edit, or delete sources
 - **Document browser** to explore crawled content
 
 ### Adding a Source via UI
@@ -328,7 +318,7 @@ Active crawls show:
 
 ```bash
 # Check crawl status
-sibyl source show source_abc123
+sibyl crawl status source_abc123
 
 # If stuck, you may need to restart the worker
 moon run stop && moon run dev
@@ -347,13 +337,13 @@ Possible causes:
 
 ```bash
 # Verify documents exist
-sibyl source show source_abc123
+sibyl crawl show source_abc123
 
 # Check embeddings are generated
 sibyl stats
 
 # Try direct document search
-sibyl entity list --type document --source source_abc123
+sibyl document list --source source_abc123
 ```
 
 ## Next Steps

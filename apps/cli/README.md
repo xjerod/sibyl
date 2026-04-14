@@ -38,8 +38,7 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 | `epic`     | Epic management (list, start, complete, roadmap)         |
 | `entity`   | Entity CRUD                                              |
 | `explore`  | Graph navigation (related, traverse, dependencies, path) |
-| `crawl`    | Documentation crawling and ingestion                     |
-| `source`   | Documentation sources (list, create, crawl)              |
+| `crawl`    | Documentation sources, crawling, and graph linking       |
 | `document` | View crawled documents                                   |
 | `auth`     | Login, logout, API keys                                  |
 | `org`      | Organization switching, member management                |

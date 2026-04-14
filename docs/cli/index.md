@@ -50,8 +50,8 @@ sibyl search "authentication"
 | `sibyl auth`                    | Authentication and API keys                |
 | `sibyl org`                     | Organization management                    |
 | `sibyl config`                  | Configuration management                   |
-| `sibyl source`                  | Knowledge source management                |
-| `sibyl crawl`                   | Trigger web crawls                         |
+| `sibyl crawl`                   | Documentation source management and crawling |
+| `sibyl document`                | Browse crawled documents                   |
 
 ## Global Options
 

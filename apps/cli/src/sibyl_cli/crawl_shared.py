@@ -55,6 +55,42 @@ def add_crawl_source(
     _add()
 
 
+def show_crawl_source(
+    source_id: str,
+    *,
+    json_out: bool,
+    handle_client_error: Callable[[SibylClientError], None],
+) -> None:
+    @run_async
+    async def _show() -> None:
+        client = get_client()
+
+        try:
+            source = await client.get_crawl_source(source_id)
+
+            if json_out:
+                print_json(source)
+                return
+
+            console.print(f"\n[{ELECTRIC_PURPLE}]Source Details[/{ELECTRIC_PURPLE}]\n")
+            console.print(f"  Name: [{NEON_CYAN}]{source.get('name', '')}[/{NEON_CYAN}]")
+            console.print(f"  ID: {source.get('id', '')}")
+            console.print(f"  URL: {source.get('url', '-')}")
+            console.print(f"  Type: {source.get('source_type', 'website')}")
+            console.print(f"  Status: {source.get('crawl_status', 'pending')}")
+            console.print(f"  Documents: {source.get('document_count', 0)}")
+            console.print(f"  Chunks: {source.get('chunk_count', 0)}")
+            console.print(f"  Last Crawled: {source.get('last_crawled_at', 'never') or 'never'}")
+
+            if source.get("last_error"):
+                error(f"Last Error: {source['last_error']}")
+
+        except SibylClientError as e:
+            handle_client_error(e)
+
+    _show()
+
+
 def start_crawl_source(
     source_id: str,
     *,

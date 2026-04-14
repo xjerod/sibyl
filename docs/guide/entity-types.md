@@ -208,7 +208,7 @@ sibyl task note task_xyz "Found the root cause of the bug"
 A documentation source to be crawled.
 
 ```bash
-sibyl source add https://react.dev --name "React Docs" --depth 3
+sibyl crawl add https://react.dev --name "React Docs" --depth 3
 ```
 
 **When to use:**
