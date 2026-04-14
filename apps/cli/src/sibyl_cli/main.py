@@ -22,6 +22,7 @@ from sibyl_cli.common import (
     console,
     create_table,
     error,
+    handle_client_error,
     info,
     print_json,
     run_async,
@@ -138,12 +139,8 @@ def _handle_client_error(e: SibylClientError) -> None:
             f"    [{NEON_CYAN}]›[/{NEON_CYAN}] [bold {NEON_CYAN}]sibyl auth signup[/bold {NEON_CYAN}]  [dim]Create account[/dim]"
         )
         console.print()
-    elif e.status_code == 404:
-        error(f"Not found: {e.detail}")
-    elif e.status_code == 400:
-        error(f"Invalid request: {e.detail}")
     else:
-        error(str(e))
+        handle_client_error(e)
     raise typer.Exit(1)
 
 

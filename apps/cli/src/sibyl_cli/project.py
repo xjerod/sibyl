@@ -20,6 +20,7 @@ from sibyl_cli.common import (
     create_panel,
     create_table,
     error,
+    handle_client_error,
     info,
     print_json,
     run_async,
@@ -39,18 +40,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-
-def _handle_client_error(e: SibylClientError) -> None:
-    """Handle client errors with helpful messages and exit with code 1."""
-    if "Cannot connect" in str(e):
-        error(str(e))
-    elif e.status_code == 404:
-        error(f"Not found: {e.detail}")
-    elif e.status_code == 400:
-        error(f"Invalid request: {e.detail}")
-    else:
-        error(str(e))
-    raise typer.Exit(1)
+_handle_client_error = handle_client_error
 
 
 @app.command("list")
