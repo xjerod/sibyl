@@ -85,5 +85,7 @@ logs/
 
 # Backups and database dumps
 backups/
+!apps/web/src/app/(main)/settings/admin/backups/
+!apps/web/src/app/(main)/settings/admin/backups/page.tsx
 *.sql
 !docs/schemas/*.sql
