@@ -16,12 +16,91 @@ from sibyl.cli.common import (
     run_async,
     success,
 )
+from sibyl_core.models.entities import EntityType
 
 app = typer.Typer(
     name="export",
     help="Export data to files (JSON/CSV)",
     no_args_is_help=True,
 )
+
+GRAPH_ENTITY_TYPES = (
+    EntityType.PATTERN,
+    EntityType.RULE,
+    EntityType.TEMPLATE,
+    EntityType.TASK,
+    EntityType.PROJECT,
+    EntityType.EPISODE,
+)
+GRAPH_ENTITY_PAGE_SIZE = 1000
+GRAPH_RELATIONSHIP_PAGE_SIZE = 5000
+EXPLORE_PAGE_SIZE = 200
+
+
+async def _list_entities_by_type_paginated(
+    entity_mgr: object,
+    entity_type: EntityType,
+    *,
+    page_size: int,
+) -> list[object]:
+    entities: list[object] = []
+    offset = 0
+
+    while True:
+        batch = await entity_mgr.list_by_type(entity_type, limit=page_size, offset=offset)
+        if not batch:
+            break
+
+        entities.extend(batch)
+        if len(batch) < page_size:
+            break
+
+        offset += page_size
+
+    return entities
+
+
+async def _list_relationships_paginated(
+    rel_mgr: object,
+    *,
+    page_size: int,
+) -> list[object]:
+    relationships: list[object] = []
+    offset = 0
+
+    while True:
+        batch = await rel_mgr.list_all(limit=page_size, offset=offset)
+        if not batch:
+            break
+
+        relationships.extend(batch)
+        if len(batch) < page_size:
+            break
+
+        offset += page_size
+
+    return relationships
+
+
+async def _explore_paginated(**filters: object) -> list[object]:
+    from sibyl_core.tools.core import explore
+
+    entities: list[object] = []
+    offset = 0
+
+    while True:
+        response = await explore(limit=EXPLORE_PAGE_SIZE, offset=offset, **filters)
+        batch = list(response.entities or [])
+        if not batch:
+            break
+
+        entities.extend(batch)
+        if not getattr(response, "has_more", False):
+            break
+
+        offset += len(batch)
+
+    return entities
 
 
 @app.command("graph")
@@ -52,12 +131,19 @@ def export_graph(
 
             # Get all entities
             entities = []
-            for entity_type in ["pattern", "rule", "template", "task", "project", "episode"]:
-                type_entities = await entity_mgr.list_by_type(entity_type, limit=1000)
+            for entity_type in GRAPH_ENTITY_TYPES:
+                type_entities = await _list_entities_by_type_paginated(
+                    entity_mgr,
+                    entity_type,
+                    page_size=GRAPH_ENTITY_PAGE_SIZE,
+                )
                 entities.extend(type_entities)
 
             # Get all relationships
-            relationships = await rel_mgr.list_all(limit=5000)
+            relationships = await _list_relationships_paginated(
+                rel_mgr,
+                page_size=GRAPH_RELATIONSHIP_PAGE_SIZE,
+            )
 
             # Build export data
             export_data = {
@@ -103,18 +189,13 @@ def export_tasks(
 
     @run_async
     async def _export() -> None:
-        from sibyl_core.tools.core import explore
-
         try:
-            response = await explore(
+            entities = await _explore_paginated(
                 mode="list",
                 types=["task"],
                 project=project,
                 status=status,
-                limit=1000,
             )
-
-            entities = response.entities or []
 
             if not entities:
                 info("No tasks to export")
@@ -182,16 +263,11 @@ def export_entities(
 
     @run_async
     async def _export() -> None:
-        from sibyl_core.tools.core import explore
-
         try:
-            response = await explore(
+            entities = await _explore_paginated(
                 mode="list",
                 types=[entity_type],
-                limit=1000,
             )
-
-            entities = response.entities or []
 
             if not entities:
                 info(f"No {entity_type}s to export")
