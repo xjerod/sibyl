@@ -106,13 +106,11 @@ tasks:
   # Database
   db-migrate:
     command: uv run alembic upgrade head
-    preset: server
     options:
       envFile: .env
 
   db-revision:
     command: uv run alembic revision --autogenerate
-    preset: server
     options:
       envFile: .env
 
@@ -133,8 +131,6 @@ tasks:
   # Installation
   install:
     command: uv tool install . --force
-    preset: server
 
   install-dev:
     command: uv tool install . --editable --force
-    preset: server

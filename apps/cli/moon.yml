@@ -48,10 +48,8 @@ tasks:
     - ~:test
   install:
     command: uv tool install . --force
-    preset: server
   install-dev:
     command: uv tool install . --editable --force
-    preset: server
   setup-assistants:
     command: uv run sibyl local setup
     preset: server
