@@ -48,6 +48,10 @@ async def startup(ctx: dict[str, Any]) -> None:
     log.info("Job worker online")
     ctx["start_time"] = datetime.now(UTC)
 
+    # Load API keys from database into environment BEFORE any jobs use GraphClient
+    from sibyl.services.settings import load_api_keys_from_db
+
+    await load_api_keys_from_db()
 
 async def shutdown(ctx: dict[str, Any]) -> None:  # noqa: ARG001
     """Worker shutdown - cleanup resources."""
