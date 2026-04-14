@@ -845,6 +845,109 @@ class TestSearchTool:
             assert isinstance(response.filters, dict)
 
 
+class TestDocumentSearchFusion:
+    """Test document-side search fusion helpers."""
+
+    def test_dedupe_document_rows_keeps_best_chunk_per_document(self) -> None:
+        """Each document keeps only its best-scoring chunk."""
+        from sibyl_core.tools.search import _dedupe_document_rows
+
+        doc1 = MagicMock()
+        doc1.id = "doc_1"
+        doc2 = MagicMock()
+        doc2.id = "doc_2"
+
+        rows = [
+            (MagicMock(id="chunk_a"), doc1, "Docs", "src_1", 0.61),
+            (MagicMock(id="chunk_b"), doc1, "Docs", "src_1", 0.84),
+            (MagicMock(id="chunk_c"), doc2, "Docs", "src_1", 0.73),
+        ]
+
+        deduped = _dedupe_document_rows(rows)
+
+        assert [(row[1].id, row[0].id) for row in deduped] == [
+            ("doc_1", "chunk_b"),
+            ("doc_2", "chunk_c"),
+        ]
+
+    def test_merge_document_results_boosts_shared_documents(self) -> None:
+        """Documents returned by both retrievers rank above single-source hits."""
+        from sibyl_core.tools.search import _merge_document_results
+
+        vector_results = [
+            SearchResult(
+                id="chunk_1",
+                type="document",
+                name="Doc One",
+                content="Vector hit one",
+                score=0.9,
+                result_origin="document",
+                metadata={"document_id": "doc_1"},
+            ),
+            SearchResult(
+                id="chunk_2_vector",
+                type="document",
+                name="Doc Two",
+                content="Vector hit two",
+                score=0.8,
+                result_origin="document",
+                metadata={"document_id": "doc_2"},
+            ),
+        ]
+        lexical_results = [
+            SearchResult(
+                id="chunk_2_lexical",
+                type="document",
+                name="Doc Two",
+                content="Lexical hit two",
+                score=0.5,
+                result_origin="document",
+                metadata={"document_id": "doc_2"},
+            ),
+            SearchResult(
+                id="chunk_3",
+                type="document",
+                name="Doc Three",
+                content="Lexical hit three",
+                score=0.4,
+                result_origin="document",
+                metadata={"document_id": "doc_3"},
+            ),
+        ]
+
+        merged = _merge_document_results(vector_results, lexical_results, limit=10)
+
+        assert [result.metadata["document_id"] for result in merged] == [
+            "doc_2",
+            "doc_1",
+            "doc_3",
+        ]
+        assert merged[0].id == "chunk_2_vector"
+        assert merged[0].score > merged[1].score > merged[2].score
+
+    def test_merge_document_results_keeps_single_branch_scores_positive(self) -> None:
+        """Single-branch lexical matches still return usable scores."""
+        from sibyl_core.tools.search import _merge_document_results
+
+        lexical_results = [
+            SearchResult(
+                id="chunk_3",
+                type="document",
+                name="Doc Three",
+                content="Lexical hit three",
+                score=0.4,
+                result_origin="document",
+                metadata={"document_id": "doc_3"},
+            )
+        ]
+
+        merged = _merge_document_results([], lexical_results, limit=10)
+
+        assert len(merged) == 1
+        assert merged[0].metadata["document_id"] == "doc_3"
+        assert merged[0].score == pytest.approx(0.3)
+
+
 # =============================================================================
 # Explore Tool Tests
 # =============================================================================

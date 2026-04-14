@@ -1,5 +1,7 @@
 """Search tool for unified semantic search across Sibyl knowledge graph and documentation."""
 
+from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
@@ -22,6 +24,113 @@ log = structlog.get_logger()
 
 __all__ = ["search"]
 
+DOCUMENT_VECTOR_WEIGHT = 0.7
+DOCUMENT_LEXICAL_WEIGHT = 0.3
+
+
+def _document_result_key(result: SearchResult) -> str:
+    document_id = result.metadata.get("document_id")
+    return str(document_id or result.id)
+
+
+def _dedupe_document_rows(
+    rows: Sequence[Any],
+) -> list[tuple[Any, Any, str, Any, float]]:
+    best_rows: dict[str, tuple[Any, Any, str, Any, float]] = {}
+
+    for row in rows:
+        chunk, doc, source_name, source_id, score = row
+        typed_row = (chunk, doc, source_name, source_id, float(score or 0.0))
+        doc_id = str(doc.id)
+        score_value = typed_row[4]
+
+        if doc_id not in best_rows or score_value > float(best_rows[doc_id][4] or 0.0):
+            best_rows[doc_id] = typed_row
+
+    return sorted(best_rows.values(), key=lambda row: float(row[4] or 0.0), reverse=True)
+
+
+def _build_document_result(
+    chunk: Any,
+    doc: Any,
+    source_name: str,
+    source_id: Any,
+    score: float,
+    include_content: bool,
+) -> SearchResult:
+    if include_content:
+        content = chunk.content[:500] if chunk.content else ""
+    else:
+        content = chunk.content[:200] if chunk.content else ""
+
+    heading_context = " > ".join(chunk.heading_path) if chunk.heading_path else ""
+    if heading_context:
+        content = f"[{heading_context}] {content}"
+
+    display_url = None
+    if doc.url and not doc.url.startswith("file://"):
+        display_url = doc.url
+
+    return SearchResult(
+        id=str(chunk.id),
+        type="document",
+        name=doc.title or source_name,
+        content=content,
+        score=score,
+        source=source_name,
+        url=display_url,
+        result_origin="document",
+        metadata={
+            "document_id": str(doc.id),
+            "source_id": str(source_id),
+            "chunk_type": chunk.chunk_type.value
+            if hasattr(chunk.chunk_type, "value")
+            else str(chunk.chunk_type),
+            "chunk_index": chunk.chunk_index,
+            "heading_path": chunk.heading_path or [],
+            "language": chunk.language,
+            "has_code": doc.has_code,
+            "hint": "Use 'sibyl entity <id>' or fetch /api/entities/<id> for full content",
+        },
+    )
+
+
+def _normalize_document_scores(results: list[SearchResult]) -> dict[str, float]:
+    if not results:
+        return {}
+
+    max_score = max(result.score for result in results)
+    if max_score <= 0:
+        return {_document_result_key(result): 1.0 for result in results}
+
+    return {_document_result_key(result): result.score / max_score for result in results}
+
+
+def _merge_document_results(
+    vector_results: list[SearchResult],
+    lexical_results: list[SearchResult],
+    limit: int,
+) -> list[SearchResult]:
+    combined_scores: dict[str, float] = {}
+    representatives: dict[str, SearchResult] = {}
+
+    for results, weight in (
+        (vector_results, DOCUMENT_VECTOR_WEIGHT),
+        (lexical_results, DOCUMENT_LEXICAL_WEIGHT),
+    ):
+        normalized_scores = _normalize_document_scores(results)
+        for result in results:
+            key = _document_result_key(result)
+            representatives.setdefault(key, result)
+            combined_scores[key] = combined_scores.get(key, 0.0) + (
+                normalized_scores.get(key, 0.0) * weight
+            )
+
+    ranked_keys = sorted(combined_scores, key=lambda key: combined_scores[key], reverse=True)
+    return [
+        replace(representatives[key], score=combined_scores[key]) for key in ranked_keys[:limit]
+    ]
+
 
 async def _search_documents(
     query: str,
@@ -32,7 +141,7 @@ async def _search_documents(
     limit: int = 10,
     include_content: bool = True,
 ) -> list[SearchResult]:
-    """Search crawled documentation using pgvector similarity.
+    """Search crawled documentation using vector and lexical matching.
 
     Returns SearchResult objects for unified result merging.
     """
@@ -42,115 +151,86 @@ async def _search_documents(
         from sibyl.crawler.embedder import embed_text
         from sibyl.db import CrawledDocument, CrawlSource, DocumentChunk, get_session
         from sibyl.db.models import ChunkType
-        from sqlalchemy import select
+        from sqlalchemy import func, select
         from sqlmodel import col
 
-        # Generate query embedding
-        query_embedding = await embed_text(query)
+        query_embedding: list[float] | None = None
+        try:
+            query_embedding = await embed_text(query)
+        except Exception as e:
+            log.warning("document_vector_embedding_failed", error=str(e))
 
         async with get_session() as session:
-            # Build similarity search query
-            similarity_expr = 1 - DocumentChunk.embedding.cosine_distance(query_embedding)
-
-            # SQLModel columns have .label() method at runtime but pyright sees them as plain types
-            doc_query = (
+            base_query = (
                 select(
                     DocumentChunk,
                     CrawledDocument,
                     CrawlSource.name.label("source_name"),  # type: ignore[attr-defined]
                     CrawlSource.id.label("source_id"),  # type: ignore[attr-defined]
-                    similarity_expr.label("similarity"),
                 )
                 .join(CrawledDocument, DocumentChunk.document_id == CrawledDocument.id)  # type: ignore[arg-type]
                 .join(CrawlSource, CrawledDocument.source_id == CrawlSource.id)  # type: ignore[arg-type]
-                .where(col(DocumentChunk.embedding).is_not(None))
             )
 
-            # Filter by organization (required for multi-tenancy)
-            doc_query = doc_query.where(col(CrawlSource.organization_id) == UUID(organization_id))
+            base_query = base_query.where(col(CrawlSource.organization_id) == UUID(organization_id))
 
-            # Apply source filters
             if source_id:
-                doc_query = doc_query.where(col(CrawlSource.id) == UUID(source_id))
+                base_query = base_query.where(col(CrawlSource.id) == UUID(source_id))
             if source_name:
-                doc_query = doc_query.where(col(CrawlSource.name).ilike(f"%{source_name}%"))
+                base_query = base_query.where(col(CrawlSource.name).ilike(f"%{source_name}%"))
 
-            # Apply language filter (for code chunks)
             if language:
-                doc_query = doc_query.where(
+                base_query = base_query.where(
                     (col(DocumentChunk.language).ilike(language))
                     | (col(DocumentChunk.chunk_type) != ChunkType.CODE)
                 )
 
-            # Order by similarity - fetch more to allow document-level deduplication
-            # We want `limit` unique documents, so fetch more chunks
-            doc_query = (
-                doc_query.where(similarity_expr >= 0.5)  # Minimum threshold
-                .order_by(similarity_expr.desc())
-                .limit(limit * 5)  # Fetch extra for dedup headroom
-            )
-
-            result = await session.execute(doc_query)
-            rows = result.all()
-
-            # Document-level deduplication: keep only best chunk per document
-            # This prevents 10 chunks from the same doc appearing as 10 results
-            seen_docs: dict[str, Any] = {}  # doc_id -> best row
-            for row in rows:
-                chunk, doc, src_name, src_id, similarity = row
-                doc_id = str(doc.id)
-                if doc_id not in seen_docs or similarity > seen_docs[doc_id][4]:
-                    seen_docs[doc_id] = row
-
-            # Sort deduplicated results by score and limit
-            deduped_rows = sorted(seen_docs.values(), key=lambda r: r[4], reverse=True)[:limit]
-
-            # Convert to SearchResult
-            results = []
-            for chunk, doc, src_name, src_id, similarity in deduped_rows:
-                # Control content length based on include_content flag
-                if include_content:
-                    content = chunk.content[:500] if chunk.content else ""
-                else:
-                    content = chunk.content[:200] if chunk.content else ""
-
-                # Build heading context for better preview
-                heading_context = " > ".join(chunk.heading_path) if chunk.heading_path else ""
-                if heading_context:
-                    content = f"[{heading_context}] {content}"
-
-                # Don't expose file:// URLs - assistant clients will try to read them
-                # Instead, provide entity URL for fetching full content
-                display_url = None
-                if doc.url and not doc.url.startswith("file://"):
-                    display_url = doc.url
-
-                results.append(
-                    SearchResult(
-                        id=str(chunk.id),
-                        type="document",
-                        name=doc.title or src_name,
-                        content=content,
-                        score=float(similarity),
-                        source=src_name,
-                        url=display_url,  # Only show web URLs, not file paths
-                        result_origin="document",
-                        metadata={
-                            "document_id": str(doc.id),
-                            "source_id": str(src_id),
-                            "chunk_type": chunk.chunk_type.value
-                            if hasattr(chunk.chunk_type, "value")
-                            else str(chunk.chunk_type),
-                            "chunk_index": chunk.chunk_index,
-                            "heading_path": chunk.heading_path or [],
-                            "language": chunk.language,
-                            "has_code": doc.has_code,
-                            # Help clients understand how to get full content
-                            "hint": "Use 'sibyl entity <id>' or fetch /api/entities/<id> for full content",
-                        },
-                    )
+            vector_results: list[SearchResult] = []
+            if query_embedding is not None:
+                similarity_expr = 1 - DocumentChunk.embedding.cosine_distance(query_embedding)
+                vector_query = (
+                    base_query.add_columns(similarity_expr.label("score"))
+                    .where(col(DocumentChunk.embedding).is_not(None))
+                    .where(similarity_expr >= 0.5)
+                    .order_by(similarity_expr.desc())
+                    .limit(limit * 5)
                 )
-            return results
+                vector_rows = _dedupe_document_rows((await session.execute(vector_query)).all())[:limit]
+                vector_results = [
+                    _build_document_result(
+                        chunk=chunk,
+                        doc=doc,
+                        source_name=src_name,
+                        source_id=src_id,
+                        score=float(score),
+                        include_content=include_content,
+                    )
+                    for chunk, doc, src_name, src_id, score in vector_rows
+                ]
+
+            ts_query = func.plainto_tsquery("english", query)
+            ts_vector = func.to_tsvector("english", DocumentChunk.content)
+            fts_rank = func.ts_rank(ts_vector, ts_query)
+            lexical_query = (
+                base_query.add_columns(fts_rank.label("score"))
+                .where(fts_rank > 0)
+                .order_by(fts_rank.desc())
+                .limit(limit * 5)
+            )
+            lexical_rows = _dedupe_document_rows((await session.execute(lexical_query)).all())[:limit]
+            lexical_results = [
+                _build_document_result(
+                    chunk=chunk,
+                    doc=doc,
+                    source_name=src_name,
+                    source_id=src_id,
+                    score=float(score),
+                    include_content=include_content,
+                )
+                for chunk, doc, src_name, src_id, score in lexical_rows
+            ]
+
+            return _merge_document_results(vector_results, lexical_results, limit)
 
     except Exception as e:
         log.warning("document_search_failed", error=str(e))
