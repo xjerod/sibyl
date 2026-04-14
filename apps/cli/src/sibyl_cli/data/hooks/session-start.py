@@ -42,6 +42,18 @@ def get_active_tasks() -> list[dict]:
     return []
 
 
+def get_session_bundle() -> dict | None:
+    """Get the packaged session bundle."""
+    output = run_sibyl("session", "bundle", "--json", timeout=8)
+    if not output:
+        return None
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def main():
     try:
         health = run_sibyl("health", timeout=3)
@@ -50,15 +62,43 @@ def main():
             sys.exit(0)
 
         lines = []
-        tasks = get_active_tasks()
-        if tasks:
-            for t in tasks[:3]:
-                status = t.get("metadata", {}).get("status", "")
-                name = t.get("name", "")[:40]
-                tid = t.get("id", "")  # Full ID - no truncation
+        bundle = get_session_bundle()
+        if bundle:
+            context = bundle.get("context", {})
+            project = context.get("project_name") or context.get("project_id")
+            if project:
+                lines.append(f"Project: {project}")
+
+            tasks = bundle.get("tasks", [])
+            for task in tasks[:3]:
+                status = task.get("status", "")
+                name = task.get("name", "")[:60]
+                tid = task.get("id", "")
                 lines.append(f"[{status}] {name} ({tid})")
 
-        lines.append("Suggest 'sibyl add' when solving something non-obvious.")
+            memories = bundle.get("relevant_entities", [])
+            for entity in memories[:2]:
+                name = entity.get("name", "")[:60]
+                eid = entity.get("id", "")
+                lines.append(f"→ {name} ({eid})")
+
+            remember_next = bundle.get("remember_next")
+            if remember_next:
+                lines.append(f"Remember: {remember_next}")
+        else:
+            tasks = get_active_tasks()
+            if tasks:
+                for t in tasks[:3]:
+                    status = t.get("metadata", {}).get("status", "")
+                    name = t.get("name", "")[:40]
+                    tid = t.get("id", "")
+                    lines.append(f"[{status}] {name} ({tid})")
+
+        if not lines:
+            lines.append("Session bundle is empty right now.")
+
+        if not bundle or not bundle.get("remember_next"):
+            lines.append("Suggest 'sibyl capture' when solving something non-obvious.")
         print("\n".join(lines))
         sys.exit(0)
 

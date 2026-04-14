@@ -40,6 +40,7 @@ from sibyl_cli.local import app as local_app
 from sibyl_cli.logs import app as logs_app
 from sibyl_cli.org import app as org_app
 from sibyl_cli.project import app as project_app
+from sibyl_cli.session import app as session_app
 from sibyl_cli.state import set_context_override
 from sibyl_cli.task import app as task_app
 from sibyl_cli.update import app as update_app
@@ -73,6 +74,7 @@ app = typer.Typer(
 app.add_typer(task_app, name="task")
 app.add_typer(epic_app, name="epic")
 app.add_typer(project_app, name="project")
+app.add_typer(session_app, name="session")
 app.add_typer(entity_app, name="entity")
 app.add_typer(explore_app, name="explore")
 app.add_typer(crawl_app, name="crawl")
