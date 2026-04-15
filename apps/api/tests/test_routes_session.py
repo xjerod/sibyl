@@ -58,7 +58,9 @@ class TestSessionBundleRoute:
                 "sibyl.api.routes.session.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1", "proj_2"]),
             ),
-            patch("sibyl_core.tools.core.explore", AsyncMock(return_value=explore_result)) as explore,
+            patch(
+                "sibyl_core.tools.core.explore", AsyncMock(return_value=explore_result)
+            ) as explore,
             patch("sibyl_core.tools.core.search", AsyncMock(return_value=search_result)) as search,
         ):
             response = await get_session_bundle(
@@ -94,10 +96,13 @@ class TestSessionBundleRoute:
             slug="hyper",
         )
 
-        with patch(
-            "sibyl.api.routes.session.list_accessible_project_graph_ids",
-            AsyncMock(return_value=["proj_1"]),
-        ), pytest.raises(ProjectAccessDeniedError) as exc:
+        with (
+            patch(
+                "sibyl.api.routes.session.list_accessible_project_graph_ids",
+                AsyncMock(return_value=["proj_1"]),
+            ),
+            pytest.raises(ProjectAccessDeniedError) as exc,
+        ):
             await get_session_bundle(
                 query=None,
                 task_limit=5,
@@ -143,6 +148,9 @@ class TestSessionBundleRoute:
         assert response.query is None
         assert response.tasks == []
         assert response.relevant_entities == []
-        assert response.remember_next == "No active tasks yet. Start one or capture the next useful learning."
+        assert (
+            response.remember_next
+            == "No active tasks yet. Start one or capture the next useful learning."
+        )
         assert explore.await_args.kwargs["accessible_projects"] == ["proj_1"]
         search.assert_not_awaited()

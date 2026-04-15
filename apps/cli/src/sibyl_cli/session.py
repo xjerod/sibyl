@@ -28,9 +28,11 @@ from sibyl_cli.config_store import (
 )
 from sibyl_core.session_bundle import (
     derive_query,
-    remember_next as build_remember_next,
     summarize_memory,
     summarize_task,
+)
+from sibyl_core.session_bundle import (
+    remember_next as build_remember_next,
 )
 
 app = typer.Typer(

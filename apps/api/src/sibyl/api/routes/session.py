@@ -111,7 +111,9 @@ async def get_session_bundle(
         relevant_entities: list[dict[str, Any]] = []
         if effective_query and memory_limit > 0:
             single_project_id = selected_project_ids[0] if len(selected_project_ids) == 1 else None
-            search_scope = None if single_project_id else (selected_project_ids or accessible_projects)
+            search_scope = (
+                None if single_project_id else (selected_project_ids or accessible_projects)
+            )
             search_result = await core_search(
                 query=effective_query,
                 types=_SESSION_MEMORY_TYPES,

@@ -193,6 +193,8 @@ jobs:
           done
 
       - name: Run e2e tests
+        env:
+          SIBYL_E2E_CLI_COMMAND: uv run --project ../cli sibyl
         run: |
           cd apps/e2e
           uv run pytest -v
