@@ -1900,6 +1900,48 @@ class TestEdgeCases:
         assert results == []
 
     @pytest.mark.asyncio
+    async def test_search_falls_back_to_direct_text_scan_when_hybrid_misses(
+        self,
+        entity_manager: EntityManager,
+        mock_graph_client: MagicMock,
+        mock_driver: MagicMock,
+    ) -> None:
+        """search() falls back to direct graph text matching when indexes lag."""
+        mock_search_result = MagicMock()
+        mock_search_result.nodes = []
+        mock_search_result.node_reranker_scores = []
+        mock_search_result.episodes = []
+        mock_search_result.episode_reranker_scores = []
+        mock_graph_client.client.search_.return_value = mock_search_result
+        mock_driver.execute_query.return_value = (
+            [
+                {
+                    "uuid": "pattern-001",
+                    "name": "Searchable E2E e2e-1234",
+                    "entity_type": "pattern",
+                    "group_id": "test-org-123",
+                    "description": "Unique searchable content",
+                    "content": "Unique searchable content e2e-1234 for verification",
+                    "metadata": json.dumps({"category": "testing"}),
+                    "score": 1.0,
+                }
+            ],
+            None,
+            None,
+        )
+
+        results = await entity_manager.search(
+            "Searchable E2E e2e-1234",
+            entity_types=[EntityType.PATTERN],
+        )
+
+        assert len(results) == 1
+        entity, score = results[0]
+        assert entity.id == "pattern-001"
+        assert entity.entity_type == EntityType.PATTERN
+        assert score == 1.0
+
+    @pytest.mark.asyncio
     async def test_list_by_type_handles_db_error(
         self,
         entity_manager: EntityManager,

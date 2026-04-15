@@ -535,12 +535,95 @@ class EntityManager:
             results.sort(key=lambda x: x[1], reverse=True)
             results = results[:limit]
 
+            if not results:
+                results = await self._fallback_text_search(
+                    query=query,
+                    entity_types=entity_types,
+                    limit=limit,
+                )
+
             log.info("Search completed", query=query, results_count=len(results))
             return results
 
         except Exception as e:
             log.exception("Search failed", query=query, error=str(e))
             raise SearchError(f"Search failed: {e}") from e
+
+    async def _fallback_text_search(
+        self,
+        *,
+        query: str,
+        entity_types: list[EntityType] | None,
+        limit: int,
+    ) -> list[tuple[Entity, float]]:
+        """Fallback search path using direct graph scans when hybrid indexes miss."""
+        normalized_query = query.strip().lower()
+        if not normalized_query:
+            return []
+
+        params: dict[str, Any] = {
+            "group_id": self._group_id,
+            "query_lower": normalized_query,
+            "limit": limit,
+        }
+        where_clauses = [
+            "n.group_id = $group_id",
+            """(
+                toLower(coalesce(n.name, '')) CONTAINS $query_lower
+                OR toLower(coalesce(n.description, '')) CONTAINS $query_lower
+                OR toLower(coalesce(n.content, '')) CONTAINS $query_lower
+            )""",
+        ]
+
+        if entity_types:
+            params["entity_types"] = [entity_type.value for entity_type in entity_types]
+            where_clauses.append("n.entity_type IN $entity_types")
+
+        query_text = f"""
+            MATCH (n)
+            WHERE {" AND ".join(where_clauses)}
+            WITH n,
+                 CASE
+                     WHEN toLower(coalesce(n.name, '')) = $query_lower THEN 1.0
+                     WHEN toLower(coalesce(n.name, '')) STARTS WITH $query_lower THEN 0.95
+                     WHEN toLower(coalesce(n.name, '')) CONTAINS $query_lower THEN 0.9
+                     WHEN toLower(coalesce(n.description, '')) CONTAINS $query_lower THEN 0.75
+                     ELSE 0.6
+                 END AS score
+            RETURN n.uuid AS uuid,
+                   n.name AS name,
+                   n.entity_type AS entity_type,
+                   n.group_id AS group_id,
+                   n.content AS content,
+                   n.description AS description,
+                   n.summary AS summary,
+                   n.metadata AS metadata,
+                   n.created_at AS created_at,
+                   n.updated_at AS updated_at,
+                   score AS score
+            ORDER BY score DESC, n.created_at DESC, n.uuid DESC
+            LIMIT $limit
+        """
+
+        result = await self._driver.execute_query(query_text, **params)
+        records = GraphClient.normalize_result(result)
+
+        fallback_results: list[tuple[Entity, float]] = []
+        for record in records:
+            try:
+                entity = self._coerce_entity(self._record_to_entity(record))
+                fallback_results.append((entity, float(record.get("score") or 0.0)))
+            except Exception as exc:
+                log.debug("fallback_text_search_record_failed", error=str(exc))
+
+        if fallback_results:
+            log.info(
+                "fallback_text_search_used",
+                query=query,
+                results_count=len(fallback_results),
+            )
+
+        return fallback_results
 
     async def update(self, entity_id: str, updates: dict[str, Any]) -> Entity | None:
         """Update an existing entity with partial updates.
