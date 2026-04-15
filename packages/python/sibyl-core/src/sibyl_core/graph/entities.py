@@ -533,7 +533,19 @@ class EntityManager:
 
             # Sort by score and limit results
             results.sort(key=lambda x: x[1], reverse=True)
-            results = results[:limit]
+
+            if not self._results_contain_exact_name_match(results, query):
+                exact_name_results = await self._exact_name_search(
+                    query=query,
+                    entity_types=entity_types,
+                    limit=limit,
+                )
+                if exact_name_results:
+                    results = self._merge_ranked_results(exact_name_results, results, limit)
+                else:
+                    results = results[:limit]
+            else:
+                results = results[:limit]
 
             if not results:
                 results = await self._fallback_text_search(
@@ -548,6 +560,99 @@ class EntityManager:
         except Exception as e:
             log.exception("Search failed", query=query, error=str(e))
             raise SearchError(f"Search failed: {e}") from e
+
+    def _results_contain_exact_name_match(
+        self,
+        results: list[tuple[Entity, float]],
+        query: str,
+    ) -> bool:
+        normalized_query = query.strip().lower()
+        if not normalized_query:
+            return False
+
+        return any(entity.name.strip().lower() == normalized_query for entity, _ in results)
+
+    def _merge_ranked_results(
+        self,
+        prioritized_results: list[tuple[Entity, float]],
+        secondary_results: list[tuple[Entity, float]],
+        limit: int,
+    ) -> list[tuple[Entity, float]]:
+        seen_ids: set[str] = set()
+        merged: list[tuple[Entity, float]] = []
+
+        for entity, score in prioritized_results + secondary_results:
+            if entity.id in seen_ids:
+                continue
+            seen_ids.add(entity.id)
+            merged.append((entity, score))
+            if len(merged) >= limit:
+                break
+
+        return merged
+
+    async def _exact_name_search(
+        self,
+        *,
+        query: str,
+        entity_types: list[EntityType] | None,
+        limit: int,
+    ) -> list[tuple[Entity, float]]:
+        normalized_query = query.strip().lower()
+        if not normalized_query:
+            return []
+
+        params: dict[str, Any] = {
+            "group_id": self._group_id,
+            "query_lower": normalized_query,
+            "limit": limit,
+        }
+        where_clauses = [
+            "n.group_id = $group_id",
+            "toLower(coalesce(n.name, '')) = $query_lower",
+        ]
+
+        if entity_types:
+            params["entity_types"] = [entity_type.value for entity_type in entity_types]
+            where_clauses.append("n.entity_type IN $entity_types")
+
+        query_text = f"""
+            MATCH (n)
+            WHERE {" AND ".join(where_clauses)}
+            RETURN n.uuid AS uuid,
+                   n.name AS name,
+                   n.entity_type AS entity_type,
+                   n.group_id AS group_id,
+                   n.content AS content,
+                   n.description AS description,
+                   n.summary AS summary,
+                   n.metadata AS metadata,
+                   n.created_at AS created_at,
+                   n.updated_at AS updated_at,
+                   2.0 AS score
+            ORDER BY n.created_at DESC, n.uuid DESC
+            LIMIT $limit
+        """
+
+        result = await self._driver.execute_query(query_text, **params)
+        records = GraphClient.normalize_result(result)
+
+        exact_results: list[tuple[Entity, float]] = []
+        for record in records:
+            try:
+                entity = self._coerce_entity(self._record_to_entity(record))
+                exact_results.append((entity, float(record.get("score") or 0.0)))
+            except Exception as exc:
+                log.debug("exact_name_search_record_failed", error=str(exc))
+
+        if exact_results:
+            log.info(
+                "exact_name_search_used",
+                query=query,
+                results_count=len(exact_results),
+            )
+
+        return exact_results
 
     async def _fallback_text_search(
         self,

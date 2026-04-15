@@ -1942,6 +1942,56 @@ class TestEdgeCases:
         assert score == 1.0
 
     @pytest.mark.asyncio
+    async def test_search_prioritizes_exact_name_matches_over_noisy_hybrid_results(
+        self,
+        entity_manager: EntityManager,
+        mock_graph_client: MagicMock,
+        mock_driver: MagicMock,
+    ) -> None:
+        """search() promotes exact title matches when hybrid retrieval is noisy."""
+        noisy_node = EntityNode(
+            uuid="pattern-noisy",
+            name="Searchable E2E old artifact",
+            group_id="test-org-123",
+            labels=["Entity", "pattern"],
+            created_at=datetime.now(UTC),
+            summary="A stale partial match",
+            attributes={"entity_type": "pattern"},
+        )
+
+        mock_search_result = MagicMock()
+        mock_search_result.nodes = [noisy_node]
+        mock_search_result.node_reranker_scores = [0.95]
+        mock_search_result.episodes = []
+        mock_search_result.episode_reranker_scores = []
+        mock_graph_client.client.search_.return_value = mock_search_result
+        mock_driver.execute_query.return_value = (
+            [
+                {
+                    "uuid": "pattern-exact",
+                    "name": "Searchable E2E e2e-1234",
+                    "entity_type": "pattern",
+                    "group_id": "test-org-123",
+                    "description": "Exact title match",
+                    "content": "Exact title match content",
+                    "metadata": json.dumps({"category": "testing"}),
+                    "score": 2.0,
+                }
+            ],
+            None,
+            None,
+        )
+
+        results = await entity_manager.search(
+            "Searchable E2E e2e-1234",
+            entity_types=[EntityType.PATTERN],
+        )
+
+        assert len(results) == 2
+        assert results[0][0].id == "pattern-exact"
+        assert results[0][1] == 2.0
+
+    @pytest.mark.asyncio
     async def test_list_by_type_handles_db_error(
         self,
         entity_manager: EntityManager,
