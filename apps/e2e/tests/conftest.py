@@ -194,6 +194,22 @@ class CLIRunner:
             args.extend(["-l", language])
         return self.run(*args)
 
+    def capture(
+        self,
+        content: str,
+        *,
+        title: str | None = None,
+        entity_type: str = "episode",
+        tags: str | None = None,
+    ) -> CLIResult:
+        """Capture a quick memory."""
+        args = ["capture", content, "--type", entity_type, "--json"]
+        if title:
+            args.extend(["--title", title])
+        if tags:
+            args.extend(["--tags", tags])
+        return self.run(*args)
+
     def search(
         self,
         query: str,
@@ -264,6 +280,54 @@ class CLIRunner:
         if entity_type:
             args.extend(["--type", entity_type])
         return self.run(*args)
+
+    def archive_list(
+        self,
+        *,
+        entity_type: str | None = None,
+        capture_surface: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> CLIResult:
+        """List archived raw captures."""
+        args = ["archive", "list", "--json", "--limit", str(limit), "--offset", str(offset)]
+        if entity_type:
+            args.extend(["--type", entity_type])
+        if capture_surface:
+            args.extend(["--surface", capture_surface])
+        return self.run(*args)
+
+    def archive_show(self, capture_id: str) -> CLIResult:
+        """Show a single raw capture."""
+        return self.run("archive", "show", capture_id, "--json")
+
+    def wait_for_archive_capture(
+        self,
+        title: str,
+        *,
+        capture_surface: str | None = None,
+        timeout: float = 5.0,
+        interval: float = 0.25,
+    ) -> dict:
+        """Poll the archive until a matching capture appears."""
+        deadline = time.monotonic() + timeout
+        last_stdout = ""
+
+        while time.monotonic() < deadline:
+            result = self.archive_list(capture_surface=capture_surface)
+            last_stdout = result.stdout
+            if result.success and result.is_json:
+                payload = result.json()
+                captures = payload.get("captures") if isinstance(payload, dict) else None
+                if isinstance(captures, list):
+                    for capture in captures:
+                        if capture.get("title") == title:
+                            return capture
+            time.sleep(interval)
+
+        raise AssertionError(
+            f"Timed out waiting for archived capture {title!r}. Last output: {last_stdout}"
+        )
 
 
 # =============================================================================
