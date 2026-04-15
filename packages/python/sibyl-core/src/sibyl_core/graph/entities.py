@@ -591,6 +591,19 @@ class EntityManager:
 
         return merged
 
+    async def search_exact_name(
+        self,
+        query: str,
+        entity_types: list[EntityType] | None = None,
+        limit: int = 10,
+    ) -> list[tuple[Entity, float]]:
+        """Return exact title matches scoped to the current org graph."""
+        return await self._exact_name_search(
+            query=query,
+            entity_types=entity_types,
+            limit=limit,
+        )
+
     async def _exact_name_search(
         self,
         *,

@@ -33,6 +33,45 @@ def _document_result_key(result: SearchResult) -> str:
     return str(document_id or result.id)
 
 
+def _graph_result_key(result: tuple[Any, float]) -> str:
+    entity, _score = result
+    return str(getattr(entity, "id", None) or getattr(entity, "uuid", None) or id(entity))
+
+
+def _graph_results_contain_exact_name_match(
+    results: Sequence[tuple[Any, float]],
+    query: str,
+) -> bool:
+    normalized_query = query.strip().lower()
+    if not normalized_query:
+        return False
+
+    return any(
+        str(getattr(entity, "name", "")).strip().lower() == normalized_query
+        for entity, _score in results
+    )
+
+
+def _merge_graph_results(
+    prioritized_results: Sequence[tuple[Any, float]],
+    secondary_results: Sequence[tuple[Any, float]],
+    limit: int,
+) -> list[tuple[Any, float]]:
+    seen_ids: set[str] = set()
+    merged: list[tuple[Any, float]] = []
+
+    for result in [*prioritized_results, *secondary_results]:
+        key = _graph_result_key(result)
+        if key in seen_ids:
+            continue
+        seen_ids.add(key)
+        merged.append(result)
+        if len(merged) >= limit:
+            break
+
+    return merged
+
+
 def _document_language_predicates(
     *,
     language: str | None,
@@ -468,12 +507,29 @@ async def search(
                     ),
                     timeout_seconds=TIMEOUTS["search"],
                     operation_name="search",
-                )
+                    )
                 if boost_recent and raw_results:
                     from sibyl_core.config import core_config
 
                     decay = temporal_decay_days or core_config.temporal_decay_days
                     raw_results = temporal_boost(raw_results, decay_days=decay)
+
+            if raw_results and not _graph_results_contain_exact_name_match(raw_results, query):
+                exact_name_results = await with_timeout(
+                    entity_manager.search_exact_name(
+                        query=query,
+                        entity_types=entity_types,
+                        limit=limit,
+                    ),
+                    timeout_seconds=TIMEOUTS["search"],
+                    operation_name="search_exact_name",
+                )
+                if exact_name_results:
+                    raw_results = _merge_graph_results(
+                        exact_name_results,
+                        raw_results,
+                        limit=limit * 3,
+                    )
 
             # Filter and convert to SearchResult
             for entity, score in raw_results:

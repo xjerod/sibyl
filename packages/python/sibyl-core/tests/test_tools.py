@@ -846,6 +846,49 @@ class TestSearchTool:
             assert isinstance(response.total, int)
             assert isinstance(response.filters, dict)
 
+    @pytest.mark.asyncio
+    async def test_search_promotes_exact_title_match_over_noisy_hybrid_results(self) -> None:
+        """Enhanced search should overlay exact graph title matches ahead of noisy seeds."""
+        from sibyl_core.retrieval.hybrid import HybridResult
+        from sibyl_core.tools.search import search
+
+        noisy = MockEntity(
+            id="pattern_noisy",
+            entity_type=EntityType.PATTERN,
+            name="Searchable E2E stale partial",
+            description="Noisy hybrid result",
+        )
+        exact = MockEntity(
+            id="pattern_exact",
+            entity_type=EntityType.PATTERN,
+            name="Searchable E2E e2e-1234",
+            description="Fresh exact match",
+            content="Unique searchable content e2e-1234 for verification",
+        )
+
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.search_exact_name = AsyncMock(return_value=[(exact, 2.0)])
+
+        with (
+            patch("sibyl_core.tools.search.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.search.EntityManager", return_value=mock_entity_manager),
+            patch(
+                "sibyl_core.tools.search.hybrid_search",
+                new=AsyncMock(return_value=HybridResult(results=[(noisy, 0.95)])),
+            ),
+        ):
+            response = await search(
+                query="Searchable E2E e2e-1234",
+                types=["pattern"],
+                organization_id="org_123",
+                include_documents=False,
+            )
+
+        assert response.graph_count == 2
+        assert [result.id for result in response.results[:2]] == ["pattern_exact", "pattern_noisy"]
+        mock_entity_manager.search_exact_name.assert_awaited_once()
+
 
 class TestDocumentSearchFusion:
     """Test document-side search fusion helpers."""
