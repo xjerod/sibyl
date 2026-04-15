@@ -29,7 +29,8 @@ import {
 } from '@/components/ui/icons';
 import type { StatsResponse } from '@/lib/api';
 import { ENTITY_COLORS, formatUptime } from '@/lib/constants';
-import { useHealth, useOrgMetrics, useProjects, useStats } from '@/lib/hooks';
+import { useHealth, useOrgMetrics, useProjects, useSessionBundle, useStats } from '@/lib/hooks';
+import { useProjectFilters } from '@/lib/project-context';
 
 interface DashboardContentProps {
   initialStats: StatsResponse;
@@ -109,13 +110,30 @@ function EntityRingChart({ counts }: { counts: Record<string, number> }) {
   );
 }
 
+function sessionStatusTone(status: string): string {
+  switch (status) {
+    case 'blocked':
+      return 'text-sc-yellow';
+    case 'doing':
+      return 'text-sc-purple';
+    default:
+      return 'text-sc-fg-muted';
+  }
+}
+
 export function DashboardContent({ initialStats }: DashboardContentProps) {
   const [mounted, setMounted] = useState(false);
   const { openCaptureMemory } = useCaptureMemory();
+  const projectFilters = useProjectFilters();
   const { data: health, isLoading: healthLoading } = useHealth();
   const { data: stats } = useStats(initialStats);
   const { data: projectsData } = useProjects();
   const { data: orgMetrics } = useOrgMetrics();
+  const { data: sessionBundle, isLoading: sessionBundleLoading } = useSessionBundle({
+    project_ids: projectFilters,
+    task_limit: 4,
+    memory_limit: 2,
+  });
 
   // Avoid hydration mismatch - only show real status after mount
   useEffect(() => {
@@ -136,6 +154,11 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
   }, [orgMetrics]);
 
   const projectCount = projectsData?.entities?.length ?? 0;
+  const sessionScopeLabel = projectFilters?.length
+    ? projectFilters.length === 1
+      ? 'Current project'
+      : `${projectFilters.length} projects`
+    : 'All projects';
 
   // Top entity types for quick stats
   const topEntities = useMemo(() => {
@@ -440,6 +463,92 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
         {/* Right Column - Sidebar */}
         <div className="lg:w-80 shrink-0 space-y-4 sm:space-y-6">
+          <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-card">
+            <div className="flex items-center gap-2 sm:gap-3 mb-4">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-cyan/10 border border-sc-cyan/20 flex items-center justify-center">
+                <Activity width={16} height={16} className="text-sc-cyan sm:w-5 sm:h-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base sm:text-lg font-semibold text-sc-fg-primary">
+                  Session Snapshot
+                </h2>
+                <p className="text-xs sm:text-sm text-sc-fg-muted">{sessionScopeLabel}</p>
+              </div>
+            </div>
+
+            {sessionBundleLoading && !sessionBundle ? (
+              <p className="text-sm text-sc-fg-muted">Packaging wake-up context...</p>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm leading-6 text-sc-fg-primary">
+                  {sessionBundle?.remember_next ??
+                    'Start a task or capture a useful learning to seed the next wake-up bundle.'}
+                </p>
+
+                {sessionBundle?.query && (
+                  <div className="rounded-lg border border-sc-purple/20 bg-sc-purple/10 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-sc-fg-subtle">
+                      Focus
+                    </div>
+                    <div className="mt-1 text-sm text-sc-purple">{sessionBundle.query}</div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-sc-fg-subtle">
+                    Active Now
+                  </div>
+                  {sessionBundle?.tasks.length ? (
+                    sessionBundle.tasks.slice(0, 3).map(task => (
+                      <Link
+                        key={task.id}
+                        href={`/tasks/${task.id}`}
+                        className="flex items-start justify-between gap-3 rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated px-3 py-2 transition-colors hover:border-sc-purple/30"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-sc-fg-primary">
+                            {task.name}
+                          </div>
+                          <div className={`text-xs capitalize ${sessionStatusTone(task.status)}`}>
+                            {task.status || 'todo'}
+                          </div>
+                        </div>
+                        {task.priority && (
+                          <div className="shrink-0 text-[10px] uppercase tracking-wide text-sc-fg-subtle">
+                            {task.priority}
+                          </div>
+                        )}
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-sc-fg-subtle/20 px-3 py-2 text-sm text-sc-fg-muted">
+                      No doing or blocked tasks right now.
+                    </div>
+                  )}
+                </div>
+
+                {sessionBundle?.relevant_entities[0] && (
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-sc-fg-subtle">
+                      Relevant Memory
+                    </div>
+                    <Link
+                      href="/search"
+                      className="block rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated px-3 py-3 transition-colors hover:border-sc-cyan/30"
+                    >
+                      <div className="text-sm font-medium text-sc-fg-primary">
+                        {sessionBundle.relevant_entities[0].name}
+                      </div>
+                      <div className="mt-1 text-xs text-sc-fg-subtle line-clamp-3">
+                        {sessionBundle.relevant_entities[0].preview}
+                      </div>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Quick Actions */}
           <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-card">
             <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">

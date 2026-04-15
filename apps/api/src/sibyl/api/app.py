@@ -36,6 +36,7 @@ from sibyl.api.routes import (
     project_members_router,
     rag_router,
     search_router,
+    session_router,
     settings_router,
     setup_router,
     tasks_router,
@@ -218,6 +219,7 @@ def create_api_app() -> FastAPI:
     app.include_router(backups_router)
     app.include_router(entities_router)
     app.include_router(tasks_router)
+    app.include_router(session_router)
     app.include_router(epics_router)
     app.include_router(search_router)
     app.include_router(graph_router)

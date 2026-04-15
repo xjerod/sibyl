@@ -26,6 +26,12 @@ from sibyl_cli.config_store import (
     get_effective_project,
     get_effective_server_url,
 )
+from sibyl_core.session_bundle import (
+    derive_query,
+    remember_next as build_remember_next,
+    summarize_memory,
+    summarize_task,
+)
 
 app = typer.Typer(
     name="session",
@@ -34,92 +40,6 @@ app = typer.Typer(
 
 SESSION_TASK_LIMIT = 5
 SESSION_MEMORY_LIMIT = 3
-SESSION_PREVIEW_CHARS = 180
-
-
-def _format_preview(content: str, max_chars: int = SESSION_PREVIEW_CHARS) -> str:
-    preview = content.strip()
-    if preview.startswith("[") and "] " in preview:
-        preview = preview.split("] ", 1)[1]
-    preview = " ".join(preview.split())
-    if len(preview) <= max_chars:
-        return preview
-
-    cutoff = preview.rfind(" ", 0, max_chars + 1)
-    if cutoff < max_chars // 2:
-        cutoff = max_chars
-    return preview[:cutoff].rstrip() + "…"
-
-
-def _summarize_task(task: dict[str, Any]) -> dict[str, Any]:
-    meta = task.get("metadata", {})
-    return {
-        "id": task.get("id", ""),
-        "name": task.get("name", ""),
-        "status": meta.get("status", ""),
-        "priority": meta.get("priority", ""),
-        "feature": meta.get("feature"),
-        "branch_name": meta.get("branch_name"),
-    }
-
-
-def _summarize_memory(entity: dict[str, Any]) -> dict[str, Any]:
-    metadata = entity.get("metadata", {})
-    return {
-        "id": entity.get("id", ""),
-        "name": entity.get("name", "Unknown"),
-        "entity_type": entity.get("entity_type") or entity.get("type"),
-        "source": entity.get("source"),
-        "preview": _format_preview(entity.get("content", "")),
-        "document_id": metadata.get("document_id"),
-    }
-
-
-def _derive_query(
-    explicit_query: str | None,
-    tasks: list[dict[str, Any]],
-    project_name: str | None,
-) -> str | None:
-    if explicit_query:
-        query = explicit_query.strip()
-        return query or None
-
-    task_titles = [task.get("name", "").strip() for task in tasks if task.get("name")]
-    if task_titles:
-        return " | ".join(task_titles[:2])[:140]
-
-    if project_name:
-        project = project_name.strip()
-        return project or None
-
-    return None
-
-
-def _remember_next(
-    tasks: list[dict[str, Any]],
-    relevant_entities: list[dict[str, Any]],
-    has_project: bool,
-) -> str:
-    blocked = next((task for task in tasks if task.get("status") == "blocked"), None)
-    if blocked:
-        return f"Unblock {blocked.get('name', 'the blocked task')} before you pick up new work."
-
-    doing = next((task for task in tasks if task.get("status") == "doing"), None)
-    if doing:
-        return (
-            f"Continue {doing.get('name', 'your active task')} and capture anything non-obvious "
-            "with `sibyl capture`."
-        )
-
-    if relevant_entities:
-        return (
-            f"Review {relevant_entities[0].get('name', 'the top memory')} before you dive back in."
-        )
-
-    if has_project:
-        return "No active tasks yet. Start one or capture the next useful learning."
-
-    return "Link this directory to a project so session context stays scoped."
 
 
 async def _build_session_bundle(
@@ -170,9 +90,9 @@ async def _build_session_bundle(
             project=effective_project,
             limit=task_limit,
         )
-        tasks = [_summarize_task(task) for task in tasks_response.get("entities", [])][:task_limit]
+        tasks = [summarize_task(task) for task in tasks_response.get("entities", [])][:task_limit]
 
-        effective_query = _derive_query(query, tasks, context.get("project_name"))
+        effective_query = derive_query(query, tasks, context.get("project_name"))
         relevant_entities: list[dict[str, Any]] = []
         if effective_query and memory_limit > 0:
             search_response = await client.search(
@@ -187,11 +107,11 @@ async def _build_session_bundle(
                 entity_type = str(result.get("entity_type") or result.get("type") or "").lower()
                 if entity_type in {"task", "project", "epic"}:
                     continue
-                relevant_entities.append(_summarize_memory(result))
+                relevant_entities.append(summarize_memory(result))
                 if len(relevant_entities) >= memory_limit:
                     break
 
-    remember_next = _remember_next(tasks, relevant_entities, bool(context.get("project_id")))
+    remember_next = build_remember_next(tasks, relevant_entities, bool(context.get("project_id")))
     return {
         "context": context,
         "query": effective_query,

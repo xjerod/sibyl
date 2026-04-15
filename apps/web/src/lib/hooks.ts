@@ -55,6 +55,11 @@ export const queryKeys = {
       ['raw-captures', 'list', params] as const,
     detail: (id: string) => ['raw-captures', 'detail', id] as const,
   },
+  session: {
+    all: ['session'] as const,
+    bundle: (params?: Parameters<typeof api.session.bundle>[0]) =>
+      ['session', 'bundle', params] as const,
+  },
   search: {
     all: ['search'] as const,
     query: (params: Parameters<typeof api.search.query>[0]) => ['search', 'query', params] as const,
@@ -532,6 +537,18 @@ export function useRawCapture(
     queryKey: queryKeys.rawCaptures.detail(id),
     queryFn: () => api.rawCaptures.get(id),
     enabled: (options?.enabled ?? true) && !!id,
+    initialData: options?.initialData,
+  });
+}
+
+export function useSessionBundle(
+  params?: Parameters<typeof api.session.bundle>[0],
+  options?: { enabled?: boolean; initialData?: import('./api').SessionBundleResponse }
+) {
+  return useQuery({
+    queryKey: queryKeys.session.bundle(params),
+    queryFn: () => api.session.bundle(params),
+    enabled: options?.enabled ?? true,
     initialData: options?.initialData,
   });
 }

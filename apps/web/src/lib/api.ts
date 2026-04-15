@@ -200,6 +200,39 @@ export interface RawCaptureListResponse {
 
 export type RawCaptureReviewState = 'pending' | 'deferred' | 'archived';
 
+export interface SessionBundleContext {
+  generated_at: string;
+  org_slug: string | null;
+  project_ids: string[];
+  scope: 'all_projects' | 'project_selection';
+}
+
+export interface SessionTaskSummary {
+  id: string;
+  name: string;
+  status: string;
+  priority: string;
+  feature: string | null;
+  branch_name: string | null;
+}
+
+export interface SessionMemorySummary {
+  id: string;
+  name: string;
+  entity_type: string | null;
+  source: string | null;
+  preview: string;
+  document_id: string | null;
+}
+
+export interface SessionBundleResponse {
+  context: SessionBundleContext;
+  query: string | null;
+  tasks: SessionTaskSummary[];
+  relevant_entities: SessionMemorySummary[];
+  remember_next: string;
+}
+
 export type EntitySortField = 'name' | 'created_at' | 'updated_at' | 'entity_type';
 export type SortOrder = 'asc' | 'desc';
 
@@ -1642,6 +1675,29 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ preferences }),
       }),
+  },
+
+  session: {
+    bundle: (params?: {
+      query?: string;
+      task_limit?: number;
+      memory_limit?: number;
+      project_ids?: string[];
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.query) searchParams.set('query', params.query);
+      if (params?.task_limit) searchParams.set('task_limit', String(params.task_limit));
+      if (params?.memory_limit !== undefined) {
+        searchParams.set('memory_limit', String(params.memory_limit));
+      }
+      if (params?.project_ids?.length) {
+        for (const projectId of params.project_ids) {
+          searchParams.append('project_ids', projectId);
+        }
+      }
+      const suffix = searchParams.toString();
+      return fetchApi<SessionBundleResponse>(`/session/bundle${suffix ? `?${suffix}` : ''}`);
+    },
   },
 
   orgs: {

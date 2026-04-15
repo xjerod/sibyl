@@ -7,12 +7,16 @@ const hooks = vi.hoisted(() => ({
   useHealth: vi.fn(),
   useOrgMetrics: vi.fn(),
   useProjects: vi.fn(),
+  useSessionBundle: vi.fn(),
   useStats: vi.fn(),
   useTasks: vi.fn(),
   useCaptureMemory: vi.fn(),
 }));
 
 vi.mock('@/lib/hooks', () => hooks);
+vi.mock('@/lib/project-context', () => ({
+  useProjectFilters: vi.fn(() => undefined),
+}));
 
 vi.mock('@/components/dashboard', () => ({
   WelcomeBanner: () => <div data-testid="welcome-banner" />,
@@ -86,6 +90,39 @@ describe('DashboardContent', () => {
       },
     });
     hooks.useOrgMetrics.mockReturnValue({ data: orgMetrics });
+    hooks.useSessionBundle.mockReturnValue({
+      data: {
+        context: {
+          generated_at: '2026-04-15T12:00:00Z',
+          org_slug: 'hyper',
+          project_ids: [],
+          scope: 'all_projects',
+        },
+        query: 'Fix session bundle | Review archive',
+        tasks: [
+          {
+            id: 'task_1',
+            name: 'Fix session bundle',
+            status: 'doing',
+            priority: 'high',
+            feature: null,
+            branch_name: null,
+          },
+        ],
+        relevant_entities: [
+          {
+            id: 'procedure_1',
+            name: 'Archive review loop',
+            entity_type: 'procedure',
+            source: null,
+            preview: 'Review the raw archive before you run maintenance jobs.',
+            document_id: null,
+          },
+        ],
+        remember_next: 'Continue Fix session bundle and capture anything non-obvious.',
+      },
+      isLoading: false,
+    });
     hooks.useTasks.mockReset();
     hooks.useCaptureMemory.mockReturnValue({
       openCaptureMemory: vi.fn(),
@@ -128,5 +165,17 @@ describe('DashboardContent', () => {
       'href',
       '/archive?link=unlinked'
     );
+  });
+
+  it('renders the session snapshot bundle on the dashboard', () => {
+    render(<DashboardContent initialStats={initialStats} />);
+
+    expect(screen.getByText('Session Snapshot')).toBeInTheDocument();
+    expect(screen.getByText(/continue fix session bundle/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /fix session bundle/i })).toHaveAttribute(
+      'href',
+      '/tasks/task_1'
+    );
+    expect(screen.getByText('Archive review loop')).toBeInTheDocument();
   });
 });
