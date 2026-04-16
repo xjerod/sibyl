@@ -162,15 +162,15 @@ class SibylClient:
         """Async context manager exit."""
         await self.close()
 
-    async def _refresh_token(self) -> bool:
+    async def _refresh_token(self) -> tuple[bool, str | None]:
         """Attempt to refresh the access token using stored refresh token.
 
         Returns:
-            True if refresh succeeded, False otherwise
+            Tuple of (success, failure_reason)
         """
         refresh_token = get_refresh_token(self.base_url)
         if not refresh_token:
-            return False
+            return False, "No refresh token is available for automatic renewal."
 
         try:
             # Use a fresh client without auth header for the refresh call
@@ -185,7 +185,14 @@ class SibylClient:
                 )
 
                 if response.status_code != 200:
-                    return False
+                    try:
+                        detail = response.json().get("detail")
+                    except Exception:
+                        detail = response.text
+                    detail_text = str(detail).strip() if detail is not None else ""
+                    if not detail_text:
+                        detail_text = f"Refresh request returned HTTP {response.status_code}."
+                    return False, detail_text
 
                 data = response.json()
                 new_access_token = data.get("access_token")
@@ -193,7 +200,7 @@ class SibylClient:
                 expires_in = data.get("expires_in")
 
                 if not new_access_token:
-                    return False
+                    return False, "Refresh response did not include a new access token."
 
                 # Store new tokens for this server
                 set_tokens(
@@ -211,10 +218,10 @@ class SibylClient:
                     await self._client.aclose()
                 self._client = None
 
-                return True
+                return True, None
 
-        except Exception:
-            return False
+        except Exception as exc:
+            return False, f"Refresh request failed: {exc}"
 
     async def _request(
         self,
@@ -240,9 +247,11 @@ class SibylClient:
         Raises:
             SibylClientError: On API errors or connection issues
         """
+        refresh_failure: str | None = None
+
         # Proactively refresh if token is about to expire
         if self.auth_token and is_access_token_expired(self.base_url):
-            await self._refresh_token()
+            _, refresh_failure = await self._refresh_token()
 
         client = await self._get_client()
 
@@ -255,11 +264,12 @@ class SibylClient:
             )
 
             # Handle 401 - try to refresh token and retry once
-            if response.status_code == 401 and _retry_on_401 and await self._refresh_token():
-                # Retry with new token
-                return await self._request(
-                    method, path, json=json, params=params, _retry_on_401=False
-                )
+            if response.status_code == 401 and _retry_on_401:
+                refreshed, refresh_failure = await self._refresh_token()
+                if refreshed:
+                    return await self._request(
+                        method, path, json=json, params=params, _retry_on_401=False
+                    )
 
             # Handle error responses
             if response.status_code >= 400:
@@ -270,6 +280,8 @@ class SibylClient:
                     detail = response.text
 
                 if response.status_code in {401, 403}:
+                    if refresh_failure:
+                        detail = f"{detail}\n\nAutomatic token refresh failed: {refresh_failure}"
                     detail = (
                         f"{detail}\n\n"
                         "Auth required. Run 'sibyl auth login' or set SIBYL_AUTH_TOKEN."

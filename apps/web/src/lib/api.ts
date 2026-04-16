@@ -1278,52 +1278,42 @@ function redirectToLogin(): never {
 }
 
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
+  const makeRequest = () =>
+    fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+
+  const response = await makeRequest();
 
   if (!response.ok) {
     // Handle 401 - try to refresh token before redirecting to login
     if (response.status === 401 && typeof window !== 'undefined') {
       // Don't try to refresh if we're on login page or if this IS the refresh endpoint
       if (window.location.pathname !== '/login' && endpoint !== '/auth/refresh') {
-        // Try to refresh the token
         const refreshed = await tryRefreshToken();
+        const retryResponse = await makeRequest();
 
-        if (refreshed) {
-          // Retry the original request with new token
-          const retryResponse = await fetch(`${API_BASE}${endpoint}`, {
-            ...options,
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-              ...options?.headers,
-            },
-          });
-
-          if (retryResponse.ok) {
-            if (retryResponse.status === 204) {
-              return undefined as T;
-            }
-            return retryResponse.json();
+        if (retryResponse.ok) {
+          if (retryResponse.status === 204) {
+            return undefined as T;
           }
-
-          // Retry also failed - redirect to login
-          if (retryResponse.status === 401) {
-            return redirectToLogin();
-          }
-
-          const error = await retryResponse.text();
-          throw new Error(error || `API error: ${retryResponse.status}`);
+          return retryResponse.json();
         }
 
-        // Refresh failed - redirect to login (and avoid refresh hammering via cooldown)
-        return redirectToLogin();
+        if (retryResponse.status === 401) {
+          return redirectToLogin();
+        }
+
+        const error = await retryResponse.text();
+        if (!refreshed) {
+          throw new Error(error || `API error after refresh retry: ${retryResponse.status}`);
+        }
+        throw new Error(error || `API error: ${retryResponse.status}`);
       }
     }
 
