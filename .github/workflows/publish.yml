@@ -17,15 +17,15 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  publish:
-    name: Build & Publish
+  # =========================================================================
+  # Python: build + publish to PyPI
+  # =========================================================================
+  python:
+    name: "◆ Python: Build & Publish"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
-      contents: write
-      packages: write
       id-token: write # PyPI trusted publishing
-
     steps:
       - name: "◆ Checkout"
         uses: actions/checkout@v4
@@ -40,11 +40,44 @@ jobs:
       - name: "◇ Install uv"
         uses: astral-sh/setup-uv@v6
 
+      - name: "△ Build Python packages"
+        run: |
+          echo "Building sibyl-core..."
+          uv build --package sibyl-core --out-dir dist/
+          echo "Building sibyl-dev..."
+          uv build --package sibyl-dev --out-dir dist/
+          ls -la dist/
+
+      - name: "► Publish to PyPI"
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
+
+  # =========================================================================
+  # Docker: build each (image, platform) on its native runner, push by digest
+  # =========================================================================
+  docker-build:
+    name: "△ Docker: ${{ matrix.image }} (${{ matrix.platform }})"
+    runs-on: ${{ matrix.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, web]
+        platform: [amd64, arm64]
+    steps:
+      - name: "◆ Checkout"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
       - name: "◇ Setup Docker Buildx"
         uses: docker/setup-buildx-action@v3
-
-      - name: "◇ Setup QEMU"
-        uses: docker/setup-qemu-action@v3
 
       - name: "◇ Login to GHCR"
         if: ${{ !inputs.dry_run }}
@@ -54,66 +87,109 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # =========================================================================
-      # Build Everything
-      # =========================================================================
-      - name: "△ Build Python packages"
-        run: |
-          echo "Building sibyl-core..."
-          uv build --package sibyl-core --out-dir dist/
-          echo "Building sibyl-dev..."
-          uv build --package sibyl-dev --out-dir dist/
-          ls -la dist/
-
-      # =========================================================================
-      # Publish Python Packages
-      # =========================================================================
-      - name: "► Publish to PyPI"
-        if: ${{ !inputs.dry_run }}
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: "△ Build & push by digest"
+        id: build
+        uses: docker/build-push-action@v6
         with:
-          packages-dir: dist/
+          context: .
+          file: apps/${{ matrix.image }}/Dockerfile
+          platforms: linux/${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=${{ !inputs.dry_run }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.platform }}
 
-      # =========================================================================
-      # Build & Push Docker Images
-      # =========================================================================
+      - name: "△ Export digest"
+        if: ${{ !inputs.dry_run }}
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: "► Upload digest"
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.platform }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # =========================================================================
+  # Docker: merge per-arch digests into multi-arch manifest with final tags
+  # =========================================================================
+  docker-merge:
+    name: "► Docker: Merge ${{ matrix.image }}"
+    needs: docker-build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        image: [api, web]
+    steps:
       - name: "△ Extract version from tag"
         id: version
         run: echo "version=${TAG#v}" >> $GITHUB_OUTPUT
         env:
           TAG: ${{ inputs.tag }}
 
-      - name: "► Build & push API image"
-        uses: docker/build-push-action@v6
+      - name: "► Download digests"
+        uses: actions/download-artifact@v4
         with:
-          context: .
-          file: apps/api/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ !inputs.dry_run }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-api:latest
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-api:${{ steps.version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
 
-      - name: "► Build & push Web image"
-        uses: docker/build-push-action@v6
+      - name: "◇ Setup Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+
+      - name: "◇ Login to GHCR"
+        uses: docker/login-action@v3
         with:
-          context: .
-          file: apps/web/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ !inputs.dry_run }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-web:latest
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-web:${{ steps.version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      # =========================================================================
-      # Update Release
-      # =========================================================================
+      - name: "► Create manifest list"
+        working-directory: /tmp/digests
+        env:
+          REPO: ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-${{ matrix.image }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${REPO}:latest" \
+            -t "${REPO}:${VERSION}" \
+            $(printf "${REPO}@sha256:%s " *)
+
+      - name: "△ Inspect image"
+        env:
+          REPO: ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-${{ matrix.image }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: docker buildx imagetools inspect "${REPO}:${VERSION}"
+
+  # =========================================================================
+  # Release: update GitHub release with install instructions
+  # =========================================================================
+  release:
+    name: "◆ Release: Update"
+    needs: [python, docker-merge]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: "△ Extract version from tag"
+        id: version
+        run: echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+        env:
+          TAG: ${{ inputs.tag }}
+
       - name: "◆ Update release with install instructions"
-        if: ${{ !inputs.dry_run }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
@@ -134,12 +210,12 @@ jobs:
 
       - name: "► Summary"
         run: |
-          echo "## Publish ${{ inputs.dry_run && '[DRY RUN] ' || '' }}${{ inputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Publish ${{ inputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Python Packages" >> $GITHUB_STEP_SUMMARY
           echo "- [sibyl-core](https://pypi.org/project/sibyl-core/${{ steps.version.outputs.version }}/)" >> $GITHUB_STEP_SUMMARY
           echo "- [sibyl-dev](https://pypi.org/project/sibyl-dev/${{ steps.version.outputs.version }}/)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Docker Images" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Images (multi-arch: linux/amd64, linux/arm64)" >> $GITHUB_STEP_SUMMARY
           echo "- \`ghcr.io/hyperb1iss/sibyl-api:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`ghcr.io/hyperb1iss/sibyl-web:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
