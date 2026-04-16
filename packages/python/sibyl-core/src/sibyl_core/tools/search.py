@@ -499,37 +499,44 @@ async def search(
 
             # Fall back to Graphiti's node-hybrid search
             if not raw_results:
-                raw_results = await with_timeout(
-                    entity_manager.search(
-                        query=query,
-                        entity_types=entity_types,
-                        limit=limit * 3,
-                    ),
-                    timeout_seconds=TIMEOUTS["search"],
-                    operation_name="search",
+                try:
+                    raw_results = await with_timeout(
+                        entity_manager.search(
+                            query=query,
+                            entity_types=entity_types,
+                            limit=limit * 3,
+                        ),
+                        timeout_seconds=TIMEOUTS["search"],
+                        operation_name="search",
                     )
-                if boost_recent and raw_results:
-                    from sibyl_core.config import core_config
+                    if boost_recent and raw_results:
+                        from sibyl_core.config import core_config
 
-                    decay = temporal_decay_days or core_config.temporal_decay_days
-                    raw_results = temporal_boost(raw_results, decay_days=decay)
+                        decay = temporal_decay_days or core_config.temporal_decay_days
+                        raw_results = temporal_boost(raw_results, decay_days=decay)
+                except Exception as e:
+                    log.warning("fallback_graph_search_failed", error=str(e))
+                    raw_results = []
 
-            if raw_results and not _graph_results_contain_exact_name_match(raw_results, query):
-                exact_name_results = await with_timeout(
-                    entity_manager.search_exact_name(
-                        query=query,
-                        entity_types=entity_types,
-                        limit=limit,
-                    ),
-                    timeout_seconds=TIMEOUTS["search"],
-                    operation_name="search_exact_name",
-                )
-                if exact_name_results:
-                    raw_results = _merge_graph_results(
-                        exact_name_results,
-                        raw_results,
-                        limit=limit * 3,
+            if not _graph_results_contain_exact_name_match(raw_results, query):
+                try:
+                    exact_name_results = await with_timeout(
+                        entity_manager.search_exact_name(
+                            query=query,
+                            entity_types=entity_types,
+                            limit=limit,
+                        ),
+                        timeout_seconds=TIMEOUTS["search"],
+                        operation_name="search_exact_name",
                     )
+                    if exact_name_results:
+                        raw_results = _merge_graph_results(
+                            exact_name_results,
+                            raw_results,
+                            limit=limit * 3,
+                        )
+                except Exception as e:
+                    log.warning("graph_exact_name_search_failed", error=str(e))
 
             # Filter and convert to SearchResult
             for entity, score in raw_results:

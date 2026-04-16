@@ -889,6 +889,84 @@ class TestSearchTool:
         assert [result.id for result in response.results[:2]] == ["pattern_exact", "pattern_noisy"]
         mock_entity_manager.search_exact_name.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_search_uses_exact_title_lookup_when_fallback_search_is_empty(self) -> None:
+        """Exact title lookup should still run when hybrid and fallback search miss."""
+        from sibyl_core.retrieval.hybrid import HybridResult
+        from sibyl_core.tools.search import search
+
+        exact = MockEntity(
+            id="pattern_exact",
+            entity_type=EntityType.PATTERN,
+            name="Searchable E2E e2e-1234",
+            description="Fresh exact match",
+            content="Unique searchable content e2e-1234 for verification",
+        )
+
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.search = AsyncMock(return_value=[])
+        mock_entity_manager.search_exact_name = AsyncMock(return_value=[(exact, 2.0)])
+
+        with (
+            patch("sibyl_core.tools.search.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.search.EntityManager", return_value=mock_entity_manager),
+            patch(
+                "sibyl_core.tools.search.hybrid_search",
+                new=AsyncMock(return_value=HybridResult(results=[])),
+            ),
+        ):
+            response = await search(
+                query="Searchable E2E e2e-1234",
+                types=["pattern"],
+                organization_id="org_123",
+                include_documents=False,
+            )
+
+        assert response.graph_count == 1
+        assert [result.id for result in response.results] == ["pattern_exact"]
+        mock_entity_manager.search.assert_awaited_once()
+        mock_entity_manager.search_exact_name.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_search_uses_exact_title_lookup_when_fallback_search_errors(self) -> None:
+        """Exact title lookup should survive fallback graph search failures."""
+        from sibyl_core.retrieval.hybrid import HybridResult
+        from sibyl_core.tools.search import search
+
+        exact = MockEntity(
+            id="pattern_exact",
+            entity_type=EntityType.PATTERN,
+            name="Searchable E2E e2e-1234",
+            description="Fresh exact match",
+            content="Unique searchable content e2e-1234 for verification",
+        )
+
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.search = AsyncMock(side_effect=RuntimeError("graph search blew up"))
+        mock_entity_manager.search_exact_name = AsyncMock(return_value=[(exact, 2.0)])
+
+        with (
+            patch("sibyl_core.tools.search.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.search.EntityManager", return_value=mock_entity_manager),
+            patch(
+                "sibyl_core.tools.search.hybrid_search",
+                new=AsyncMock(return_value=HybridResult(results=[])),
+            ),
+        ):
+            response = await search(
+                query="Searchable E2E e2e-1234",
+                types=["pattern"],
+                organization_id="org_123",
+                include_documents=False,
+            )
+
+        assert response.graph_count == 1
+        assert [result.id for result in response.results] == ["pattern_exact"]
+        mock_entity_manager.search.assert_awaited_once()
+        mock_entity_manager.search_exact_name.assert_awaited_once()
+
 
 class TestDocumentSearchFusion:
     """Test document-side search fusion helpers."""
