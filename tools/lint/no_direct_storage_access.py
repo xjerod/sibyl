@@ -37,7 +37,6 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
     "apps/api/src/sibyl/api/routes/jobs.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/metrics.py": ALLOW_GRAPH,
     "apps/api/src/sibyl/api/routes/org_invitations.py": ("sibyl.db.connection", "sqlalchemy"),
-    "apps/api/src/sibyl/api/routes/org_members.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/orgs.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/project_members.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/rag.py": ("sqlalchemy", "sibyl_core.graph", "sqlmodel"),
