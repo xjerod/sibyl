@@ -1,23 +1,22 @@
-"""Project membership endpoints.
-
-Accepts both graph project IDs (project_abc123) and Postgres UUIDs.
-Graph IDs are resolved to Postgres projects internally.
-"""
+"""Project membership endpoints."""
 
 from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from sibyl.api.websocket import broadcast_event
-from sibyl.auth.audit import AuditLogger
 from sibyl.auth.dependencies import get_current_org_role, get_current_organization, get_current_user
-from sibyl.db.connection import get_session_dependency
-from sibyl.db.models import Organization, Project, ProjectMember, ProjectRole, User
+from sibyl.db.models import Organization, Project, ProjectRole, User
+from sibyl.persistence.legacy.project_members import (
+    add_legacy_project_member,
+    can_manage_legacy_project_members,
+    list_legacy_project_members,
+    remove_legacy_project_member,
+    update_legacy_project_member_role,
+)
 
 router = APIRouter(prefix="/projects/{project_id}/members", tags=["project-members"])
 
@@ -31,86 +30,8 @@ class MemberRoleUpdateRequest(BaseModel):
     role: ProjectRole
 
 
-async def _resolve_project(
-    project_id: str,
-    org: Organization,
-    session: AsyncSession,
-) -> Project:
-    """Resolve project by graph ID or Postgres UUID.
-
-    Args:
-        project_id: Either a graph ID (project_abc123) or Postgres UUID
-        org: Organization context
-        session: Database session
-
-    Returns:
-        Project model
-
-    Raises:
-        HTTPException: 404 if project not found or doesn't belong to org
-    """
-    project: Project | None = None
-
-    # Try as graph ID first (most common from frontend)
-    if project_id.startswith("project_"):
-        result = await session.execute(
-            select(Project).where(
-                Project.organization_id == org.id,
-                Project.graph_project_id == project_id,
-            )
-        )
-        project = result.scalar_one_or_none()
-    else:
-        # Try as UUID
-        try:
-            uuid_id = UUID(project_id)
-            project = await session.get(Project, uuid_id)
-            if project and project.organization_id != org.id:
-                project = None
-        except ValueError:
-            pass  # Not a valid UUID
-
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-
-    return project
-
-
-async def _get_project_and_user_role(
-    *,
-    project_id: str,
-    user: User,
-    org: Organization,
-    session: AsyncSession,
-) -> tuple[Project, ProjectRole | None]:
-    """Get project and current user's role in it."""
-    project = await _resolve_project(project_id, org, session)
-
-    # Check if user is project owner
-    if project.owner_user_id == user.id:
-        return project, ProjectRole.OWNER
-
-    # Check direct membership
-    result = await session.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project.id,
-            ProjectMember.user_id == user.id,
-        )
-    )
-    member = result.scalar_one_or_none()
-    if member:
-        return project, member.role
-
-    return project, None
-
-
 def _can_manage_members(role: ProjectRole | None, project: Project, user: User) -> bool:
-    """Check if user can add/remove/update members."""
-    # Project owner can always manage
-    if project.owner_user_id == user.id:
-        return True
-    # OWNER and MAINTAINER roles can manage
-    return role in {ProjectRole.OWNER, ProjectRole.MAINTAINER}
+    return can_manage_legacy_project_members(role, project, user)
 
 
 @router.get("")
@@ -118,67 +39,14 @@ async def list_members(
     project_id: str,
     user: User = Depends(get_current_user),
     org: Organization = Depends(get_current_organization),
-    _org_role=Depends(get_current_org_role),  # Verifies user is org member
-    session: AsyncSession = Depends(get_session_dependency),
+    _org_role=Depends(get_current_org_role),
 ):
-    """List all members of a project.
-
-    Accepts graph project ID (project_abc123) or Postgres UUID.
-    """
-    project, user_role = await _get_project_and_user_role(
-        project_id=project_id, user=user, org=org, session=session
+    result = await list_legacy_project_members(
+        project_id=project_id,
+        actor=user,
+        org_id=org.id,
     )
-
-    # Get all direct members (use resolved project.id)
-    result = await session.execute(
-        select(ProjectMember, User)
-        .join(User, User.id == ProjectMember.user_id)
-        .where(ProjectMember.project_id == project.id)
-    )
-
-    members = []
-
-    # Add project owner first if they exist
-    if project.owner_user_id:
-        owner = await session.get(User, project.owner_user_id)
-        if owner:
-            members.append(
-                {
-                    "user": {
-                        "id": str(owner.id),
-                        "email": owner.email,
-                        "name": owner.name,
-                        "avatar_url": owner.avatar_url,
-                    },
-                    "role": ProjectRole.OWNER.value,
-                    "is_owner": True,
-                    "created_at": project.created_at,
-                }
-            )
-
-    # Add other members
-    for membership, member_user in result.all():
-        # Skip if this is the owner (already added)
-        if member_user.id == project.owner_user_id:
-            continue
-        members.append(
-            {
-                "user": {
-                    "id": str(member_user.id),
-                    "email": member_user.email,
-                    "name": member_user.name,
-                    "avatar_url": member_user.avatar_url,
-                },
-                "role": membership.role.value,
-                "is_owner": False,
-                "created_at": membership.created_at,
-            }
-        )
-
-    return {
-        "members": members,
-        "can_manage": _can_manage_members(user_role, project, user),
-    }
+    return {"members": result.members, "can_manage": result.can_manage}
 
 
 @router.post("")
@@ -189,59 +57,17 @@ async def add_member(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     org: Organization = Depends(get_current_organization),
-    _org_role=Depends(get_current_org_role),  # Verifies user is org member
-    session: AsyncSession = Depends(get_session_dependency),
+    _org_role=Depends(get_current_org_role),
 ):
-    """Add a member to a project.
-
-    Accepts graph project ID (project_abc123) or Postgres UUID.
-    """
-    project, user_role = await _get_project_and_user_role(
-        project_id=project_id, user=user, org=org, session=session
-    )
-
-    if not _can_manage_members(user_role, project, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    # Verify target user exists
-    target_user = await session.get(User, body.user_id)
-    if target_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    # Check if already a member (use resolved project.id)
-    existing = await session.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project.id,
-            ProjectMember.user_id == body.user_id,
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User is already a member")
-
-    # Create membership (use resolved project.id)
-    membership = ProjectMember(
-        organization_id=org.id,
-        project_id=project.id,
-        user_id=body.user_id,
+    membership = await add_legacy_project_member(
+        request=request,
+        project_id=project_id,
+        actor=user,
+        org_id=org.id,
+        target_user_id=body.user_id,
         role=body.role,
     )
-    session.add(membership)
-    await session.commit()
-    await session.refresh(membership)
 
-    await AuditLogger(session).log(
-        action="project.member.add",
-        user_id=user.id,
-        organization_id=org.id,
-        request=request,
-        details={
-            "project_id": str(project_id),
-            "target_user_id": str(body.user_id),
-            "role": membership.role.value,
-        },
-    )
-
-    # Broadcast permission change
     background_tasks.add_task(
         broadcast_event,
         "permission_changed",
@@ -266,56 +92,17 @@ async def update_member_role(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     org: Organization = Depends(get_current_organization),
-    _org_role=Depends(get_current_org_role),  # Verifies user is org member
-    session: AsyncSession = Depends(get_session_dependency),
+    _org_role=Depends(get_current_org_role),
 ):
-    """Update a member's role in a project.
-
-    Accepts graph project ID (project_abc123) or Postgres UUID.
-    """
-    project, user_role = await _get_project_and_user_role(
-        project_id=project_id, user=user, org=org, session=session
-    )
-
-    if not _can_manage_members(user_role, project, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    # Cannot change project owner's role
-    if user_id == project.owner_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot change project owner's role",
-        )
-
-    # Find and update membership (use resolved project.id)
-    result = await session.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project.id,
-            ProjectMember.user_id == user_id,
-        )
-    )
-    membership = result.scalar_one_or_none()
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
-
-    membership.role = body.role
-    session.add(membership)
-    await session.commit()
-    await session.refresh(membership)
-
-    await AuditLogger(session).log(
-        action="project.member.update_role",
-        user_id=user.id,
-        organization_id=org.id,
+    membership = await update_legacy_project_member_role(
         request=request,
-        details={
-            "project_id": str(project_id),
-            "target_user_id": str(user_id),
-            "role": membership.role.value,
-        },
+        project_id=project_id,
+        actor=user,
+        org_id=org.id,
+        target_user_id=user_id,
+        role=body.role,
     )
 
-    # Broadcast permission change
     background_tasks.add_task(
         broadcast_event,
         "permission_changed",
@@ -339,51 +126,16 @@ async def remove_member(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     org: Organization = Depends(get_current_organization),
-    _org_role=Depends(get_current_org_role),  # Verifies user is org member
-    session: AsyncSession = Depends(get_session_dependency),
+    _org_role=Depends(get_current_org_role),
 ):
-    """Remove a member from a project.
-
-    Accepts graph project ID (project_abc123) or Postgres UUID.
-    """
-    project, user_role = await _get_project_and_user_role(
-        project_id=project_id, user=user, org=org, session=session
-    )
-
-    # Cannot remove project owner
-    if user_id == project.owner_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot remove project owner",
-        )
-
-    # Users can remove themselves, otherwise need manage permission
-    if user.id != user_id and not _can_manage_members(user_role, project, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    # Find and delete membership (use resolved project.id)
-    result = await session.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project.id,
-            ProjectMember.user_id == user_id,
-        )
-    )
-    membership = result.scalar_one_or_none()
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
-
-    await session.delete(membership)
-    await session.commit()
-
-    await AuditLogger(session).log(
-        action="project.member.remove",
-        user_id=user.id,
-        organization_id=org.id,
+    await remove_legacy_project_member(
         request=request,
-        details={"project_id": str(project_id), "target_user_id": str(user_id)},
+        project_id=project_id,
+        actor=user,
+        org_id=org.id,
+        target_user_id=user_id,
     )
 
-    # Broadcast permission change
     background_tasks.add_task(
         broadcast_event,
         "permission_changed",
