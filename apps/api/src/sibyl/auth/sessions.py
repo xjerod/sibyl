@@ -34,6 +34,10 @@ class SessionManager:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @property
+    def session(self) -> AsyncSession:
+        return self._session
+
     @staticmethod
     def hash_token(token: str) -> str:
         """Create SHA256 hash of a token for storage."""

@@ -16,6 +16,11 @@ from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
 from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import Organization, OrganizationMember, OrganizationRole, User
+from sibyl.persistence.legacy import (
+    InvalidAuthClaimsError,
+    LegacyAuthContextResolver,
+    UserNotFoundError,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -170,41 +175,13 @@ async def build_auth_context(
     claims = await resolve_claims(request, session)
     if not claims:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
-    # Get user
+    resolver = LegacyAuthContextResolver.from_session(session)
     try:
-        user_id = UUID(str(claims.get("sub", "")))
-    except ValueError as e:
+        return await resolver.resolve(claims)
+    except InvalidAuthClaimsError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from e
-
-    user = await session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-
-    # Get org and role
-    org = None
-    role = None
-
-    if claims.get("org"):
-        try:
-            org_id = UUID(str(claims["org"]))
-        except ValueError:
-            org_id = None
-
-        if org_id:
-            org = await session.get(Organization, org_id)
-            if org is not None:
-                result = await session.execute(
-                    select(OrganizationMember).where(
-                        OrganizationMember.organization_id == org.id,
-                        OrganizationMember.user_id == user.id,
-                    )
-                )
-                membership = result.scalar_one_or_none()
-                role = membership.role if membership else None
-
-    scopes = frozenset(str(s) for s in (claims.get("scopes", []) if claims else []))
-    return AuthContext(user=user, organization=org, org_role=role, scopes=scopes)
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found") from e
 
 
 async def get_auth_context(

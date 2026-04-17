@@ -147,6 +147,55 @@ def coerce_auth_organization(value: AuthOrganization | Any | None) -> AuthOrgani
     )
 
 
+def coerce_auth_membership(value: AuthMembership | Any | None) -> AuthMembership | None:
+    """Coerce an ORM row or stub object into the auth membership contract."""
+
+    if value is None:
+        return None
+    if isinstance(value, AuthMembership):
+        return value
+    return AuthMembership(
+        id=_required_uuid(getattr(value, "id", None), "membership.id"),
+        organization_id=_required_uuid(
+            getattr(value, "organization_id", None), "membership.organization_id"
+        ),
+        user_id=_required_uuid(getattr(value, "user_id", None), "membership.user_id"),
+        role=coerce_organization_role(getattr(value, "role", None)) or OrganizationRole.MEMBER,
+        created_at=getattr(value, "created_at", None),
+        updated_at=getattr(value, "updated_at", None),
+    )
+
+
+def coerce_auth_session(value: AuthSession | Any | None) -> AuthSession | None:
+    """Coerce an ORM row or stub object into the auth session contract."""
+
+    if value is None:
+        return None
+    if isinstance(value, AuthSession):
+        return value
+    return AuthSession(
+        id=_required_uuid(getattr(value, "id", None), "session.id"),
+        user_id=_required_uuid(getattr(value, "user_id", None), "session.user_id"),
+        organization_id=(
+            _required_uuid(getattr(value, "organization_id", None), "session.organization_id")
+            if getattr(value, "organization_id", None) is not None
+            else None
+        ),
+        expires_at=getattr(value, "expires_at", None),
+        refresh_token_expires_at=getattr(value, "refresh_token_expires_at", None),
+        revoked_at=getattr(value, "revoked_at", None),
+        last_active_at=getattr(value, "last_active_at", None),
+        is_current=_bool_or_default(getattr(value, "is_current", None)),
+        device_name=_optional_str(getattr(value, "device_name", None)),
+        device_type=_optional_str(getattr(value, "device_type", None)),
+        browser=_optional_str(getattr(value, "browser", None)),
+        os=_optional_str(getattr(value, "os", None)),
+        ip_address=_optional_str(getattr(value, "ip_address", None)),
+        user_agent=_optional_str(getattr(value, "user_agent", None)),
+        location=_optional_str(getattr(value, "location", None)),
+    )
+
+
 def coerce_organization_role(value: OrganizationRole | str | Any | None) -> OrganizationRole | None:
     """Normalize enum, string, or ORM-like role objects into the shared enum."""
 
