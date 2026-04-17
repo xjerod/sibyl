@@ -91,4 +91,7 @@ backups/
 !docs/schemas/*.sql
 
 # generated docs
-docs/research/
+docs/research/*
+!docs/research/rust-port/
+docs/research/rust-port/*
+!docs/research/rust-port/INVENTORY.md

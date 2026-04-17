@@ -50,7 +50,7 @@ sibyld = { workspace = true }
 
 [tool.ruff]
 line-length = 100
-src = ["apps/*/src", "packages/*/src", "hooks"]
+src = ["apps/*/src", "packages/*/src", "hooks", "tools"]
 
 [tool.ruff.lint]
 select = [
@@ -97,7 +97,7 @@ unsupported-operator = "warn"
 index-out-of-bounds = "warn"
 
 [tool.ty.src]
-include = ["apps/*/src/**/*.py", "packages/python/*/src/**/*.py", "hooks/*.py"]
+include = ["apps/*/src/**/*.py", "packages/python/*/src/**/*.py", "hooks/*.py", "tools/**/*.py"]
 exclude = ["**/build/**", "**/.venv/**", "**/migrations/**"]
 
 # Hooks use sys.exit() for control flow which ty doesn't understand
