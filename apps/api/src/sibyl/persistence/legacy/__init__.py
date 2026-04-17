@@ -14,6 +14,14 @@ if TYPE_CHECKING:
         LegacyUserRepository,
         UserNotFoundError,
     )
+    from sibyl.persistence.legacy.graph import (
+        LegacyEntityStore,
+        LegacyGraphStore,
+        LegacyKnowledgeReadAdapter,
+        LegacyKnowledgeWriteAdapter,
+        LegacyRelationshipStore,
+        LegacySearchIndex,
+    )
 
 __all__ = [
     "InvalidAuthClaimsError",
@@ -22,6 +30,12 @@ __all__ = [
     "LegacyOrganizationRepository",
     "LegacySessionRepository",
     "LegacyUserRepository",
+    "LegacyEntityStore",
+    "LegacyGraphStore",
+    "LegacyKnowledgeReadAdapter",
+    "LegacyKnowledgeWriteAdapter",
+    "LegacyRelationshipStore",
+    "LegacySearchIndex",
     "UserNotFoundError",
 ]
 
@@ -47,6 +61,33 @@ def __getattr__(name: str) -> Any:
             "LegacyUserRepository": LegacyUserRepository,
             "UserNotFoundError": UserNotFoundError,
         }
+        if name in {
+            "LegacyEntityStore",
+            "LegacyGraphStore",
+            "LegacyKnowledgeReadAdapter",
+            "LegacyKnowledgeWriteAdapter",
+            "LegacyRelationshipStore",
+            "LegacySearchIndex",
+        }:
+            from sibyl.persistence.legacy.graph import (
+                LegacyEntityStore,
+                LegacyGraphStore,
+                LegacyKnowledgeReadAdapter,
+                LegacyKnowledgeWriteAdapter,
+                LegacyRelationshipStore,
+                LegacySearchIndex,
+            )
+
+            exports.update(
+                {
+                    "LegacyEntityStore": LegacyEntityStore,
+                    "LegacyGraphStore": LegacyGraphStore,
+                    "LegacyKnowledgeReadAdapter": LegacyKnowledgeReadAdapter,
+                    "LegacyKnowledgeWriteAdapter": LegacyKnowledgeWriteAdapter,
+                    "LegacyRelationshipStore": LegacyRelationshipStore,
+                    "LegacySearchIndex": LegacySearchIndex,
+                }
+            )
         return exports[name]
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)

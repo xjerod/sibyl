@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING
 from fastapi import Depends
 
 from sibyl.auth.dependencies import get_current_organization
+from sibyl.persistence.legacy.graph import LegacyGraphStore, LegacyKnowledgeReadAdapter
 from sibyl_core.graph import EntityManager, RelationshipManager
 from sibyl_core.graph.client import get_graph_client
+from sibyl_core.services import KnowledgeReadService
 
 if TYPE_CHECKING:
     from sibyl.db.models import Organization
@@ -81,6 +83,21 @@ async def get_relationship_manager(
     """
     client = await get_graph_client()
     return RelationshipManager(client, group_id=str(org.id))
+
+
+async def get_legacy_graph_store(
+    org: Organization = Depends(get_current_organization),
+) -> LegacyGraphStore:
+    """Get the backend-agnostic graph store on top of the current runtime."""
+    client = await get_graph_client()
+    return LegacyGraphStore.from_client(client, str(org.id))
+
+
+async def get_legacy_knowledge_read_service(
+    graph_store: LegacyGraphStore = Depends(get_legacy_graph_store),
+) -> KnowledgeReadService:
+    """Get the seam-based graph read service backed by the legacy runtime."""
+    return LegacyKnowledgeReadAdapter(graph_store)
 
 
 async def get_group_id(

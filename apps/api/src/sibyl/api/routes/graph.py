@@ -3,6 +3,7 @@
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from sibyl.api.dependencies import get_legacy_knowledge_read_service
 from sibyl.api.schemas import GraphData, GraphEdge, GraphNode, SubgraphRequest
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
@@ -10,6 +11,7 @@ from sibyl_core.graph.client import GraphClient, get_graph_client
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import EntityType, RelationshipType
+from sibyl_core.services import KnowledgeReadService
 
 log = structlog.get_logger()
 _READ_ROLES = (
@@ -651,48 +653,19 @@ async def get_hierarchical_graph_data(
 
 @router.get("/stats")
 async def get_graph_stats(
-    org: Organization = Depends(get_current_organization),
+    service: KnowledgeReadService = Depends(get_legacy_knowledge_read_service),
 ) -> dict:
     """Get efficient graph statistics using aggregate queries.
 
     Does not load the full graph - uses Cypher aggregation for performance.
     """
     try:
-        client = await get_graph_client()
-        group_id = str(org.id)
-        driver = client.get_org_driver(group_id)
-
-        # Count nodes by type - single aggregation query
-        node_query = """
-        MATCH (n)
-        WHERE (n:Episodic OR n:Entity OR n:Document) AND n.group_id = $group_id
-        RETURN n.entity_type AS type, count(*) AS cnt
-        """
-        node_result = await driver.execute_query(node_query, group_id=group_id)
-        node_rows = GraphClient.normalize_result(node_result)
-
-        type_counts: dict[str, int] = {}
-        for row in node_rows:
-            t = row.get("type") or "unknown"
-            c = row.get("cnt", 0)
-            type_counts[t] = c
-
-        total_nodes = sum(type_counts.values())
-
-        # Count edges - single count query
-        edge_query = """
-        MATCH ()-[r]->()
-        WHERE r.group_id = $group_id
-        RETURN count(r) AS cnt
-        """
-        edge_result = await driver.execute_query(edge_query, group_id=group_id)
-        edge_rows = GraphClient.normalize_result(edge_result)
-        total_edges = edge_rows[0].get("cnt", 0) if edge_rows else 0
+        stats = await service.stats()
 
         return {
-            "total_nodes": total_nodes,
-            "total_edges": total_edges,
-            "by_type": type_counts,
+            "total_nodes": stats.total_entities,
+            "total_edges": stats.total_relationships,
+            "by_type": stats.entities_by_type,
         }
 
     except Exception as e:
