@@ -47,7 +47,6 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
     "apps/api/src/sibyl/api/routes/setup.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/tasks.py": ("sqlalchemy", "sibyl_core.graph"),
     "apps/api/src/sibyl/api/routes/users.py": ("sibyl.db.connection", "sqlalchemy", "sqlmodel"),
-    "apps/api/src/sibyl/auth/mcp_auth.py": ("sibyl.db.connection",),
     "apps/api/src/sibyl/auth/mcp_oauth.py": ("sibyl.db.connection", "sqlmodel"),
     "packages/python/sibyl-core/src/sibyl_core/tools/add.py": ALLOW_GRAPH,
     "packages/python/sibyl-core/src/sibyl_core/tools/admin.py": ALLOW_GRAPH,

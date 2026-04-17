@@ -1,4 +1,3 @@
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -46,39 +45,25 @@ async def test_mcp_token_verifier_accepts_api_key(monkeypatch) -> None:
         scopes=["mcp"],
     )
 
-    @asynccontextmanager
-    async def fake_get_session():
-        yield AsyncMock()
-
-    with (
-        patch("sibyl.auth.mcp_auth.get_session", fake_get_session),
-        patch("sibyl.auth.mcp_auth.ApiKeyManager.from_session") as from_session,
-    ):
-        manager = AsyncMock()
-        manager.authenticate = AsyncMock(return_value=auth)
-        from_session.return_value = manager
-
+    with patch(
+        "sibyl.auth.mcp_auth.authenticate_legacy_api_key",
+        AsyncMock(return_value=auth),
+    ) as authenticate:
         access = await SibylMcpTokenVerifier().verify_token("sk_live_test")
         assert access is not None
         assert access.client_id == f"api_key:{auth.api_key_id}"
+    authenticate.assert_awaited_once_with("sk_live_test")
 
 
 @pytest.mark.asyncio
 async def test_mcp_token_verifier_rejects_unknown_api_key(monkeypatch) -> None:
-    @asynccontextmanager
-    async def fake_get_session():
-        yield AsyncMock()
-
-    with (
-        patch("sibyl.auth.mcp_auth.get_session", fake_get_session),
-        patch("sibyl.auth.mcp_auth.ApiKeyManager.from_session") as from_session,
-    ):
-        manager = AsyncMock()
-        manager.authenticate = AsyncMock(return_value=None)
-        from_session.return_value = manager
-
+    with patch(
+        "sibyl.auth.mcp_auth.authenticate_legacy_api_key",
+        AsyncMock(return_value=None),
+    ) as authenticate:
         access = await SibylMcpTokenVerifier().verify_token("sk_live_test")
         assert access is None
+    authenticate.assert_awaited_once_with("sk_live_test")
 
 
 @pytest.mark.asyncio
@@ -90,17 +75,10 @@ async def test_mcp_token_verifier_rejects_api_key_without_mcp_scope() -> None:
         scopes=["api:read"],
     )
 
-    @asynccontextmanager
-    async def fake_get_session():
-        yield AsyncMock()
-
-    with (
-        patch("sibyl.auth.mcp_auth.get_session", fake_get_session),
-        patch("sibyl.auth.mcp_auth.ApiKeyManager.from_session") as from_session,
-    ):
-        manager = AsyncMock()
-        manager.authenticate = AsyncMock(return_value=auth)
-        from_session.return_value = manager
-
+    with patch(
+        "sibyl.auth.mcp_auth.authenticate_legacy_api_key",
+        AsyncMock(return_value=auth),
+    ) as authenticate:
         access = await SibylMcpTokenVerifier().verify_token("sk_live_test")
         assert access is None
+    authenticate.assert_awaited_once_with("sk_live_test")
