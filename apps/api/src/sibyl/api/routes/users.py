@@ -9,14 +9,18 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.auth.http import select_access_token
 from sibyl.auth.passwords import hash_password, verify_password
 from sibyl.auth.rls import AuthSession, get_auth_session
 from sibyl.auth.sessions import SessionManager
-from sibyl.db.connection import get_session_dependency
-from sibyl.db.models import OAuthConnection, User
+from sibyl.db.models import User
+from sibyl.persistence.legacy.users import (
+    confirm_legacy_password_reset,
+    list_legacy_oauth_connections,
+    remove_legacy_oauth_connection,
+    request_legacy_password_reset,
+)
 
 log = structlog.get_logger()
 
@@ -243,14 +247,9 @@ async def change_password(
 @router.post("/password/reset", status_code=status.HTTP_202_ACCEPTED)
 async def request_password_reset(
     data: PasswordResetRequest,
-    session: AsyncSession = Depends(get_session_dependency),
 ) -> dict[str, str]:
     """Request a password reset email."""
-    from sibyl.auth.password_reset import PasswordResetManager
-    from sibyl.email import get_email_client
-
-    manager = PasswordResetManager(session, get_email_client())
-    await manager.request_reset(data.email)
+    await request_legacy_password_reset(data.email)
 
     return {"message": "If an account exists, a reset email has been sent."}
 
@@ -258,17 +257,9 @@ async def request_password_reset(
 @router.post("/password/reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
 async def confirm_password_reset(
     data: PasswordResetConfirmRequest,
-    session: AsyncSession = Depends(get_session_dependency),
 ) -> None:
     """Confirm password reset with token."""
-    from sibyl.auth.password_reset import PasswordResetError, PasswordResetManager
-    from sibyl.email import get_email_client
-
-    manager = PasswordResetManager(session, get_email_client())
-    try:
-        await manager.confirm_reset(data.token, data.new_password)
-    except PasswordResetError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    await confirm_legacy_password_reset(data.token, data.new_password)
 
 
 # ============================================================================
@@ -354,12 +345,7 @@ async def list_connections(
     auth: AuthSession = Depends(get_auth_session),
 ) -> list[OAuthConnectionResponse]:
     """List OAuth connections for current user."""
-    from sqlmodel import select
-
-    result = await auth.session.execute(
-        select(OAuthConnection).where(OAuthConnection.user_id == auth.ctx.user.id)
-    )
-    connections = result.scalars().all()
+    connections = await list_legacy_oauth_connections(auth.session, auth.ctx.user.id)
 
     return [
         OAuthConnectionResponse(
@@ -379,36 +365,11 @@ async def remove_connection(
     auth: AuthSession = Depends(get_auth_session),
 ) -> None:
     """Remove an OAuth connection."""
-    from sqlmodel import select
-
-    result = await auth.session.execute(
-        select(OAuthConnection)
-        .where(OAuthConnection.id == connection_id)
-        .where(OAuthConnection.user_id == auth.ctx.user.id)
+    connection = await remove_legacy_oauth_connection(
+        auth.session,
+        user_id=auth.ctx.user.id,
+        connection_id=connection_id,
     )
-    connection = result.scalar_one_or_none()
-
-    if not connection:
-        raise HTTPException(status_code=404, detail="Connection not found")
-
-    user = await auth.session.get(User, auth.ctx.user.id)
-
-    remaining = await auth.session.execute(
-        select(OAuthConnection)
-        .where(OAuthConnection.user_id == auth.ctx.user.id)
-        .where(OAuthConnection.id != connection_id)
-    )
-    has_other_connections = remaining.scalar_one_or_none() is not None
-    has_password = user and user.password_hash
-
-    if not has_other_connections and not has_password:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot remove last login method. Set a password first.",
-        )
-
-    await auth.session.delete(connection)
-    await auth.session.commit()
 
     log.info(
         "oauth_connection_removed",
