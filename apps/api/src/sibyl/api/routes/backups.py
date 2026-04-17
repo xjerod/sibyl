@@ -7,21 +7,26 @@ Provides REST API for:
 - Downloading backup archives
 """
 
-from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.auth.dependencies import get_current_organization, get_current_user, require_org_admin
 from sibyl.backup_ids import generate_backup_id
-from sibyl.db.connection import get_session
-from sibyl.db.models import Backup, BackupSettings, BackupStatus, Organization, User
+from sibyl.db.models import BackupStatus, Organization, User
+from sibyl.persistence.legacy.backups import (
+    attach_legacy_backup_job,
+    create_legacy_backup_record,
+    delete_legacy_backup_record,
+    get_legacy_backup,
+    get_legacy_backup_retention,
+    get_legacy_backup_settings,
+    list_legacy_backups,
+    update_legacy_backup_settings,
+)
 
 log = structlog.get_logger()
 
@@ -121,39 +126,22 @@ class CleanupResponse(BaseModel):
 # =============================================================================
 
 
-async def get_or_create_settings(session: AsyncSession, org_id: UUID) -> BackupSettings:
-    """Get or create backup settings for an organization."""
-    result = await session.execute(
-        select(BackupSettings).where(BackupSettings.organization_id == org_id)
-    )
-    settings = result.scalar_one_or_none()
-
-    if settings is None:
-        settings = BackupSettings(organization_id=org_id)
-        session.add(settings)
-        await session.flush()
-
-    return settings
-
-
 @router.get("/settings")
 async def get_backup_settings(
     org: Organization = Depends(get_current_organization),
 ) -> BackupSettingsResponse:
     """Get backup configuration settings for the organization."""
-    async with get_session() as session:
-        settings = await get_or_create_settings(session, org.id)
-        await session.commit()
+    settings = await get_legacy_backup_settings(org.id)
 
-        return BackupSettingsResponse(
-            enabled=settings.enabled,
-            schedule=settings.schedule,
-            retention_days=settings.retention_days,
-            include_postgres=settings.include_postgres,
-            include_graph=settings.include_graph,
-            last_backup_at=settings.last_backup_at.isoformat() if settings.last_backup_at else None,
-            last_backup_id=settings.last_backup_id,
-        )
+    return BackupSettingsResponse(
+        enabled=settings.enabled,
+        schedule=settings.schedule,
+        retention_days=settings.retention_days,
+        include_postgres=settings.include_postgres,
+        include_graph=settings.include_graph,
+        last_backup_at=settings.last_backup_at.isoformat() if settings.last_backup_at else None,
+        last_backup_id=settings.last_backup_id,
+    )
 
 
 @router.patch("/settings")
@@ -162,41 +150,32 @@ async def update_backup_settings(
     org: Organization = Depends(get_current_organization),
 ) -> BackupSettingsResponse:
     """Update backup configuration settings."""
-    async with get_session() as session:
-        settings = await get_or_create_settings(session, org.id)
+    settings = await update_legacy_backup_settings(
+        org.id,
+        enabled=request.enabled,
+        schedule=request.schedule,
+        retention_days=request.retention_days,
+        include_postgres=request.include_postgres,
+        include_graph=request.include_graph,
+    )
 
-        # Update only provided fields
-        if request.enabled is not None:
-            settings.enabled = request.enabled
-        if request.schedule is not None:
-            settings.schedule = request.schedule
-        if request.retention_days is not None:
-            settings.retention_days = request.retention_days
-        if request.include_postgres is not None:
-            settings.include_postgres = request.include_postgres
-        if request.include_graph is not None:
-            settings.include_graph = request.include_graph
+    log.info(
+        "backup_settings_updated",
+        organization_id=str(org.id),
+        enabled=settings.enabled,
+        schedule=settings.schedule,
+        retention_days=settings.retention_days,
+    )
 
-        settings.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        await session.commit()
-
-        log.info(
-            "backup_settings_updated",
-            organization_id=str(org.id),
-            enabled=settings.enabled,
-            schedule=settings.schedule,
-            retention_days=settings.retention_days,
-        )
-
-        return BackupSettingsResponse(
-            enabled=settings.enabled,
-            schedule=settings.schedule,
-            retention_days=settings.retention_days,
-            include_postgres=settings.include_postgres,
-            include_graph=settings.include_graph,
-            last_backup_at=settings.last_backup_at.isoformat() if settings.last_backup_at else None,
-            last_backup_id=settings.last_backup_id,
-        )
+    return BackupSettingsResponse(
+        enabled=settings.enabled,
+        schedule=settings.schedule,
+        retention_days=settings.retention_days,
+        include_postgres=settings.include_postgres,
+        include_graph=settings.include_graph,
+        last_backup_at=settings.last_backup_at.isoformat() if settings.last_backup_at else None,
+        last_backup_id=settings.last_backup_id,
+    )
 
 
 # =============================================================================
@@ -220,51 +199,39 @@ async def create_backup(
     Returns a job ID that can be used to track progress.
     """
     backup_id = generate_backup_id(str(org.id))
+    backup = await create_legacy_backup_record(
+        org_id=org.id,
+        backup_id=backup_id,
+        include_postgres=request.include_postgres,
+        include_graph=request.include_graph,
+        created_by_user_id=user.id if user else None,
+    )
 
-    async with get_session() as session:
-        # Create backup record
-        backup = Backup(
-            organization_id=org.id,
-            backup_id=backup_id,
-            status=BackupStatus.PENDING.value,
-            include_postgres=request.include_postgres,
-            include_graph=request.include_graph,
-            triggered_by="manual",
-            created_by_user_id=user.id if user else None,
-        )
-        session.add(backup)
-        await session.commit()
-        await session.refresh(backup)
+    log.info(
+        "backup_requested",
+        backup_id=backup_id,
+        organization_id=str(org.id),
+        include_postgres=request.include_postgres,
+        include_graph=request.include_graph,
+    )
 
-        log.info(
-            "backup_requested",
-            backup_id=backup_id,
-            organization_id=str(org.id),
-            include_postgres=request.include_postgres,
-            include_graph=request.include_graph,
-        )
+    from sibyl.jobs.queue import enqueue_backup
 
-        # Enqueue the job
-        from sibyl.jobs.queue import enqueue_backup
+    job_id = await enqueue_backup(
+        str(org.id),
+        include_postgres=request.include_postgres,
+        include_graph=request.include_graph,
+        backup_id=backup_id,
+    )
+    backup = await attach_legacy_backup_job(backup.id, job_id)
 
-        job_id = await enqueue_backup(
-            str(org.id),
-            include_postgres=request.include_postgres,
-            include_graph=request.include_graph,
-            backup_id=backup_id,
-        )
-
-        # Update backup with job ID
-        backup.job_id = job_id
-        await session.commit()
-
-        return CreateBackupResponse(
-            id=str(backup.id),
-            backup_id=backup_id,
-            job_id=job_id,
-            status=backup.status,
-            message="Backup job queued successfully",
-        )
+    return CreateBackupResponse(
+        id=str(backup.id),
+        backup_id=backup_id,
+        job_id=job_id,
+        status=backup.status,
+        message="Backup job queued successfully",
+    )
 
 
 @router.get("")
@@ -277,43 +244,29 @@ async def list_backups(
 
     Returns backups sorted by creation time (newest first).
     """
-    async with get_session() as session:
-        # Get total count
-        count_result = await session.execute(select(Backup).where(Backup.organization_id == org.id))
-        all_backups = count_result.scalars().all()
-        total = len(all_backups)
+    results = await list_legacy_backups(org.id, limit=limit, offset=offset)
 
-        # Get paginated results
-        result = await session.execute(
-            select(Backup)
-            .where(Backup.organization_id == org.id)
-            .order_by(Backup.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        backups = result.scalars().all()
-
-        return BackupListResponse(
-            backups=[
-                BackupInfo(
-                    id=str(b.id),
-                    backup_id=b.backup_id,
-                    status=b.status,
-                    filename=b.filename,
-                    size_bytes=b.size_bytes,
-                    entity_count=b.entity_count,
-                    relationship_count=b.relationship_count,
-                    duration_seconds=b.duration_seconds,
-                    triggered_by=b.triggered_by,
-                    created_at=b.created_at.isoformat() if b.created_at else "",
-                    started_at=b.started_at.isoformat() if b.started_at else None,
-                    completed_at=b.completed_at.isoformat() if b.completed_at else None,
-                    error=b.error,
-                )
-                for b in backups
-            ],
-            total=total,
-        )
+    return BackupListResponse(
+        backups=[
+            BackupInfo(
+                id=str(backup.id),
+                backup_id=backup.backup_id,
+                status=backup.status,
+                filename=backup.filename,
+                size_bytes=backup.size_bytes,
+                entity_count=backup.entity_count,
+                relationship_count=backup.relationship_count,
+                duration_seconds=backup.duration_seconds,
+                triggered_by=backup.triggered_by,
+                created_at=backup.created_at.isoformat() if backup.created_at else "",
+                started_at=backup.started_at.isoformat() if backup.started_at else None,
+                completed_at=backup.completed_at.isoformat() if backup.completed_at else None,
+                error=backup.error,
+            )
+            for backup in results.backups
+        ],
+        total=results.total,
+    )
 
 
 @router.post("/cleanup")
@@ -325,9 +278,7 @@ async def run_cleanup(
 
     Removes backup archives older than the retention period.
     """
-    async with get_session() as session:
-        settings = await get_or_create_settings(session, org.id)
-        retention = request.retention_days or settings.retention_days
+    retention = await get_legacy_backup_retention(org.id, request.retention_days)
 
     log.info(
         "backup_cleanup_requested",
@@ -351,33 +302,23 @@ async def get_backup_details(
     org: Organization = Depends(get_current_organization),
 ) -> BackupInfo:
     """Get detailed information about a specific backup."""
-    async with get_session() as session:
-        result = await session.execute(
-            select(Backup).where(
-                Backup.organization_id == org.id,
-                Backup.backup_id == backup_id,
-            )
-        )
-        backup = result.scalar_one_or_none()
+    backup = await get_legacy_backup(org.id, backup_id)
 
-        if backup is None:
-            raise HTTPException(status_code=404, detail=f"Backup not found: {backup_id}")
-
-        return BackupInfo(
-            id=str(backup.id),
-            backup_id=backup.backup_id,
-            status=backup.status,
-            filename=backup.filename,
-            size_bytes=backup.size_bytes,
-            entity_count=backup.entity_count,
-            relationship_count=backup.relationship_count,
-            duration_seconds=backup.duration_seconds,
-            triggered_by=backup.triggered_by,
-            created_at=backup.created_at.isoformat() if backup.created_at else "",
-            started_at=backup.started_at.isoformat() if backup.started_at else None,
-            completed_at=backup.completed_at.isoformat() if backup.completed_at else None,
-            error=backup.error,
-        )
+    return BackupInfo(
+        id=str(backup.id),
+        backup_id=backup.backup_id,
+        status=backup.status,
+        filename=backup.filename,
+        size_bytes=backup.size_bytes,
+        entity_count=backup.entity_count,
+        relationship_count=backup.relationship_count,
+        duration_seconds=backup.duration_seconds,
+        triggered_by=backup.triggered_by,
+        created_at=backup.created_at.isoformat() if backup.created_at else "",
+        started_at=backup.started_at.isoformat() if backup.started_at else None,
+        completed_at=backup.completed_at.isoformat() if backup.completed_at else None,
+        error=backup.error,
+    )
 
 
 @router.get("/{backup_id}/download")
@@ -389,45 +330,34 @@ async def download_backup(
 
     Returns the .tar.gz file directly.
     """
-    async with get_session() as session:
-        result = await session.execute(
-            select(Backup).where(
-                Backup.organization_id == org.id,
-                Backup.backup_id == backup_id,
-            )
+    backup = await get_legacy_backup(org.id, backup_id)
+
+    if backup.status != BackupStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Backup not ready for download (status: {backup.status})",
         )
-        backup = result.scalar_one_or_none()
 
-        if backup is None:
-            raise HTTPException(status_code=404, detail=f"Backup not found: {backup_id}")
+    if not backup.file_path:
+        raise HTTPException(status_code=404, detail="Backup file path not recorded")
 
-        if backup.status != BackupStatus.COMPLETED.value:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Backup not ready for download (status: {backup.status})",
-            )
+    from sibyl.jobs.backup import get_backup as get_backup_file
 
-        if not backup.file_path:
-            raise HTTPException(status_code=404, detail="Backup file path not recorded")
+    file_info = get_backup_file(backup_id)
+    if file_info is None:
+        raise HTTPException(status_code=404, detail="Backup file not found on disk")
 
-        # Use the file-based function to verify and get file details
-        from sibyl.jobs.backup import get_backup as get_backup_file
+    from pathlib import Path
 
-        file_info = get_backup_file(backup_id)
-        if file_info is None:
-            raise HTTPException(status_code=404, detail="Backup file not found on disk")
+    archive_path = Path(file_info["path"])
+    if not archive_path.exists():
+        raise HTTPException(status_code=404, detail="Backup file not found on disk")
 
-        from pathlib import Path
-
-        archive_path = Path(file_info["path"])
-        if not archive_path.exists():
-            raise HTTPException(status_code=404, detail="Backup file not found on disk")
-
-        return FileResponse(
-            path=archive_path,
-            filename=backup.filename or f"sibyl_{backup_id}.tar.gz",
-            media_type="application/gzip",
-        )
+    return FileResponse(
+        path=archive_path,
+        filename=backup.filename or f"sibyl_{backup_id}.tar.gz",
+        media_type="application/gzip",
+    )
 
 
 @router.delete("/{backup_id}")
@@ -439,30 +369,16 @@ async def delete_backup(
 
     This action cannot be undone.
     """
-    async with get_session() as session:
-        result = await session.execute(
-            select(Backup).where(
-                Backup.organization_id == org.id,
-                Backup.backup_id == backup_id,
-            )
-        )
-        backup = result.scalar_one_or_none()
+    backup = await get_legacy_backup(org.id, backup_id)
 
-        if backup is None:
-            raise HTTPException(status_code=404, detail=f"Backup not found: {backup_id}")
+    log.info("backup_delete_requested", backup_id=backup_id, organization_id=str(org.id))
 
-        log.info("backup_delete_requested", backup_id=backup_id, organization_id=str(org.id))
+    from sibyl.jobs.backup import delete_backup as delete_backup_file
 
-        # Delete the file
-        from sibyl.jobs.backup import delete_backup as delete_backup_file
+    delete_backup_file(backup_id)
+    await delete_legacy_backup_record(org.id, backup.backup_id)
 
-        delete_backup_file(backup_id)
-
-        # Delete the DB record
-        await session.delete(backup)
-        await session.commit()
-
-        return {"deleted": True, "backup_id": backup_id}
+    return {"deleted": True, "backup_id": backup_id}
 
 
 @router.get("/jobs/{job_id}")
