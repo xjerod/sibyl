@@ -1,0 +1,209 @@
+"""HasEpisode edge operations for the SurrealDB driver.
+
+Implements Graphiti's ``HasEpisodeEdgeOperations`` contract against SurrealDB's
+``has_episode`` RELATION table (saga -> episode).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from graphiti_core.driver.operations.has_episode_edge_ops import HasEpisodeEdgeOperations
+from graphiti_core.driver.query_executor import QueryExecutor, Transaction
+from graphiti_core.edges import HasEpisodeEdge
+from graphiti_core.errors import EdgeNotFoundError
+from graphiti_core.helpers import parse_db_date
+
+from sibyl_core.graph.surreal.ops._common import normalize_records
+
+logger = logging.getLogger(__name__)
+
+EDGE_TABLE = "has_episode"
+SOURCE_TABLE = "saga"
+TARGET_TABLE = "episode"
+
+
+def _has_episode_edge_from_record(record: dict[str, Any]) -> HasEpisodeEdge:
+    return HasEpisodeEdge(
+        uuid=record["uuid"],
+        group_id=record["group_id"],
+        source_node_uuid=record["source_node_uuid"],
+        target_node_uuid=record["target_node_uuid"],
+        created_at=parse_db_date(record["created_at"]),  # type: ignore[arg-type]
+    )
+
+
+async def _run(
+    executor: QueryExecutor,
+    tx: Transaction | None,
+    query: str,
+    **params: Any,
+) -> Any:
+    if tx is not None:
+        return await tx.run(query, **params)
+    return await executor.execute_query(query, **params)
+
+
+async def _resolve_record_id(
+    executor: QueryExecutor,
+    tx: Transaction | None,
+    table: str,
+    uuid: str,
+) -> Any | None:
+    # normalize_records strips `id`; read the raw SELECT result instead.
+    result = await _run(
+        executor,
+        tx,
+        f"SELECT id FROM {table} WHERE uuid = $uuid LIMIT 1;",
+        uuid=uuid,
+    )
+    if not isinstance(result, list) or not result:
+        return None
+    first = result[0]
+    if not isinstance(first, dict):
+        return None
+    return first.get("id")
+
+
+class SurrealHasEpisodeEdgeOperations(HasEpisodeEdgeOperations):
+    """SurrealDB implementation of Graphiti's HasEpisodeEdgeOperations."""
+
+    async def save(
+        self,
+        executor: QueryExecutor,
+        edge: HasEpisodeEdge,
+        tx: Transaction | None = None,
+    ) -> None:
+        src_id = await _resolve_record_id(executor, tx, SOURCE_TABLE, edge.source_node_uuid)
+        tgt_id = await _resolve_record_id(executor, tx, TARGET_TABLE, edge.target_node_uuid)
+        if src_id is None or tgt_id is None:
+            msg = (
+                f"Cannot save {EDGE_TABLE} edge {edge.uuid!r}: "
+                f"source saga {edge.source_node_uuid!r} or target episode "
+                f"{edge.target_node_uuid!r} not found"
+            )
+            raise ValueError(msg)
+
+        await _run(
+            executor,
+            tx,
+            f"DELETE FROM {EDGE_TABLE} WHERE uuid = $uuid;",
+            uuid=edge.uuid,
+        )
+        await _run(
+            executor,
+            tx,
+            f"RELATE $src->{EDGE_TABLE}->$tgt SET "
+            "uuid = $uuid, group_id = $group_id, created_at = $created_at;",
+            src=src_id,
+            tgt=tgt_id,
+            uuid=edge.uuid,
+            group_id=edge.group_id,
+            created_at=edge.created_at,
+        )
+        logger.debug("Saved %s edge: %s", EDGE_TABLE, edge.uuid)
+
+    async def save_bulk(
+        self,
+        executor: QueryExecutor,
+        edges: list[HasEpisodeEdge],
+        tx: Transaction | None = None,
+        batch_size: int = 100,
+    ) -> None:
+        del batch_size
+        for edge in edges:
+            await self.save(executor, edge, tx=tx)
+
+    async def delete(
+        self,
+        executor: QueryExecutor,
+        edge: HasEpisodeEdge,
+        tx: Transaction | None = None,
+    ) -> None:
+        await _run(
+            executor,
+            tx,
+            f"DELETE FROM {EDGE_TABLE} WHERE uuid = $uuid;",
+            uuid=edge.uuid,
+        )
+        logger.debug("Deleted %s edge: %s", EDGE_TABLE, edge.uuid)
+
+    async def delete_by_uuids(
+        self,
+        executor: QueryExecutor,
+        uuids: list[str],
+        tx: Transaction | None = None,
+    ) -> None:
+        if not uuids:
+            return
+        await _run(
+            executor,
+            tx,
+            f"DELETE FROM {EDGE_TABLE} WHERE uuid IN $uuids;",
+            uuids=uuids,
+        )
+
+    async def get_by_uuid(
+        self,
+        executor: QueryExecutor,
+        uuid: str,
+    ) -> HasEpisodeEdge:
+        records = normalize_records(
+            await executor.execute_query(
+                f"SELECT uuid, group_id, created_at, "
+                f"in.uuid AS source_node_uuid, out.uuid AS target_node_uuid "
+                f"FROM {EDGE_TABLE} WHERE uuid = $uuid LIMIT 1;",
+                uuid=uuid,
+            )
+        )
+        if not records:
+            raise EdgeNotFoundError(uuid)
+        return _has_episode_edge_from_record(records[0])
+
+    async def get_by_uuids(
+        self,
+        executor: QueryExecutor,
+        uuids: list[str],
+    ) -> list[HasEpisodeEdge]:
+        if not uuids:
+            return []
+        records = normalize_records(
+            await executor.execute_query(
+                f"SELECT uuid, group_id, created_at, "
+                f"in.uuid AS source_node_uuid, out.uuid AS target_node_uuid "
+                f"FROM {EDGE_TABLE} WHERE uuid IN $uuids;",
+                uuids=uuids,
+            )
+        )
+        return [_has_episode_edge_from_record(r) for r in records]
+
+    async def get_by_group_ids(
+        self,
+        executor: QueryExecutor,
+        group_ids: list[str],
+        limit: int | None = None,
+        uuid_cursor: str | None = None,
+    ) -> list[HasEpisodeEdge]:
+        cursor_clause = "AND uuid < $cursor" if uuid_cursor else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
+        query = (
+            f"SELECT uuid, group_id, created_at, "
+            f"in.uuid AS source_node_uuid, out.uuid AS target_node_uuid "
+            f"FROM {EDGE_TABLE} "
+            "WHERE group_id IN $group_ids "
+            f"{cursor_clause} "
+            "ORDER BY uuid DESC "
+            f"{limit_clause};"
+        )
+        records = normalize_records(
+            await executor.execute_query(
+                query,
+                group_ids=group_ids,
+                cursor=uuid_cursor,
+            )
+        )
+        return [_has_episode_edge_from_record(r) for r in records]
+
+
+__all__ = ["SurrealHasEpisodeEdgeOperations"]
