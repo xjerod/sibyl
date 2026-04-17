@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 
-from sibyl.api.routes.tasks import CompleteTaskRequest, complete_task
+from sibyl.api.routes.tasks import CompleteTaskRequest, complete_task, list_notes
 
 
 class TestCompleteTaskRoute:
@@ -67,3 +67,27 @@ class TestCompleteTaskRoute:
         )
         assert response.action == "complete_task"
         assert response.data["status"] == "done"
+
+
+class TestListNotesRoute:
+    @pytest.mark.asyncio
+    async def test_list_notes_reuses_access_guard_instead_of_reloading_task(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        auth = SimpleNamespace(ctx=SimpleNamespace(), session=AsyncMock())
+        manager = MagicMock()
+        manager.get = AsyncMock()
+        manager.get_notes_for_task = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "sibyl.api.routes.tasks._verify_task_access",
+                AsyncMock(return_value=SimpleNamespace(id="task-123")),
+            ),
+            patch("sibyl.api.routes.tasks.get_graph_client", AsyncMock(return_value=object())),
+            patch("sibyl.api.routes.tasks.EntityManager", return_value=manager),
+        ):
+            response = await list_notes("task-123", org=org, auth=auth)
+
+        assert response.count == 0
+        manager.get.assert_not_awaited()
+        manager.get_notes_for_task.assert_awaited_once_with("task-123", limit=50)

@@ -46,7 +46,7 @@ async def _verify_task_access(
     ctx: AuthContext,
     session: AsyncSession,
     required_role: ProjectRole = ProjectRole.CONTRIBUTOR,
-) -> None:
+) -> Any:
     """Fetch a task and verify project access.
 
     Raises ProjectAuthorizationError if user lacks required access.
@@ -59,6 +59,7 @@ async def _verify_task_access(
     # Extract project_id from entity metadata
     project_id = entity.metadata.get("project_id") if entity.metadata else None
     await verify_entity_project_access(session, ctx, project_id, required_role=required_role)
+    return entity
 
 
 router = APIRouter(
@@ -903,11 +904,6 @@ async def list_notes(
         group_id = str(org.id)
         client = await get_graph_client()
         entity_manager = EntityManager(client, group_id=group_id)
-
-        # Verify task exists
-        task = await entity_manager.get(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
         # Get notes for task
         notes_entities = await entity_manager.get_notes_for_task(task_id, limit=limit)
