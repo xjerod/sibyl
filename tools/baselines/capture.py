@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +22,10 @@ from tools.baselines.common import (
     emit,
     ensure_graph_fixture,
     ensure_rest_seed,
+    graph_ref,
     login_or_signup,
     write_jsonl,
+    write_manifest,
 )
 from tools.baselines.replay import replay_all
 
@@ -102,31 +102,26 @@ def build_rest_cases() -> list[dict[str, Any]]:
 
 
 def build_graph_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    project = graph_fixture["project"]
-    epic = graph_fixture["epic"]
-    task_a = graph_fixture["task_a"]
-    task_b = graph_fixture["task_b"]
-
     return [
         {
             "id": "rest-entity-task-a",
             "kind": "rest",
             "auth": "bearer",
             "method": "GET",
-            "path": f"/entities/{task_a['id']}",
+            "path": f"/entities/{graph_ref('task_a')}",
             "expect": {
                 "equals": {
                     "/status_code": 200,
-                    "/body/id": task_a["id"],
-                    "/body/name": task_a["name"],
+                    "/body/id": graph_ref("task_a"),
+                    "/body/name": graph_fixture["task_a"]["name"],
                     "/body/entity_type": "task",
                 },
                 "list_contains": [
                     {
                         "pointer": "/body/related",
                         "match": {
-                            "id": task_b["id"],
-                            "name": task_b["name"],
+                            "id": graph_ref("task_b"),
+                            "name": graph_fixture["task_b"]["name"],
                             "relationship": "DEPENDS_ON",
                             "direction": "incoming",
                         },
@@ -134,8 +129,8 @@ def build_graph_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str
                     {
                         "pointer": "/body/related",
                         "match": {
-                            "id": epic["id"],
-                            "name": epic["name"],
+                            "id": graph_ref("epic"),
+                            "name": graph_fixture["epic"]["name"],
                             "relationship": "BELONGS_TO",
                             "direction": "outgoing",
                         },
@@ -148,20 +143,20 @@ def build_graph_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str
             "kind": "rest",
             "auth": "bearer",
             "method": "GET",
-            "path": f"/entities/{task_b['id']}",
+            "path": f"/entities/{graph_ref('task_b')}",
             "expect": {
                 "equals": {
                     "/status_code": 200,
-                    "/body/id": task_b["id"],
-                    "/body/name": task_b["name"],
+                    "/body/id": graph_ref("task_b"),
+                    "/body/name": graph_fixture["task_b"]["name"],
                     "/body/entity_type": "task",
                 },
                 "list_contains": [
                     {
                         "pointer": "/body/related",
                         "match": {
-                            "id": task_a["id"],
-                            "name": task_a["name"],
+                            "id": graph_ref("task_a"),
+                            "name": graph_fixture["task_a"]["name"],
                             "relationship": "DEPENDS_ON",
                             "direction": "outgoing",
                         },
@@ -169,8 +164,8 @@ def build_graph_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str
                     {
                         "pointer": "/body/related",
                         "match": {
-                            "id": project["id"],
-                            "name": project["name"],
+                            "id": graph_ref("project"),
+                            "name": graph_fixture["project"]["name"],
                             "relationship": "BELONGS_TO",
                             "direction": "outgoing",
                         },
@@ -193,30 +188,45 @@ def build_graph_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str
                 "list_contains": [
                     {
                         "pointer": "/body/nodes",
-                        "match": {"id": project["id"], "label": project["name"]},
-                    },
-                    {"pointer": "/body/nodes", "match": {"id": epic["id"], "label": epic["name"]}},
-                    {
-                        "pointer": "/body/nodes",
-                        "match": {"id": task_a["id"], "label": task_a["name"]},
+                        "match": {
+                            "id": graph_ref("project"),
+                            "label": graph_fixture["project"]["name"],
+                        },
                     },
                     {
                         "pointer": "/body/nodes",
-                        "match": {"id": task_b["id"], "label": task_b["name"]},
+                        "match": {
+                            "id": graph_ref("epic"),
+                            "label": graph_fixture["epic"]["name"],
+                        },
+                    },
+                    {
+                        "pointer": "/body/nodes",
+                        "match": {
+                            "id": graph_ref("task_a"),
+                            "label": graph_fixture["task_a"]["name"],
+                        },
+                    },
+                    {
+                        "pointer": "/body/nodes",
+                        "match": {
+                            "id": graph_ref("task_b"),
+                            "label": graph_fixture["task_b"]["name"],
+                        },
                     },
                     {
                         "pointer": "/body/edges",
                         "match": {
-                            "source": task_b["id"],
-                            "target": task_a["id"],
+                            "source": graph_ref("task_b"),
+                            "target": graph_ref("task_a"),
                             "type": "DEPENDS_ON",
                         },
                     },
                     {
                         "pointer": "/body/edges",
                         "match": {
-                            "source": task_b["id"],
-                            "target": project["id"],
+                            "source": graph_ref("task_b"),
+                            "target": graph_ref("project"),
                             "type": "BELONGS_TO",
                         },
                     },
@@ -268,10 +278,6 @@ def build_search_cases() -> list[dict[str, Any]]:
 
 
 def build_mcp_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    task_a = graph_fixture["task_a"]
-    task_b = graph_fixture["task_b"]
-    project = graph_fixture["project"]
-
     return [
         {
             "id": "mcp-list-tools",
@@ -332,7 +338,7 @@ def build_mcp_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str, 
             "tool": "explore",
             "arguments": {
                 "mode": "related",
-                "entity_id": task_b["id"],
+                "entity_id": graph_ref("task_b"),
                 "relationship_types": ["DEPENDS_ON", "BELONGS_TO"],
                 "limit": 10,
             },
@@ -342,8 +348,8 @@ def build_mcp_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str, 
                     {
                         "pointer": "/structuredContent/entities",
                         "match": {
-                            "id": task_a["id"],
-                            "name": task_a["name"],
+                            "id": graph_ref("task_a"),
+                            "name": graph_fixture["task_a"]["name"],
                             "relationship": "DEPENDS_ON",
                             "direction": "outgoing",
                         },
@@ -351,8 +357,8 @@ def build_mcp_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str, 
                     {
                         "pointer": "/structuredContent/entities",
                         "match": {
-                            "id": project["id"],
-                            "name": project["name"],
+                            "id": graph_ref("project"),
+                            "name": graph_fixture["project"]["name"],
                             "relationship": "BELONGS_TO",
                             "direction": "outgoing",
                         },
@@ -420,41 +426,6 @@ def build_mcp_cases(graph_fixture: dict[str, dict[str, Any]]) -> list[dict[str, 
             },
         },
     ]
-
-
-def write_manifest(
-    path: Path,
-    *,
-    base_url: str,
-    email: str,
-    rest_seed: dict[str, Any],
-    graph_fixture: dict[str, dict[str, Any]],
-) -> None:
-    manifest = {
-        "captured_at": datetime.now(UTC).isoformat(),
-        "base_url": base_url,
-        "email": email,
-        "files": list(CASE_FILE_ORDER),
-        "rest_seed": {
-            "title": REST_SEED_TITLE,
-            "id": rest_seed.get("id"),
-            "entity_type": rest_seed.get("entity_type") or rest_seed.get("type"),
-        },
-        "mcp_add": {
-            "title": MCP_ADD_TITLE,
-            "note": "The replay corpus asserts current legacy behavior, including the MCP manage wrapper failure.",
-        },
-        "graph_fixture": {
-            name: {
-                "id": entity["id"],
-                "name": entity["name"],
-                "entity_type": entity["entity_type"],
-            }
-            for name, entity in graph_fixture.items()
-        },
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{json.dumps(manifest, indent=2, sort_keys=True)}\n", encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -536,6 +507,7 @@ async def amain() -> int:
             baselines_dir=output_dir,
             email=args.email,
             password=args.password,
+            manifest_path=output_dir / "manifest.json",
         )
 
     return 0

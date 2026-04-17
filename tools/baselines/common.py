@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -42,6 +44,7 @@ CASE_FILE_ORDER = (
     "search_queries.jsonl",
     "mcp_smoke.jsonl",
 )
+PLACEHOLDER_PATTERN = re.compile(r"\{\{([a-zA-Z0-9_.-]+)\}\}")
 
 
 def emit(message: str, stream: TextIO = sys.stdout) -> None:
@@ -64,6 +67,14 @@ def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def manifest_ref(*parts: str) -> str:
+    return "{{" + ".".join(parts) + "}}"
+
+
+def graph_ref(name: str, field: str = "id") -> str:
+    return manifest_ref("graph_fixture", name, field)
+
+
 async def login_or_signup(
     client: httpx.AsyncClient,
     *,
@@ -71,7 +82,7 @@ async def login_or_signup(
     password: str = DEFAULT_BASELINE_PASSWORD,
     name: str = DEFAULT_BASELINE_NAME,
 ) -> dict[str, Any]:
-    login_response = await _login(client, email=email, password=password)
+    login_response = await login_with_retry(client, email=email, password=password)
     if login_response.status_code == HTTP_OK:
         return parse_http_response(login_response)["body"]
 
@@ -80,14 +91,14 @@ async def login_or_signup(
         json={"email": email, "password": password, "name": name},
     )
     if signup_response.status_code == httpx.codes.CONFLICT:
-        retry_login = await _login(client, email=email, password=password)
+        retry_login = await login_with_retry(client, email=email, password=password)
         retry_login.raise_for_status()
         return parse_http_response(retry_login)["body"]
     signup_response.raise_for_status()
     return parse_http_response(signup_response)["body"]
 
 
-async def _login(
+async def login_with_retry(
     client: httpx.AsyncClient,
     *,
     email: str,
@@ -282,6 +293,41 @@ async def ensure_graph_fixture(client: httpx.AsyncClient, token: str) -> dict[st
     }
 
 
+def write_manifest(
+    path: Path,
+    *,
+    base_url: str,
+    email: str,
+    rest_seed: dict[str, Any],
+    graph_fixture: dict[str, dict[str, Any]],
+) -> None:
+    manifest = {
+        "captured_at": datetime.now(UTC).isoformat(),
+        "base_url": base_url,
+        "email": email,
+        "files": list(CASE_FILE_ORDER),
+        "rest_seed": {
+            "title": REST_SEED_TITLE,
+            "id": rest_seed.get("id"),
+            "entity_type": rest_seed.get("entity_type") or rest_seed.get("type"),
+        },
+        "mcp_add": {
+            "title": MCP_ADD_TITLE,
+            "note": "The replay corpus asserts current legacy behavior, including the MCP manage wrapper failure.",
+        },
+        "graph_fixture": {
+            name: {
+                "id": entity["id"],
+                "name": entity["name"],
+                "entity_type": entity["entity_type"],
+            }
+            for name, entity in graph_fixture.items()
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{json.dumps(manifest, indent=2, sort_keys=True)}\n", encoding="utf-8")
+
+
 def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -305,6 +351,44 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def dump_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, indent=2)
+
+
+def load_manifest(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"Expected object manifest in {path}, got {type(payload).__name__}")
+    return payload
+
+
+def _resolve_manifest_value(manifest: dict[str, Any], dotted_path: str) -> Any:
+    current: Any = manifest
+    for part in dotted_path.split("."):
+        if not isinstance(current, dict):
+            raise KeyError(dotted_path)
+        current = current[part]
+    return current
+
+
+def resolve_placeholders(value: Any, manifest: dict[str, Any]) -> Any:
+    if isinstance(value, list):
+        return [resolve_placeholders(item, manifest) for item in value]
+    if isinstance(value, dict):
+        return {key: resolve_placeholders(item, manifest) for key, item in value.items()}
+    if not isinstance(value, str):
+        return value
+
+    matches = list(PLACEHOLDER_PATTERN.finditer(value))
+    if not matches:
+        return value
+
+    if len(matches) == 1 and matches[0].span() == (0, len(value)):
+        return _resolve_manifest_value(manifest, matches[0].group(1))
+
+    resolved = value
+    for match in matches:
+        replacement = _resolve_manifest_value(manifest, match.group(1))
+        resolved = resolved.replace(match.group(0), str(replacement))
+    return resolved
 
 
 def resolve_pointer(document: Any, pointer: str) -> Any:

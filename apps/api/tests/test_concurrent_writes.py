@@ -18,6 +18,8 @@ from sibyl_core.graph.client import GraphClient, get_graph_client, reset_graph_c
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.models.entities import EntityType, Pattern
 
+pytestmark = pytest.mark.live_model
+
 
 @pytest.fixture
 async def graph_client() -> AsyncGenerator[GraphClient]:

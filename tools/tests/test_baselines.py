@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.baselines.common import read_jsonl, resolve_pointer, validate_expectations, write_jsonl
+from tools.baselines.common import (
+    read_jsonl,
+    resolve_placeholders,
+    resolve_pointer,
+    validate_expectations,
+    write_jsonl,
+)
 
 EXPECTED_ERROR_COUNT = 3
 
@@ -51,6 +57,35 @@ def test_validate_expectations_reports_mismatches() -> None:
     assert "expected 200" in errors[0]
     assert "missing pointer for minimum check" in errors[1]
     assert "did not contain match" in errors[2]
+
+
+def test_resolve_placeholders_handles_embedded_and_exact_tokens() -> None:
+    manifest = {
+        "graph_fixture": {
+            "task_a": {"id": "task_alpha", "name": "Obsidian Spire"},
+        }
+    }
+    payload = {
+        "path": "/entities/{{graph_fixture.task_a.id}}",
+        "expect": {
+            "equals": {
+                "/body/id": "{{graph_fixture.task_a.id}}",
+                "/body/name": "{{graph_fixture.task_a.name}}",
+            }
+        },
+    }
+
+    resolved = resolve_placeholders(payload, manifest)
+
+    assert resolved == {
+        "path": "/entities/task_alpha",
+        "expect": {
+            "equals": {
+                "/body/id": "task_alpha",
+                "/body/name": "Obsidian Spire",
+            }
+        },
+    }
 
 
 def test_jsonl_round_trip(tmp_path: Path) -> None:

@@ -124,7 +124,7 @@ jobs:
             esac
 
             case "$file" in
-              .github/workflows/ci.yml|.github/actions/*)
+              .github/workflows/ci.yml|.github/workflows/nightly-regression.yml|.github/actions/*)
                 ci_changed=true
                 ;;
             esac
@@ -134,7 +134,7 @@ jobs:
                 web_changed=true
                 runtime_changed=true
                 ;;
-              apps/api/*|apps/cli/*|apps/e2e/*|packages/python/sibyl-core/*|moon.yml|.moon/*|.prototools|pnpm-lock.yaml|compose.e2e.yml|docker-compose*.yml)
+              apps/api/*|apps/cli/*|apps/e2e/*|packages/python/sibyl-core/*|tools/*|baselines/*|moon.yml|.moon/*|.prototools|pnpm-lock.yaml|compose.e2e.yml|docker-compose*.yml)
                 runtime_changed=true
                 ;;
             esac
@@ -562,6 +562,12 @@ jobs:
           uv run sibyld worker > /tmp/sibyl-worker.log 2>&1 &
           echo "Background job worker started"
           sleep 2
+
+      - name: Seed deterministic baseline fixture
+        run: moon run baseline-seed
+
+      - name: Replay committed baseline corpus
+        run: moon run baseline-replay-runtime
 
       - name: Start frontend server
         run: |

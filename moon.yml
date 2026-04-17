@@ -285,12 +285,35 @@ tasks:
       - baselines/**/*.jsonl
       - baselines/manifest.json
 
+  baseline-seed:
+    command: uv run python -m tools.baselines.seed
+    inputs:
+      - tools/**/*.py
+      - apps/api/src/**/*.py
+      - packages/python/sibyl-core/src/**/*.py
+      - pyproject.toml
+      - apps/api/pyproject.toml
+      - packages/python/sibyl-core/pyproject.toml
+    outputs:
+      - .moon/cache/baseline-runtime-manifest.json
+
   baseline-replay:
     command: uv run python -m tools.baselines.replay
     inputs:
       - tools/**/*.py
       - baselines/**/*.jsonl
       - baselines/manifest.json
+      - pyproject.toml
+      - apps/api/pyproject.toml
+      - packages/python/sibyl-core/pyproject.toml
+
+  baseline-replay-runtime:
+    command:
+      uv run python -m tools.baselines.replay --manifest-path .moon/cache/baseline-runtime-manifest.json
+    inputs:
+      - tools/**/*.py
+      - baselines/**/*.jsonl
+      - .moon/cache/baseline-runtime-manifest.json
       - pyproject.toml
       - apps/api/pyproject.toml
       - packages/python/sibyl-core/pyproject.toml

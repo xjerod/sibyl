@@ -14,7 +14,7 @@ from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import EntityType, Pattern, Relationship, RelationshipType
 
 # Module-scoped async fixtures require module-scoped event loop
-pytestmark = pytest.mark.asyncio(loop_scope="module")
+pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.live_model]
 
 
 @pytest.fixture(scope="module")

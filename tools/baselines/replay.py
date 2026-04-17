@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
@@ -19,34 +20,67 @@ from tools.baselines.common import (
     baseline_base_url,
     dump_json,
     emit,
+    load_manifest,
     login_or_signup,
+    login_with_retry,
     mcp_base_url,
     parse_http_response,
     read_jsonl,
+    resolve_placeholders,
     validate_expectations,
 )
+
+
+async def execute_mcp_case(
+    case: dict[str, Any], mcp_session: ClientSession | None
+) -> dict[str, Any]:
+    if mcp_session is None:
+        raise ValueError("MCP session required for MCP baseline case")
+
+    kind = case["kind"]
+    if kind == "mcp_list_tools":
+        return (await mcp_session.list_tools()).model_dump(mode="json")
+    if kind == "mcp_list_resources":
+        return (await mcp_session.list_resources()).model_dump(mode="json")
+    if kind == "mcp_tool":
+        return (
+            await mcp_session.call_tool(
+                case["tool"],
+                case.get("arguments"),
+            )
+        ).model_dump(mode="json")
+    if kind == "mcp_resource":
+        return (await mcp_session.read_resource(case["uri"])).model_dump(mode="json")
+
+    raise ValueError(f"Unsupported MCP baseline case kind: {kind}")
 
 
 async def execute_case(
     case: dict[str, Any],
     *,
     api_client: httpx.AsyncClient,
-    token: str,
-    mcp_session: ClientSession,
+    token: str | None,
+    mcp_session: ClientSession | None,
     email: str,
     password: str,
 ) -> dict[str, Any]:
     kind = case["kind"]
 
     if kind == "auth_login":
-        response = await api_client.post(
-            "/auth/local/login",
-            json={"email": email, "password": password},
+        response = await login_with_retry(
+            api_client,
+            email=email,
+            password=password,
         )
         return parse_http_response(response)
 
     if kind == "rest":
-        headers = auth_headers(token) if case.get("auth", "bearer") == "bearer" else {}
+        if case.get("auth", "bearer") == "bearer":
+            if token is None:
+                raise ValueError("Bearer token required for authenticated REST baseline case")
+            headers = auth_headers(token)
+        else:
+            headers = {}
         response = await api_client.request(
             case["method"],
             case["path"],
@@ -55,22 +89,8 @@ async def execute_case(
         )
         return parse_http_response(response)
 
-    if kind == "mcp_list_tools":
-        return (await mcp_session.list_tools()).model_dump(mode="json")
-
-    if kind == "mcp_list_resources":
-        return (await mcp_session.list_resources()).model_dump(mode="json")
-
-    if kind == "mcp_tool":
-        return (
-            await mcp_session.call_tool(
-                case["tool"],
-                case.get("arguments"),
-            )
-        ).model_dump(mode="json")
-
-    if kind == "mcp_resource":
-        return (await mcp_session.read_resource(case["uri"])).model_dump(mode="json")
+    if kind.startswith("mcp_"):
+        return await execute_mcp_case(case, mcp_session)
 
     raise ValueError(f"Unsupported baseline case kind: {kind}")
 
@@ -79,11 +99,11 @@ async def replay_case(
     case: dict[str, Any],
     *,
     api_client: httpx.AsyncClient,
-    token: str,
-    mcp_session: ClientSession,
+    token: str | None,
+    mcp_session: ClientSession | None,
     email: str,
     password: str,
-) -> None:
+) -> dict[str, Any]:
     actual = await execute_case(
         case,
         api_client=api_client,
@@ -98,6 +118,7 @@ async def replay_case(
         raise AssertionError(
             f"Baseline case {case['id']} failed:\n{formatted}\n\nActual:\n{dump_json(actual)}"
         )
+    return actual
 
 
 async def replay_all(
@@ -106,42 +127,76 @@ async def replay_all(
     baselines_dir: Path,
     email: str,
     password: str,
+    manifest_path: Path | None = None,
 ) -> None:
     api_url = api_base_url(base_url)
     mcp_url = mcp_base_url(base_url)
+    manifest = load_manifest(manifest_path or (baselines_dir / "manifest.json"))
 
-    async with httpx.AsyncClient(base_url=api_url, timeout=30.0) as api_client:
-        auth_payload = await login_or_signup(
-            api_client,
-            email=email,
-            password=password,
+    async with AsyncExitStack() as stack:
+        api_client = await stack.enter_async_context(
+            httpx.AsyncClient(base_url=api_url, timeout=30.0)
         )
-        token = str(auth_payload["access_token"])
+        token: str | None = None
+        mcp_session: ClientSession | None = None
 
-    async with (
-        httpx.AsyncClient(timeout=30.0, headers=auth_headers(token)) as transport_client,
-        httpx.AsyncClient(base_url=api_url, timeout=30.0) as api_client,
-        streamable_http_client(mcp_url, http_client=transport_client) as (
-            read_stream,
-            write_stream,
-            _,
-        ),
-        ClientSession(read_stream, write_stream) as mcp_session,
-    ):
-        await mcp_session.initialize()
+        async def ensure_token() -> str:
+            nonlocal token
+            if token is None:
+                auth_payload = await login_or_signup(
+                    api_client,
+                    email=email,
+                    password=password,
+                )
+                token = str(auth_payload["access_token"])
+            return token
+
+        async def ensure_mcp_session() -> ClientSession:
+            nonlocal mcp_session
+            if mcp_session is not None:
+                return mcp_session
+
+            current_token = await ensure_token()
+            transport_client = await stack.enter_async_context(
+                httpx.AsyncClient(timeout=30.0, headers=auth_headers(current_token))
+            )
+            read_stream, write_stream, _ = await stack.enter_async_context(
+                streamable_http_client(mcp_url, http_client=transport_client)
+            )
+            mcp_session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+            await mcp_session.initialize()
+            return mcp_session
+
         for filename in CASE_FILE_ORDER:
             path = baselines_dir / filename
             emit(f"Replaying {path.as_posix()}")
             for case in read_jsonl(path):
-                await replay_case(
-                    case,
+                resolved_case = resolve_placeholders(case, manifest)
+                case_kind = str(resolved_case["kind"])
+                current_token: str | None = None
+                current_mcp_session: ClientSession | None = None
+
+                if case_kind == "auth_login":
+                    current_token = token
+                elif case_kind == "rest" and resolved_case.get("auth", "bearer") == "bearer":
+                    current_token = await ensure_token()
+                elif case_kind.startswith("mcp_"):
+                    current_mcp_session = await ensure_mcp_session()
+                    current_token = token
+
+                actual = await replay_case(
+                    resolved_case,
                     api_client=api_client,
-                    token=token,
-                    mcp_session=mcp_session,
+                    token=current_token,
+                    mcp_session=current_mcp_session,
                     email=email,
                     password=password,
                 )
-                emit(f"  PASS {case['id']}")
+                if case_kind == "auth_login":
+                    body = actual.get("body")
+                    if isinstance(body, dict) and "access_token" in body:
+                        token = str(body["access_token"])
+                emit(f"  PASS {resolved_case['id']}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -156,6 +211,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_BASELINES_DIR,
         help="Directory containing the generated baseline corpus files.",
+    )
+    parser.add_argument(
+        "--manifest-path",
+        type=Path,
+        default=None,
+        help="Manifest with runtime fixture IDs. Defaults to <baselines-dir>/manifest.json.",
     )
     parser.add_argument(
         "--email",
@@ -177,6 +238,7 @@ async def amain() -> int:
         baselines_dir=args.baselines_dir,
         email=args.email,
         password=args.password,
+        manifest_path=args.manifest_path,
     )
     emit("Baseline replay passed.")
     return 0

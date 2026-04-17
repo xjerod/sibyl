@@ -79,10 +79,11 @@ tasks:
 
   # Live model tests (requires ANTHROPIC_API_KEY)
   test-live:
-    command: uv run pytest tests/live/ --live-models --cost-limit=1.0 --no-cov -v
+    command: uv run pytest tests/test_graph_integration.py tests/test_concurrent_writes.py -m live_model --no-cov -v
     inputs:
       - "@group(sources)"
-      - tests/live/**/*
+      - tests/test_graph_integration.py
+      - tests/test_concurrent_writes.py
     preset: server  # Not cacheable - makes real API calls
     options:
       envFile: .env

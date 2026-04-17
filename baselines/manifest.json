@@ -1,6 +1,6 @@
 {
   "base_url": "http://localhost:3334",
-  "captured_at": "2026-04-17T15:51:52.549736+00:00",
+  "captured_at": "2026-04-17T15:57:33.371114+00:00",
   "email": "baseline-corpus@sibyl.dev",
   "files": [
     "auth_smoke.jsonl",
