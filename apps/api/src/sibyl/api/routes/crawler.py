@@ -863,22 +863,12 @@ async def _process_graph_linking(
     organization_id: str,
 ) -> LinkGraphResponse:
     """Internal function to process graph linking for one or all sources."""
-    from sibyl.crawler.graph_integration import GraphIntegrationService
-    from sibyl_core.graph.client import get_graph_client
-
-    # Connect to graph
-    try:
-        graph_client = await get_graph_client()
-    except Exception as e:
-        log.warning("Failed to connect to graph", error=str(e))
-        raise HTTPException(status_code=503, detail="Graph service unavailable") from e
+    from sibyl.crawler.graph_integration import create_graph_integration_service
 
     # Initialize integration service
     try:
-        integration = GraphIntegrationService(
-            graph_client,
+        integration = await create_graph_integration_service(
             organization_id,
-            extract_entities=True,
             create_new_entities=request.create_new_entities,
         )
     except ValueError as e:
@@ -887,6 +877,9 @@ async def _process_graph_linking(
             status_code=503,
             detail="Entity extraction not configured",
         ) from e
+    except Exception as e:
+        log.warning("Failed to connect to graph", error=str(e))
+        raise HTTPException(status_code=503, detail="Graph service unavailable") from e
 
     org_uuid = UUID(organization_id)
 

@@ -44,6 +44,23 @@ _EXTRACTED_TYPE_MAP: dict[str, EntityType] = {
 }
 
 
+async def create_graph_integration_service(
+    organization_id: str,
+    *,
+    extract_entities: bool = True,
+    create_new_entities: bool = False,
+) -> GraphIntegrationService:
+    from sibyl_core.graph.client import get_graph_client
+
+    graph_client = await get_graph_client()
+    return GraphIntegrationService(
+        graph_client,
+        organization_id,
+        extract_entities=extract_entities,
+        create_new_entities=create_new_entities,
+    )
+
+
 def normalize_extracted_entity_type(entity_type: str | None) -> EntityType:
     """Map extractor labels onto the runtime graph entity taxonomy."""
     raw_type = (entity_type or "").strip().lower()
