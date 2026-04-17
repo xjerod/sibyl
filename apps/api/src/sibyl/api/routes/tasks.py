@@ -25,6 +25,7 @@ from sibyl.auth.dependencies import (
 from sibyl.auth.rls import AuthSession, get_auth_session
 from sibyl.db.models import Organization, OrganizationRole, User
 from sibyl.locks import entity_lock
+from sibyl.persistence.legacy.graph import get_legacy_knowledge_read_adapter
 from sibyl_core.graph.client import get_graph_client
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.graph.relationships import RelationshipManager
@@ -50,9 +51,8 @@ async def _verify_task_access(
 
     Raises ProjectAuthorizationError if user lacks required access.
     """
-    client = await get_graph_client()
-    entity_manager = EntityManager(client, group_id=str(org.id))
-    entity = await entity_manager.get(task_id)
+    service = await get_legacy_knowledge_read_adapter(str(org.id))
+    entity = await service.get_entity(task_id)
     if not entity:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 

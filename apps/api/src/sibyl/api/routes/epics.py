@@ -18,9 +18,11 @@ from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import Organization, OrganizationRole
+from sibyl.persistence.legacy.graph import get_legacy_knowledge_read_adapter
 from sibyl_core.graph.client import get_graph_client
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.models.entities import EntityType
+from sibyl_core.services import KnowledgeReadService
 
 log = structlog.get_logger()
 _WRITE_ROLES = (
@@ -79,10 +81,10 @@ class UpdateEpicRequest(BaseModel):
 # =============================================================================
 
 
-async def _get_epic(entity_manager: EntityManager, epic_id: str):
+async def _get_epic(service: KnowledgeReadService, epic_id: str):
     """Get an epic by ID, raising HTTPException if not found or wrong type."""
     try:
-        epic = await entity_manager.get(epic_id)
+        epic = await service.get_entity(epic_id)
         if not epic:
             raise HTTPException(status_code=404, detail=f"Epic not found: {epic_id}")
         if epic.entity_type != EntityType.EPIC:
@@ -107,9 +109,8 @@ async def _verify_epic_access(
     Returns the epic entity if access is granted.
     Raises ProjectAuthorizationError if user lacks required access.
     """
-    client = await get_graph_client()
-    entity_manager = EntityManager(client, group_id=str(org.id))
-    epic = await _get_epic(entity_manager, epic_id)
+    service = await get_legacy_knowledge_read_adapter(str(org.id))
+    epic = await _get_epic(service, epic_id)
 
     # Extract project_id from entity metadata
     project_id = epic.metadata.get("project_id") if epic.metadata else None
