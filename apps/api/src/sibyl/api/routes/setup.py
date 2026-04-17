@@ -9,135 +9,21 @@ Config update endpoints are admin-only after initial setup.
 
 from __future__ import annotations
 
-from uuid import UUID
-
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import func
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
-from sibyl.auth.http import select_access_token
-from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
-from sibyl.db.connection import get_session_dependency
-from sibyl.db.models import Organization, User
+from sibyl.persistence.legacy.setup import (
+    get_legacy_setup_status,
+    require_legacy_setup_mode_or_admin,
+    require_legacy_setup_mode_or_auth,
+)
 from sibyl.services.settings import get_settings_service
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 log = structlog.get_logger()
-
-
-async def _is_setup_complete(session: AsyncSession) -> bool:
-    """Check if initial setup is complete (users exist)."""
-    result = await session.execute(select(func.count(User.id)))
-    return (result.scalar() or 0) > 0
-
-
-async def require_setup_mode_or_auth(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> None:
-    """Gate endpoint: allow if in setup mode (no users) OR authenticated.
-
-    This protects sensitive setup endpoints after initial setup is complete.
-    During setup (no users exist), allows unrestricted access.
-    After setup, requires valid authentication.
-
-    Raises:
-        HTTPException 401: If setup is complete and not authenticated
-    """
-    if not await _is_setup_complete(session):
-        # Setup mode - allow access
-        return
-
-    # Setup complete - require authentication
-    token = select_access_token(
-        authorization=request.headers.get("authorization"),
-        cookie_token=request.cookies.get("sibyl_access_token"),
-    )
-
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Setup is complete. Authentication required.",
-        )
-
-    try:
-        verify_access_token(token)
-    except JwtError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {e}",
-        ) from e
-
-
-async def require_setup_mode_or_admin(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> User | None:
-    """Gate endpoint: allow if in setup mode (no users) OR user is admin.
-
-    This protects config update endpoints that should only be accessible to:
-    - Anyone during initial setup (no users exist)
-    - System admins after setup is complete
-
-    Returns:
-        User if authenticated, None if in setup mode
-
-    Raises:
-        HTTPException 401: If setup is complete and not authenticated
-        HTTPException 403: If setup is complete and user is not an admin
-    """
-    if not await _is_setup_complete(session):
-        # Setup mode - allow access
-        return None
-
-    # Setup complete - require admin
-    token = select_access_token(
-        authorization=request.headers.get("authorization"),
-        cookie_token=request.cookies.get("sibyl_access_token"),
-    )
-
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Setup is complete. Authentication required.",
-        )
-
-    try:
-        claims = verify_access_token(token)
-    except JwtError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {e}",
-        ) from e
-
-    # Get user from token
-    try:
-        user_id = UUID(str(claims.get("sub", "")))
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token: missing user ID",
-        ) from e
-
-    user = await session.get(User, user_id)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-        )
-
-    if not user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required to update server configuration",
-        )
-
-    return user
 
 
 class SetupStatus(BaseModel):
@@ -242,7 +128,6 @@ async def _check_anthropic_key(key: str | None = None) -> tuple[bool, str | None
 
 @router.get("/status", response_model=SetupStatus)
 async def get_setup_status(
-    session: AsyncSession = Depends(get_session_dependency),
     validate_keys: bool = False,
 ) -> SetupStatus:
     """Check if this Sibyl instance needs initial setup.
@@ -255,13 +140,7 @@ async def get_setup_status(
     This endpoint requires no authentication since it must work
     before any users exist.
     """
-    # Count users
-    user_result = await session.execute(select(func.count(User.id)))
-    user_count = user_result.scalar() or 0
-
-    # Count orgs
-    org_result = await session.execute(select(func.count(Organization.id)))
-    org_count = org_result.scalar() or 0
+    setup_status = await get_legacy_setup_status()
 
     # Check if API keys are configured (non-empty)
     service = get_settings_service()
@@ -281,9 +160,9 @@ async def get_setup_status(
             anthropic_valid, _ = await _check_anthropic_key(anthropic_key)
 
     return SetupStatus(
-        needs_setup=user_count == 0,
-        has_users=user_count > 0,
-        has_orgs=org_count > 0,
+        needs_setup=not setup_status.has_users,
+        has_users=setup_status.has_users,
+        has_orgs=setup_status.has_orgs,
         openai_configured=openai_configured,
         anthropic_configured=anthropic_configured,
         openai_valid=openai_valid,
@@ -294,7 +173,7 @@ async def get_setup_status(
 @router.get(
     "/validate-keys",
     response_model=ApiKeyValidation,
-    dependencies=[Depends(require_setup_mode_or_auth)],
+    dependencies=[Depends(require_legacy_setup_mode_or_auth)],
 )
 async def validate_api_keys() -> ApiKeyValidation:
     """Validate that configured API keys work.
@@ -316,7 +195,7 @@ async def validate_api_keys() -> ApiKeyValidation:
     )
 
 
-@router.get("/mcp-command", dependencies=[Depends(require_setup_mode_or_auth)])
+@router.get("/mcp-command", dependencies=[Depends(require_legacy_setup_mode_or_auth)])
 async def get_mcp_command() -> dict[str, str]:
     """Get the Claude Code command to connect to this Sibyl instance.
 
@@ -368,7 +247,7 @@ class ConfigUpdateResponse(BaseModel):
 @router.post("/config", response_model=ConfigUpdateResponse)
 async def update_config(
     body: ConfigUpdateRequest,
-    _admin: User | None = Depends(require_setup_mode_or_admin),
+    _admin: object | None = Depends(require_legacy_setup_mode_or_admin),
 ) -> ConfigUpdateResponse:
     """Update server configuration (API keys).
 
@@ -435,7 +314,7 @@ class ConfigStatusResponse(BaseModel):
 
 @router.get("/config", response_model=ConfigStatusResponse)
 async def get_config_status(
-    _admin: User | None = Depends(require_setup_mode_or_admin),
+    _admin: object | None = Depends(require_legacy_setup_mode_or_admin),
 ) -> ConfigStatusResponse:
     """Get current server configuration status.
 
