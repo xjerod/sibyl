@@ -10,23 +10,18 @@ import os
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
-from sibyl.auth.dependencies import build_auth_context
-from sibyl.db.connection import get_session_dependency
-from sibyl.db.models import OrganizationRole, User
 from sibyl.persistence.legacy.graph import reset_legacy_graph_runtime
+from sibyl.persistence.legacy.settings import (
+    is_legacy_setup_mode,
+    require_legacy_settings_admin,
+)
 from sibyl.services.settings import get_settings_service
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 log = structlog.get_logger()
-
-# Admin roles that can manage settings
-_ADMIN_ROLES = (OrganizationRole.OWNER, OrganizationRole.ADMIN)
 
 
 async def _try_reset_graph_client(context: str) -> None:
@@ -77,23 +72,6 @@ class DeleteSettingResponse(BaseModel):
     deleted: bool = Field(description="True if setting was deleted")
     key: str = Field(description="The key that was deleted")
     message: str = Field(description="Status message")
-
-
-async def _is_setup_mode(session: AsyncSession) -> bool:
-    """Check if we're in setup mode (no users exist)."""
-    result = await session.execute(select(func.count(User.id)))
-    user_count = result.scalar() or 0
-    return user_count == 0
-
-
-async def _require_settings_admin(request: Request, session: AsyncSession) -> None:
-    """Allow setup-mode bootstrapping, otherwise require an authenticated org admin."""
-    if await _is_setup_mode(session):
-        return
-
-    ctx = await build_auth_context(request, session)
-    if ctx.organization is None or ctx.org_role not in _ADMIN_ROLES:
-        raise HTTPException(status_code=403, detail="Admin or owner role required")
 
 
 async def _validate_openai_key(key: str) -> tuple[bool, str | None]:
@@ -152,7 +130,6 @@ async def _validate_anthropic_key(key: str) -> tuple[bool, str | None]:
 @router.get("", response_model=SettingsResponse)
 async def get_settings(
     request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
 ) -> SettingsResponse:
     """Get all system settings with their configuration status.
 
@@ -162,7 +139,7 @@ async def get_settings(
     This endpoint works without authentication during setup mode (no users exist).
     Otherwise, admin role is required.
     """
-    await _require_settings_admin(request, session)
+    await require_legacy_settings_admin(request)
 
     service = get_settings_service()
     all_settings = await service.get_all(include_secrets=False)
@@ -184,7 +161,6 @@ async def get_settings(
 async def update_settings(
     request: Request,
     body: UpdateSettingsRequest,
-    session: AsyncSession = Depends(get_session_dependency),
 ) -> UpdateSettingsResponse:
     """Update system settings.
 
@@ -193,7 +169,7 @@ async def update_settings(
     This endpoint works without authentication during setup mode (no users exist).
     Otherwise, admin role is required.
     """
-    await _require_settings_admin(request, session)
+    await require_legacy_settings_admin(request)
 
     service = get_settings_service()
     updated: list[str] = []
@@ -214,7 +190,7 @@ async def update_settings(
             updated.append("openai_api_key")
             # Update environment variable so running server uses new key immediately
             # This bridges webapp settings to GraphClient which reads from env vars
-            os.environ["OPENAI_API_KEY"] = request.openai_api_key
+            os.environ["OPENAI_API_KEY"] = body.openai_api_key
             log.info("Updated OpenAI API key in environment")
         else:
             log.warning("OpenAI key validation failed", error=error)
@@ -233,7 +209,7 @@ async def update_settings(
             )
             updated.append("anthropic_api_key")
             # Update environment variable so running server uses new key immediately
-            os.environ["ANTHROPIC_API_KEY"] = request.anthropic_api_key
+            os.environ["ANTHROPIC_API_KEY"] = body.anthropic_api_key
             log.info("Updated Anthropic API key in environment")
         else:
             log.warning("Anthropic key validation failed", error=error)
@@ -250,7 +226,6 @@ async def update_settings(
 async def delete_setting(
     request: Request,
     key: str,
-    session: AsyncSession = Depends(get_session_dependency),
 ) -> DeleteSettingResponse:
     """Delete a setting from the database.
 
@@ -259,10 +234,10 @@ async def delete_setting(
 
     Requires admin role (not available during setup mode).
     """
-    if await _is_setup_mode(session):
+    if await is_legacy_setup_mode():
         raise HTTPException(status_code=403, detail="Cannot delete settings during setup mode")
 
-    await _require_settings_admin(request, session)
+    await require_legacy_settings_admin(request)
 
     service = get_settings_service()
     deleted = await service.delete(key)
