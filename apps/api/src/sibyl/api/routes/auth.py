@@ -10,35 +10,42 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl import config as config_module
 from sibyl.api.rate_limit import limiter
-from sibyl.auth.audit import AuditLogger
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import (
     get_auth_context,
     require_org_admin,
-    resolve_claims,
 )
 from sibyl.auth.device_authorization import (
-    DeviceAuthorizationManager,
     DeviceTokenError,
     normalize_user_code,
 )
 from sibyl.auth.http import select_access_token
-from sibyl.auth.jwt import JwtError, create_access_token, create_refresh_token, verify_refresh_token
-from sibyl.auth.memberships import OrganizationMembershipManager
+from sibyl.auth.jwt import JwtError, verify_refresh_token
 from sibyl.auth.oauth_state import OAuthStateError, issue_state, verify_state
-from sibyl.auth.organizations import OrganizationManager
-from sibyl.auth.sessions import SessionManager
-from sibyl.auth.users import GitHubUserIdentity, UserManager
-from sibyl.db.connection import get_session_dependency
-from sibyl.db.models import OrganizationRole, User
+from sibyl.auth.users import GitHubUserIdentity
+from sibyl.db.models import User
 from sibyl.persistence.legacy.auth import (
+    approve_legacy_device_authorization,
     create_legacy_api_key_for_user,
+    deny_legacy_device_authorization,
+    exchange_legacy_device_code,
+    get_legacy_device_request_by_user_code,
+    get_legacy_user_by_id,
     list_legacy_api_keys_for_user,
+    log_legacy_audit_event,
+    login_legacy_device_browser_user,
+    login_legacy_github_identity,
+    login_legacy_local_user,
+    resolve_legacy_request_claims,
+    resolve_legacy_request_user,
+    revoke_legacy_access_session,
     revoke_legacy_api_key_for_user,
+    rotate_legacy_refresh_exchange,
+    signup_legacy_local_user,
+    start_legacy_device_authorization,
     update_legacy_auth_user,
 )
 
@@ -312,10 +319,7 @@ async def github_login() -> Response:
 
 
 @router.get("/github/callback")
-async def github_callback(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> Response:
+async def github_callback(request: Request) -> Response:
     jwt_secret = _require_jwt_secret()
     try:
         verify_state(
@@ -333,53 +337,15 @@ async def github_callback(
     redirect_uri = f"{config_module.settings.server_url}/api/auth/github/callback"
     github_token = await _github_exchange_code(code=code, redirect_uri=redirect_uri)
     identity = await _github_fetch_identity(github_token)
-
-    user_mgr = UserManager(session)
-    # First user becomes admin
-    is_first_user = not await user_mgr.has_any_users()
-
-    user = await user_mgr.upsert_from_github(identity, is_admin=is_first_user)
-    org = await OrganizationManager(session).create_personal_for_user(user)
-    await OrganizationMembershipManager(session).add_member(
-        organization_id=org.id,
-        user_id=user.id,
-        role=OrganizationRole.OWNER,
-    )
-
-    # Generate tokens
-    access_token = create_access_token(user_id=user.id, organization_id=org.id)
-    refresh_token, refresh_expires = create_refresh_token(user_id=user.id, organization_id=org.id)
-
-    # Create session record
-    access_expires = datetime.now(UTC) + timedelta(
-        minutes=config_module.settings.access_token_expire_minutes
-    )
-    await SessionManager(session).create_session(
-        user_id=user.id,
-        organization_id=org.id,
-        token=access_token,
-        expires_at=access_expires,
-        refresh_token=refresh_token,
-        refresh_token_expires_at=refresh_expires,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-
-    await AuditLogger(session).log(
-        action="auth.github.login",
-        user_id=user.id,
-        organization_id=org.id,
-        request=request,
-        details={"github_id": user.github_id, "email": user.email},
-    )
+    issued = await login_legacy_github_identity(identity=identity, request=request)
 
     redirect = _safe_frontend_redirect(request.query_params.get("redirect"))
     response = RedirectResponse(url=redirect, status_code=status.HTTP_302_FOUND)
     _set_auth_cookies(
         response,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        refresh_expires=refresh_expires,
+        access_token=issued.access_token,
+        refresh_token=issued.refresh_token,
+        refresh_expires=issued.refresh_expires,
     )
     response.delete_cookie(
         OAUTH_STATE_COOKIE, domain=config_module.settings.cookie_domain, path="/"
@@ -388,24 +354,17 @@ async def github_callback(
 
 
 @router.post("/local/signup", response_model=None)
-async def local_signup(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-):
+async def local_signup(request: Request):
     _ = _require_jwt_secret()
     data = await _read_auth_payload(request)
     body = LocalSignupRequest.model_validate(data)
 
-    user_mgr = UserManager(session)
-    # First user becomes admin
-    is_first_user = not await user_mgr.has_any_users()
-
     try:
-        user = await user_mgr.create_local_user(
+        issued = await signup_legacy_local_user(
             email=body.email,
             password=body.password,
             name=body.name,
-            is_admin=is_first_user,
+            request=request,
         )
     except ValueError as e:
         if body.redirect is not None or request.query_params.get("redirect") is not None:
@@ -414,40 +373,6 @@ async def local_signup(
                 status_code=status.HTTP_302_FOUND,
             )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-
-    org = await OrganizationManager(session).create_personal_for_user(user)
-    await OrganizationMembershipManager(session).add_member(
-        organization_id=org.id,
-        user_id=user.id,
-        role=OrganizationRole.OWNER,
-    )
-
-    # Generate tokens
-    access_token = create_access_token(user_id=user.id, organization_id=org.id)
-    refresh_token, refresh_expires = create_refresh_token(user_id=user.id, organization_id=org.id)
-
-    # Create session record
-    access_expires = datetime.now(UTC) + timedelta(
-        minutes=config_module.settings.access_token_expire_minutes
-    )
-    await SessionManager(session).create_session(
-        user_id=user.id,
-        organization_id=org.id,
-        token=access_token,
-        expires_at=access_expires,
-        refresh_token=refresh_token,
-        refresh_token_expires_at=refresh_expires,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-
-    await AuditLogger(session).log(
-        action="auth.local.signup",
-        user_id=user.id,
-        organization_id=org.id,
-        request=request,
-        details={"email": user.email},
-    )
 
     redirect = _safe_frontend_redirect(body.redirect or request.query_params.get("redirect"))
     response: Response
@@ -458,73 +383,48 @@ async def local_signup(
 
     _set_auth_cookies(
         response,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        refresh_expires=refresh_expires,
+        access_token=issued.access_token,
+        refresh_token=issued.refresh_token,
+        refresh_expires=issued.refresh_expires,
     )
     if isinstance(response, RedirectResponse):
         return response
     return {
-        "user": {"id": str(user.id), "email": user.email, "name": user.name},
-        "organization": {"id": str(org.id), "slug": org.slug, "name": org.name},
-        "access_token": access_token,
-        "refresh_token": refresh_token,
+        "user": {
+            "id": str(issued.user.id),
+            "email": issued.user.email,
+            "name": issued.user.name,
+        },
+        "organization": {
+            "id": str(issued.organization.id),
+            "slug": issued.organization.slug,
+            "name": issued.organization.name,
+        },
+        "access_token": issued.access_token,
+        "refresh_token": issued.refresh_token,
         "expires_in": config_module.settings.access_token_expire_minutes * 60,
     }
 
 
 @router.post("/local/login", response_model=None)
 @limiter.limit("5/minute")  # Strict limit to prevent brute force
-async def local_login(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-):
+async def local_login(request: Request):
     _ = _require_jwt_secret()
     data = await _read_auth_payload(request)
     body = LocalLoginRequest.model_validate(data)
 
-    user = await UserManager(session).authenticate_local(email=body.email, password=body.password)
-    if user is None:
+    issued = await login_legacy_local_user(
+        email=body.email,
+        password=body.password,
+        request=request,
+    )
+    if issued is None:
         if body.redirect is not None or request.query_params.get("redirect") is not None:
             return RedirectResponse(
                 url=_frontend_login_url(error="invalid_credentials"),
                 status_code=status.HTTP_302_FOUND,
             )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-
-    org = await OrganizationManager(session).create_personal_for_user(user)
-    await OrganizationMembershipManager(session).add_member(
-        organization_id=org.id,
-        user_id=user.id,
-        role=OrganizationRole.OWNER,
-    )
-
-    # Generate tokens
-    access_token = create_access_token(user_id=user.id, organization_id=org.id)
-    refresh_token, refresh_expires = create_refresh_token(user_id=user.id, organization_id=org.id)
-
-    # Create session record
-    access_expires = datetime.now(UTC) + timedelta(
-        minutes=config_module.settings.access_token_expire_minutes
-    )
-    await SessionManager(session).create_session(
-        user_id=user.id,
-        organization_id=org.id,
-        token=access_token,
-        expires_at=access_expires,
-        refresh_token=refresh_token,
-        refresh_token_expires_at=refresh_expires,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-
-    await AuditLogger(session).log(
-        action="auth.local.login",
-        user_id=user.id,
-        organization_id=org.id,
-        request=request,
-        details={"email": user.email},
-    )
 
     redirect = _safe_frontend_redirect(body.redirect or request.query_params.get("redirect"))
     response: Response
@@ -535,34 +435,38 @@ async def local_login(
 
     _set_auth_cookies(
         response,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        refresh_expires=refresh_expires,
+        access_token=issued.access_token,
+        refresh_token=issued.refresh_token,
+        refresh_expires=issued.refresh_expires,
     )
     if isinstance(response, RedirectResponse):
         return response
     return {
-        "user": {"id": str(user.id), "email": user.email, "name": user.name},
-        "organization": {"id": str(org.id), "slug": org.slug, "name": org.name},
-        "access_token": access_token,
-        "refresh_token": refresh_token,
+        "user": {
+            "id": str(issued.user.id),
+            "email": issued.user.email,
+            "name": issued.user.name,
+        },
+        "organization": {
+            "id": str(issued.organization.id),
+            "slug": issued.organization.slug,
+            "name": issued.organization.name,
+        },
+        "access_token": issued.access_token,
+        "refresh_token": issued.refresh_token,
         "expires_in": config_module.settings.access_token_expire_minutes * 60,
     }
 
 
 @router.post("/device", response_model=None)
 @limiter.limit("10/minute")  # Limit device code generation
-async def device_start(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> dict[str, object]:
+async def device_start(request: Request) -> dict[str, object]:
     """Start a device authorization request (for CLI login)."""
     _ = _require_jwt_secret()
     data = await _read_auth_payload(request)
     body = DeviceStartRequest.model_validate(data)
 
-    mgr = DeviceAuthorizationManager(session)
-    req, device_code = await mgr.start(
+    req, device_code = await start_legacy_device_authorization(
         client_name=body.client_name,
         scope=body.scope,
         expires_in=timedelta(seconds=body.expires_in),
@@ -582,10 +486,7 @@ async def device_start(
 
 @router.post("/device/token", response_model=None)
 @limiter.limit("60/minute")  # Allow frequent polling but prevent abuse
-async def device_token(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> Response:
+async def device_token(request: Request) -> Response:
     """Poll the device token endpoint until approved."""
     _ = _require_jwt_secret()
     data = await _read_auth_payload(request)
@@ -596,9 +497,8 @@ async def device_token(
             content={"error": "unsupported_grant_type"},
         )
 
-    mgr = DeviceAuthorizationManager(session)
     try:
-        tok = await mgr.exchange_device_code(device_code=body.device_code)
+        tok = await exchange_legacy_device_code(device_code=body.device_code)
     except DeviceTokenError as e:
         content: dict[str, object] = {"error": e.error}
         if e.error_description:
@@ -932,29 +832,18 @@ def _render_device_verify_page(
 
 @router.get("/device/verify", response_model=None)
 @limiter.limit("30/minute")  # Limit code verification attempts
-async def device_verify_get(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> Response:
+async def device_verify_get(request: Request) -> Response:
     """User-facing approval page for device login."""
     _ = _require_jwt_secret()
     raw_code = request.query_params.get("user_code")
     user_code = normalize_user_code(raw_code)
     error_code = (request.query_params.get("error") or "").strip() or None
 
-    claims = await resolve_claims(request, session)
-    user: User | None = None
-    if claims:
-        try:
-            user_id = UUID(str(claims.get("sub", "")))
-        except ValueError:
-            user_id = None
-        if user_id:
-            user = await session.get(User, user_id)
+    user = await resolve_legacy_request_user(request)
 
     pending: dict[str, object] | None = None
     if user_code:
-        req = await DeviceAuthorizationManager(session).get_by_user_code(user_code)
+        req = await get_legacy_device_request_by_user_code(user_code)
         now = datetime.now(UTC).replace(tzinfo=None)
         # Security: Use same error for invalid and expired to prevent code enumeration
         if req is None or req.expires_at <= now or req.status != "pending":
@@ -981,10 +870,7 @@ async def device_verify_get(
 
 @router.post("/device/verify", response_model=None)
 @limiter.limit("10/minute")  # Stricter limit on form submissions
-async def device_verify_post(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> Response:
+async def device_verify_post(request: Request) -> Response:
     _ = _require_jwt_secret()
     form = await request.form()
     action = str(form.get("action") or "").strip()
@@ -999,29 +885,18 @@ async def device_verify_post(
     if action == "login":
         email = str(form.get("email") or "").strip()
         password = str(form.get("password") or "").strip()
-        user = await UserManager(session).authenticate_local(email=email, password=password)
-        if user is None:
-            return RedirectResponse(url=verify_url + "&error=invalid_credentials", status_code=302)
-
-        org = await OrganizationManager(session).create_personal_for_user(user)
-        await OrganizationMembershipManager(session).add_member(
-            organization_id=org.id,
-            user_id=user.id,
-            role=OrganizationRole.OWNER,
-        )
-        token = create_access_token(user_id=user.id, organization_id=org.id)
-        await AuditLogger(session).log(
-            action="auth.device.local_login",
-            user_id=user.id,
-            organization_id=org.id,
+        login = await login_legacy_device_browser_user(
+            email=email,
+            password=password,
             request=request,
-            details={"email": user.email},
         )
+        if login is None:
+            return RedirectResponse(url=verify_url + "&error=invalid_credentials", status_code=302)
 
         response = RedirectResponse(url=verify_url, status_code=302)
         response.set_cookie(
             ACCESS_TOKEN_COOKIE,
-            token,
+            login.access_token,
             httponly=True,
             secure=_cookie_secure(),
             samesite="lax",
@@ -1035,7 +910,7 @@ async def device_verify_post(
         )
         return response
 
-    claims = await resolve_claims(request, session)
+    claims = await resolve_legacy_request_claims(request)
     if not claims:
         return RedirectResponse(url=verify_url + "&error=not_authenticated", status_code=302)
 
@@ -1044,26 +919,18 @@ async def device_verify_post(
     except ValueError:
         return RedirectResponse(url=verify_url + "&error=invalid_token", status_code=302)
 
-    user = await session.get(User, user_id)
+    user = await get_legacy_user_by_id(user_id)
     if user is None:
         return RedirectResponse(url=verify_url + "&error=user_not_found", status_code=302)
 
-    mgr = DeviceAuthorizationManager(session)
-    req = await mgr.get_by_user_code(user_code)
-    now = datetime.now(UTC).replace(tzinfo=None)
-    # Security: Use same error for invalid/expired/consumed to prevent code enumeration
-    if req is None or req.expires_at <= now or req.status != "pending":
-        return RedirectResponse(url=verify_url + "&error=invalid_or_expired", status_code=302)
-
     if action == "deny":
-        await mgr.deny(req)
-        await AuditLogger(session).log(
-            action="auth.device.deny",
+        denied = await deny_legacy_device_authorization(
             user_id=user.id,
-            organization_id=None,
+            user_code=user_code,
             request=request,
-            details={"device_request_id": str(req.id), "client_name": req.client_name},
         )
+        if denied is None:
+            return RedirectResponse(url=verify_url + "&error=invalid_or_expired", status_code=302)
         return _render_device_result_page(
             title="Access Denied",
             message="You can close this tab and return to your terminal.",
@@ -1073,20 +940,13 @@ async def device_verify_post(
     if action != "approve":
         return RedirectResponse(url=verify_url + "&error=invalid_action", status_code=302)
 
-    org = await OrganizationManager(session).create_personal_for_user(user)
-    await OrganizationMembershipManager(session).add_member(
-        organization_id=org.id,
+    approved = await approve_legacy_device_authorization(
         user_id=user.id,
-        role=OrganizationRole.OWNER,
-    )
-    await mgr.approve(req, user_id=user.id, organization_id=org.id)
-    await AuditLogger(session).log(
-        action="auth.device.approve",
-        user_id=user.id,
-        organization_id=org.id,
+        user_code=user_code,
         request=request,
-        details={"device_request_id": str(req.id), "client_name": req.client_name},
     )
+    if approved is None:
+        return RedirectResponse(url=verify_url + "&error=invalid_or_expired", status_code=302)
     return _render_device_result_page(
         title="Device Approved",
         message="You're all set! Close this tab and return to your terminal.",
@@ -1096,10 +956,7 @@ async def device_verify_post(
 
 @router.post("/refresh", response_model=None)
 @limiter.limit("30/minute")
-async def refresh_tokens(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-):
+async def refresh_tokens(request: Request):
     """Exchange a refresh token for new access + refresh tokens (token rotation).
 
     Accepts refresh token from:
@@ -1136,12 +993,6 @@ async def refresh_tokens(
     except JwtError as e:
         return _unauthorized(f"Invalid refresh token: {e}")
 
-    # Find the session by refresh token
-    session_mgr = SessionManager(session)
-    user_session = await session_mgr.get_session_by_refresh_token(refresh_token)
-    if user_session is None:
-        return _unauthorized("Session not found or revoked")
-
     # Extract user/org from claims
     try:
         user_id = UUID(str(claims["sub"]))
@@ -1151,60 +1002,36 @@ async def refresh_tokens(
     org_raw = claims.get("org")
     org_id = UUID(str(org_raw)) if org_raw else None
 
-    # Generate new tokens (rotation)
-    new_access_token = create_access_token(user_id=user_id, organization_id=org_id)
-    new_refresh_token, new_refresh_expires = create_refresh_token(
-        user_id=user_id,
-        organization_id=org_id,
-        session_id=user_session.id,
-    )
-
-    # Calculate access token expiry
-    access_expires = datetime.now(UTC) + timedelta(
-        minutes=config_module.settings.access_token_expire_minutes
-    )
-
-    # Update session with new tokens
-    await session_mgr.rotate_tokens(
-        user_session,
-        new_access_token=new_access_token,
-        new_access_expires_at=access_expires,
-        new_refresh_token=new_refresh_token,
-        new_refresh_expires_at=new_refresh_expires,
-    )
-
-    await AuditLogger(session).log(
-        action="auth.token.refresh",
+    rotation = await rotate_legacy_refresh_exchange(
+        refresh_token=refresh_token,
         user_id=user_id,
         organization_id=org_id,
         request=request,
-        details={"session_id": str(user_session.id)},
     )
+    if rotation is None:
+        return _unauthorized("Session not found or revoked")
 
     # Set new auth cookies
     response = JSONResponse(
         content={
-            "access_token": new_access_token,
-            "refresh_token": new_refresh_token,
+            "access_token": rotation.access_token,
+            "refresh_token": rotation.refresh_token,
             "token_type": "Bearer",
             "expires_in": config_module.settings.access_token_expire_minutes * 60,
         }
     )
     _set_auth_cookies(
         response,
-        access_token=new_access_token,
-        refresh_token=new_refresh_token,
-        refresh_expires=new_refresh_expires,
+        access_token=rotation.access_token,
+        refresh_token=rotation.refresh_token,
+        refresh_expires=rotation.refresh_expires,
     )
     return response
 
 
 @router.post("/logout")
-async def logout(
-    request: Request,
-    session: AsyncSession = Depends(get_session_dependency),
-) -> Response:
-    claims = await resolve_claims(request, session)
+async def logout(request: Request) -> Response:
+    claims = await resolve_legacy_request_claims(request)
     token = select_access_token(
         authorization=request.headers.get("authorization"),
         cookie_token=request.cookies.get(ACCESS_TOKEN_COOKIE),
@@ -1223,7 +1050,7 @@ async def logout(
             org_id = None
 
     if user_id:
-        await AuditLogger(session).log(
+        await log_legacy_audit_event(
             action="auth.logout",
             user_id=user_id,
             organization_id=org_id,
@@ -1233,11 +1060,7 @@ async def logout(
 
     # Best-effort server-side revocation for JWT sessions.
     if token and not token.startswith("sk_"):
-        session_mgr = SessionManager(session)
-        existing = await session_mgr.get_session_by_token(token)
-        if existing is not None:
-            existing.revoked_at = datetime.now(UTC).replace(tzinfo=None)
-            session.add(existing)
+        await revoke_legacy_access_session(token)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(
         ACCESS_TOKEN_COOKIE, domain=config_module.settings.cookie_domain, path="/"

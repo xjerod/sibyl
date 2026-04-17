@@ -27,7 +27,6 @@ FORBIDDEN_MODULE_PREFIXES = {
 ALLOW_SQL = ("sibyl.db.connection", "sqlalchemy", "sqlmodel")
 ALLOW_GRAPH = ("sibyl_core.graph",)
 ALLOWLIST: dict[str, tuple[str, ...]] = {
-    "apps/api/src/sibyl/api/routes/auth.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/crawler.py": ("sqlalchemy", "sqlmodel"),
     "apps/api/src/sibyl/api/routes/entities.py": (*ALLOW_SQL, *ALLOW_GRAPH),
     "apps/api/src/sibyl/api/routes/epics.py": (*ALLOW_SQL, *ALLOW_GRAPH),

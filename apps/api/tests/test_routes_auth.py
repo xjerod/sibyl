@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -7,6 +11,39 @@ from fastapi import HTTPException
 
 from sibyl.api.routes import auth as auth_routes
 from sibyl_core.auth import AuthContext, AuthOrganization, AuthUser, OrganizationRole
+
+
+class FakeRequest:
+    def __init__(
+        self,
+        *,
+        json_data: dict[str, object] | None = None,
+        form_data: dict[str, object] | None = None,
+        query_params: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        state: SimpleNamespace | None = None,
+    ) -> None:
+        self._json_data = json_data
+        self._form_data = form_data or {}
+        self.query_params = query_params or {}
+        self.cookies = cookies or {}
+        self.headers = {k.lower(): v for k, v in (headers or {}).items()}
+        if json_data is not None and "content-type" not in self.headers:
+            self.headers["content-type"] = "application/json"
+        self.client = SimpleNamespace(host="127.0.0.1")
+        self.state = state or SimpleNamespace()
+
+    async def json(self) -> dict[str, object] | None:
+        return self._json_data
+
+    async def form(self) -> dict[str, object]:
+        return self._form_data
+
+
+async def _call_route(endpoint, /, **kwargs):
+    target = getattr(endpoint, "__wrapped__", endpoint)
+    return await target(**kwargs)
 
 
 def _ctx(*, include_org: bool = True) -> AuthContext:
@@ -29,6 +66,310 @@ def _ctx(*, include_org: bool = True) -> AuthContext:
         org_role=OrganizationRole.ADMIN if include_org else None,
         scopes=frozenset({"api:write"}),
     )
+
+
+def _issued_session() -> SimpleNamespace:
+    return SimpleNamespace(
+        user=SimpleNamespace(
+            id=uuid4(),
+            email="nova@example.com",
+            name="Nova",
+            github_id=42,
+        ),
+        organization=SimpleNamespace(
+            id=uuid4(),
+            slug="sibyl",
+            name="Sibyl",
+        ),
+        access_token="access-token",
+        refresh_token="refresh-token",
+        refresh_expires=datetime.now(UTC) + timedelta(days=30),
+    )
+
+
+@pytest.mark.asyncio
+async def test_github_callback_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = FakeRequest(
+        query_params={
+            "state": "issued-state",
+            "code": "oauth-code",
+            "redirect": "/studio",
+        },
+        cookies={auth_routes.OAUTH_STATE_COOKIE: "state-cookie"},
+    )
+    identity = SimpleNamespace(github_id=42, email="nova@example.com")
+    issued = _issued_session()
+    login = AsyncMock(return_value=issued)
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "verify_state", lambda **_: None)
+    monkeypatch.setattr(auth_routes, "_github_exchange_code", AsyncMock(return_value="gh-token"))
+    monkeypatch.setattr(auth_routes, "_github_fetch_identity", AsyncMock(return_value=identity))
+    monkeypatch.setattr(auth_routes, "login_legacy_github_identity", login)
+
+    response = await auth_routes.github_callback(request=request)
+
+    assert response.status_code == 302
+    assert response.headers["location"].endswith("/studio")
+    login.assert_awaited_once_with(identity=identity, request=request)
+
+
+@pytest.mark.asyncio
+async def test_local_signup_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = FakeRequest(
+        json_data={
+            "email": "nova@example.com",
+            "password": "super-secret",
+            "name": "Nova",
+        }
+    )
+    issued = _issued_session()
+    signup = AsyncMock(return_value=issued)
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "signup_legacy_local_user", signup)
+
+    response = await auth_routes.local_signup(request=request)
+
+    assert response["user"]["email"] == issued.user.email
+    assert response["organization"]["slug"] == issued.organization.slug
+    signup.assert_awaited_once_with(
+        email="nova@example.com",
+        password="super-secret",
+        name="Nova",
+        request=request,
+    )
+
+
+@pytest.mark.asyncio
+async def test_local_login_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = FakeRequest(
+        json_data={
+            "email": "nova@example.com",
+            "password": "super-secret",
+        }
+    )
+    issued = _issued_session()
+    login = AsyncMock(return_value=issued)
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "login_legacy_local_user", login)
+
+    response = await _call_route(auth_routes.local_login, request=request)
+
+    assert response["access_token"] == issued.access_token
+    login.assert_awaited_once_with(
+        email="nova@example.com",
+        password="super-secret",
+        request=request,
+    )
+
+
+@pytest.mark.asyncio
+async def test_local_login_rejects_invalid_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = FakeRequest(
+        json_data={
+            "email": "nova@example.com",
+            "password": "wrong",
+        }
+    )
+    login = AsyncMock(return_value=None)
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "login_legacy_local_user", login)
+
+    with pytest.raises(HTTPException, match="Invalid credentials") as exc_info:
+        await _call_route(auth_routes.local_login, request=request)
+
+    assert exc_info.value.status_code == 401
+    login.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_device_start_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = FakeRequest(
+        json_data={
+            "client_name": "sibyl-cli",
+            "scope": "mcp",
+            "interval": 7,
+            "expires_in": 900,
+        }
+    )
+    start = AsyncMock(return_value=(SimpleNamespace(user_code="ABCD-EFGH"), "device-code"))
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "start_legacy_device_authorization", start)
+
+    response = await _call_route(auth_routes.device_start, request=request)
+
+    assert response["device_code"] == "device-code"
+    assert response["verification_uri_complete"].endswith("user_code=ABCD-EFGH")
+    start.assert_awaited_once_with(
+        client_name="sibyl-cli",
+        scope="mcp",
+        expires_in=timedelta(seconds=900),
+        poll_interval_seconds=7,
+    )
+
+
+@pytest.mark.asyncio
+async def test_device_token_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = FakeRequest(json_data={"device_code": "device-code"})
+    exchange = AsyncMock(return_value={"access_token": "access-token"})
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "exchange_legacy_device_code", exchange)
+
+    response = await _call_route(auth_routes.device_token, request=request)
+
+    assert response.status_code == 200
+    assert json.loads(response.body)["access_token"] == "access-token"
+    exchange.assert_awaited_once_with(device_code="device-code")
+
+
+@pytest.mark.asyncio
+async def test_device_verify_get_uses_legacy_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = FakeRequest(query_params={"user_code": "ABCD-EFGH"})
+    resolve_user = AsyncMock(return_value=SimpleNamespace(email="nova@example.com", name="Nova"))
+    get_request = AsyncMock(
+        return_value=SimpleNamespace(
+            client_name="sibyl-cli",
+            scope="mcp",
+            expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=10),
+            status="pending",
+        )
+    )
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "resolve_legacy_request_user", resolve_user)
+    monkeypatch.setattr(auth_routes, "get_legacy_device_request_by_user_code", get_request)
+
+    response = await _call_route(auth_routes.device_verify_get, request=request)
+    body = response.body.decode()
+
+    assert "sibyl-cli" in body
+    resolve_user.assert_awaited_once_with(request)
+    get_request.assert_awaited_once_with("ABCD-EFGH")
+
+
+@pytest.mark.asyncio
+async def test_device_verify_post_login_uses_legacy_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = FakeRequest(
+        form_data={
+            "action": "login",
+            "user_code": "ABCD-EFGH",
+            "email": "nova@example.com",
+            "password": "super-secret",
+        }
+    )
+    login = AsyncMock(return_value=SimpleNamespace(access_token="access-token"))
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "login_legacy_device_browser_user", login)
+
+    response = await _call_route(auth_routes.device_verify_post, request=request)
+
+    assert response.status_code == 302
+    assert "sibyl_access_token=access-token" in response.headers.get("set-cookie", "")
+    login.assert_awaited_once_with(
+        email="nova@example.com",
+        password="super-secret",
+        request=request,
+    )
+
+
+@pytest.mark.asyncio
+async def test_device_verify_post_approve_uses_legacy_helpers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    request = FakeRequest(
+        form_data={
+            "action": "approve",
+            "user_code": "ABCD-EFGH",
+        }
+    )
+    claims = AsyncMock(return_value={"sub": str(user_id)})
+    get_user = AsyncMock(return_value=SimpleNamespace(id=user_id))
+    approve = AsyncMock(return_value=(SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4())))
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "resolve_legacy_request_claims", claims)
+    monkeypatch.setattr(auth_routes, "get_legacy_user_by_id", get_user)
+    monkeypatch.setattr(auth_routes, "approve_legacy_device_authorization", approve)
+
+    response = await _call_route(auth_routes.device_verify_post, request=request)
+
+    assert response.status_code == 200
+    assert "Device Approved" in response.body.decode()
+    claims.assert_awaited_once_with(request)
+    get_user.assert_awaited_once_with(user_id)
+    approve.assert_awaited_once_with(
+        user_id=user_id,
+        user_code="ABCD-EFGH",
+        request=request,
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_tokens_uses_legacy_rotation(monkeypatch: pytest.MonkeyPatch) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    request = FakeRequest(json_data={"refresh_token": "refresh-token"})
+    rotation = SimpleNamespace(
+        access_token="new-access-token",
+        refresh_token="new-refresh-token",
+        refresh_expires=datetime.now(UTC) + timedelta(days=30),
+    )
+    rotate = AsyncMock(return_value=rotation)
+
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(
+        auth_routes,
+        "verify_refresh_token",
+        lambda _: {"sub": str(user_id), "org": str(org_id)},
+    )
+    monkeypatch.setattr(auth_routes, "rotate_legacy_refresh_exchange", rotate)
+
+    response = await _call_route(auth_routes.refresh_tokens, request=request)
+
+    assert response.status_code == 200
+    assert json.loads(response.body)["access_token"] == "new-access-token"
+    rotate.assert_awaited_once_with(
+        refresh_token="refresh-token",
+        user_id=user_id,
+        organization_id=org_id,
+        request=request,
+    )
+
+
+@pytest.mark.asyncio
+async def test_logout_uses_legacy_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    request = FakeRequest(cookies={auth_routes.ACCESS_TOKEN_COOKIE: "access-token"})
+    resolve_claims = AsyncMock(return_value={"sub": str(user_id), "org": str(org_id)})
+    log_audit = AsyncMock()
+    revoke = AsyncMock()
+
+    monkeypatch.setattr(auth_routes, "resolve_legacy_request_claims", resolve_claims)
+    monkeypatch.setattr(auth_routes, "log_legacy_audit_event", log_audit)
+    monkeypatch.setattr(auth_routes, "revoke_legacy_access_session", revoke)
+
+    response = await auth_routes.logout(request=request)
+
+    assert response.status_code == 204
+    resolve_claims.assert_awaited_once_with(request)
+    log_audit.assert_awaited_once_with(
+        action="auth.logout",
+        user_id=user_id,
+        organization_id=org_id,
+        request=request,
+        details={},
+    )
+    revoke.assert_awaited_once_with("access-token")
 
 
 @pytest.mark.asyncio

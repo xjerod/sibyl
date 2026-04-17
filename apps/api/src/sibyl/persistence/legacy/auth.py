@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Self
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from sibyl import config as config_module
+from sibyl.auth.audit import AuditLogger
+from sibyl.auth.device_authorization import DeviceAuthorizationManager
+from sibyl.auth.http import select_access_token
+from sibyl.auth.jwt import JwtError, create_access_token, create_refresh_token, verify_access_token
 from sibyl.auth.memberships import OrganizationMembershipManager
 from sibyl.auth.organizations import OrganizationManager
 from sibyl.auth.sessions import SessionManager
 from sibyl.auth.users import UserManager
 from sibyl.db.models import (
+    DeviceAuthorizationRequest,
     Organization,
     OrganizationMember,
     OrganizationRole as LegacyOrgRole,
@@ -49,6 +56,32 @@ class InvalidAuthClaimsError(ValueError):
 
 class UserNotFoundError(LookupError):
     """Claims referenced a user that no longer exists."""
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyIssuedAuthSession:
+    user: User
+    organization: Organization
+    access_token: str
+    refresh_token: str
+    refresh_expires: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyDeviceBrowserLogin:
+    user: User
+    organization: Organization
+    access_token: str
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyRefreshRotation:
+    session_id: UUID
+    access_token: str
+    refresh_token: str
+    refresh_expires: datetime
+    user_id: UUID
+    organization_id: UUID | None
 
 
 async def authenticate_legacy_api_key(raw_key: str):
@@ -249,6 +282,383 @@ async def ensure_legacy_personal_organization(*, user_id: UUID) -> Organization 
             role=LegacyOrgRole.OWNER,
         )
         return organization
+
+
+async def _issue_legacy_auth_session(
+    *,
+    user: User,
+    organization: Organization,
+    request,
+    action: str,
+    details: dict[str, Any],
+) -> LegacyIssuedAuthSession:
+    access_token = create_access_token(user_id=user.id, organization_id=organization.id)
+    refresh_token, refresh_expires = create_refresh_token(
+        user_id=user.id,
+        organization_id=organization.id,
+    )
+    access_expires = datetime.now(UTC) + timedelta(
+        minutes=config_module.settings.access_token_expire_minutes
+    )
+    await create_legacy_session_record(
+        user_id=user.id,
+        organization_id=organization.id,
+        token=access_token,
+        expires_at=access_expires,
+        refresh_token=refresh_token,
+        refresh_token_expires_at=refresh_expires,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    await log_legacy_audit_event(
+        action=action,
+        user_id=user.id,
+        organization_id=organization.id,
+        request=request,
+        details=details,
+    )
+    return LegacyIssuedAuthSession(
+        user=user,
+        organization=organization,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        refresh_expires=refresh_expires,
+    )
+
+
+async def login_legacy_github_identity(*, identity: GitHubUserIdentity, request) -> LegacyIssuedAuthSession:
+    """Upsert a GitHub user, ensure personal org membership, and issue tokens."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        user_manager = UserManager(session)
+        is_first_user = not await user_manager.has_any_users()
+        user = await user_manager.upsert_from_github(identity, is_admin=is_first_user)
+        organization = await OrganizationManager(session).create_personal_for_user(user)
+        await OrganizationMembershipManager(session).add_member(
+            organization_id=organization.id,
+            user_id=user.id,
+            role=LegacyOrgRole.OWNER,
+        )
+    return await _issue_legacy_auth_session(
+        user=user,
+        organization=organization,
+        request=request,
+        action="auth.github.login",
+        details={"github_id": user.github_id, "email": user.email},
+    )
+
+
+async def signup_legacy_local_user(*, email: str, password: str, name: str, request) -> LegacyIssuedAuthSession:
+    """Create a local user, ensure a personal org, and issue tokens."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        user_manager = UserManager(session)
+        is_first_user = not await user_manager.has_any_users()
+        user = await user_manager.create_local_user(
+            email=email,
+            password=password,
+            name=name,
+            is_admin=is_first_user,
+        )
+        organization = await OrganizationManager(session).create_personal_for_user(user)
+        await OrganizationMembershipManager(session).add_member(
+            organization_id=organization.id,
+            user_id=user.id,
+            role=LegacyOrgRole.OWNER,
+        )
+    return await _issue_legacy_auth_session(
+        user=user,
+        organization=organization,
+        request=request,
+        action="auth.local.signup",
+        details={"email": user.email},
+    )
+
+
+async def login_legacy_local_user(*, email: str, password: str, request) -> LegacyIssuedAuthSession | None:
+    """Authenticate a local user, ensure a personal org, and issue tokens."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        user = await UserManager(session).authenticate_local(email=email, password=password)
+        if user is None:
+            return None
+        organization = await OrganizationManager(session).create_personal_for_user(user)
+        await OrganizationMembershipManager(session).add_member(
+            organization_id=organization.id,
+            user_id=user.id,
+            role=LegacyOrgRole.OWNER,
+        )
+    return await _issue_legacy_auth_session(
+        user=user,
+        organization=organization,
+        request=request,
+        action="auth.local.login",
+        details={"email": user.email},
+    )
+
+
+async def start_legacy_device_authorization(
+    *,
+    client_name: str | None,
+    scope: str,
+    expires_in,
+    poll_interval_seconds: int,
+) -> tuple[DeviceAuthorizationRequest, str]:
+    """Create a device authorization request in legacy storage."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        return await DeviceAuthorizationManager(session).start(
+            client_name=client_name,
+            scope=scope,
+            expires_in=expires_in,
+            poll_interval_seconds=poll_interval_seconds,
+        )
+
+
+async def exchange_legacy_device_code(*, device_code: str) -> dict[str, object]:
+    """Exchange a device code using the legacy device authorization runtime."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        return await DeviceAuthorizationManager(session).exchange_device_code(device_code=device_code)
+
+
+async def get_legacy_device_request_by_user_code(
+    user_code: str,
+) -> DeviceAuthorizationRequest | None:
+    """Load a device authorization request by user code."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        return await DeviceAuthorizationManager(session).get_by_user_code(user_code)
+
+
+async def resolve_legacy_request_claims(request) -> dict[str, Any] | None:
+    """Resolve JWT or API key claims for a request without route-bound sessions."""
+    claims = getattr(request.state, "jwt_claims", None)
+    if claims:
+        return claims
+
+    token = select_access_token(
+        authorization=request.headers.get("authorization"),
+        cookie_token=request.cookies.get("sibyl_access_token"),
+    )
+    if not token:
+        return None
+
+    try:
+        return verify_access_token(token)
+    except JwtError:
+        pass
+
+    if token.startswith("sk_"):
+        auth = await authenticate_legacy_api_key(token)
+        if auth is None:
+            return None
+        return {
+            "sub": str(auth.user_id),
+            "org": str(auth.organization_id),
+            "typ": "api_key",
+            "scopes": list(auth.scopes or []),
+        }
+
+    return None
+
+
+async def resolve_legacy_request_user(request) -> User | None:
+    """Resolve the authenticated user for a request."""
+    claims = await resolve_legacy_request_claims(request)
+    if not claims:
+        return None
+
+    try:
+        user_id = UUID(str(claims.get("sub", "")))
+    except ValueError:
+        return None
+    return await get_legacy_user_by_id(user_id)
+
+
+async def login_legacy_device_browser_user(
+    *,
+    email: str,
+    password: str,
+    request,
+) -> LegacyDeviceBrowserLogin | None:
+    """Authenticate a local user for the device approval page and issue an access cookie."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        user = await UserManager(session).authenticate_local(email=email, password=password)
+        if user is None:
+            return None
+        organization = await OrganizationManager(session).create_personal_for_user(user)
+        await OrganizationMembershipManager(session).add_member(
+            organization_id=organization.id,
+            user_id=user.id,
+            role=LegacyOrgRole.OWNER,
+        )
+        access_token = create_access_token(user_id=user.id, organization_id=organization.id)
+        await AuditLogger(session).log(
+            action="auth.device.local_login",
+            user_id=user.id,
+            organization_id=organization.id,
+            request=request,
+            details={"email": user.email},
+        )
+        return LegacyDeviceBrowserLogin(
+            user=user,
+            organization=organization,
+            access_token=access_token,
+        )
+
+
+async def deny_legacy_device_authorization(
+    *,
+    user_id: UUID,
+    user_code: str,
+    request,
+) -> DeviceAuthorizationRequest | None:
+    """Deny a pending device authorization request."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        user = await UserManager(session).get_by_id(user_id)
+        if user is None:
+            return None
+        manager = DeviceAuthorizationManager(session)
+        req = await manager.get_by_user_code(user_code)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        if req is None or req.expires_at <= now or req.status != "pending":
+            return None
+        await manager.deny(req)
+        await AuditLogger(session).log(
+            action="auth.device.deny",
+            user_id=user.id,
+            organization_id=None,
+            request=request,
+            details={"device_request_id": str(req.id), "client_name": req.client_name},
+        )
+        return req
+
+
+async def approve_legacy_device_authorization(
+    *,
+    user_id: UUID,
+    user_code: str,
+    request,
+) -> tuple[Organization, DeviceAuthorizationRequest] | None:
+    """Approve a pending device authorization request."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        user = await UserManager(session).get_by_id(user_id)
+        if user is None:
+            return None
+        manager = DeviceAuthorizationManager(session)
+        req = await manager.get_by_user_code(user_code)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        if req is None or req.expires_at <= now or req.status != "pending":
+            return None
+
+        organization = await OrganizationManager(session).create_personal_for_user(user)
+        await OrganizationMembershipManager(session).add_member(
+            organization_id=organization.id,
+            user_id=user.id,
+            role=LegacyOrgRole.OWNER,
+        )
+        await manager.approve(req, user_id=user.id, organization_id=organization.id)
+        await AuditLogger(session).log(
+            action="auth.device.approve",
+            user_id=user.id,
+            organization_id=organization.id,
+            request=request,
+            details={"device_request_id": str(req.id), "client_name": req.client_name},
+        )
+        return organization, req
+
+
+async def rotate_legacy_refresh_exchange(
+    *,
+    refresh_token: str,
+    user_id: UUID,
+    organization_id: UUID | None,
+    request,
+) -> LegacyRefreshRotation | None:
+    """Rotate a refresh token and audit the exchange."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        manager = SessionManager(session)
+        existing = await manager.get_session_by_refresh_token(refresh_token)
+        if existing is None:
+            return None
+
+        access_token = create_access_token(user_id=user_id, organization_id=organization_id)
+        new_refresh_token, refresh_expires = create_refresh_token(
+            user_id=user_id,
+            organization_id=organization_id,
+            session_id=existing.id,
+        )
+        access_expires = datetime.now(UTC) + timedelta(
+            minutes=config_module.settings.access_token_expire_minutes
+        )
+        await manager.rotate_tokens(
+            existing,
+            new_access_token=access_token,
+            new_access_expires_at=access_expires,
+            new_refresh_token=new_refresh_token,
+            new_refresh_expires_at=refresh_expires,
+        )
+        await AuditLogger(session).log(
+            action="auth.token.refresh",
+            user_id=user_id,
+            organization_id=organization_id,
+            request=request,
+            details={"session_id": str(existing.id)},
+        )
+        return LegacyRefreshRotation(
+            session_id=existing.id,
+            access_token=access_token,
+            refresh_token=new_refresh_token,
+            refresh_expires=refresh_expires,
+            user_id=user_id,
+            organization_id=organization_id,
+        )
+
+
+async def revoke_legacy_access_session(token: str) -> None:
+    """Best-effort revoke a legacy session identified by access token."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        existing = await SessionManager(session).get_session_by_token(token)
+        if existing is not None:
+            existing.revoked_at = datetime.now(UTC).replace(tzinfo=None)
+
+
+async def log_legacy_audit_event(
+    *,
+    action: str,
+    user_id: UUID | None,
+    organization_id: UUID | None,
+    request,
+    details: dict[str, Any],
+) -> None:
+    """Write an audit event through a fresh legacy relational session."""
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        await AuditLogger(session).log(
+            action=action,
+            user_id=user_id,
+            organization_id=organization_id,
+            request=request,
+            details=details,
+        )
 
 
 async def list_legacy_api_keys_for_user(
