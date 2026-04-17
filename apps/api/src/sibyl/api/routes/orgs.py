@@ -20,6 +20,7 @@ from sibyl.auth.organizations import OrganizationManager, slugify
 from sibyl.auth.sessions import SessionManager
 from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import Organization, OrganizationMember, OrganizationRole, User
+from sibyl.persistence.legacy.graph import ensure_legacy_graph_indexes
 
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 
@@ -129,10 +130,7 @@ async def create_org(
 
     # Initialize graph indexes for the new org (vector index for semantic search)
     try:
-        from sibyl_core.graph.client import get_graph_client
-
-        client = await get_graph_client()
-        await client.ensure_indexes(str(org.id))
+        await ensure_legacy_graph_indexes(str(org.id))
     except Exception as e:
         # Don't fail org creation if graph setup fails - indexes will be created lazily
         import structlog

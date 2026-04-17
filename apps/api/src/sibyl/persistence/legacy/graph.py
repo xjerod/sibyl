@@ -7,7 +7,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any, Self
 
 from sibyl_core.errors import EntityNotFoundError
-from sibyl_core.graph.client import GraphClient, get_graph_client
+from sibyl_core.graph.client import GraphClient, get_graph_client, reset_graph_client
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
@@ -520,6 +520,34 @@ async def get_legacy_graph_stats_payload(group_id: str) -> dict[str, object]:
     service = await get_legacy_knowledge_read_adapter(group_id)
     stats = await service.stats()
     return graph_stats_payload(stats)
+
+
+async def ensure_legacy_graph_indexes(group_id: str) -> None:
+    client = await get_graph_client()
+    await client.ensure_indexes(group_id)
+
+
+async def reset_legacy_graph_runtime() -> None:
+    await reset_graph_client()
+
+
+async def execute_legacy_debug_query(
+    cypher: str,
+    group_id: str,
+    **params: object,
+) -> list[dict[str, object]]:
+    client = await get_graph_client()
+    result = await client.execute_read_org(cypher, group_id, **params)
+
+    rows: list[dict[str, object]] = []
+    for record in result:
+        if hasattr(record, "keys"):
+            rows.append(dict(record))
+        elif isinstance(record, list | tuple):
+            rows.append({"value": record})
+        else:
+            rows.append({"value": record})
+    return rows
 
 
 def _collect_related_ids(entity_id: str, relationships: Sequence[Relationship]) -> Iterable[str]:

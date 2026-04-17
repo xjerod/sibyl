@@ -19,6 +19,7 @@ from sqlmodel import select
 from sibyl.auth.dependencies import build_auth_context
 from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import OrganizationRole, User
+from sibyl.persistence.legacy.graph import reset_legacy_graph_runtime
 from sibyl.services.settings import get_settings_service
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -35,9 +36,7 @@ async def _try_reset_graph_client(context: str) -> None:
         context: Description for log message (e.g., "API key update", "API key deletion")
     """
     try:
-        from sibyl_core.graph.client import reset_graph_client
-
-        await reset_graph_client()
+        await reset_legacy_graph_runtime()
         log.info(f"Reset GraphClient after {context}")
     except Exception as e:
         log.warning("Failed to reset GraphClient", error=str(e))

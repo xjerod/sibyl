@@ -85,3 +85,15 @@ async def test_get_settings_requires_admin_and_returns_masked_metadata(
     assert response.settings["openai_api_key"].configured is True
     assert response.settings["openai_api_key"].masked == "sk-***"
     service.get_all.assert_awaited_once_with(include_secrets=False)
+
+
+@pytest.mark.asyncio
+async def test_try_reset_graph_client_uses_legacy_runtime_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_runtime = AsyncMock()
+    monkeypatch.setattr(settings_routes, "reset_legacy_graph_runtime", reset_runtime)
+
+    await settings_routes._try_reset_graph_client("test context")
+
+    reset_runtime.assert_awaited_once_with()

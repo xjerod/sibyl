@@ -21,9 +21,12 @@ if TYPE_CHECKING:
         LegacyKnowledgeWriteAdapter,
         LegacyRelationshipStore,
         LegacySearchIndex,
+        ensure_legacy_graph_indexes,
+        execute_legacy_debug_query,
         get_legacy_graph_stats_payload,
         get_legacy_knowledge_read_adapter,
         graph_stats_payload,
+        reset_legacy_graph_runtime,
     )
 
 __all__ = [
@@ -39,9 +42,12 @@ __all__ = [
     "LegacyKnowledgeWriteAdapter",
     "LegacyRelationshipStore",
     "LegacySearchIndex",
+    "ensure_legacy_graph_indexes",
+    "execute_legacy_debug_query",
     "get_legacy_graph_stats_payload",
     "get_legacy_knowledge_read_adapter",
     "graph_stats_payload",
+    "reset_legacy_graph_runtime",
     "UserNotFoundError",
 ]
 
@@ -68,6 +74,8 @@ def __getattr__(name: str) -> Any:
             "UserNotFoundError": UserNotFoundError,
         }
         if name in {
+            "ensure_legacy_graph_indexes",
+            "execute_legacy_debug_query",
             "LegacyEntityStore",
             "LegacyGraphStore",
             "LegacyKnowledgeReadAdapter",
@@ -77,6 +85,7 @@ def __getattr__(name: str) -> Any:
             "get_legacy_graph_stats_payload",
             "get_legacy_knowledge_read_adapter",
             "graph_stats_payload",
+            "reset_legacy_graph_runtime",
         }:
             from sibyl.persistence.legacy.graph import (
                 LegacyEntityStore,
@@ -85,13 +94,18 @@ def __getattr__(name: str) -> Any:
                 LegacyKnowledgeWriteAdapter,
                 LegacyRelationshipStore,
                 LegacySearchIndex,
+                ensure_legacy_graph_indexes,
+                execute_legacy_debug_query,
                 get_legacy_graph_stats_payload,
                 get_legacy_knowledge_read_adapter,
                 graph_stats_payload,
+                reset_legacy_graph_runtime,
             )
 
             exports.update(
                 {
+                    "ensure_legacy_graph_indexes": ensure_legacy_graph_indexes,
+                    "execute_legacy_debug_query": execute_legacy_debug_query,
                     "LegacyEntityStore": LegacyEntityStore,
                     "LegacyGraphStore": LegacyGraphStore,
                     "LegacyKnowledgeReadAdapter": LegacyKnowledgeReadAdapter,
@@ -101,6 +115,7 @@ def __getattr__(name: str) -> Any:
                     "get_legacy_graph_stats_payload": get_legacy_graph_stats_payload,
                     "get_legacy_knowledge_read_adapter": get_legacy_knowledge_read_adapter,
                     "graph_stats_payload": graph_stats_payload,
+                    "reset_legacy_graph_runtime": reset_legacy_graph_runtime,
                 }
             )
         return exports[name]

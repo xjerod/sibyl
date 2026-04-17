@@ -27,7 +27,7 @@ FORBIDDEN_MODULE_PREFIXES = {
 ALLOW_SQL = ("sibyl.db.connection", "sqlalchemy", "sqlmodel")
 ALLOW_GRAPH = ("sibyl_core.graph",)
 ALLOWLIST: dict[str, tuple[str, ...]] = {
-    "apps/api/src/sibyl/api/routes/admin.py": (*ALLOW_GRAPH, "sqlalchemy", "sqlmodel"),
+    "apps/api/src/sibyl/api/routes/admin.py": ("sqlalchemy", "sqlmodel"),
     "apps/api/src/sibyl/api/routes/auth.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/backups.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/crawler.py": ("sqlalchemy", "sibyl_core.graph", "sqlmodel"),
@@ -39,12 +39,12 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
     "apps/api/src/sibyl/api/routes/metrics.py": ALLOW_GRAPH,
     "apps/api/src/sibyl/api/routes/org_invitations.py": ("sibyl.db.connection", "sqlalchemy"),
     "apps/api/src/sibyl/api/routes/org_members.py": ALLOW_SQL,
-    "apps/api/src/sibyl/api/routes/orgs.py": (*ALLOW_SQL, *ALLOW_GRAPH),
+    "apps/api/src/sibyl/api/routes/orgs.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/project_members.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/rag.py": ("sqlalchemy", "sibyl_core.graph", "sqlmodel"),
     "apps/api/src/sibyl/api/routes/search.py": ("sibyl.db.connection", "sqlalchemy"),
     "apps/api/src/sibyl/api/routes/session.py": ("sibyl.db.connection", "sqlalchemy"),
-    "apps/api/src/sibyl/api/routes/settings.py": (*ALLOW_SQL, *ALLOW_GRAPH),
+    "apps/api/src/sibyl/api/routes/settings.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/setup.py": ALLOW_SQL,
     "apps/api/src/sibyl/api/routes/tasks.py": ("sqlalchemy", "sibyl_core.graph"),
     "apps/api/src/sibyl/api/routes/users.py": ("sibyl.db.connection", "sqlalchemy", "sqlmodel"),

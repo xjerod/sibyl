@@ -20,6 +20,10 @@ from sibyl.api.schemas import (
 )
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
+from sibyl.persistence.legacy.graph import (
+    execute_legacy_debug_query,
+    get_legacy_graph_stats_payload,
+)
 
 log = structlog.get_logger()
 
@@ -79,8 +83,6 @@ async def stats(
 ) -> StatsResponse:
     """Get knowledge graph statistics."""
     try:
-        from sibyl.persistence.legacy.graph import get_legacy_graph_stats_payload
-
         stats_data = await get_legacy_graph_stats_payload(str(org.id))
 
         return StatsResponse(
@@ -273,25 +275,11 @@ async def debug_query(
         )
 
     try:
-        from sibyl_core.graph.client import get_graph_client
-
-        client = await get_graph_client()
-        result = await client.execute_read_org(
+        rows = await execute_legacy_debug_query(
             request.cypher,
-            str(org.id),
+            group_id=str(org.id),
             **request.params,
         )
-
-        # Convert result records to dicts
-        rows = []
-        for record in result:
-            # FalkorDB returns tuples/records - convert to dict
-            if hasattr(record, "keys"):
-                rows.append(dict(record))
-            elif isinstance(record, (list, tuple)):
-                rows.append({"value": record})
-            else:
-                rows.append({"value": record})
 
         return DebugQueryResponse(
             rows=rows,
