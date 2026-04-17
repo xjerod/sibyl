@@ -738,9 +738,9 @@ def _register_resources(mcp: FastMCP) -> None:
         """
         import json
 
-        from sibyl_core.tools.core import get_stats
+        from sibyl.persistence.legacy.graph import get_legacy_graph_stats_payload
 
         # Get org context (required for stats)
         org_id = await _require_org_id()
-        stats = await get_stats(organization_id=org_id)
+        stats = await get_legacy_graph_stats_payload(org_id)
         return json.dumps(stats, indent=2)

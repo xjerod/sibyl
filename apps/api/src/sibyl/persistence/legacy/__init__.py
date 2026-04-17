@@ -21,6 +21,9 @@ if TYPE_CHECKING:
         LegacyKnowledgeWriteAdapter,
         LegacyRelationshipStore,
         LegacySearchIndex,
+        get_legacy_graph_stats_payload,
+        get_legacy_knowledge_read_adapter,
+        graph_stats_payload,
     )
 
 __all__ = [
@@ -36,6 +39,9 @@ __all__ = [
     "LegacyKnowledgeWriteAdapter",
     "LegacyRelationshipStore",
     "LegacySearchIndex",
+    "get_legacy_graph_stats_payload",
+    "get_legacy_knowledge_read_adapter",
+    "graph_stats_payload",
     "UserNotFoundError",
 ]
 
@@ -68,6 +74,9 @@ def __getattr__(name: str) -> Any:
             "LegacyKnowledgeWriteAdapter",
             "LegacyRelationshipStore",
             "LegacySearchIndex",
+            "get_legacy_graph_stats_payload",
+            "get_legacy_knowledge_read_adapter",
+            "graph_stats_payload",
         }:
             from sibyl.persistence.legacy.graph import (
                 LegacyEntityStore,
@@ -76,6 +85,9 @@ def __getattr__(name: str) -> Any:
                 LegacyKnowledgeWriteAdapter,
                 LegacyRelationshipStore,
                 LegacySearchIndex,
+                get_legacy_graph_stats_payload,
+                get_legacy_knowledge_read_adapter,
+                graph_stats_payload,
             )
 
             exports.update(
@@ -86,6 +98,9 @@ def __getattr__(name: str) -> Any:
                     "LegacyKnowledgeWriteAdapter": LegacyKnowledgeWriteAdapter,
                     "LegacyRelationshipStore": LegacyRelationshipStore,
                     "LegacySearchIndex": LegacySearchIndex,
+                    "get_legacy_graph_stats_payload": get_legacy_graph_stats_payload,
+                    "get_legacy_knowledge_read_adapter": get_legacy_knowledge_read_adapter,
+                    "graph_stats_payload": graph_stats_payload,
                 }
             )
         return exports[name]

@@ -7,7 +7,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any, Self
 
 from sibyl_core.errors import EntityNotFoundError
-from sibyl_core.graph.client import GraphClient
+from sibyl_core.graph.client import GraphClient, get_graph_client
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
@@ -500,6 +500,26 @@ class LegacyKnowledgeWriteAdapter(KnowledgeWriteService):
 
     async def delete_relationship(self, relationship_id: str) -> bool:
         return await self._store.relationships.delete(relationship_id)
+
+
+async def get_legacy_knowledge_read_adapter(group_id: str) -> LegacyKnowledgeReadAdapter:
+    client = await get_graph_client()
+    return LegacyKnowledgeReadAdapter.from_client(client, group_id)
+
+
+def graph_stats_payload(stats: GraphStats) -> dict[str, object]:
+    entity_counts = {entity_type.value: 0 for entity_type in EntityType}
+    entity_counts.update(stats.entities_by_type)
+    return {
+        "entity_counts": entity_counts,
+        "total_entities": stats.total_entities,
+    }
+
+
+async def get_legacy_graph_stats_payload(group_id: str) -> dict[str, object]:
+    service = await get_legacy_knowledge_read_adapter(group_id)
+    stats = await service.stats()
+    return graph_stats_payload(stats)
 
 
 def _collect_related_ids(entity_id: str, relationships: Sequence[Relationship]) -> Iterable[str]:

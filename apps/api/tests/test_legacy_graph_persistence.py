@@ -12,6 +12,8 @@ from sibyl.persistence.legacy.graph import (
     LegacyGraphStore,
     LegacyKnowledgeReadAdapter,
     LegacySearchIndex,
+    get_legacy_graph_stats_payload,
+    graph_stats_payload,
 )
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.storage import GraphStats, SearchFilters
@@ -148,3 +150,30 @@ async def test_get_graph_stats_maps_service_stats() -> None:
         "total_edges": 3,
         "by_type": {"pattern": 4, "task": 3},
     }
+
+
+def test_graph_stats_payload_initializes_missing_entity_types() -> None:
+    payload = graph_stats_payload(
+        GraphStats(
+            total_entities=2,
+            entities_by_type={"pattern": 2},
+        )
+    )
+
+    assert payload["total_entities"] == 2
+    entity_counts = payload["entity_counts"]
+    assert entity_counts["pattern"] == 2
+    assert entity_counts["task"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_legacy_graph_stats_payload_uses_read_adapter() -> None:
+    stats = GraphStats(total_entities=5, entities_by_type={"task": 5})
+    adapter = AsyncMock()
+    adapter.stats.return_value = stats
+
+    with patch("sibyl.persistence.legacy.graph.get_legacy_knowledge_read_adapter", AsyncMock(return_value=adapter)):
+        payload = await get_legacy_graph_stats_payload("org-1")
+
+    assert payload["total_entities"] == 5
+    assert payload["entity_counts"]["task"] == 5

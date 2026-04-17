@@ -79,9 +79,9 @@ async def stats(
 ) -> StatsResponse:
     """Get knowledge graph statistics."""
     try:
-        from sibyl_core.tools.core import get_stats
+        from sibyl.persistence.legacy.graph import get_legacy_graph_stats_payload
 
-        stats_data = await get_stats(organization_id=str(org.id))
+        stats_data = await get_legacy_graph_stats_payload(str(org.id))
 
         return StatsResponse(
             entity_counts=stats_data.get("entity_counts", {}),
@@ -329,8 +329,9 @@ async def dev_status(
 
     Requires organization OWNER role.
     """
+    from sibyl.persistence.legacy.graph import get_legacy_graph_stats_payload
     from sibyl_core.logging import LogBuffer
-    from sibyl_core.tools.core import get_health, get_stats
+    from sibyl_core.tools.core import get_health
 
     # Get health and stats
     try:
@@ -345,7 +346,7 @@ async def dev_status(
 
     # Get entity count
     try:
-        stats = await get_stats(organization_id=str(org.id))
+        stats = await get_legacy_graph_stats_payload(str(org.id))
         entity_count = stats.get("total_entities", 0)
     except Exception:
         entity_count = 0
