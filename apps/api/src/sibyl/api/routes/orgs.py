@@ -4,23 +4,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from sibyl import config as config_module
-from sibyl.auth.audit import AuditLogger
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_user
-from sibyl.auth.http import select_access_token
-from sibyl.auth.jwt import create_access_token, create_refresh_token
-from sibyl.auth.memberships import OrganizationMembershipManager
-from sibyl.auth.organizations import OrganizationManager, slugify
-from sibyl.auth.sessions import SessionManager
-from sibyl.db.connection import get_session_dependency
-from sibyl.db.models import Organization, OrganizationMember, OrganizationRole, User
-from sibyl.persistence.legacy.graph import ensure_legacy_graph_indexes
+from sibyl.db.models import User
+from sibyl.persistence.legacy.orgs import (
+    create_legacy_org,
+    delete_legacy_org,
+    get_legacy_org,
+    list_legacy_orgs,
+    switch_legacy_org,
+    update_legacy_org,
+)
 
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 
@@ -83,27 +81,20 @@ def _set_auth_cookies(
 @router.get("")
 async def list_orgs(
     user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session_dependency),
 ):
-    result = await session.execute(
-        select(Organization, OrganizationMember.role)
-        .join(OrganizationMember, OrganizationMember.organization_id == Organization.id)
-        .where(OrganizationMember.user_id == user.id)
-        .order_by(Organization.slug.asc())
-    )
-
-    orgs = []
-    for org, role in result.all():
-        orgs.append(
+    orgs = await list_legacy_orgs(user_id=user.id)
+    return {
+        "orgs": [
             {
                 "id": str(org.id),
                 "slug": org.slug,
                 "name": org.name,
                 "is_personal": org.is_personal,
-                "role": role.value if role else None,
+                "role": org.role.value if org.role else None,
             }
-        )
-    return {"orgs": orgs}
+            for org in orgs
+        ]
+    }
 
 
 @router.post("")
@@ -112,82 +103,24 @@ async def create_org(
     body: OrganizationCreateRequest,
     response: Response,
     user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session_dependency),
 ):
-    org_manager = OrganizationManager(session)
-    slug = slugify(body.slug or body.name)
-
-    existing = await org_manager.get_by_slug(slug)
-    if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already taken")
-
-    org = await org_manager.create(name=body.name, slug=slug, is_personal=False)
-    await OrganizationMembershipManager(session).add_member(
-        organization_id=org.id,
+    created = await create_legacy_org(
+        request=request,
         user_id=user.id,
-        role=OrganizationRole.OWNER,
+        name=body.name,
+        slug=body.slug,
     )
-
-    # Initialize graph indexes for the new org (vector index for semantic search)
-    try:
-        await ensure_legacy_graph_indexes(str(org.id))
-    except Exception as e:
-        # Don't fail org creation if graph setup fails - indexes will be created lazily
-        import structlog
-
-        structlog.get_logger().debug("Graph index setup deferred", org_id=str(org.id), error=str(e))
-
-    access_token = create_access_token(user_id=user.id, organization_id=org.id)
-    refresh_token, refresh_expires = create_refresh_token(user_id=user.id, organization_id=org.id)
-
-    # Rotate the current session to keep refresh token org-consistent.
-    current = select_access_token(
-        authorization=request.headers.get("authorization"),
-        cookie_token=request.cookies.get(ACCESS_TOKEN_COOKIE),
-    )
-    access_expires = datetime.now(UTC) + timedelta(
-        minutes=config_module.settings.access_token_expire_minutes
-    )
-    session_mgr = SessionManager(session)
-    if current:
-        existing = await session_mgr.get_session_by_token(current)
-        if existing is not None:
-            await session_mgr.rotate_tokens(
-                existing,
-                new_access_token=access_token,
-                new_access_expires_at=access_expires,
-                new_refresh_token=refresh_token,
-                new_refresh_expires_at=refresh_expires,
-            )
-        else:
-            await session_mgr.create_session(
-                user_id=user.id,
-                organization_id=org.id,
-                token=access_token,
-                expires_at=access_expires,
-                refresh_token=refresh_token,
-                refresh_token_expires_at=refresh_expires,
-                ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent"),
-            )
     response.status_code = status.HTTP_201_CREATED
     _set_auth_cookies(
         response,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        refresh_expires=refresh_expires,
-    )
-    await AuditLogger(session).log(
-        action="org.create",
-        user_id=user.id,
-        organization_id=org.id,
-        request=request,
-        details={"slug": org.slug, "name": org.name},
+        access_token=created.access_token,
+        refresh_token=created.refresh_token,
+        refresh_expires=created.refresh_expires,
     )
     return {
-        "organization": {"id": str(org.id), "slug": org.slug, "name": org.name},
-        "access_token": access_token,
-        "refresh_token": refresh_token,
+        "organization": {"id": str(created.id), "slug": created.slug, "name": created.name},
+        "access_token": created.access_token,
+        "refresh_token": created.refresh_token,
         "token_type": "Bearer",
         "expires_in": config_module.settings.access_token_expire_minutes * 60,
     }
@@ -197,19 +130,11 @@ async def create_org(
 async def get_org(
     slug: str,
     ctx: AuthContext = Depends(get_auth_context),
-    session: AsyncSession = Depends(get_session_dependency),
 ):
-    org = await OrganizationManager(session).get_by_slug(slug)
-    if org is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    member = await OrganizationMembershipManager(session).get_for_user(org.id, ctx.user.id)
-    if member is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
+    org = await get_legacy_org(slug=slug, user_id=ctx.user.id)
     return {
         "organization": {"id": str(org.id), "slug": org.slug, "name": org.name},
-        "role": member.role.value,
+        "role": org.role.value,
     }
 
 
@@ -219,29 +144,13 @@ async def update_org(
     slug: str,
     body: OrganizationUpdateRequest,
     ctx: AuthContext = Depends(get_auth_context),
-    session: AsyncSession = Depends(get_session_dependency),
 ):
-    org = await OrganizationManager(session).get_by_slug(slug)
-    if org is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    member = await OrganizationMembershipManager(session).get_for_user(org.id, ctx.user.id)
-    if member is None or member.role not in {OrganizationRole.OWNER, OrganizationRole.ADMIN}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    new_slug = slugify(body.slug) if body.slug else None
-    if new_slug and new_slug != org.slug:
-        existing = await OrganizationManager(session).get_by_slug(new_slug)
-        if existing is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already taken")
-
-    updated = await OrganizationManager(session).update(org, name=body.name, slug=new_slug)
-    await AuditLogger(session).log(
-        action="org.update",
-        user_id=ctx.user.id,
-        organization_id=updated.id,
+    updated = await update_legacy_org(
         request=request,
-        details={"slug": slug, "new_slug": updated.slug, "name": updated.name},
+        slug=slug,
+        user_id=ctx.user.id,
+        name=body.name,
+        new_slug=body.slug,
     )
     return {"organization": {"id": str(updated.id), "slug": updated.slug, "name": updated.name}}
 
@@ -251,29 +160,8 @@ async def delete_org(
     request: Request,
     slug: str,
     ctx: AuthContext = Depends(get_auth_context),
-    session: AsyncSession = Depends(get_session_dependency),
 ):
-    org = await OrganizationManager(session).get_by_slug(slug)
-    if org is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    if org.is_personal:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete personal organization",
-        )
-
-    member = await OrganizationMembershipManager(session).get_for_user(org.id, ctx.user.id)
-    if member is None or member.role != OrganizationRole.OWNER:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    await AuditLogger(session).log(
-        action="org.delete",
-        user_id=ctx.user.id,
-        organization_id=org.id,
-        request=request,
-        details={"slug": org.slug, "name": org.name},
-    )
-    await OrganizationManager(session).delete(org)
+    await delete_legacy_org(request=request, slug=slug, user_id=ctx.user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -283,66 +171,18 @@ async def switch_org(
     slug: str,
     response: Response,
     user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session_dependency),
 ):
-    org = await OrganizationManager(session).get_by_slug(slug)
-    if org is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    member = await OrganizationMembershipManager(session).get_for_user(org.id, user.id)
-    if member is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    access_token = create_access_token(user_id=user.id, organization_id=org.id)
-    refresh_token, refresh_expires = create_refresh_token(user_id=user.id, organization_id=org.id)
-
-    current = select_access_token(
-        authorization=request.headers.get("authorization"),
-        cookie_token=request.cookies.get(ACCESS_TOKEN_COOKIE),
-    )
-    access_expires = datetime.now(UTC) + timedelta(
-        minutes=config_module.settings.access_token_expire_minutes
-    )
-    session_mgr = SessionManager(session)
-    if current:
-        existing = await session_mgr.get_session_by_token(current)
-        if existing is not None:
-            await session_mgr.rotate_tokens(
-                existing,
-                new_access_token=access_token,
-                new_access_expires_at=access_expires,
-                new_refresh_token=refresh_token,
-                new_refresh_expires_at=refresh_expires,
-            )
-        else:
-            await session_mgr.create_session(
-                user_id=user.id,
-                organization_id=org.id,
-                token=access_token,
-                expires_at=access_expires,
-                refresh_token=refresh_token,
-                refresh_token_expires_at=refresh_expires,
-                ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent"),
-            )
-
+    switched = await switch_legacy_org(request=request, slug=slug, user_id=user.id)
     _set_auth_cookies(
         response,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        refresh_expires=refresh_expires,
-    )
-    await AuditLogger(session).log(
-        action="org.switch",
-        user_id=user.id,
-        organization_id=org.id,
-        request=request,
-        details={"slug": org.slug, "name": org.name},
+        access_token=switched.access_token,
+        refresh_token=switched.refresh_token,
+        refresh_expires=switched.refresh_expires,
     )
     return {
-        "organization": {"id": str(org.id), "slug": org.slug, "name": org.name},
-        "access_token": access_token,
-        "refresh_token": refresh_token,
+        "organization": {"id": str(switched.id), "slug": switched.slug, "name": switched.name},
+        "access_token": switched.access_token,
+        "refresh_token": switched.refresh_token,
         "token_type": "Bearer",
         "expires_in": config_module.settings.access_token_expire_minutes * 60,
     }
