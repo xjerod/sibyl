@@ -200,6 +200,10 @@ tasks:
   check:
     deps:
       - ~:inventory-check
+      - ~:inventory-lint
+      - ~:inventory-typecheck
+      - ~:inventory-test
+      - ~:baseline-test
       - core:check
       - api:check
       - cli:check
@@ -212,6 +216,7 @@ tasks:
   test:
     deps:
       - ~:inventory-test
+      - ~:baseline-test
       - core:test
       - api:test
       - cli:test
@@ -249,8 +254,7 @@ tasks:
       - tools/**/*.py
 
   inventory-typecheck:
-    command:
-      uv run ty check tools/inventory/runtime_surface.py tools/tests/conftest.py tools/tests/test_runtime_surface.py
+    command: uv run ty check tools
     inputs:
       - tools/**/*.py
       - pyproject.toml
@@ -266,6 +270,36 @@ tasks:
       - apps/api/pyproject.toml
       - apps/cli/pyproject.toml
       - packages/python/sibyl-core/pyproject.toml
+
+  baseline-capture:
+    command: uv run python -m tools.baselines.capture
+    inputs:
+      - tools/**/*.py
+      - apps/api/src/**/*.py
+      - packages/python/sibyl-core/src/**/*.py
+      - baselines/**/*.jsonl
+      - pyproject.toml
+      - apps/api/pyproject.toml
+      - packages/python/sibyl-core/pyproject.toml
+    outputs:
+      - baselines/**/*.jsonl
+      - baselines/manifest.json
+
+  baseline-replay:
+    command: uv run python -m tools.baselines.replay
+    inputs:
+      - tools/**/*.py
+      - baselines/**/*.jsonl
+      - baselines/manifest.json
+      - pyproject.toml
+      - apps/api/pyproject.toml
+      - packages/python/sibyl-core/pyproject.toml
+
+  baseline-test:
+    command: uv run pytest tools/tests/test_baselines.py -v
+    inputs:
+      - tools/**/*.py
+      - pyproject.toml
 
   # ==========================================================================
   # Coverage

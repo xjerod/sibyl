@@ -1,0 +1,2 @@
+{"description": "Local auth login returns tokens and org context.", "expect": {"equals": {"/body/user/email": "baseline-corpus@sibyl.dev", "/status_code": 200}, "required": ["/body/access_token", "/body/refresh_token", "/body/organization/id", "/body/user/id"]}, "id": "auth-login", "kind": "auth_login"}
+{"auth": "bearer", "expect": {"equals": {"/body/user/email": "baseline-corpus@sibyl.dev", "/status_code": 200}, "required": ["/body/organization/id", "/body/org_role", "/body/user/id"]}, "id": "auth-me", "kind": "rest", "method": "GET", "path": "/auth/me"}

@@ -1,0 +1,1 @@
+{"auth": "bearer", "expect": {"equals": {"/body/query": "Baseline Corpus Episode", "/status_code": 200}, "list_contains": [{"match": {"name": "Baseline Corpus Episode"}, "pointer": "/body/results"}], "minimums": {"/body/total": 1}}, "id": "search-rest-baseline-episode", "json": {"limit": 5, "query": "Baseline Corpus Episode"}, "kind": "rest", "method": "POST", "path": "/search"}

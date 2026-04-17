@@ -1,0 +1,20 @@
+{
+  "base_url": "http://localhost:3334",
+  "captured_at": "2026-04-17T09:00:29.593651+00:00",
+  "email": "baseline-corpus@sibyl.dev",
+  "files": [
+    "auth_smoke.jsonl",
+    "rest_smoke.jsonl",
+    "search_queries.jsonl",
+    "mcp_smoke.jsonl"
+  ],
+  "mcp_add": {
+    "note": "The replay corpus asserts current legacy behavior, including the MCP manage wrapper failure.",
+    "title": "Baseline MCP Smoke Pattern"
+  },
+  "rest_seed": {
+    "entity_type": "episode",
+    "id": "a9f8caeb-bebd-41d8-937f-7b4b037cc84e",
+    "title": "Baseline Corpus Episode"
+  }
+}

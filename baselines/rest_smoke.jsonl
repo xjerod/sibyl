@@ -1,0 +1,2 @@
+{"auth": "none", "expect": {"equals": {"/body/status": "healthy", "/status_code": 200}, "required": ["/body/version"]}, "id": "rest-health", "kind": "rest", "method": "GET", "path": "/health"}
+{"auth": "bearer", "expect": {"equals": {"/status_code": 200}, "minimums": {"/body/total_nodes": 1}, "required": ["/body/by_type", "/body/total_nodes", "/body/total_edges"]}, "id": "rest-graph-stats", "kind": "rest", "method": "GET", "path": "/graph/stats"}
