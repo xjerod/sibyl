@@ -9,7 +9,6 @@ from dataclasses import asdict
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.api.schemas import (
     ExploreRequest,
@@ -20,12 +19,11 @@ from sibyl.api.schemas import (
     TemporalRequest,
     TemporalResponse,
 )
-from sibyl.auth.authorization import list_accessible_project_graph_ids
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.auth.errors import ProjectAccessDeniedError
-from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import Organization, OrganizationRole
+from sibyl.persistence.legacy.auth import list_legacy_accessible_project_graph_ids
 
 log = structlog.get_logger()
 _READ_ROLES = (
@@ -47,7 +45,6 @@ async def search(
     request: SearchRequest,
     org: Organization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
-    session: AsyncSession = Depends(get_session_dependency),
 ) -> SearchResponse:
     """Unified semantic search across knowledge graph AND documentation.
 
@@ -69,7 +66,7 @@ async def search(
         group_id = str(org.id)
 
         # Get accessible project IDs for filtering
-        accessible_projects = await list_accessible_project_graph_ids(session, ctx)
+        accessible_projects = await list_legacy_accessible_project_graph_ids(ctx)
 
         # If user specified a project, validate they have access
         project_filter = request.project
@@ -118,7 +115,6 @@ async def explore(
     request: ExploreRequest,
     org: Organization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
-    session: AsyncSession = Depends(get_session_dependency),
 ) -> ExploreResponse:
     """Explore and traverse the knowledge graph.
 
@@ -131,7 +127,7 @@ async def explore(
         group_id = str(org.id)
 
         # Get accessible project IDs for filtering
-        accessible_projects = await list_accessible_project_graph_ids(session, ctx)
+        accessible_projects = await list_legacy_accessible_project_graph_ids(ctx)
 
         project_ids = request.project_ids or ([request.project] if request.project else None)
 
