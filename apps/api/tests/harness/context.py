@@ -187,7 +187,17 @@ async def mock_graph_connected() -> AsyncGenerator[MockGraphClient]:
             ),
         ),
         patch("sibyl_core.tools.health.execute_legacy_graph_query", AsyncMock(return_value=[])),
-        patch("sibyl_core.tools.admin.get_graph_client", async_get_client),
+        patch("sibyl_core.tools.admin.get_legacy_graph_client", async_get_client),
+        patch(
+            "sibyl_core.tools.admin.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=LegacyGraphRuntime(
+                    client=client,
+                    entity_manager=MockEntityManager(),
+                    relationship_manager=MockRelationshipManager(),
+                )
+            ),
+        ),
     ):
         yield client
 
@@ -248,6 +258,16 @@ async def mock_graph_disconnected() -> AsyncGenerator[MockGraphClient]:
             ),
         ),
         patch("sibyl_core.tools.health.execute_legacy_graph_query", AsyncMock(return_value=[])),
-        patch("sibyl_core.tools.admin.get_graph_client", async_get_client),
+        patch("sibyl_core.tools.admin.get_legacy_graph_client", async_get_client),
+        patch(
+            "sibyl_core.tools.admin.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=LegacyGraphRuntime(
+                    client=client,
+                    entity_manager=MockEntityManager(),
+                    relationship_manager=MockRelationshipManager(),
+                )
+            ),
+        ),
     ):
         yield client

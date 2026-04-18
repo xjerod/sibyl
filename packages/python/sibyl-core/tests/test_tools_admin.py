@@ -65,14 +65,14 @@ class TestHealthAndStats:
         entity_manager = AsyncMock()
         entity_manager.search = AsyncMock(return_value=[])
 
-        with (
-            patch(
-                "sibyl_core.tools.admin.get_graph_client",
-                AsyncMock(return_value=client),
-            ),
-            patch(
-                "sibyl_core.tools.admin.EntityManager",
-                return_value=entity_manager,
+        with patch(
+            "sibyl_core.tools.admin.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    client=client,
+                    entity_manager=entity_manager,
+                    relationship_manager=AsyncMock(),
+                )
             ),
         ):
             result = await health_check(organization_id=org_id)
@@ -102,7 +102,7 @@ class TestHealthAndStats:
         )
 
         with patch(
-            "sibyl_core.tools.admin.get_graph_client",
+            "sibyl_core.tools.admin.get_legacy_graph_client",
             AsyncMock(return_value=client),
         ):
             stats = await get_stats(organization_id=org_id)
@@ -157,16 +157,14 @@ class TestBackfillTaskProjectRelationships:
 
         with (
             patch(
-                "sibyl_core.tools.admin.get_graph_client",
-                AsyncMock(return_value=client),
-            ),
-            patch(
-                "sibyl_core.tools.admin.EntityManager",
-                return_value=entity_manager,
-            ),
-            patch(
-                "sibyl_core.tools.admin.RelationshipManager",
-                return_value=relationship_manager,
+                "sibyl_core.tools.admin.get_legacy_graph_runtime",
+                AsyncMock(
+                    return_value=SimpleNamespace(
+                        client=client,
+                        entity_manager=entity_manager,
+                        relationship_manager=relationship_manager,
+                    )
+                ),
             ),
             patch("sibyl_core.tools.admin.BACKFILL_PAGE_SIZE", page_size),
         ):
@@ -200,18 +198,14 @@ class TestBackfillTaskProjectRelationships:
         entity_manager.list_by_type = AsyncMock(side_effect=[[task], first_page, second_page, []])
         relationship_manager.get_for_entity = AsyncMock(return_value=[])
 
-        with (
-            patch(
-                "sibyl_core.tools.admin.get_graph_client",
-                AsyncMock(return_value=client),
-            ),
-            patch(
-                "sibyl_core.tools.admin.EntityManager",
-                return_value=entity_manager,
-            ),
-            patch(
-                "sibyl_core.tools.admin.RelationshipManager",
-                return_value=relationship_manager,
+        with patch(
+            "sibyl_core.tools.admin.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    client=client,
+                    entity_manager=entity_manager,
+                    relationship_manager=relationship_manager,
+                )
             ),
         ):
             result = await backfill_task_project_relationships(organization_id=org_id, dry_run=True)

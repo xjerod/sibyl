@@ -6,21 +6,20 @@ Provides maintenance and diagnostic capabilities.
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
 from sibyl_core.config import settings
-from sibyl_core.graph.client import GraphClient, get_graph_client
-from sibyl_core.graph.entities import EntityManager
-from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.services.legacy_graph import get_legacy_graph_client, get_legacy_graph_runtime
 
 log = structlog.get_logger()
 
 BACKFILL_PAGE_SIZE = 1000
 
 
-async def _get_entity_counts(client: GraphClient, organization_id: str) -> dict[str, int]:
+async def _get_entity_counts(client: Any, organization_id: str) -> dict[str, int]:
     """Count entities by type with a single org-scoped aggregation query."""
     rows = await client.execute_read_org(
         """
@@ -119,11 +118,11 @@ async def health_check(*, organization_id: str | None = None) -> HealthStatus:
         uptime = time.time() - _state.start_time
 
     try:
-        client = await get_graph_client()
-        graph_connected = True
-
-        # Entity counts and search latency require org context
         if organization_id:
+            runtime = await get_legacy_graph_runtime(organization_id)
+            client = runtime.client
+            entity_manager = runtime.entity_manager
+            graph_connected = True
             for entity_type in EntityType:
                 entity_counts[entity_type.value] = -1
 
@@ -131,8 +130,6 @@ async def health_check(*, organization_id: str | None = None) -> HealthStatus:
                 entity_counts = await _get_entity_counts(client, organization_id)
             except Exception as e:
                 errors.append(f"Entity count query failed: {e}")
-
-            entity_manager = EntityManager(client, group_id=organization_id)
 
             # Test search latency
             try:
@@ -143,6 +140,9 @@ async def health_check(*, organization_id: str | None = None) -> HealthStatus:
                 search_latency_ms = (time.time() - start) * 1000
             except Exception as e:
                 errors.append(f"Search latency test failed: {e}")
+        else:
+            await get_legacy_graph_client()
+            graph_connected = True
 
     except Exception as e:
         errors.append(f"Graph connection failed: {e}")
@@ -235,7 +235,7 @@ async def get_stats(*, organization_id: str | None = None) -> dict[str, object]:
         return stats
 
     try:
-        client = await get_graph_client()
+        client = await get_legacy_graph_client()
 
         entity_stats = await _get_entity_counts(client, organization_id)
 
@@ -266,7 +266,7 @@ class MigrationResult:
 
 
 async def _cast_name_embeddings_to_vecf32(
-    client: GraphClient,
+    client: Any,
     *,
     batch_size: int,
     max_entities: int,
@@ -315,7 +315,7 @@ async def _cast_name_embeddings_to_vecf32(
 
 
 async def _clear_mismatched_name_embedding_dimensions(
-    client: GraphClient,
+    client: Any,
     *,
     expected_dim: int,
     batch_size: int,
@@ -408,7 +408,7 @@ async def migrate_fix_name_embedding_types(
     start_time = time.time()
 
     try:
-        client = await get_graph_client()
+        client = await get_legacy_graph_client()
         expected_dim = settings.graph_embedding_dimensions
 
         entities_updated = await _cast_name_embeddings_to_vecf32(
@@ -513,9 +513,9 @@ async def create_backup(*, organization_id: str) -> BackupResult:
     start_time = time.time()
 
     try:
-        client = await get_graph_client()
-        entity_manager = EntityManager(client, group_id=organization_id)
-        relationship_manager = RelationshipManager(client, group_id=organization_id)
+        runtime = await get_legacy_graph_runtime(organization_id)
+        entity_manager = runtime.entity_manager
+        relationship_manager = runtime.relationship_manager
 
         # Collect all entities
         all_entities: list[Entity] = []
@@ -600,9 +600,9 @@ async def restore_backup(
     relationships_skipped = 0
 
     try:
-        client = await get_graph_client()
-        entity_manager = EntityManager(client, group_id=organization_id)
-        relationship_manager = RelationshipManager(client, group_id=organization_id)
+        runtime = await get_legacy_graph_runtime(organization_id)
+        entity_manager = runtime.entity_manager
+        relationship_manager = runtime.relationship_manager
 
         # Restore entities
         for entity_data in backup_data.entities:
@@ -716,9 +716,9 @@ async def backfill_task_project_relationships(
     tasks_already_linked = 0
 
     try:
-        client = await get_graph_client()
-        entity_manager = EntityManager(client, group_id=organization_id)
-        relationship_manager = RelationshipManager(client, group_id=organization_id)
+        runtime = await get_legacy_graph_runtime(organization_id)
+        entity_manager = runtime.entity_manager
+        relationship_manager = runtime.relationship_manager
 
         # Get all tasks in pages so large organizations are fully processed.
         tasks: list[Entity] = []
@@ -878,7 +878,7 @@ async def backfill_project_id_from_relationships(
     nodes_without_project_rel = 0
 
     try:
-        client = await get_graph_client()
+        client = await get_legacy_graph_client()
 
         # Query: Find nodes with BELONGS_TO -> project but missing project_id property
         # This uses a single Cypher query for efficiency
@@ -1052,8 +1052,6 @@ async def backfill_episode_task_relationships(
     import json
     import time
 
-    from sibyl_core.graph.client import get_graph_client
-
     start_time = time.time()
     relationships_created = 0
     episodes_already_linked = 0
@@ -1067,7 +1065,7 @@ async def backfill_episode_task_relationships(
     )
 
     try:
-        client = await get_graph_client()
+        client = await get_legacy_graph_client()
 
         # Find episode nodes with task_id in metadata
         episode_query = """
@@ -1272,8 +1270,9 @@ async def backfill_shared_project(
     entities_already_set = 0
 
     try:
-        client = await get_graph_client()
-        entity_manager = EntityManager(client, group_id=organization_id)
+        runtime = await get_legacy_graph_runtime(organization_id)
+        client = runtime.client
+        entity_manager = runtime.entity_manager
 
         # Step 1: Create or get the shared project graph entity
         import contextlib
