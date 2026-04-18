@@ -183,11 +183,22 @@ async def test_get_legacy_graph_stats_payload_uses_read_adapter() -> None:
 
 @pytest.mark.asyncio
 async def test_legacy_graph_query_adapter_proxies_scoped_reads() -> None:
-    client = AsyncMock()
+    client = MagicMock()
+    client.execute_read_org = AsyncMock(return_value=[{"value": 1}])
+    driver = MagicMock()
+    driver.execute_query = AsyncMock(return_value=[{"id": "node-1"}])
+    client.get_org_driver.return_value = driver
     manager = AsyncMock()
     manager.list_by_type.return_value = ["task-1"]
+    manager.get.return_value = "entity-1"
+    relationships = AsyncMock()
+    relationships.list_all.return_value = ["rel-1"]
 
-    with patch("sibyl.persistence.legacy.graph.EntityManager", return_value=manager):
+    with (
+        patch("sibyl.persistence.legacy.graph.EntityManager", return_value=manager),
+        patch("sibyl.persistence.legacy.graph.RelationshipManager", return_value=relationships),
+        patch("sibyl.persistence.legacy.graph.GraphClient.normalize_result", return_value=[{"id": "node-1"}]),
+    ):
         adapter = LegacyGraphQueryAdapter(client, "org-1")
         entities = await adapter.list_entities_by_type(
             EntityType.TASK,
@@ -195,9 +206,15 @@ async def test_legacy_graph_query_adapter_proxies_scoped_reads() -> None:
             offset=10,
             project_id="proj-1",
         )
+        entity = await adapter.get_entity("task-1")
+        rels = await adapter.list_relationships(limit=25, offset=5)
+        query_rows = await adapter.execute_query("RETURN n.uuid AS id")
         rows = await adapter.execute_read_org("RETURN 1 AS value", now_iso="2026-04-17T00:00:00+00:00")
 
     assert entities == ["task-1"]
+    assert entity == "entity-1"
+    assert rels == ["rel-1"]
+    assert query_rows == [{"id": "node-1"}]
     manager.list_by_type.assert_awaited_once_with(
         EntityType.TASK,
         limit=50,
@@ -212,13 +229,20 @@ async def test_legacy_graph_query_adapter_proxies_scoped_reads() -> None:
         tags=None,
         include_archived=False,
     )
+    manager.get.assert_awaited_once_with("task-1")
+    relationships.list_all.assert_awaited_once_with(
+        relationship_types=None,
+        limit=25,
+        offset=5,
+    )
+    driver.execute_query.assert_awaited_once_with("RETURN n.uuid AS id", group_id="org-1")
     client.execute_read_org.assert_awaited_once_with(
         "RETURN 1 AS value",
         "org-1",
         group_id="org-1",
         now_iso="2026-04-17T00:00:00+00:00",
     )
-    assert rows == client.execute_read_org.return_value
+    assert rows == [{"value": 1}]
 
 
 @pytest.mark.asyncio
@@ -230,3 +254,4 @@ async def test_get_legacy_graph_query_adapter_uses_graph_client() -> None:
 
     assert isinstance(adapter, LegacyGraphQueryAdapter)
     assert adapter._client is client
+    assert adapter._driver is client.get_org_driver.return_value

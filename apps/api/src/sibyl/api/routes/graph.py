@@ -7,9 +7,7 @@ from sibyl.api.dependencies import get_legacy_knowledge_read_service
 from sibyl.api.schemas import GraphData, GraphEdge, GraphNode, SubgraphRequest
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
-from sibyl_core.graph.client import GraphClient, get_graph_client
-from sibyl_core.graph.entities import EntityManager
-from sibyl_core.graph.relationships import RelationshipManager
+from sibyl.persistence.legacy.graph import get_legacy_graph_query_adapter
 from sibyl_core.models.entities import EntityType, RelationshipType
 from sibyl_core.services import KnowledgeReadService
 
@@ -35,11 +33,8 @@ router = APIRouter(
 @router.get("/debug", dependencies=[Depends(require_org_role(*_ADMIN_ROLES))])
 async def debug_graph(org: Organization = Depends(get_current_organization)):
     """Debug endpoint to trace graph data issue."""
-    client = await get_graph_client()
     group_id = str(org.id)
-
-    # Use org-scoped driver to query the correct graph
-    driver = client.get_org_driver(group_id)
+    graph_queries = await get_legacy_graph_query_adapter(group_id)
 
     # Get nodes
     node_query = """
@@ -47,8 +42,7 @@ async def debug_graph(org: Organization = Depends(get_current_organization)):
         WHERE (n:Episodic OR n:Entity OR n:Document) AND n.group_id = $group_id
         RETURN n.uuid as id LIMIT 500
     """
-    node_result = await driver.execute_query(node_query, group_id=group_id)
-    node_rows = GraphClient.normalize_result(node_result)
+    node_rows = await graph_queries.execute_query(node_query)
     node_ids = {row.get("id") for row in node_rows if row.get("id")}
 
     # Get edges
@@ -57,8 +51,7 @@ async def debug_graph(org: Organization = Depends(get_current_organization)):
         WHERE r.group_id = $group_id
         RETURN s.uuid as src, t.uuid as tgt LIMIT 1000
     """
-    edge_result = await driver.execute_query(edge_query, group_id=group_id)
-    edge_rows = GraphClient.normalize_result(edge_result)
+    edge_rows = await graph_queries.execute_query(edge_query)
 
     # Check overlap
     matching = sum(
@@ -118,7 +111,7 @@ async def get_all_nodes(
     """
     try:
         group_id = str(org.id)
-        client = await get_graph_client()
+        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
         # Build type filter for Cypher query
         type_filter = ""
@@ -140,10 +133,7 @@ async def get_all_nodes(
             LIMIT {limit}
         """
 
-        # Use org-scoped driver to query the correct graph
-        driver = client.get_org_driver(group_id)
-        result = await driver.execute_query(query, group_id=group_id)
-        rows = GraphClient.normalize_result(result)
+        rows = await graph_queries.execute_query(query)
 
         # Count connections for sizing
         connection_counts: dict[str, int] = {}
@@ -153,9 +143,12 @@ async def get_all_nodes(
                 WHERE n.group_id = $group_id
                 RETURN n.uuid as id, count(r) as cnt
             """
-            conn_result = await driver.execute_query(conn_query, group_id=group_id)
-            for row in GraphClient.normalize_result(conn_result):
-                connection_counts[row.get("id", "")] = row.get("cnt", 0)
+            for row in await graph_queries.execute_query(conn_query):
+                node_id = row.get("id")
+                if not isinstance(node_id, str) or not node_id:
+                    continue
+                count = row.get("cnt", 0)
+                connection_counts[node_id] = int(count) if isinstance(count, int | float) else 0
         except Exception:
             log.debug("connection_count_failed", msg="falling back to zero")
 
@@ -213,11 +206,9 @@ async def get_all_edges(
     """Get all edges for graph visualization."""
     try:
         group_id = str(org.id)
-        client = await get_graph_client()
-        relationship_manager = RelationshipManager(client, group_id=group_id)
+        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
-        # Get all relationships with pagination
-        all_relationships = await relationship_manager.list_all(
+        all_relationships = await graph_queries.list_relationships(
             relationship_types=relationship_types,
             limit=limit,
             offset=offset,
@@ -253,11 +244,8 @@ async def get_full_graph(
     """Get complete graph data for visualization."""
     try:
         # Fetch nodes and edges - call underlying logic directly
-        client = await get_graph_client()
         group_id = str(org.id)
-
-        # Use org-scoped driver to query the correct graph
-        driver = client.get_org_driver(group_id)
+        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
         # === NODES: Direct Cypher query ===
         type_filter = ""
@@ -276,8 +264,7 @@ async def get_full_graph(
                    n.summary as summary
             LIMIT {max_nodes}
         """
-        node_result = await driver.execute_query(node_query, group_id=group_id)
-        node_rows = GraphClient.normalize_result(node_result)
+        node_rows = await graph_queries.execute_query(node_query)
 
         nodes = []
         node_ids: set[str] = set()
@@ -315,8 +302,7 @@ async def get_full_graph(
                    COALESCE(r.name, type(r)) as rel_type
             LIMIT {max_edges}
         """
-        edge_result = await driver.execute_query(edge_query, group_id=group_id)
-        edge_rows = GraphClient.normalize_result(edge_result)
+        edge_rows = await graph_queries.execute_query(edge_query)
 
         log.info(
             "graph_full_raw",
@@ -366,13 +352,11 @@ async def get_subgraph(
 ) -> GraphData:
     """Get a subgraph centered on a specific entity."""
     try:
-        client = await get_graph_client()
         group_id = str(org.id)
-        entity_manager = EntityManager(client, group_id=group_id)
-        relationship_manager = RelationshipManager(client, group_id=group_id)
+        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
         # Get center entity
-        center = await entity_manager.get(payload.entity_id)
+        center = await graph_queries.get_entity(payload.entity_id)
         if not center:
             raise HTTPException(status_code=404, detail=f"Entity not found: {payload.entity_id}")
 
@@ -388,7 +372,7 @@ async def get_subgraph(
             if entity_id in visited_nodes:
                 return
 
-            entity = await entity_manager.get(entity_id)
+            entity = await graph_queries.get_entity(entity_id)
             if not entity:
                 return
 
@@ -406,7 +390,7 @@ async def get_subgraph(
             )
 
             # Get related entities
-            related = await relationship_manager.get_related_entities(
+            related = await graph_queries.get_related_entities(
                 entity_id=entity_id,
                 relationship_types=payload.relationship_types,
                 max_depth=1,
@@ -473,13 +457,11 @@ async def get_clusters(
     Returns community-detected clusters with type distribution for coloring.
     Results are cached for 5 minutes to avoid expensive recomputation.
     """
-    from sibyl_core.graph.communities import get_clusters_for_visualization
-
     try:
-        client = await get_graph_client()
         group_id = str(org.id)
+        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
-        clusters = await get_clusters_for_visualization(client, group_id, force_refresh=refresh)
+        clusters = await graph_queries.get_clusters_for_visualization(force_refresh=refresh)
 
         # Transform to API response format
         cluster_data = [
@@ -515,13 +497,11 @@ async def get_cluster_detail(
     org: Organization = Depends(get_current_organization),
 ) -> dict:
     """Get nodes and edges within a specific cluster for drill-down view."""
-    from sibyl_core.graph.communities import get_cluster_nodes
-
     try:
-        client = await get_graph_client()
         group_id = str(org.id)
+        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
-        result = await get_cluster_nodes(client, group_id, cluster_id)
+        result = await graph_queries.get_cluster_nodes(cluster_id)
 
         if result.get("error"):
             raise HTTPException(status_code=404, detail=result["error"])
@@ -593,15 +573,11 @@ async def get_hierarchical_graph_data(
     - Cluster metadata for legends
     - Inter-cluster edges for summary views
     """
-    from sibyl_core.graph.communities import get_hierarchical_graph
-
     try:
-        client = await get_graph_client()
         group_id = str(org.id)
+        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
-        data = await get_hierarchical_graph(
-            client,
-            group_id,
+        data = await graph_queries.get_hierarchical_graph(
             project_ids=projects,
             entity_types=[t.value for t in types] if types else None,
             max_nodes=max_nodes,

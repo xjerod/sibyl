@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable, Sequence
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from sibyl_core.errors import EntityNotFoundError
 from sibyl_core.graph.client import GraphClient, get_graph_client, reset_graph_client
@@ -25,6 +25,9 @@ from sibyl_core.storage import (
     SearchHit,
     SearchIndex,
 )
+
+if TYPE_CHECKING:
+    from sibyl_core.graph.communities import ClusterSummary, HierarchicalGraphData
 
 
 def _decode_cursor(cursor: str | None) -> int:
@@ -508,7 +511,13 @@ class LegacyGraphQueryAdapter:
     def __init__(self, client: GraphClient, group_id: str) -> None:
         self._client = client
         self._group_id = group_id
+        self._driver = client.get_org_driver(group_id)
         self._entities = EntityManager(client, group_id=group_id)
+        self._relationships = RelationshipManager(client, group_id=group_id)
+
+    async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
+        result = await self._driver.execute_query(query, group_id=self._group_id, **params)
+        return GraphClient.normalize_result(result)
 
     async def list_entities_by_type(
         self,
@@ -541,12 +550,81 @@ class LegacyGraphQueryAdapter:
             include_archived=include_archived,
         )
 
+    async def get_entity(self, entity_id: str) -> Entity | None:
+        try:
+            return await self._entities.get(entity_id)
+        except EntityNotFoundError:
+            return None
+
+    async def list_relationships(
+        self,
+        *,
+        relationship_types: list[RelationshipType] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Relationship]:
+        return await self._relationships.list_all(
+            relationship_types=relationship_types,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def get_related_entities(
+        self,
+        *,
+        entity_id: str,
+        relationship_types: list[RelationshipType] | None = None,
+        max_depth: int = 1,
+        limit: int = 50,
+    ) -> list[tuple[Entity, Relationship]]:
+        return await self._relationships.get_related_entities(
+            entity_id=entity_id,
+            relationship_types=relationship_types,
+            max_depth=max_depth,
+            limit=limit,
+        )
+
     async def execute_read_org(self, query: str, **params: object) -> list[dict[str, object]]:
         return await self._client.execute_read_org(
             query,
             self._group_id,
             group_id=self._group_id,
             **params,
+        )
+
+    async def get_clusters_for_visualization(
+        self, *, force_refresh: bool = False
+    ) -> list[ClusterSummary]:
+        from sibyl_core.graph.communities import get_clusters_for_visualization
+
+        return await get_clusters_for_visualization(
+            self._client,
+            self._group_id,
+            force_refresh=force_refresh,
+        )
+
+    async def get_cluster_nodes(self, cluster_id: str) -> dict[str, Any]:
+        from sibyl_core.graph.communities import get_cluster_nodes
+
+        return await get_cluster_nodes(self._client, self._group_id, cluster_id)
+
+    async def get_hierarchical_graph(
+        self,
+        *,
+        project_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        max_nodes: int = 1000,
+        max_edges: int = 5000,
+    ) -> HierarchicalGraphData:
+        from sibyl_core.graph.communities import get_hierarchical_graph
+
+        return await get_hierarchical_graph(
+            self._client,
+            self._group_id,
+            project_ids=project_ids,
+            entity_types=entity_types,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
         )
 
 
