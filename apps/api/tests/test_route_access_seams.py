@@ -41,7 +41,6 @@ async def test_verify_task_access_uses_knowledge_read_adapter() -> None:
 async def test_verify_epic_access_uses_knowledge_read_adapter() -> None:
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     ctx = SimpleNamespace()
-    session = AsyncMock()
     epic = SimpleNamespace(entity_type=EntityType.EPIC, metadata={"project_id": "project-9"})
     service = AsyncMock()
     service.get_entity.return_value = epic
@@ -49,15 +48,14 @@ async def test_verify_epic_access_uses_knowledge_read_adapter() -> None:
 
     with (
         patch("sibyl.api.routes.epics.get_legacy_knowledge_read_adapter", AsyncMock(return_value=service)),
-        patch("sibyl.api.routes.epics.verify_entity_project_access", authorize),
+        patch("sibyl.api.routes.epics.verify_legacy_entity_project_access", authorize),
     ):
-        result = await _verify_epic_access("epic-1", org, ctx, session)
+        result = await _verify_epic_access("epic-1", org, ctx)
 
     assert result is epic
     service.get_entity.assert_awaited_once_with("epic-1")
     authorize.assert_awaited_once_with(
-        session,
-        ctx,
-        "project-9",
+        ctx=ctx,
+        entity_project_id="project-9",
         required_role=ProjectRole.CONTRIBUTOR,
     )

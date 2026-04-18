@@ -560,6 +560,16 @@ async def get_legacy_graph_query_adapter(group_id: str) -> LegacyGraphQueryAdapt
     return LegacyGraphQueryAdapter(client, group_id)
 
 
+async def update_legacy_entity(
+    group_id: str,
+    entity_id: str,
+    patch: dict[str, object],
+) -> Entity | None:
+    """Update an entity through the current graph runtime."""
+    client = await get_graph_client()
+    return await EntityManager(client, group_id=group_id).update(entity_id, patch)
+
+
 def graph_stats_payload(stats: GraphStats) -> dict[str, object]:
     entity_counts = {entity_type.value: 0 for entity_type in EntityType}
     entity_counts.update(stats.entities_by_type)

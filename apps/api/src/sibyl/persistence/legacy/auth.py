@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,9 @@ from sibyl_core.auth.models import (
     coerce_auth_session,
     coerce_auth_user,
 )
+
+if TYPE_CHECKING:
+    from sibyl.auth.authorization import ProjectRole
 
 
 class InvalidAuthClaimsError(ValueError):
@@ -154,6 +157,25 @@ async def list_legacy_accessible_project_graph_ids(
 
     async with get_session() as session:
         return await list_accessible_project_graph_ids(session, ctx)
+
+
+async def verify_legacy_entity_project_access(
+    *,
+    ctx: AuthContext,
+    entity_project_id: str | None,
+    required_role: ProjectRole,
+) -> ProjectRole | None:
+    """Verify project access through a fresh legacy relational session."""
+    from sibyl.auth.authorization import verify_entity_project_access
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        return await verify_entity_project_access(
+            session,
+            ctx,
+            entity_project_id,
+            required_role=required_role,
+        )
 
 
 async def create_legacy_session_record(

@@ -29,7 +29,6 @@ ALLOW_GRAPH = ("sibyl_core.graph",)
 ALLOWLIST: dict[str, tuple[str, ...]] = {
     "apps/api/src/sibyl/api/routes/crawler.py": ("sqlalchemy", "sqlmodel"),
     "apps/api/src/sibyl/api/routes/entities.py": (*ALLOW_SQL, *ALLOW_GRAPH),
-    "apps/api/src/sibyl/api/routes/epics.py": (*ALLOW_SQL, *ALLOW_GRAPH),
     "apps/api/src/sibyl/api/routes/graph.py": ALLOW_GRAPH,
     "apps/api/src/sibyl/api/routes/rag.py": ("sqlalchemy", "sibyl_core.graph", "sqlmodel"),
     "apps/api/src/sibyl/api/routes/tasks.py": ("sqlalchemy", "sibyl_core.graph"),
