@@ -41,10 +41,14 @@ def test_runtime_surface_finds_known_contracts() -> None:
     assert "User" in surface.sqlmodel_tables
     assert any(
         record.path == "apps/api/src/sibyl/persistence/legacy/crawler.py"
-        for record in surface.direct_sql_usage
+        for record in surface.raw_sql_usage
     )
     assert not any(
-        record.path == "apps/api/src/sibyl/server.py" for record in surface.direct_sql_usage
+        record.path == "apps/api/src/sibyl/server.py" for record in surface.raw_sql_usage
+    )
+    assert any(
+        record.path == "apps/api/src/sibyl/api/routes/rag.py"
+        for record in surface.session_storage_usage
     )
     assert any(
         record.path == "packages/python/sibyl-core/src/sibyl_core/graph/entities.py"

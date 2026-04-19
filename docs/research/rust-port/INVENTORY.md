@@ -9,7 +9,8 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - MCP tools: 5
 - MCP resources: 2
 - SQLModel tables: 24
-- Direct SQL usage files: 44
+- Raw SQL query usage files: 39
+- Session-backed storage access files: 5
 - Graphiti import files: 17
 - Dependency records: 8
 
@@ -87,12 +88,8 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `BackupSettings`
 - `Backup`
 
-### Direct SQL usage files
-- `apps/api/src/sibyl/api/routes/crawler.py` — session imports: none; query imports: none; session calls: `add`, `delete`, `get`, `refresh`; query calls: none
-- `apps/api/src/sibyl/api/routes/entities.py` — session imports: none; query imports: none; session calls: `commit`; query calls: none
-- `apps/api/src/sibyl/api/routes/rag.py` — session imports: none; query imports: none; session calls: `add`, `commit`, `get`, `refresh`; query calls: none
+### Raw SQL query usage files
 - `apps/api/src/sibyl/auth/api_keys.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/audit.py` — session imports: `AsyncSession`; query imports: none; session calls: none; query calls: none
 - `apps/api/src/sibyl/auth/authorization.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `execute`; query calls: `select`
 - `apps/api/src/sibyl/auth/dependencies.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `execute`, `get`; query calls: `select`
 - `apps/api/src/sibyl/auth/device_authorization.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
@@ -104,7 +101,6 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `apps/api/src/sibyl/auth/sessions.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
 - `apps/api/src/sibyl/auth/users.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
 - `apps/api/src/sibyl/cli/db.py` — session imports: none; query imports: `select`; session calls: `commit`, `execute`; query calls: `select`
-- `apps/api/src/sibyl/crawler/graph_integration.py` — session imports: none; query imports: none; session calls: `add`, `commit`; query calls: none
 - `apps/api/src/sibyl/crawler/pipeline.py` — session imports: none; query imports: `select`; session calls: `add`, `execute`, `get`, `refresh`, `rollback`; query calls: `select`
 - `apps/api/src/sibyl/crawler/service.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `add`, `execute`, `get`, `refresh`; query calls: `select`
 - `apps/api/src/sibyl/db/connection.py` — session imports: `AsyncSession`, `async_sessionmaker`; query imports: `text`; session calls: `execute`; query calls: `text`
@@ -132,6 +128,13 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `packages/python/sibyl-core/src/sibyl_core/services/crawl_sources.py` — session imports: none; query imports: `select`; session calls: `add`, `execute`, `refresh`; query calls: `select`
 - `packages/python/sibyl-core/src/sibyl_core/services/document_search.py` — session imports: none; query imports: `select`; session calls: `execute`; query calls: `select`
 - `packages/python/sibyl-core/src/sibyl_core/services/link_graph_status.py` — session imports: none; query imports: `select`; session calls: none; query calls: `select`
+
+### Session-backed storage access files
+- `apps/api/src/sibyl/api/routes/crawler.py` — session imports: none; query imports: none; session calls: `add`, `delete`, `get`, `refresh`; query calls: none
+- `apps/api/src/sibyl/api/routes/entities.py` — session imports: none; query imports: none; session calls: `commit`; query calls: none
+- `apps/api/src/sibyl/api/routes/rag.py` — session imports: none; query imports: none; session calls: `add`, `commit`, `get`, `refresh`; query calls: none
+- `apps/api/src/sibyl/auth/audit.py` — session imports: `AsyncSession`; query imports: none; session calls: none; query calls: none
+- `apps/api/src/sibyl/crawler/graph_integration.py` — session imports: none; query imports: none; session calls: `add`, `commit`; query calls: none
 
 ### Graphiti import files
 - `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py` — `graphiti_core.embedder.client`

@@ -123,7 +123,8 @@ class RuntimeSurface:
     mcp_tools: tuple[McpDecoratorRecord, ...]
     mcp_resources: tuple[McpDecoratorRecord, ...]
     sqlmodel_tables: tuple[str, ...]
-    direct_sql_usage: tuple[SqlUsageRecord, ...]
+    raw_sql_usage: tuple[SqlUsageRecord, ...]
+    session_storage_usage: tuple[SqlUsageRecord, ...]
     graphiti_imports: tuple[GraphitiImportRecord, ...]
     dependencies: tuple[DependencyRecord, ...]
 
@@ -359,8 +360,9 @@ def collect_sqlmodel_tables() -> tuple[str, ...]:
     return tuple(tables)
 
 
-def collect_direct_sql_usage() -> tuple[SqlUsageRecord, ...]:
-    records: list[SqlUsageRecord] = []
+def collect_storage_usage() -> tuple[tuple[SqlUsageRecord, ...], tuple[SqlUsageRecord, ...]]:
+    raw_sql_records: list[SqlUsageRecord] = []
+    session_only_records: list[SqlUsageRecord] = []
     for root in SOURCE_ROOTS:
         for path in iter_python_files(root):
             visitor = SqlUsageVisitor()
@@ -372,16 +374,18 @@ def collect_direct_sql_usage() -> tuple[SqlUsageRecord, ...]:
                 or visitor.query_calls
             ):
                 continue
-            records.append(
-                SqlUsageRecord(
-                    path=relpath(path),
-                    session_imports=tuple(sorted(visitor.session_import_aliases)),
-                    query_imports=tuple(sorted(visitor.query_import_aliases)),
-                    session_calls=tuple(sorted(visitor.session_calls)),
-                    query_calls=tuple(sorted(visitor.query_calls)),
-                )
+            record = SqlUsageRecord(
+                path=relpath(path),
+                session_imports=tuple(sorted(visitor.session_import_aliases)),
+                query_imports=tuple(sorted(visitor.query_import_aliases)),
+                session_calls=tuple(sorted(visitor.session_calls)),
+                query_calls=tuple(sorted(visitor.query_calls)),
             )
-    return tuple(records)
+            if visitor.query_import_aliases or visitor.query_calls:
+                raw_sql_records.append(record)
+            else:
+                session_only_records.append(record)
+    return tuple(raw_sql_records), tuple(session_only_records)
 
 
 def collect_graphiti_imports() -> tuple[GraphitiImportRecord, ...]:
@@ -453,6 +457,7 @@ def collect_dependencies() -> tuple[DependencyRecord, ...]:
 def collect_runtime_surface() -> RuntimeSurface:
     rest_routers, top_level_http_routes, websocket_routes = collect_rest_surface()
     mcp_tools, mcp_resources = collect_mcp_surface()
+    raw_sql_usage, session_storage_usage = collect_storage_usage()
     return RuntimeSurface(
         rest_routers=rest_routers,
         top_level_http_routes=top_level_http_routes,
@@ -460,7 +465,8 @@ def collect_runtime_surface() -> RuntimeSurface:
         mcp_tools=mcp_tools,
         mcp_resources=mcp_resources,
         sqlmodel_tables=collect_sqlmodel_tables(),
-        direct_sql_usage=collect_direct_sql_usage(),
+        raw_sql_usage=raw_sql_usage,
+        session_storage_usage=session_storage_usage,
         graphiti_imports=collect_graphiti_imports(),
         dependencies=collect_dependencies(),
     )
@@ -486,7 +492,8 @@ def render_markdown(surface: RuntimeSurface) -> str:
         f"- MCP tools: {len(surface.mcp_tools)}",
         f"- MCP resources: {len(surface.mcp_resources)}",
         f"- SQLModel tables: {len(surface.sqlmodel_tables)}",
-        f"- Direct SQL usage files: {len(surface.direct_sql_usage)}",
+        f"- Raw SQL query usage files: {len(surface.raw_sql_usage)}",
+        f"- Session-backed storage access files: {len(surface.session_storage_usage)}",
         f"- Graphiti import files: {len(surface.graphiti_imports)}",
         f"- Dependency records: {len(surface.dependencies)}",
         "",
@@ -550,7 +557,7 @@ def render_markdown(surface: RuntimeSurface) -> str:
     lines.extend(
         [
             "",
-            "### Direct SQL usage files",
+            "### Raw SQL query usage files",
         ]
     )
     lines.extend(
@@ -561,7 +568,24 @@ def render_markdown(surface: RuntimeSurface) -> str:
             f"; session calls: {', '.join(f'`{name}`' for name in record.session_calls) or 'none'}"
             f"; query calls: {', '.join(f'`{name}`' for name in record.query_calls) or 'none'}"
         )
-        for record in surface.direct_sql_usage
+        for record in surface.raw_sql_usage
+    )
+
+    lines.extend(
+        [
+            "",
+            "### Session-backed storage access files",
+        ]
+    )
+    lines.extend(
+        (
+            f"- `{record.path}`"
+            f" — session imports: {', '.join(f'`{name}`' for name in record.session_imports) or 'none'}"
+            f"; query imports: {', '.join(f'`{name}`' for name in record.query_imports) or 'none'}"
+            f"; session calls: {', '.join(f'`{name}`' for name in record.session_calls) or 'none'}"
+            f"; query calls: {', '.join(f'`{name}`' for name in record.query_calls) or 'none'}"
+        )
+        for record in surface.session_storage_usage
     )
 
     lines.extend(
