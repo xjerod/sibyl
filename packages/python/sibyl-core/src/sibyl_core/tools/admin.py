@@ -15,13 +15,31 @@ from sibyl_core.config import settings
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.services import (
     count_entities_by_type,
-    get_graph_client,
-    get_graph_runtime,
+)
+from sibyl_core.services import (
+    get_graph_client as _service_get_graph_client,
+)
+from sibyl_core.services import (
+    get_graph_runtime as _service_get_graph_runtime,
 )
 
 log = structlog.get_logger()
-get_legacy_graph_client = get_graph_client
-get_legacy_graph_runtime = get_graph_runtime
+
+
+async def get_legacy_graph_client():
+    return await _service_get_graph_client()
+
+
+async def get_graph_client():
+    return await get_legacy_graph_client()
+
+
+async def get_legacy_graph_runtime(group_id: str):
+    return await _service_get_graph_runtime(group_id)
+
+
+async def get_graph_runtime(group_id: str):
+    return await get_legacy_graph_runtime(group_id)
 
 BACKFILL_PAGE_SIZE = 1000
 
@@ -95,7 +113,7 @@ async def health_check(*, organization_id: str | None = None) -> HealthStatus:
 
     try:
         if organization_id:
-            runtime = await get_legacy_graph_runtime(organization_id)
+            runtime = await get_graph_runtime(organization_id)
             entity_manager = runtime.entity_manager
             graph_connected = True
             for entity_type in EntityType:
@@ -116,7 +134,7 @@ async def health_check(*, organization_id: str | None = None) -> HealthStatus:
             except Exception as e:
                 errors.append(f"Search latency test failed: {e}")
         else:
-            await get_legacy_graph_client()
+            await get_graph_client()
             graph_connected = True
 
     except Exception as e:
@@ -210,7 +228,7 @@ async def get_stats(*, organization_id: str | None = None) -> dict[str, object]:
         return stats
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
 
         entity_stats = await count_entities_by_type(runtime.entity_manager)
 
@@ -383,7 +401,7 @@ async def migrate_fix_name_embedding_types(
     start_time = time.time()
 
     try:
-        client = await get_legacy_graph_client()
+        client = await get_graph_client()
         expected_dim = settings.graph_embedding_dimensions
 
         entities_updated = await _cast_name_embeddings_to_vecf32(
@@ -488,7 +506,7 @@ async def create_backup(*, organization_id: str) -> BackupResult:
     start_time = time.time()
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 
@@ -575,7 +593,7 @@ async def restore_backup(
     relationships_skipped = 0
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 
@@ -691,7 +709,7 @@ async def backfill_task_project_relationships(
     tasks_already_linked = 0
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 
@@ -853,7 +871,7 @@ async def backfill_project_id_from_relationships(
     nodes_without_project_rel = 0
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 
@@ -1034,7 +1052,7 @@ async def backfill_episode_task_relationships(
     )
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 
@@ -1205,7 +1223,7 @@ async def backfill_shared_project(
     entities_already_set = 0
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 

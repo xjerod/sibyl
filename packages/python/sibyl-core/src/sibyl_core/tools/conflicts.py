@@ -19,7 +19,7 @@ from sibyl_core.services import (
     get_graph_client as _service_get_graph_client,
 )
 from sibyl_core.services import (
-    get_graph_runtime,
+    get_graph_runtime as _service_get_graph_runtime,
 )
 from sibyl_core.tools.responses import ConflictWarning
 
@@ -30,7 +30,16 @@ log = structlog.get_logger()
 
 __all__ = ["detect_conflicts", "find_similar_entities"]
 get_graph_client = _service_get_graph_client
-get_legacy_graph_runtime = get_graph_runtime
+
+
+async def get_legacy_graph_runtime(group_id: str):
+    return await _service_get_graph_runtime(group_id)
+
+
+async def get_graph_runtime(group_id: str):
+    return await get_legacy_graph_runtime(group_id)
+
+
 EntityManager = None
 
 # Thresholds for conflict classification
@@ -64,7 +73,7 @@ async def find_similar_entities(
     Returns:
         List of (id, name, content_preview, score) tuples sorted by score desc.
     """
-    runtime = await get_legacy_graph_runtime(organization_id)
+    runtime = await get_graph_runtime(organization_id)
     entity_manager = runtime.entity_manager
 
     # Build search query from title + content preview

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import structlog
 
 from sibyl_core.models.entities import Entity, EntityType, RelationshipType
-from sibyl_core.services import get_graph_runtime
+from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.tools.helpers import (
     VALID_ENTITY_TYPES,
     _build_entity_metadata,
@@ -26,7 +26,14 @@ log = structlog.get_logger()
 
 # Re-export for backwards compatibility
 __all__ = ["DependencyNode", "explore"]
-get_legacy_graph_runtime = get_graph_runtime
+
+
+async def get_legacy_graph_runtime(group_id: str):
+    return await _service_get_graph_runtime(group_id)
+
+
+async def get_graph_runtime(group_id: str):
+    return await get_legacy_graph_runtime(group_id)
 
 
 def _normalize_project_ids(
@@ -349,7 +356,7 @@ async def _explore_list(
     group_id: str,
 ) -> ExploreResponse:
     """List entities by type with filters."""
-    runtime = await get_legacy_graph_runtime(group_id)
+    runtime = await get_graph_runtime(group_id)
     entity_manager = runtime.entity_manager
 
     # Default to listing all types if none specified
@@ -465,7 +472,7 @@ async def _explore_dependencies(
             filters={**filters, "error": "entity_id required for dependencies mode"},
         )
 
-    runtime = await get_legacy_graph_runtime(group_id)
+    runtime = await get_graph_runtime(group_id)
     relationship_manager = runtime.relationship_manager
     entity_manager = runtime.entity_manager
 
@@ -582,7 +589,7 @@ async def _explore_related(
             filters={**filters, "error": "entity_id required for related/traverse mode"},
         )
 
-    runtime = await get_legacy_graph_runtime(group_id)
+    runtime = await get_graph_runtime(group_id)
     relationship_manager = runtime.relationship_manager
 
     # Convert relationship type strings to enum

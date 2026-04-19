@@ -22,7 +22,7 @@ from sibyl_core.models.tasks import (
     TaskPriority,
     TaskStatus,
 )
-from sibyl_core.services import get_graph_runtime
+from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.tools.conflicts import detect_conflicts
 from sibyl_core.tools.helpers import (
     MAX_CONTENT_LENGTH,
@@ -37,7 +37,14 @@ from sibyl_core.tools.responses import AddResponse, ConflictWarning
 log = structlog.get_logger()
 
 __all__ = ["add"]
-get_legacy_graph_runtime = get_graph_runtime
+
+
+async def get_legacy_graph_runtime(group_id: str):
+    return await _service_get_graph_runtime(group_id)
+
+
+async def get_graph_runtime(group_id: str):
+    return await get_legacy_graph_runtime(group_id)
 
 
 def _build_relationship(rel_data: dict[str, Any]) -> Relationship:
@@ -199,7 +206,7 @@ async def add(
                 "organization_id is required in metadata - cannot create entity without org context"
             )
         org_id = str(org_id)
-        runtime = await get_legacy_graph_runtime(org_id)
+        runtime = await get_graph_runtime(org_id)
         entity_manager = runtime.entity_manager
 
         # Generate deterministic ID

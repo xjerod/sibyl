@@ -9,7 +9,7 @@ import structlog
 from sibyl_core.models.entities import EntityType
 from sibyl_core.retrieval import HybridConfig, hybrid_search, temporal_boost
 from sibyl_core.services import document_search as document_search_service
-from sibyl_core.services import get_graph_runtime
+from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.tools.helpers import (
     VALID_ENTITY_TYPES,
     _build_entity_metadata,
@@ -20,7 +20,14 @@ from sibyl_core.tools.responses import SearchResponse, SearchResult
 from sibyl_core.utils.resilience import TIMEOUTS, with_timeout
 
 log = structlog.get_logger()
-get_legacy_graph_runtime = get_graph_runtime
+
+
+async def get_legacy_graph_runtime(group_id: str):
+    return await _service_get_graph_runtime(group_id)
+
+
+async def get_graph_runtime(group_id: str):
+    return await get_legacy_graph_runtime(group_id)
 
 __all__ = [
     "_dedupe_document_rows",
@@ -269,7 +276,7 @@ async def search(
                 raise ValueError(
                     "organization_id is required - cannot access graph without org context"
                 )
-            runtime = await get_legacy_graph_runtime(organization_id)
+            runtime = await get_graph_runtime(organization_id)
             client = runtime.client
             entity_manager = runtime.entity_manager
 

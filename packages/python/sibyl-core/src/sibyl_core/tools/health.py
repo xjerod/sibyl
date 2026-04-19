@@ -6,17 +6,37 @@ from typing import Any
 from sibyl_core.models.entities import EntityType
 from sibyl_core.services import (
     count_entities_by_type,
-    get_graph_client,
-    get_graph_runtime,
 )
 from sibyl_core.services import (
     execute_graph_query as _execute_graph_query,
 )
+from sibyl_core.services import (
+    get_graph_client as _service_get_graph_client,
+)
+from sibyl_core.services import (
+    get_graph_runtime as _service_get_graph_runtime,
+)
 
 # Module-level state for uptime tracking
 _server_start_time: float | None = None
-get_legacy_graph_client = get_graph_client
-get_legacy_graph_runtime = get_graph_runtime
+
+
+async def get_legacy_graph_client():
+    return await _service_get_graph_client()
+
+
+async def get_graph_client():
+    return await get_legacy_graph_client()
+
+
+async def get_legacy_graph_runtime(group_id: str):
+    return await _service_get_graph_runtime(group_id)
+
+
+async def get_graph_runtime(group_id: str):
+    return await get_legacy_graph_runtime(group_id)
+
+
 execute_graph_query = _execute_graph_query
 execute_legacy_graph_query = _execute_graph_query
 
@@ -50,14 +70,14 @@ async def get_health(*, organization_id: str | None = None) -> dict[str, Any]:
     }
 
     try:
-        await get_legacy_graph_client()
+        await get_graph_client()
 
         # Test connectivity
         health["graph_connected"] = True
 
         # Entity counts require org context
         if organization_id:
-            runtime = await get_legacy_graph_runtime(organization_id)
+            runtime = await get_graph_runtime(organization_id)
             entity_manager = runtime.entity_manager
 
             for entity_type in [EntityType.PATTERN, EntityType.RULE, EntityType.EPISODE]:
@@ -93,7 +113,7 @@ async def get_stats(organization_id: str | None = None) -> dict[str, Any]:
         raise ValueError("organization_id is required - cannot get stats without org context")
 
     try:
-        runtime = await get_legacy_graph_runtime(organization_id)
+        runtime = await get_graph_runtime(organization_id)
         counts = await count_entities_by_type(runtime.entity_manager)
 
         stats: dict[str, Any] = {
