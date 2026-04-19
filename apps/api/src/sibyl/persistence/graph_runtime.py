@@ -95,7 +95,7 @@ def _coerce_relationship(row: dict[str, object]) -> Relationship:
     )
 
 
-class LegacyEntityStore(EntityStore):
+class GraphEntityStore(EntityStore):
     """EntityStore backed by the current EntityManager."""
 
     def __init__(self, manager: EntityManager, *, driver: Any, group_id: str) -> None:
@@ -198,7 +198,7 @@ class LegacyEntityStore(EntityStore):
         return int(rows[0].get("cnt", 0)) if rows else 0
 
 
-class LegacyRelationshipStore(RelationshipStore):
+class GraphRelationshipStore(RelationshipStore):
     """RelationshipStore backed by the current RelationshipManager."""
 
     def __init__(self, manager: RelationshipManager, *, driver: Any, group_id: str) -> None:
@@ -319,16 +319,16 @@ class LegacyRelationshipStore(RelationshipStore):
         return int(rows[0].get("cnt", 0)) if rows else 0
 
 
-class LegacySearchIndex(SearchIndex):
+class GraphSearchIndex(SearchIndex):
     """SearchIndex backed by the current entity search implementation."""
 
-    def __init__(self, client: GraphClient, group_id: str, entities: LegacyEntityStore) -> None:
+    def __init__(self, client: GraphClient, group_id: str, entities: GraphEntityStore) -> None:
         self._client = client
         self._group_id = group_id
         self._entities = entities
 
     @classmethod
-    def from_client(cls, client: GraphClient, group_id: str, entities: LegacyEntityStore) -> Self:
+    def from_client(cls, client: GraphClient, group_id: str, entities: GraphEntityStore) -> Self:
         return cls(client, group_id, entities)
 
     async def search(
@@ -400,9 +400,9 @@ class ActiveGraphStore(GraphStore):
     def __init__(
         self,
         *,
-        entities: LegacyEntityStore,
-        relationships: LegacyRelationshipStore,
-        search: LegacySearchIndex,
+        entities: GraphEntityStore,
+        relationships: GraphRelationshipStore,
+        search: GraphSearchIndex,
     ) -> None:
         self._entities = entities
         self._relationships = relationships
@@ -410,24 +410,24 @@ class ActiveGraphStore(GraphStore):
 
     @classmethod
     def from_client(cls, client: GraphClient, group_id: str) -> Self:
-        entities = LegacyEntityStore.from_client(client, group_id)
-        relationships = LegacyRelationshipStore.from_client(client, group_id)
+        entities = GraphEntityStore.from_client(client, group_id)
+        relationships = GraphRelationshipStore.from_client(client, group_id)
         return cls(
             entities=entities,
             relationships=relationships,
-            search=LegacySearchIndex.from_client(client, group_id, entities),
+            search=GraphSearchIndex.from_client(client, group_id, entities),
         )
 
     @property
-    def entities(self) -> LegacyEntityStore:
+    def entities(self) -> GraphEntityStore:
         return self._entities
 
     @property
-    def relationships(self) -> LegacyRelationshipStore:
+    def relationships(self) -> GraphRelationshipStore:
         return self._relationships
 
     @property
-    def search(self) -> LegacySearchIndex:
+    def search(self) -> GraphSearchIndex:
         return self._search
 
 
@@ -841,6 +841,9 @@ async def execute_debug_query(
     return rows
 
 
+LegacyEntityStore = GraphEntityStore
+LegacyRelationshipStore = GraphRelationshipStore
+LegacySearchIndex = GraphSearchIndex
 LegacyGraphStore = ActiveGraphStore
 LegacyKnowledgeReadAdapter = GraphReadServiceAdapter
 LegacyKnowledgeWriteAdapter = GraphWriteServiceAdapter
