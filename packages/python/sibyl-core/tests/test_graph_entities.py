@@ -201,6 +201,24 @@ class TestEntityCreate:
     """Test entity creation via add_episode."""
 
     @pytest.mark.asyncio
+    async def test_create_uses_surreal_direct_path(
+        self,
+        surreal_entity_manager: EntityManager,
+        sample_entity: Entity,
+    ) -> None:
+        with patch.object(
+            surreal_entity_manager,
+            "create_direct",
+            new_callable=AsyncMock,
+            return_value=sample_entity.id,
+        ) as create_direct:
+            result = await surreal_entity_manager.create(sample_entity)
+
+        assert result == sample_entity.id
+        create_direct.assert_awaited_once_with(sample_entity)
+        surreal_entity_manager._client.client.add_episode.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_create_entity_success(
         self,
         entity_manager: EntityManager,
@@ -590,6 +608,40 @@ class TestTypedHydration:
 
 class TestEntityUpdate:
     """Test entity update operations."""
+
+    @pytest.mark.asyncio
+    async def test_update_uses_surreal_entity_ops(
+        self,
+        surreal_entity_manager: EntityManager,
+        sample_entity_node: EntityNode,
+    ) -> None:
+        ops = surreal_entity_manager._driver.entity_node_ops
+        ops.get_by_uuid = AsyncMock(return_value=sample_entity_node)
+        ops.save = AsyncMock()
+
+        with patch.object(
+            surreal_entity_manager,
+            "_persist_entity_attributes",
+            new_callable=AsyncMock,
+        ) as persist_attrs:
+            result = await surreal_entity_manager.update(
+                "entity-001",
+                {
+                    "description": "Updated description",
+                    "metadata": {"new_key": "new_value"},
+                    "embedding": [0.2] * 1536,
+                },
+            )
+
+        assert result is not None
+        assert result.description == "Updated description"
+        assert result.metadata["category"] == "testing"
+        assert result.metadata["new_key"] == "new_value"
+        ops.get_by_uuid.assert_awaited_once_with(surreal_entity_manager._driver, "entity-001")
+        ops.save.assert_awaited_once()
+        saved_node = ops.save.await_args.args[1]
+        assert saved_node.name_embedding is not None
+        persist_attrs.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_update_partial(
@@ -1845,6 +1897,30 @@ class TestGetNotesForTask:
 
 class TestBulkCreateDirect:
     """Test bulk entity creation."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_create_direct_uses_surreal_bulk_ops(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        entities = [
+            Entity(
+                id=f"entity-{i:03d}",
+                entity_type=EntityType.PATTERN,
+                name=f"Pattern {i}",
+                description=f"Description {i}",
+            )
+            for i in range(5)
+        ]
+
+        ops = surreal_entity_manager._driver.entity_node_ops
+        ops.save_bulk = AsyncMock()
+
+        created, failed = await surreal_entity_manager.bulk_create_direct(entities, batch_size=2)
+
+        assert created == 5
+        assert failed == 0
+        assert ops.save_bulk.await_count == 3
 
     @pytest.mark.asyncio
     async def test_bulk_create_direct(

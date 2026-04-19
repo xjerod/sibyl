@@ -139,6 +139,39 @@ class EntityManager:
             return self._driver.episode_node_ops
         return None
 
+    def _build_entity_node_attributes(
+        self,
+        entity: Entity,
+        *,
+        marker_key: str,
+    ) -> dict[str, Any]:
+        metadata = self._entity_to_metadata(entity)
+        return {
+            "entity_type": entity.entity_type.value,
+            "description": entity.description or "",
+            "content": entity.content or "",
+            "source_file": entity.source_file or "",
+            "updated_at": datetime.now(UTC).isoformat(),
+            marker_key: True,
+            "metadata": json.dumps(metadata),
+        }
+
+    def _build_entity_node(
+        self,
+        entity: Entity,
+        *,
+        marker_key: str,
+    ) -> EntityNode:
+        return EntityNode(
+            uuid=entity.id,
+            name=entity.name,
+            group_id=self._group_id,
+            labels=[entity.entity_type.value],
+            created_at=entity.created_at or datetime.now(UTC),
+            summary=entity.description[:500] if entity.description else entity.name,
+            attributes=self._build_entity_node_attributes(entity, marker_key=marker_key),
+        )
+
     async def _add_episode_with_retry(
         self,
         name: str,
@@ -209,6 +242,9 @@ class EntityManager:
         log.info("Creating entity", entity_type=entity.entity_type, name=entity.name)
 
         try:
+            if self._surreal_entity_node_ops() is not None:
+                return await self.create_direct(entity)
+
             # Use add_episode to store the entity in Graphiti
             # Graphiti extracts entities from episode content, so we format it as natural language
             episode_body = self._format_entity_as_episode(entity)
@@ -283,7 +319,6 @@ class EntityManager:
         Raises:
             EntityCreationError: If creation fails.
         """
-        import json
         import time as _time
 
         from sibyl_core.errors import EntityCreationError
@@ -297,30 +332,7 @@ class EntityManager:
         try:
             _t0 = _time.perf_counter()
             surreal_entity_ops = self._surreal_entity_node_ops()
-
-            # Build attributes dict - all values must be primitives (FalkorDB limitation)
-            # Serialize nested dicts to JSON strings
-            metadata = self._entity_to_metadata(entity)
-            attributes = {
-                "entity_type": entity.entity_type.value,
-                "description": entity.description or "",
-                "content": entity.content or "",
-                "source_file": entity.source_file or "",
-                "updated_at": datetime.now(UTC).isoformat(),
-                "_direct_insert": True,
-                "metadata": json.dumps(metadata),  # Serialize to JSON string
-            }
-
-            # Create EntityNode instance
-            node = EntityNode(
-                uuid=entity.id,
-                name=entity.name,
-                group_id=self._group_id,
-                labels=[entity.entity_type.value],
-                created_at=entity.created_at or datetime.now(UTC),
-                summary=entity.description[:500] if entity.description else entity.name,
-                attributes=attributes,
-            )
+            node = self._build_entity_node(entity, marker_key="_direct_insert")
 
             _t1 = _time.perf_counter()
             log.debug("create_direct_timing", step="build_node", ms=round((_t1 - _t0) * 1000))
@@ -800,10 +812,18 @@ class EntityManager:
         log.info("Updating entity", entity_id=entity_id, fields=list(updates.keys()))
 
         try:
-            # Retrieve the existing entity
-            existing = await self.get(entity_id)
-            if not existing:
-                raise EntityNotFoundError("Entity", entity_id)
+            surreal_entity_ops = self._surreal_entity_node_ops()
+            surreal_node: EntityNode | None = None
+            if surreal_entity_ops is not None:
+                surreal_node = await surreal_entity_ops.get_by_uuid(self._driver, entity_id)
+                if surreal_node.group_id != self._group_id:
+                    raise EntityNotFoundError("Entity", entity_id)
+                existing = self.node_to_entity(surreal_node)
+            else:
+                # Retrieve the existing entity
+                existing = await self.get(entity_id)
+                if not existing:
+                    raise EntityNotFoundError("Entity", entity_id)
 
             merged_metadata = {**(existing.metadata or {}), **(updates.get("metadata") or {})}
 
@@ -835,29 +855,54 @@ class EntityManager:
                 source_file=updates.get("source_file", existing.source_file),
             )
 
-            # Persist updates in-place to avoid changing UUIDs
-            await self._persist_entity_attributes(entity_id, updated_entity)
+            if surreal_entity_ops is not None:
+                if surreal_node is None:
+                    raise EntityNotFoundError("Entity", entity_id)
 
-            # Store embedding as direct node property (not in metadata to avoid bloating LLM context)
-            if "embedding" in updates:
-                embedding = updates.get("embedding")
+                marker_key = (
+                    "_generated" if surreal_node.attributes.get("_generated") else "_direct_insert"
+                )
+                surreal_node.name = updated_entity.name
+                surreal_node.labels = [updated_entity.entity_type.value]
+                surreal_node.summary = (
+                    updated_entity.description[:500]
+                    if updated_entity.description
+                    else updated_entity.name
+                )
+                surreal_node.attributes = self._build_entity_node_attributes(
+                    updated_entity,
+                    marker_key=marker_key,
+                )
 
-                # FalkorDB expects Vectorf32 for vector ops. Casting via vecf32() avoids
-                # "expected Null or Vectorf32 but was List" type mismatches.
-                if embedding and isinstance(embedding, list):
-                    await self._driver.execute_query(
-                        "MATCH (n {uuid: $entity_id}) SET n.name_embedding = vecf32($embedding)",
-                        entity_id=entity_id,
-                        embedding=embedding,
-                    )
-                    log.debug("Stored embedding on node", entity_id=entity_id)
-                else:
-                    # Allow clearing embeddings by passing null/empty.
-                    await self._driver.execute_query(
-                        "MATCH (n {uuid: $entity_id}) SET n.name_embedding = NULL",
-                        entity_id=entity_id,
-                    )
-                    log.debug("Cleared embedding on node", entity_id=entity_id)
+                if "embedding" in updates:
+                    embedding = updates.get("embedding")
+                    surreal_node.name_embedding = embedding if isinstance(embedding, list) else None
+
+                await surreal_entity_ops.save(self._driver, surreal_node)
+            else:
+                # Persist updates in-place to avoid changing UUIDs
+                await self._persist_entity_attributes(entity_id, updated_entity)
+
+                # Store embedding as direct node property (not in metadata to avoid bloating LLM context)
+                if "embedding" in updates:
+                    embedding = updates.get("embedding")
+
+                    # FalkorDB expects Vectorf32 for vector ops. Casting via vecf32() avoids
+                    # "expected Null or Vectorf32 but was List" type mismatches.
+                    if embedding and isinstance(embedding, list):
+                        await self._driver.execute_query(
+                            "MATCH (n {uuid: $entity_id}) SET n.name_embedding = vecf32($embedding)",
+                            entity_id=entity_id,
+                            embedding=embedding,
+                        )
+                        log.debug("Stored embedding on node", entity_id=entity_id)
+                    else:
+                        # Allow clearing embeddings by passing null/empty.
+                        await self._driver.execute_query(
+                            "MATCH (n {uuid: $entity_id}) SET n.name_embedding = NULL",
+                            entity_id=entity_id,
+                        )
+                        log.debug("Cleared embedding on node", entity_id=entity_id)
 
             log.info("Entity updated successfully", entity_id=entity_id)
             return updated_entity
@@ -2195,26 +2240,11 @@ class EntityManager:
 
     async def _save_entity_node_direct(self, entity: Entity) -> None:
         """Persist one entity through Graphiti's EntityNode.save fallback path."""
-        metadata = self._entity_to_metadata(entity)
-        attributes = {
-            "entity_type": entity.entity_type.value,
-            "description": entity.description or "",
-            "content": entity.content or "",
-            "source_file": entity.source_file or "",
-            "updated_at": datetime.now(UTC).isoformat(),
-            "_generated": True,
-            "metadata": json.dumps(metadata),
-        }
-
-        node = EntityNode(
-            uuid=entity.id,
-            name=entity.name,
-            group_id=self._group_id,
-            labels=[entity.entity_type.value],
-            created_at=entity.created_at or datetime.now(UTC),
-            summary=entity.description[:500] if entity.description else entity.name,
-            attributes=attributes,
-        )
+        node = self._build_entity_node(entity, marker_key="_generated")
+        surreal_entity_ops = self._surreal_entity_node_ops()
+        if surreal_entity_ops is not None:
+            await surreal_entity_ops.save(self._driver, node)
+            return
         await node.save(self._driver)
 
     async def bulk_create_direct(
@@ -2236,6 +2266,35 @@ class EntityManager:
         """
         created = 0
         failed = 0
+        surreal_entity_ops = self._surreal_entity_node_ops()
+
+        if surreal_entity_ops is not None:
+            for i in range(0, len(entities), batch_size):
+                batch = entities[i : i + batch_size]
+                nodes = [self._build_entity_node(entity, marker_key="_generated") for entity in batch]
+                try:
+                    await surreal_entity_ops.save_bulk(self._driver, nodes, batch_size=batch_size)
+                    created += len(batch)
+                except Exception as e:
+                    log.warning(
+                        "bulk direct surreal upsert failed, falling back to per-entity saves",
+                        batch_size=len(batch),
+                        error=str(e),
+                    )
+                    for entity in batch:
+                        try:
+                            await self._save_entity_node_direct(entity)
+                            created += 1
+                        except Exception as item_error:
+                            log.debug(
+                                "Failed to create entity",
+                                entity_id=entity.id,
+                                error=str(item_error),
+                            )
+                            failed += 1
+
+            log.info("Bulk create complete", created=created, failed=failed)
+            return created, failed
 
         for i in range(0, len(entities), batch_size):
             batch = entities[i : i + batch_size]
