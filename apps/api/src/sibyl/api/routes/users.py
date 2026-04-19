@@ -15,7 +15,7 @@ from sibyl.auth.passwords import hash_password, verify_password
 from sibyl.auth.rls import AuthSession, get_auth_session
 from sibyl.auth.sessions import SessionManager
 from sibyl.db.models import User
-from sibyl.persistence.legacy.users import (
+from sibyl.persistence.operations_runtime import (
     confirm_legacy_password_reset,
     list_legacy_oauth_connections,
     remove_legacy_oauth_connection,

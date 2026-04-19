@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from sibyl.persistence.graph_runtime import reset_graph_runtime as _service_reset_graph_runtime
-from sibyl.persistence.legacy.settings import (
+from sibyl.persistence.operations_runtime import (
     is_legacy_setup_mode,
     require_legacy_settings_admin,
 )

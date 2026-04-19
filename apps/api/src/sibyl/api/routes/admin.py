@@ -24,7 +24,7 @@ from sibyl.persistence.graph_runtime import (
     execute_legacy_debug_query,
     get_graph_stats_payload as _service_get_graph_stats_payload,
 )
-from sibyl.persistence.legacy.admin import recover_legacy_stuck_sources
+from sibyl.persistence.operations_runtime import recover_legacy_stuck_sources
 
 log = structlog.get_logger()
 

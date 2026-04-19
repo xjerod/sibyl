@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sibyl.auth.dependencies import get_current_organization, get_current_user, require_org_admin
 from sibyl.backup_ids import generate_backup_id
 from sibyl.db.models import BackupStatus, Organization, User
-from sibyl.persistence.legacy.backups import (
+from sibyl.persistence.operations_runtime import (
     attach_legacy_backup_job,
     create_legacy_backup_record,
     delete_legacy_backup_record,

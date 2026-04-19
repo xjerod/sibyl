@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from sibyl.config import settings
-from sibyl.persistence.legacy.setup import (
+from sibyl.persistence.operations_runtime import (
     get_legacy_setup_status,
     require_legacy_setup_mode_or_admin,
     require_legacy_setup_mode_or_auth,

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from sibyl.auth.dependencies import get_current_organization, require_org_admin
 from sibyl.db.models import Organization
-from sibyl.persistence.legacy.jobs import (
+from sibyl.persistence.operations_runtime import (
     _job_visible_to_org,
     _resolve_visible_legacy_source_ids,
 )
