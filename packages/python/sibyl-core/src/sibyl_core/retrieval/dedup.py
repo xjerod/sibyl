@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
+from uuid import uuid4
 
 import numpy as np
 import structlog
@@ -459,6 +460,74 @@ class EntityDeduplicator:
         Returns:
             Number of relationships redirected.
         """
+        try:
+            relationship_manager = self._get_relationship_manager()
+            relationships = await relationship_manager.get_for_entity(from_id, direction="both")
+            return await self._redirect_relationships_via_manager(
+                relationship_manager,
+                relationships,
+                from_id,
+                to_id,
+            )
+        except Exception as e:
+            log.debug("redirect_relationships_manager_failed", error=str(e))
+
+        return await self._redirect_relationships_via_query(from_id, to_id)
+
+    def _get_relationship_manager(self) -> Any:
+        from sibyl_core.graph.relationships import RelationshipManager
+
+        return RelationshipManager(self.client, group_id=self._require_group_id())
+
+    async def _redirect_relationships_via_manager(
+        self,
+        relationship_manager: Any,
+        relationships: list[Any],
+        from_id: str,
+        to_id: str,
+    ) -> int:
+        from sibyl_core.models.entities import Relationship
+
+        total_redirected = 0
+
+        for relationship in relationships:
+            new_source_id = to_id if relationship.source_id == from_id else relationship.source_id
+            new_target_id = to_id if relationship.target_id == from_id else relationship.target_id
+
+            replacement = Relationship(
+                id=str(uuid4()),
+                relationship_type=relationship.relationship_type,
+                source_id=new_source_id,
+                target_id=new_target_id,
+                weight=relationship.weight,
+                metadata=dict(relationship.metadata or {}),
+            )
+
+            try:
+                await relationship_manager.create(replacement)
+                if relationship.id:
+                    await relationship_manager.delete(relationship.id)
+                total_redirected += 1
+            except Exception as e:
+                log.warning(
+                    "redirect_relationship_via_manager_failed",
+                    relationship_id=relationship.id,
+                    from_id=from_id,
+                    to_id=to_id,
+                    error=str(e),
+                )
+
+        log.debug(
+            "relationships_redirected",
+            from_id=from_id,
+            to_id=to_id,
+            count=total_redirected,
+            strategy="relationship_manager",
+        )
+
+        return total_redirected
+
+    async def _redirect_relationships_via_query(self, from_id: str, to_id: str) -> int:
         # Redirect outgoing relationships
         # Note: FalkorDB/Cypher doesn't support dynamic relationship types in MERGE,
         # so we preserve the original type as relationship_type property
@@ -506,6 +575,7 @@ class EntityDeduplicator:
                 from_id=from_id,
                 to_id=to_id,
                 count=total_redirected,
+                strategy="query",
             )
 
         except Exception as e:

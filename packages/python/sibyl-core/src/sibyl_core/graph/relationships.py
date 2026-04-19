@@ -406,7 +406,8 @@ class RelationshipManager:
                        COALESCE(r.name, type(r)) as name,
                        COALESCE(r.source_node_uuid, r.source_uuid, n.uuid) as source_id,
                        COALESCE(r.target_node_uuid, r.target_uuid, m.uuid) as target_id,
-                       COALESCE(r.weight, 1.0) as weight
+                       COALESCE(r.weight, 1.0) as weight,
+                       properties(r) as properties
             """
 
             result = await self._driver.execute_query(
@@ -427,12 +428,14 @@ class RelationshipManager:
                     source_id = row.get("source_id")
                     target_id = row.get("target_id")
                     weight = row.get("weight", 1.0)
+                    properties = row.get("properties")
                 else:
                     rel_name = row[1]
                     rel_uuid = row[0]
                     source_id = row[2]
                     target_id = row[3]
                     weight = row[4] if len(row) > 4 else 1.0
+                    properties = row[5] if len(row) > 5 else None
 
                 # Skip invalid relationships with missing source/target
                 if not source_id or not target_id:
@@ -449,6 +452,28 @@ class RelationshipManager:
                 except ValueError:
                     rel_type = RelationshipType.RELATED_TO
 
+                metadata = (
+                    {
+                        key: value
+                        for key, value in properties.items()
+                        if key
+                        not in {
+                            "uuid",
+                            "name",
+                            "group_id",
+                            "source_node_uuid",
+                            "source_uuid",
+                            "target_node_uuid",
+                            "target_uuid",
+                            "created_at",
+                            "weight",
+                            "fact",
+                        }
+                    }
+                    if isinstance(properties, dict)
+                    else {}
+                )
+
                 relationships.append(
                     Relationship(
                         id=str(rel_uuid) if rel_uuid else "",
@@ -456,7 +481,7 @@ class RelationshipManager:
                         source_id=str(source_id),
                         target_id=str(target_id),
                         weight=float(weight) if weight else 1.0,
-                        metadata={},
+                        metadata=metadata,
                     )
                 )
 

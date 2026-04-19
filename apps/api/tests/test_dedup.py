@@ -1,10 +1,11 @@
 """Tests for entity deduplication module."""
 
 import math
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
+from sibyl_core.models.entities import Relationship, RelationshipType
 from sibyl_core.retrieval.dedup import (
     DedupConfig,
     DuplicatePair,
@@ -359,13 +360,43 @@ class TestEntityDeduplicator:
 
         # Add pair to cache
         dedup._duplicate_pairs = [DuplicatePair("keep", "remove", 0.98)]
+        mock_relationship_manager = MagicMock()
+        mock_relationship_manager.get_for_entity = AsyncMock(
+            return_value=[
+                Relationship(
+                    id="rel-out",
+                    relationship_type=RelationshipType.RELATED_TO,
+                    source_id="remove",
+                    target_id="other",
+                    metadata={"reason": "semantic similarity"},
+                ),
+                Relationship(
+                    id="rel-in",
+                    relationship_type=RelationshipType.BLOCKS,
+                    source_id="other",
+                    target_id="remove",
+                    metadata={"confidence": 0.9},
+                ),
+            ]
+        )
+        mock_relationship_manager.create = AsyncMock()
+        mock_relationship_manager.delete = AsyncMock()
+        dedup._get_relationship_manager = lambda: mock_relationship_manager  # type: ignore[method-assign]
 
         result = await dedup.merge_entities(keep_id="keep", remove_id="remove")
 
         assert result is True
         # Entity manager delete should be called
         mock_entity_manager.delete.assert_called_once_with("remove")
-        assert mock_client.execute_write_org.await_count == 2
+        assert mock_client.execute_write_org.await_count == 0
+        mock_relationship_manager.get_for_entity.assert_awaited_once_with(
+            "remove", direction="both"
+        )
+        assert mock_relationship_manager.create.await_count == 2
+        assert mock_relationship_manager.delete.await_args_list == [
+            call("rel-out"),
+            call("rel-in"),
+        ]
         # Pair should be removed from cache
         assert len(dedup._duplicate_pairs) == 0
 

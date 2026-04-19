@@ -579,6 +579,59 @@ class TestGetForEntity:
         assert results[0].relationship_type == RelationshipType.DEPENDS_ON
 
     @pytest.mark.asyncio
+    async def test_get_for_entity_preserves_metadata(
+        self,
+        relationship_manager: RelationshipManager,
+        mock_driver: MagicMock,
+        mock_graph_client: MagicMock,
+    ) -> None:
+        """get_for_entity() keeps custom edge metadata."""
+        mock_driver.execute_query.return_value = (
+            [
+                {
+                    "uuid": "rel-001",
+                    "name": "RELATED_TO",
+                    "source_id": "entity-001",
+                    "target_id": "entity-002",
+                    "weight": 0.7,
+                    "properties": {
+                        "uuid": "rel-001",
+                        "group_id": "org-123",
+                        "weight": 0.7,
+                        "reason": "semantic similarity",
+                        "confidence": 0.95,
+                    },
+                }
+            ],
+            None,
+            None,
+        )
+        mock_graph_client.normalize_result.return_value = [
+            {
+                "uuid": "rel-001",
+                "name": "RELATED_TO",
+                "source_id": "entity-001",
+                "target_id": "entity-002",
+                "weight": 0.7,
+                "properties": {
+                    "uuid": "rel-001",
+                    "group_id": "org-123",
+                    "weight": 0.7,
+                    "reason": "semantic similarity",
+                    "confidence": 0.95,
+                },
+            }
+        ]
+
+        results = await relationship_manager.get_for_entity("entity-001", direction="outgoing")
+
+        assert len(results) == 1
+        assert results[0].metadata == {
+            "reason": "semantic similarity",
+            "confidence": 0.95,
+        }
+
+    @pytest.mark.asyncio
     async def test_get_for_entity_handles_empty_results(
         self,
         relationship_manager: RelationshipManager,

@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import numpy as np
 import pytest
 
-from sibyl_core.models.entities import Entity, EntityType
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.retrieval.dedup import (
     DedupConfig,
     DuplicatePair,
@@ -570,14 +570,48 @@ class TestEntityDeduplicatorMerge:
         manager.entities["id2"] = entity2
 
         dedup = EntityDeduplicator(client=client, entity_manager=manager)  # type: ignore[arg-type]
+        mock_relationship_manager = MagicMock()
+        mock_relationship_manager.get_for_entity = AsyncMock(
+            return_value=[
+                Relationship(
+                    id="rel-out",
+                    relationship_type=RelationshipType.RELATED_TO,
+                    source_id="id2",
+                    target_id="id3",
+                    weight=0.8,
+                    metadata={"reason": "semantic similarity"},
+                ),
+                Relationship(
+                    id="rel-in",
+                    relationship_type=RelationshipType.DEPENDS_ON,
+                    source_id="id4",
+                    target_id="id2",
+                    weight=1.0,
+                    metadata={"confidence": 0.9},
+                ),
+            ]
+        )
+        mock_relationship_manager.create = AsyncMock()
+        mock_relationship_manager.delete = AsyncMock()
+        dedup._get_relationship_manager = lambda: mock_relationship_manager  # type: ignore[method-assign]
 
         result = await dedup.merge_entities(keep_id="id1", remove_id="id2")
 
         assert result is True
         assert "id2" in manager.deleted_ids
         assert "id2" not in manager.entities
-        assert len(client.write_org_calls) == 2
-        assert all(org_id == manager._group_id for org_id, _ in client.write_org_calls)
+        assert client.write_org_calls == []
+        mock_relationship_manager.get_for_entity.assert_awaited_once_with("id2", direction="both")
+        assert mock_relationship_manager.create.await_count == 2
+        assert mock_relationship_manager.delete.await_args_list == [call("rel-out"), call("rel-in")]
+
+        redirected = [call.args[0] for call in mock_relationship_manager.create.await_args_list]
+        assert redirected[0].source_id == "id1"
+        assert redirected[0].target_id == "id3"
+        assert redirected[0].metadata == {"reason": "semantic similarity"}
+        assert redirected[1].source_id == "id4"
+        assert redirected[1].target_id == "id1"
+        assert redirected[1].metadata == {"confidence": 0.9}
 
     @pytest.mark.asyncio
     async def test_merge_entities_not_found(self) -> None:
