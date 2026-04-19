@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sibyl import config as config_module
 from sibyl.auth.dependencies import get_current_user
 from sibyl.db.models import OrganizationRole, User
-from sibyl.persistence.legacy.org_invitations import (
+from sibyl.persistence.organization_runtime import (
     accept_legacy_org_invitation,
     create_legacy_org_invitation,
     delete_legacy_org_invitation,

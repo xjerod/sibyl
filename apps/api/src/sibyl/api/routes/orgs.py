@@ -11,7 +11,7 @@ from sibyl import config as config_module
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_user
 from sibyl.db.models import User
-from sibyl.persistence.legacy.orgs import (
+from sibyl.persistence.organization_runtime import (
     create_legacy_org,
     delete_legacy_org,
     get_legacy_org,

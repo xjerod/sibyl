@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_user
 from sibyl.db.models import OrganizationRole, User
-from sibyl.persistence.legacy.org_members import (
+from sibyl.persistence.organization_runtime import (
     add_legacy_org_member,
     list_legacy_org_members,
     remove_legacy_org_member,
