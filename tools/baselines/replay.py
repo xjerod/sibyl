@@ -121,6 +121,29 @@ async def replay_case(
     return actual
 
 
+def apply_auth_expectation_overrides(case: dict[str, Any], *, email: str) -> dict[str, Any]:
+    """Allow replaying auth cases with non-default baseline users."""
+
+    if case.get("id") not in {"auth-login", "auth-me"}:
+        return case
+
+    expect = case.get("expect")
+    if not isinstance(expect, dict):
+        return case
+
+    equals = expect.get("equals")
+    if not isinstance(equals, dict) or "/body/user/email" not in equals:
+        return case
+
+    updated_equals = dict(equals)
+    updated_equals["/body/user/email"] = email
+    updated_expect = dict(expect)
+    updated_expect["equals"] = updated_equals
+    updated_case = dict(case)
+    updated_case["expect"] = updated_expect
+    return updated_case
+
+
 async def replay_all(
     *,
     base_url: str,
@@ -171,7 +194,10 @@ async def replay_all(
             path = baselines_dir / filename
             emit(f"Replaying {path.as_posix()}")
             for case in read_jsonl(path):
-                resolved_case = resolve_placeholders(case, manifest)
+                resolved_case = apply_auth_expectation_overrides(
+                    resolve_placeholders(case, manifest),
+                    email=email,
+                )
                 case_kind = str(resolved_case["kind"])
                 current_token: str | None = None
                 current_mcp_session: ClientSession | None = None
