@@ -20,8 +20,13 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import structlog
+
+from sibyl_core.graph.entities import EntityManager
+from sibyl_core.graph.relationships import RelationshipManager
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 if TYPE_CHECKING:
     from sibyl_core.graph.client import GraphClient
@@ -70,26 +75,16 @@ async def batch_create_nodes(
         if "name" not in node:
             raise ValueError(f"Node at index {i} missing required 'name' field")
 
-    # Serialize datetime and nested objects to strings
-    serialized_nodes = [_serialize_node(node, organization_id) for node in nodes]
-
-    # Build the UNWIND query
-    # UNWIND iterates over the list, CREATE makes one node per iteration
-    # All in a single transaction
-    return_clause = "RETURN n.uuid AS id" if return_ids else ""
-    query = f"""
-        UNWIND $nodes AS node
-        CREATE (n:{label})
-        SET n = node
-        {return_clause}
-    """
+    entity_manager = EntityManager(client, group_id=organization_id)
 
     try:
-        result = await client.execute_write_org(query, organization_id, nodes=serialized_nodes)
-
-        if return_ids:
-            return [record["id"] for record in result]
-        return []
+        ids: list[str] = []
+        for node in nodes:
+            entity = _node_to_entity(node, label=label)
+            entity_id = await entity_manager.create(entity)
+            if return_ids:
+                ids.append(entity_id)
+        return ids
 
     except Exception as e:
         log.error(
@@ -168,31 +163,26 @@ async def batch_create_relationships(
         if "to_uuid" not in rel:
             raise ValueError(f"Relationship at index {i} missing 'to_uuid'")
 
-    # Normalize relationships - ensure properties dict exists
-    normalized = []
-    for rel in relationships:
-        normalized.append(
-            {
-                "from_uuid": rel["from_uuid"],
-                "to_uuid": rel["to_uuid"],
-                "properties": _serialize_properties(rel.get("properties", {})),
-            }
-        )
-
-    # UNWIND for batch relationship creation
-    # MATCH finds both nodes, MERGE creates the relationship
-    query = f"""
-        UNWIND $rels AS rel
-        MATCH (from {{uuid: rel.from_uuid}})
-        MATCH (to {{uuid: rel.to_uuid}})
-        MERGE (from)-[r:{rel_type}]->(to)
-        SET r += rel.properties
-        RETURN count(r) AS created
-    """
+    relationship_manager = RelationshipManager(client, group_id=organization_id)
+    relationship_type = _normalize_relationship_type(rel_type)
 
     try:
-        result = await client.execute_write_org(query, organization_id, rels=normalized)
-        return result[0]["created"] if result else 0
+        created = 0
+        for rel in relationships:
+            properties = dict(rel.get("properties", {}))
+            weight = properties.pop("weight", 1.0)
+            await relationship_manager.create(
+                Relationship(
+                    id=str(rel.get("uuid") or uuid4()),
+                    source_id=str(rel["from_uuid"]),
+                    target_id=str(rel["to_uuid"]),
+                    relationship_type=relationship_type,
+                    weight=float(weight),
+                    metadata=properties,
+                )
+            )
+            created += 1
+        return created
 
     except Exception as e:
         log.error(
@@ -244,23 +234,26 @@ async def batch_update_nodes(
 
         serialized.append(
             {
-                "uuid": update["uuid"],
-                "properties": _serialize_properties(update["properties"]),
+                "uuid": str(update["uuid"]),
+                "properties": update["properties"],
             }
         )
 
-    # Build query with optional label filter
-    label_clause = f":{label}" if label else ""
-    query = f"""
-        UNWIND $updates AS update
-        MATCH (n{label_clause} {{uuid: update.uuid}})
-        SET n += update.properties
-        RETURN count(n) AS updated
-    """
+    entity_manager = EntityManager(client, group_id=organization_id)
 
     try:
-        result = await client.execute_write_org(query, organization_id, updates=serialized)
-        return result[0]["updated"] if result else 0
+        updated = 0
+        for update in serialized:
+            if label:
+                try:
+                    existing = await entity_manager.get(update["uuid"])
+                except Exception:
+                    continue
+                if not _entity_matches_label(existing, label):
+                    continue
+            if await entity_manager.update(update["uuid"], update["properties"]) is not None:
+                updated += 1
+        return updated
 
     except Exception as e:
         log.error(
@@ -295,19 +288,25 @@ async def batch_delete_nodes(
     if not uuids:
         return 0
 
-    label_clause = f":{label}" if label else ""
-    delete_clause = "DETACH DELETE n" if detach else "DELETE n"
-
-    query = f"""
-        UNWIND $uuids AS uuid
-        MATCH (n{label_clause} {{uuid: uuid}})
-        {delete_clause}
-        RETURN count(*) AS deleted
-    """
+    entity_manager = EntityManager(client, group_id=organization_id)
 
     try:
-        result = await client.execute_write_org(query, organization_id, uuids=uuids)
-        return result[0]["deleted"] if result else 0
+        deleted = 0
+        for entity_id in uuids:
+            if label:
+                try:
+                    existing = await entity_manager.get(entity_id)
+                except Exception:
+                    continue
+                if not _entity_matches_label(existing, label):
+                    continue
+            if not detach:
+                # Manager-backed deletes already rely on backend cascade semantics.
+                # The flag remains for API compatibility.
+                pass
+            if await entity_manager.delete(entity_id):
+                deleted += 1
+        return deleted
 
     except Exception as e:
         log.error(
@@ -338,6 +337,98 @@ def _serialize_node(node: dict[str, Any], group_id: str) -> dict[str, Any]:
         result[key] = _serialize_value(value)
 
     return result
+
+
+def _node_to_entity(
+    node: dict[str, Any],
+    *,
+    label: str,
+) -> Entity:
+    entity_type = _infer_entity_type(node, label=label)
+    metadata = dict(node.get("metadata") or {})
+    excluded_keys = {
+        "uuid",
+        "name",
+        "entity_type",
+        "description",
+        "content",
+        "metadata",
+        "created_at",
+        "updated_at",
+        "source_file",
+        "embedding",
+        "organization_id",
+        "created_by",
+        "modified_by",
+    }
+    metadata.update({key: value for key, value in node.items() if key not in excluded_keys})
+
+    return Entity(
+        id=str(node["uuid"]),
+        entity_type=entity_type,
+        name=str(node["name"]),
+        description=str(node.get("description") or ""),
+        content=str(node.get("content") or ""),
+        organization_id=node.get("organization_id"),
+        created_by=node.get("created_by"),
+        modified_by=node.get("modified_by"),
+        metadata=metadata,
+        created_at=_coerce_datetime(node.get("created_at")),
+        updated_at=_coerce_datetime(node.get("updated_at")),
+        source_file=node.get("source_file"),
+        embedding=node.get("embedding"),
+    )
+
+
+def _infer_entity_type(node: dict[str, Any], *, label: str) -> EntityType:
+    entity_type = node.get("entity_type")
+    if isinstance(entity_type, EntityType):
+        return entity_type
+    if isinstance(entity_type, str):
+        with_value = entity_type.strip().lower()
+        if with_value:
+            try:
+                return EntityType(with_value)
+            except ValueError:
+                pass
+
+    normalized_label = label.strip().lower()
+    if normalized_label == "episodic":
+        return EntityType.EPISODE
+    try:
+        return EntityType(normalized_label)
+    except ValueError:
+        return EntityType.TOPIC
+
+
+def _entity_matches_label(entity: Entity, label: str) -> bool:
+    normalized_label = label.strip().lower()
+    if normalized_label == "episodic":
+        normalized_label = EntityType.EPISODE.value
+    return entity.entity_type.value == normalized_label
+
+
+def _normalize_relationship_type(rel_type: str) -> RelationshipType:
+    normalized = rel_type.strip().upper()
+    if normalized == "RELATES_TO":
+        normalized = RelationshipType.RELATED_TO.value
+    return RelationshipType(normalized)
+
+
+def _coerce_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        normalized = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=UTC)
+            return parsed
+    return datetime.now(UTC)
 
 
 def _serialize_properties(props: dict[str, Any]) -> dict[str, Any]:

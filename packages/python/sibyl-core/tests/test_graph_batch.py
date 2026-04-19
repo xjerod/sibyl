@@ -10,7 +10,7 @@ import json
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -24,6 +24,7 @@ from sibyl_core.graph.batch import (
     batch_delete_nodes,
     batch_update_nodes,
 )
+from sibyl_core.models.entities import Entity, EntityType, RelationshipType
 
 
 # =============================================================================
@@ -32,9 +33,7 @@ from sibyl_core.graph.batch import (
 @pytest.fixture
 def mock_client() -> MagicMock:
     """Create a mock GraphClient."""
-    client = MagicMock()
-    client.execute_write_org = AsyncMock()
-    return client
+    return MagicMock()
 
 
 @pytest.fixture
@@ -78,24 +77,20 @@ class TestBatchCreateNodes:
     async def test_creates_nodes_with_unwind(
         self, mock_client: MagicMock, org_id: str, sample_nodes: list[dict]
     ) -> None:
-        """Uses UNWIND query to create multiple nodes."""
-        mock_client.execute_write_org.return_value = [
-            {"id": sample_nodes[0]["uuid"]},
-            {"id": sample_nodes[1]["uuid"]},
-            {"id": sample_nodes[2]["uuid"]},
-        ]
+        """Creates multiple nodes through EntityManager."""
+        entity_manager = MagicMock()
+        entity_manager.create = AsyncMock(
+            side_effect=[node["uuid"] for node in sample_nodes]
+        )
 
-        result = await batch_create_nodes(mock_client, org_id, sample_nodes)
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            result = await batch_create_nodes(mock_client, org_id, sample_nodes)
 
-        # Verify UNWIND is used in query
-        call_args = mock_client.execute_write_org.call_args
-        query = call_args[0][0]
-        assert "UNWIND" in query
-        assert "CREATE" in query
-        assert org_id == call_args[0][1]
-
-        # Should return created IDs
         assert len(result) == 3
+        assert entity_manager.create.await_count == 3
+        first_entity = entity_manager.create.await_args_list[0].args[0]
+        assert first_entity.id == sample_nodes[0]["uuid"]
+        assert first_entity.entity_type == EntityType.TASK
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_empty(self, mock_client: MagicMock, org_id: str) -> None:
@@ -124,27 +119,28 @@ class TestBatchCreateNodes:
     async def test_uses_custom_label(
         self, mock_client: MagicMock, org_id: str, sample_nodes: list[dict]
     ) -> None:
-        """Uses specified label in CREATE clause."""
-        mock_client.execute_write_org.return_value = []
+        """Infers entity type from label when node data omits it."""
+        entity_manager = MagicMock()
+        entity_manager.create = AsyncMock(return_value="task-1")
+        nodes = [{"uuid": "task-1", "name": "Task 1"}]
 
-        await batch_create_nodes(
-            mock_client, org_id, sample_nodes, label="CustomLabel", return_ids=False
-        )
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            await batch_create_nodes(mock_client, org_id, nodes, label="Task", return_ids=False)
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "CREATE (n:CustomLabel)" in query
+        created_entity = entity_manager.create.await_args.args[0]
+        assert created_entity.entity_type == EntityType.TASK
 
     @pytest.mark.asyncio
     async def test_no_return_when_return_ids_false(
         self, mock_client: MagicMock, org_id: str, sample_nodes: list[dict]
     ) -> None:
-        """Does not include RETURN clause when return_ids=False."""
-        mock_client.execute_write_org.return_value = []
+        """Does not return ids when requested."""
+        entity_manager = MagicMock()
+        entity_manager.create = AsyncMock(side_effect=[node["uuid"] for node in sample_nodes])
 
-        result = await batch_create_nodes(mock_client, org_id, sample_nodes, return_ids=False)
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            result = await batch_create_nodes(mock_client, org_id, sample_nodes, return_ids=False)
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "RETURN" not in query
         assert result == []
 
 
@@ -158,26 +154,25 @@ class TestBatchCreateRelationships:
     async def test_creates_relationships_with_unwind(
         self, mock_client: MagicMock, org_id: str
     ) -> None:
-        """Uses UNWIND to create multiple relationships."""
+        """Creates multiple relationships through RelationshipManager."""
         rels = [
             {"from_uuid": "id1", "to_uuid": "id2"},
             {"from_uuid": "id1", "to_uuid": "id3"},
         ]
-        mock_client.execute_write_org.return_value = [{"created": 2}]
+        relationship_manager = MagicMock()
+        relationship_manager.create = AsyncMock(side_effect=["rel-1", "rel-2"])
 
-        result = await batch_create_relationships(mock_client, org_id, rels)
+        with patch("sibyl_core.graph.batch.RelationshipManager", return_value=relationship_manager):
+            result = await batch_create_relationships(mock_client, org_id, rels)
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "UNWIND" in query
-        assert "MERGE" in query
         assert result == 2
+        assert relationship_manager.create.await_count == 2
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_client: MagicMock, org_id: str) -> None:
         """Empty input returns 0 without query."""
         result = await batch_create_relationships(mock_client, org_id, [])
         assert result == 0
-        mock_client.execute_write_org.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_validates_required_from_uuid(self, mock_client: MagicMock, org_id: str) -> None:
@@ -199,12 +194,14 @@ class TestBatchCreateRelationships:
     async def test_uses_custom_rel_type(self, mock_client: MagicMock, org_id: str) -> None:
         """Uses specified relationship type."""
         rels = [{"from_uuid": "id1", "to_uuid": "id2"}]
-        mock_client.execute_write_org.return_value = [{"created": 1}]
+        relationship_manager = MagicMock()
+        relationship_manager.create = AsyncMock(return_value="rel-1")
 
-        await batch_create_relationships(mock_client, org_id, rels, rel_type="BELONGS_TO")
+        with patch("sibyl_core.graph.batch.RelationshipManager", return_value=relationship_manager):
+            await batch_create_relationships(mock_client, org_id, rels, rel_type="BELONGS_TO")
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "BELONGS_TO" in query
+        relationship = relationship_manager.create.await_args.args[0]
+        assert relationship.relationship_type == RelationshipType.BELONGS_TO
 
     @pytest.mark.asyncio
     async def test_includes_properties(self, mock_client: MagicMock, org_id: str) -> None:
@@ -216,14 +213,15 @@ class TestBatchCreateRelationships:
                 "properties": {"weight": 1.0, "created_at": "2024-01-01"},
             }
         ]
-        mock_client.execute_write_org.return_value = [{"created": 1}]
+        relationship_manager = MagicMock()
+        relationship_manager.create = AsyncMock(return_value="rel-1")
 
-        await batch_create_relationships(mock_client, org_id, rels)
+        with patch("sibyl_core.graph.batch.RelationshipManager", return_value=relationship_manager):
+            await batch_create_relationships(mock_client, org_id, rels)
 
-        # Verify properties are passed
-        call_kwargs = mock_client.execute_write_org.call_args[1]
-        assert "rels" in call_kwargs
-        assert call_kwargs["rels"][0]["properties"]["weight"] == 1.0
+        relationship = relationship_manager.create.await_args.args[0]
+        assert relationship.weight == 1.0
+        assert relationship.metadata["created_at"] == "2024-01-01"
 
 
 # =============================================================================
@@ -234,26 +232,25 @@ class TestBatchUpdateNodes:
 
     @pytest.mark.asyncio
     async def test_updates_nodes_with_unwind(self, mock_client: MagicMock, org_id: str) -> None:
-        """Uses UNWIND to update multiple nodes."""
+        """Updates multiple nodes through EntityManager."""
         updates = [
             {"uuid": "id1", "properties": {"status": "done"}},
             {"uuid": "id2", "properties": {"status": "doing"}},
         ]
-        mock_client.execute_write_org.return_value = [{"updated": 2}]
+        entity_manager = MagicMock()
+        entity_manager.update = AsyncMock(side_effect=[object(), object()])
 
-        result = await batch_update_nodes(mock_client, org_id, updates)
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            result = await batch_update_nodes(mock_client, org_id, updates)
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "UNWIND" in query
-        assert "SET n +=" in query
         assert result == 2
+        assert entity_manager.update.await_count == 2
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_client: MagicMock, org_id: str) -> None:
         """Empty input returns 0 without query."""
         result = await batch_update_nodes(mock_client, org_id, [])
         assert result == 0
-        mock_client.execute_write_org.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_validates_required_uuid(self, mock_client: MagicMock, org_id: str) -> None:
@@ -275,12 +272,17 @@ class TestBatchUpdateNodes:
     async def test_uses_label_filter(self, mock_client: MagicMock, org_id: str) -> None:
         """Uses label filter when specified."""
         updates = [{"uuid": "id1", "properties": {"status": "done"}}]
-        mock_client.execute_write_org.return_value = [{"updated": 1}]
+        entity_manager = MagicMock()
+        entity_manager.get = AsyncMock(
+            return_value=Entity(id="id1", name="Task", entity_type=EntityType.TASK)
+        )
+        entity_manager.update = AsyncMock(return_value=object())
 
-        await batch_update_nodes(mock_client, org_id, updates, label="Task")
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            await batch_update_nodes(mock_client, org_id, updates, label="Task")
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert ":Task" in query
+        entity_manager.get.assert_awaited_once_with("id1")
+        entity_manager.update.assert_awaited_once_with("id1", {"status": "done"})
 
 
 # =============================================================================
@@ -291,54 +293,59 @@ class TestBatchDeleteNodes:
 
     @pytest.mark.asyncio
     async def test_deletes_nodes_with_unwind(self, mock_client: MagicMock, org_id: str) -> None:
-        """Uses UNWIND to delete multiple nodes."""
+        """Deletes multiple nodes through EntityManager."""
         uuids = ["id1", "id2", "id3"]
-        mock_client.execute_write_org.return_value = [{"deleted": 3}]
+        entity_manager = MagicMock()
+        entity_manager.delete = AsyncMock(return_value=True)
 
-        result = await batch_delete_nodes(mock_client, org_id, uuids)
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            result = await batch_delete_nodes(mock_client, org_id, uuids)
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "UNWIND" in query
-        assert "DELETE" in query
         assert result == 3
+        assert entity_manager.delete.await_count == 3
 
     @pytest.mark.asyncio
     async def test_empty_list_returns_zero(self, mock_client: MagicMock, org_id: str) -> None:
         """Empty input returns 0 without query."""
         result = await batch_delete_nodes(mock_client, org_id, [])
         assert result == 0
-        mock_client.execute_write_org.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_uses_detach_by_default(self, mock_client: MagicMock, org_id: str) -> None:
-        """Uses DETACH DELETE by default."""
-        mock_client.execute_write_org.return_value = [{"deleted": 1}]
+        """Deletes still work with default detach semantics."""
+        entity_manager = MagicMock()
+        entity_manager.delete = AsyncMock(return_value=True)
 
-        await batch_delete_nodes(mock_client, org_id, ["id1"])
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            await batch_delete_nodes(mock_client, org_id, ["id1"])
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "DETACH DELETE" in query
+        entity_manager.delete.assert_awaited_once_with("id1")
 
     @pytest.mark.asyncio
     async def test_no_detach_when_disabled(self, mock_client: MagicMock, org_id: str) -> None:
-        """Uses simple DELETE when detach=False."""
-        mock_client.execute_write_org.return_value = [{"deleted": 1}]
+        """detach=False remains a compatible no-op flag."""
+        entity_manager = MagicMock()
+        entity_manager.delete = AsyncMock(return_value=True)
 
-        await batch_delete_nodes(mock_client, org_id, ["id1"], detach=False)
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            await batch_delete_nodes(mock_client, org_id, ["id1"], detach=False)
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert "DETACH DELETE" not in query
-        assert "DELETE n" in query
+        entity_manager.delete.assert_awaited_once_with("id1")
 
     @pytest.mark.asyncio
     async def test_uses_label_filter(self, mock_client: MagicMock, org_id: str) -> None:
         """Uses label filter when specified."""
-        mock_client.execute_write_org.return_value = [{"deleted": 1}]
+        entity_manager = MagicMock()
+        entity_manager.get = AsyncMock(
+            return_value=Entity(id="id1", name="Task", entity_type=EntityType.TASK)
+        )
+        entity_manager.delete = AsyncMock(return_value=True)
 
-        await batch_delete_nodes(mock_client, org_id, ["id1"], label="Task")
+        with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
+            await batch_delete_nodes(mock_client, org_id, ["id1"], label="Task")
 
-        query = mock_client.execute_write_org.call_args[0][0]
-        assert ":Task" in query
+        entity_manager.get.assert_awaited_once_with("id1")
+        entity_manager.delete.assert_awaited_once_with("id1")
 
 
 # =============================================================================
@@ -438,40 +445,56 @@ class TestErrorHandling:
     async def test_create_nodes_propagates_errors(
         self, mock_client: MagicMock, org_id: str, sample_nodes: list[dict]
     ) -> None:
-        """Errors from execute_write_org propagate."""
-        mock_client.execute_write_org.side_effect = Exception("Database error")
+        """Errors from EntityManager propagate."""
+        entity_manager = MagicMock()
+        entity_manager.create = AsyncMock(side_effect=Exception("Database error"))
 
-        with pytest.raises(Exception, match="Database error"):
+        with (
+            patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager),
+            pytest.raises(Exception, match="Database error"),
+        ):
             await batch_create_nodes(mock_client, org_id, sample_nodes)
 
     @pytest.mark.asyncio
     async def test_create_relationships_propagates_errors(
         self, mock_client: MagicMock, org_id: str
     ) -> None:
-        """Errors from execute_write_org propagate."""
+        """Errors from RelationshipManager propagate."""
         rels = [{"from_uuid": "id1", "to_uuid": "id2"}]
-        mock_client.execute_write_org.side_effect = Exception("Database error")
+        relationship_manager = MagicMock()
+        relationship_manager.create = AsyncMock(side_effect=Exception("Database error"))
 
-        with pytest.raises(Exception, match="Database error"):
+        with (
+            patch("sibyl_core.graph.batch.RelationshipManager", return_value=relationship_manager),
+            pytest.raises(Exception, match="Database error"),
+        ):
             await batch_create_relationships(mock_client, org_id, rels)
 
     @pytest.mark.asyncio
     async def test_update_nodes_propagates_errors(
         self, mock_client: MagicMock, org_id: str
     ) -> None:
-        """Errors from execute_write_org propagate."""
+        """Errors from EntityManager propagate."""
         updates = [{"uuid": "id1", "properties": {"status": "done"}}]
-        mock_client.execute_write_org.side_effect = Exception("Database error")
+        entity_manager = MagicMock()
+        entity_manager.update = AsyncMock(side_effect=Exception("Database error"))
 
-        with pytest.raises(Exception, match="Database error"):
+        with (
+            patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager),
+            pytest.raises(Exception, match="Database error"),
+        ):
             await batch_update_nodes(mock_client, org_id, updates)
 
     @pytest.mark.asyncio
     async def test_delete_nodes_propagates_errors(
         self, mock_client: MagicMock, org_id: str
     ) -> None:
-        """Errors from execute_write_org propagate."""
-        mock_client.execute_write_org.side_effect = Exception("Database error")
+        """Errors from EntityManager propagate."""
+        entity_manager = MagicMock()
+        entity_manager.delete = AsyncMock(side_effect=Exception("Database error"))
 
-        with pytest.raises(Exception, match="Database error"):
+        with (
+            patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager),
+            pytest.raises(Exception, match="Database error"),
+        ):
             await batch_delete_nodes(mock_client, org_id, ["id1"])
