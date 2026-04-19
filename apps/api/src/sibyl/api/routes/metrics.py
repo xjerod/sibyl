@@ -22,7 +22,7 @@ from sibyl.api.schemas import (
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.legacy.graph import (
-    get_legacy_graph_query_adapter,
+    get_legacy_entity_runtime,
     get_legacy_knowledge_read_adapter,
 )
 from sibyl_core.models.entities import EntityType
@@ -159,18 +159,18 @@ def _count_recent_tasks(tasks: list[dict], days: int, field: str = "created_at")
 
 
 async def _list_entities_by_type_paginated(
-    graph_queries: Any,
+    entities: Any,
     entity_type: EntityType,
     *,
     batch_size: int = 1000,
     **filters: Any,
 ) -> list[Any]:
-    """List all matching entities by paging through the graph query."""
-    entities: list[Any] = []
+    """List all matching entities by paging through list_by_type."""
+    items: list[Any] = []
     offset = 0
 
     while True:
-        batch = await graph_queries.list_entities_by_type(
+        batch = await entities.list_by_type(
             entity_type,
             limit=batch_size,
             offset=offset,
@@ -179,13 +179,13 @@ async def _list_entities_by_type_paginated(
         if not batch:
             break
 
-        entities.extend(batch)
+        items.extend(batch)
         if len(batch) < batch_size:
             break
 
         offset += batch_size
 
-    return entities
+    return items
 
 
 async def _list_entities_by_type_paginated_via_service(
@@ -388,7 +388,7 @@ async def get_project_metrics(
     try:
         group_id = str(org.id)
         service = await get_legacy_knowledge_read_adapter(group_id)
-        graph_queries = await get_legacy_graph_query_adapter(group_id)
+        entity_runtime = await get_legacy_entity_runtime(group_id)
 
         # Get project
         project = await service.get_entity(project_id)
@@ -396,7 +396,7 @@ async def get_project_metrics(
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
 
         project_tasks = await _list_entities_by_type_paginated(
-            graph_queries,
+            entity_runtime.entity_manager,
             EntityType.TASK,
             project_id=project_id,
         )
