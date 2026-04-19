@@ -552,38 +552,38 @@ class TestGetHealth:
     async def test_health_with_org_counts_entities(self) -> None:
         """Health with org_id should count entities."""
         async with mock_tools() as ctx:
-            # Add some entities
             entity = create_test_entity(entity_type=EntityType.PATTERN, name="Pattern")
             ctx.entity_manager.add_entity(entity)
-            ctx.entity_manager._list_results = [entity]
 
             result = await get_health(organization_id=TEST_ORG_ID)
 
             assert "status" in result
+            assert result["entity_counts"]["pattern"] == 1
 
     @pytest.mark.asyncio
     async def test_health_paginates_counts_beyond_page_size(self) -> None:
         """Health should count all entities even when a type exceeds 1000 rows."""
 
-        counts = {
-            EntityType.PATTERN: 1250,
-            EntityType.RULE: 1001,
-            EntityType.EPISODE: 0,
+        counts_by_page = {
+            0: [EntityType.PATTERN] * 1000,
+            1000: [EntityType.PATTERN] * 250 + [EntityType.RULE] * 750,
+            2000: [EntityType.RULE] * 251,
         }
 
-        async def list_by_type(
-            entity_type: EntityType,
-            limit: int = 50,
+        async def list_all(
+            limit: int = 1000,
             offset: int = 0,
-            **kwargs: object,
+            include_archived: bool = False,
         ) -> list[object]:
-            remaining = counts[entity_type] - offset
-            if remaining <= 0:
-                return []
-            return [object()] * min(limit, remaining)
+            del include_archived
+            entity_types = counts_by_page.get(offset, [])
+            return [
+                create_test_entity(entity_type=entity_type, name=f"{entity_type.value}-{index}")
+                for index, entity_type in enumerate(entity_types[:limit])
+            ]
 
         async with mock_tools() as ctx:
-            ctx.entity_manager.list_by_type = AsyncMock(side_effect=list_by_type)
+            ctx.entity_manager.list_all = AsyncMock(side_effect=list_all)
 
             result = await get_health(organization_id=TEST_ORG_ID)
 
@@ -592,7 +592,7 @@ class TestGetHealth:
             assert result["entity_counts"]["episode"] == 0
             assert any(
                 call.kwargs.get("offset") == 1000
-                for call in ctx.entity_manager.list_by_type.await_args_list
+                for call in ctx.entity_manager.list_all.await_args_list
             )
 
     @pytest.mark.asyncio
@@ -621,20 +621,36 @@ class TestGetStats:
     @pytest.mark.asyncio
     async def test_stats_returns_entity_counts(self) -> None:
         """Stats should return entity counts per type."""
-        with patch(
-            "sibyl_core.tools.health.execute_legacy_graph_query",
-            AsyncMock(
-                return_value=[
-                    {"type": "pattern", "count": 10},
-                    {"type": "rule", "count": 5},
+        async def list_all(
+            limit: int = 1000,
+            offset: int = 0,
+            include_archived: bool = False,
+        ) -> list[object]:
+            del limit, include_archived
+            if offset == 0:
+                return [
+                    create_test_entity(entity_type=EntityType.PATTERN, name="Pattern 1"),
+                    create_test_entity(entity_type=EntityType.PATTERN, name="Pattern 2"),
+                    create_test_entity(entity_type=EntityType.RULE, name="Rule 1"),
                 ]
-            ),
-        ):
+            if offset == 3:
+                return [
+                    create_test_entity(entity_type=EntityType.PATTERN, name="Pattern 3"),
+                    create_test_entity(entity_type=EntityType.RULE, name="Rule 2"),
+                    create_test_entity(entity_type=EntityType.RULE, name="Rule 3"),
+                    create_test_entity(entity_type=EntityType.RULE, name="Rule 4"),
+                    create_test_entity(entity_type=EntityType.RULE, name="Rule 5"),
+                ]
+            return []
+
+        async with mock_tools() as ctx:
+            ctx.entity_manager.list_all = AsyncMock(side_effect=list_all)
             result = await get_stats(organization_id=TEST_ORG_ID)
 
             assert "entity_counts" in result
-            assert result["entity_counts"]["pattern"] == 10
+            assert result["entity_counts"]["pattern"] == 3
             assert result["entity_counts"]["rule"] == 5
+            assert result["total_entities"] == 8
 
 
 class TestAutoTagTask:

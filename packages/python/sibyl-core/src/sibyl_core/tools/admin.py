@@ -12,42 +12,15 @@ import structlog
 
 from sibyl_core.config import settings
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
-from sibyl_core.services.legacy_graph import get_legacy_graph_client, get_legacy_graph_runtime
+from sibyl_core.services.legacy_graph import (
+    count_entities_by_type,
+    get_legacy_graph_client,
+    get_legacy_graph_runtime,
+)
 
 log = structlog.get_logger()
 
 BACKFILL_PAGE_SIZE = 1000
-
-
-async def _get_entity_counts(client: Any, organization_id: str) -> dict[str, int]:
-    """Count entities by type with a single org-scoped aggregation query."""
-    rows = await client.execute_read_org(
-        """
-        MATCH (n)
-        WHERE n.entity_type IS NOT NULL
-          AND n.group_id = $group_id
-          AND (n.status IS NULL OR toLower(n.status) <> 'archived')
-          AND (
-            n.metadata IS NULL
-            OR (
-              NOT toLower(toString(n.metadata)) CONTAINS '"status":"archived"'
-              AND NOT toLower(toString(n.metadata)) CONTAINS '"status": "archived"'
-            )
-          )
-        RETURN n.entity_type AS type, count(*) AS count
-        """,
-        organization_id,
-        group_id=organization_id,
-    )
-
-    counts = {entity_type.value: 0 for entity_type in EntityType}
-    for row in rows:
-        entity_type = row.get("type")
-        count = row.get("count", 0)
-        if entity_type in counts:
-            counts[entity_type] = int(count)
-
-    return counts
 
 
 @dataclass
@@ -120,14 +93,13 @@ async def health_check(*, organization_id: str | None = None) -> HealthStatus:
     try:
         if organization_id:
             runtime = await get_legacy_graph_runtime(organization_id)
-            client = runtime.client
             entity_manager = runtime.entity_manager
             graph_connected = True
             for entity_type in EntityType:
                 entity_counts[entity_type.value] = -1
 
             try:
-                entity_counts = await _get_entity_counts(client, organization_id)
+                entity_counts = await count_entities_by_type(entity_manager)
             except Exception as e:
                 errors.append(f"Entity count query failed: {e}")
 
@@ -235,9 +207,9 @@ async def get_stats(*, organization_id: str | None = None) -> dict[str, object]:
         return stats
 
     try:
-        client = await get_legacy_graph_client()
+        runtime = await get_legacy_graph_runtime(organization_id)
 
-        entity_stats = await _get_entity_counts(client, organization_id)
+        entity_stats = await count_entities_by_type(runtime.entity_manager)
 
         stats["entities"] = entity_stats
         stats["total_entities"] = sum(entity_stats.values())

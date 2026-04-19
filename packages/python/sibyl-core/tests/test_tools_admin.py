@@ -49,27 +49,34 @@ class TestRebuildIndices:
 
 
 class TestHealthAndStats:
-    """Admin health/stat helpers should use aggregated counts."""
+    """Admin health/stat helpers should use paged entity seams."""
 
     @pytest.mark.asyncio
-    async def test_health_check_uses_single_count_query(self) -> None:
-        """health_check should aggregate entity counts instead of listing entities per type."""
+    async def test_health_check_uses_paged_entity_counts(self) -> None:
+        """health_check should count through entity-manager pagination."""
         org_id = "00000000-0000-0000-0000-000000000111"
-        client = AsyncMock()
-        client.execute_read_org = AsyncMock(
-            return_value=[
-                {"type": "pattern", "count": 3},
-                {"type": "task", "count": 2},
+        entity_manager = AsyncMock()
+        entity_manager.list_all = AsyncMock(
+            side_effect=[
+                [
+                    SimpleNamespace(entity_type=EntityType.PATTERN),
+                    SimpleNamespace(entity_type=EntityType.PATTERN),
+                    SimpleNamespace(entity_type=EntityType.TASK),
+                ],
+                [
+                    SimpleNamespace(entity_type=EntityType.PATTERN),
+                    SimpleNamespace(entity_type=EntityType.TASK),
+                ],
+                [],
             ]
         )
-        entity_manager = AsyncMock()
         entity_manager.search = AsyncMock(return_value=[])
 
         with patch(
             "sibyl_core.tools.admin.get_legacy_graph_runtime",
             AsyncMock(
                 return_value=SimpleNamespace(
-                    client=client,
+                    client=AsyncMock(),
                     entity_manager=entity_manager,
                     relationship_manager=AsyncMock(),
                 )
@@ -81,29 +88,44 @@ class TestHealthAndStats:
         assert result.entity_counts["pattern"] == 3
         assert result.entity_counts["task"] == 2
         assert result.entity_counts["episode"] == 0
-        client.execute_read_org.assert_awaited_once()
-        args = client.execute_read_org.await_args
-        assert "toLower(n.status) <> 'archived'" in args.args[0]
-        assert 'toLower(toString(n.metadata)) CONTAINS \'"status":"archived"\'' in args.args[0]
-        assert args.args[1] == org_id
-        assert args.kwargs["group_id"] == org_id
+        entity_manager.list_all.assert_has_awaits(
+            [
+                call(limit=1000, offset=0, include_archived=False),
+                call(limit=1000, offset=3, include_archived=False),
+                call(limit=1000, offset=5, include_archived=False),
+            ]
+        )
         entity_manager.search.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_get_stats_uses_aggregated_counts(self) -> None:
-        """get_stats should sum the aggregation query results directly."""
+    async def test_get_stats_uses_paged_entity_counts(self) -> None:
+        """get_stats should sum counts from paged entity listings."""
         org_id = "00000000-0000-0000-0000-000000000111"
-        client = AsyncMock()
-        client.execute_read_org = AsyncMock(
-            return_value=[
-                {"type": "pattern", "count": 3},
-                {"type": "task", "count": 2},
+        entity_manager = AsyncMock()
+        entity_manager.list_all = AsyncMock(
+            side_effect=[
+                [
+                    SimpleNamespace(entity_type=EntityType.PATTERN),
+                    SimpleNamespace(entity_type=EntityType.PATTERN),
+                ],
+                [
+                    SimpleNamespace(entity_type=EntityType.PATTERN),
+                    SimpleNamespace(entity_type=EntityType.TASK),
+                    SimpleNamespace(entity_type=EntityType.TASK),
+                ],
+                [],
             ]
         )
 
         with patch(
-            "sibyl_core.tools.admin.get_legacy_graph_client",
-            AsyncMock(return_value=client),
+            "sibyl_core.tools.admin.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    client=AsyncMock(),
+                    entity_manager=entity_manager,
+                    relationship_manager=AsyncMock(),
+                )
+            ),
         ):
             stats = await get_stats(organization_id=org_id)
 
@@ -111,9 +133,13 @@ class TestHealthAndStats:
         assert stats["entities"]["task"] == 2
         assert stats["entities"]["episode"] == 0
         assert stats["total_entities"] == 5
-        client.execute_read_org.assert_awaited_once()
-        query = client.execute_read_org.await_args.args[0]
-        assert "toLower(n.status) <> 'archived'" in query
+        entity_manager.list_all.assert_has_awaits(
+            [
+                call(limit=1000, offset=0, include_archived=False),
+                call(limit=1000, offset=2, include_archived=False),
+                call(limit=1000, offset=5, include_archived=False),
+            ]
+        )
 
 
 class TestBackfillTaskProjectRelationships:

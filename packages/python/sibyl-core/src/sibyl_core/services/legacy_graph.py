@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from sibyl_core.models.entities import EntityType
+
 
 @dataclass(frozen=True)
 class LegacyGraphRuntime:
@@ -33,6 +35,34 @@ async def get_legacy_graph_runtime(group_id: str) -> LegacyGraphRuntime:
         entity_manager=EntityManager(client, group_id=group_id),
         relationship_manager=RelationshipManager(client, group_id=group_id),
     )
+
+
+async def count_entities_by_type(
+    entity_manager: Any,
+    *,
+    include_archived: bool = False,
+    page_size: int = 1000,
+) -> dict[str, int]:
+    """Count entities by type without assuming backend-specific aggregations."""
+
+    counts = {entity_type.value: 0 for entity_type in EntityType}
+    offset = 0
+
+    while True:
+        entities = await entity_manager.list_all(
+            limit=page_size,
+            offset=offset,
+            include_archived=include_archived,
+        )
+        if not entities:
+            break
+
+        for entity in entities:
+            counts[entity.entity_type.value] = counts.get(entity.entity_type.value, 0) + 1
+
+        offset += len(entities)
+
+    return counts
 
 
 async def execute_legacy_graph_query(

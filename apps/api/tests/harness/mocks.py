@@ -174,6 +174,19 @@ class MockEntityManager:
         """List entities by type."""
         return [e for e in self._entities.values() if e.entity_type == entity_type][:limit]
 
+    async def list_all(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        include_archived: bool = False,
+    ) -> list[Entity]:
+        """List all entities with basic pagination."""
+        results = list(self._entities.values())
+        if not include_archived:
+            results = [entity for entity in results if not entity.metadata.get("archived")]
+        return results[offset : offset + limit]
+
 
 @dataclass
 class MockRelationshipManager:
