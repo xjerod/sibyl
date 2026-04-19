@@ -14,6 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from sibyl_core.graph.entities import EntityManager
+from sibyl_core.graph.relationships import RelationshipManager
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+
 if TYPE_CHECKING:
     from sibyl_core.graph.client import GraphClient
 
@@ -29,6 +33,225 @@ CLUSTER_CACHE_TTL = timedelta(minutes=5)
 # Cache for hierarchical graph community detection (expensive operation)
 HIERARCHICAL_CACHE: dict[str, tuple[datetime, dict[str, str], list[dict]]] = {}
 HIERARCHICAL_CACHE_TTL = timedelta(minutes=5)
+
+
+def _entity_summary(entity: Entity) -> str:
+    summary = entity.metadata.get("summary")
+    if isinstance(summary, str) and summary:
+        return summary
+    return entity.description or ""
+
+
+async def _list_all_entities(
+    client: GraphClient,
+    organization_id: str,
+    *,
+    batch_size: int = 1000,
+) -> list[Entity]:
+    manager = EntityManager(client, group_id=organization_id)
+    entities: list[Entity] = []
+    offset = 0
+
+    while True:
+        batch = await manager.list_all(
+            limit=batch_size,
+            offset=offset,
+            include_archived=True,
+        )
+        if not batch:
+            break
+        entities.extend(batch)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+
+    return entities
+
+
+async def _list_all_relationships(
+    client: GraphClient,
+    organization_id: str,
+    *,
+    batch_size: int = 1000,
+    relationship_types: list[RelationshipType] | None = None,
+) -> list[Relationship]:
+    manager = RelationshipManager(client, group_id=organization_id)
+    relationships: list[Relationship] = []
+    offset = 0
+
+    while True:
+        batch = await manager.list_all(
+            relationship_types=relationship_types,
+            limit=batch_size,
+            offset=offset,
+        )
+        if not batch:
+            break
+        relationships.extend(batch)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+
+    return relationships
+
+
+def _entity_index(entities: list[Entity]) -> dict[str, Entity]:
+    return {entity.id: entity for entity in entities if entity.id}
+
+
+def _matches_project_focus(entity: Entity, project_ids: list[str] | None) -> bool:
+    if not project_ids:
+        return True
+
+    unassigned_id = "__unassigned__"
+    has_unassigned = unassigned_id in project_ids
+    real_project_ids = {project_id for project_id in project_ids if project_id != unassigned_id}
+    entity_project_id = entity.metadata.get("project_id")
+    if not isinstance(entity_project_id, str) or not entity_project_id:
+        entity_project_id = None
+
+    if has_unassigned and real_project_ids:
+        return (
+            entity_project_id is None
+            or entity.id in real_project_ids
+            or entity_project_id in real_project_ids
+        )
+    if has_unassigned:
+        return entity_project_id is None
+    return entity.id in real_project_ids or entity_project_id in real_project_ids
+
+
+def _document_neighbor_ids(
+    entity_by_id: dict[str, Entity],
+    relationships: list[Relationship],
+    focused_ids: set[str],
+) -> set[str]:
+    document_ids: set[str] = set()
+
+    for relationship in relationships:
+        if relationship.relationship_type != RelationshipType.DOCUMENTED_IN:
+            continue
+        source = entity_by_id.get(relationship.source_id)
+        target = entity_by_id.get(relationship.target_id)
+        if source is None or target is None:
+            continue
+
+        if source.entity_type == EntityType.DOCUMENT and target.id in focused_ids:
+            document_ids.add(source.id)
+        if target.entity_type == EntityType.DOCUMENT and source.id in focused_ids:
+            document_ids.add(target.id)
+
+    return document_ids
+
+
+def _focused_entity_ids(
+    entities: list[Entity],
+    relationships: list[Relationship],
+    *,
+    project_ids: list[str] | None = None,
+    entity_types: list[str] | None = None,
+) -> set[str]:
+    entity_by_id = _entity_index(entities)
+    allowed_types = {entity_type.lower() for entity_type in entity_types} if entity_types else None
+    focused_ids = {
+        entity.id
+        for entity in entities
+        if entity.id and _matches_project_focus(entity, project_ids)
+    }
+
+    if project_ids:
+        focused_ids.update(_document_neighbor_ids(entity_by_id, relationships, focused_ids))
+
+    if allowed_types is not None:
+        focused_ids = {
+            entity_id
+            for entity_id in focused_ids
+            if (entity := entity_by_id.get(entity_id)) is not None
+            and entity.entity_type.value.lower() in allowed_types
+        }
+
+    return focused_ids
+
+
+def _graph_totals_from_snapshot(
+    entities: list[Entity],
+    relationships: list[Relationship],
+    *,
+    project_ids: list[str] | None = None,
+) -> tuple[int, int]:
+    node_ids = _focused_entity_ids(
+        entities,
+        relationships,
+        project_ids=project_ids,
+    )
+    edge_count = sum(
+        1
+        for relationship in relationships
+        if relationship.source_id in node_ids and relationship.target_id in node_ids
+    )
+    return len(node_ids), edge_count
+
+
+def _build_graph_nodes_from_snapshot(
+    entities: list[Entity],
+    relationships: list[Relationship],
+    node_to_cluster: dict[str, str],
+    *,
+    max_nodes: int,
+    project_ids: list[str] | None = None,
+    entity_types: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    focused_ids = _focused_entity_ids(
+        entities,
+        relationships,
+        project_ids=project_ids,
+        entity_types=entity_types,
+    )
+    nodes: list[dict[str, Any]] = []
+    node_ids: set[str] = set()
+
+    for entity in entities:
+        if not entity.id or entity.id not in focused_ids:
+            continue
+
+        node_ids.add(entity.id)
+        nodes.append(
+            {
+                "id": entity.id,
+                "name": entity.name or entity.id[:20],
+                "type": entity.entity_type.value,
+                "summary": _entity_summary(entity),
+                "cluster_id": node_to_cluster.get(entity.id, "unclustered"),
+            }
+        )
+        if len(nodes) >= max_nodes:
+            break
+
+    return nodes, node_ids
+
+
+def _build_graph_edges_from_snapshot(
+    relationships: list[Relationship],
+    node_ids: set[str],
+    *,
+    max_edges: int,
+) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+
+    for relationship in relationships:
+        if relationship.source_id not in node_ids or relationship.target_id not in node_ids:
+            continue
+        edges.append(
+            {
+                "source": relationship.source_id,
+                "target": relationship.target_id,
+                "type": relationship.relationship_type.value,
+            }
+        )
+        if len(edges) >= max_edges:
+            break
+
+    return edges
 
 
 @dataclass
@@ -117,24 +340,16 @@ async def _create_type_based_clusters(
     organization_id: str,
 ) -> list[ClusterSummary]:
     """Create clusters based on entity type (fallback when no networkx)."""
-    query = """
-    MATCH (n)
-    WHERE (n:Episodic OR n:Entity OR n:Document) AND n.group_id = $group_id
-    RETURN n.entity_type AS type, collect(n.uuid) AS ids
-    """
-
     try:
-        result = await client.execute_read_org(query, organization_id, group_id=organization_id)
+        entities = await _list_all_entities(client, organization_id)
+        grouped_ids: dict[str, list[str]] = {}
+        for entity in entities:
+            if not entity.id:
+                continue
+            grouped_ids.setdefault(entity.entity_type.value, []).append(entity.id)
+
         clusters = []
-
-        for i, record in enumerate(result):
-            if isinstance(record, (list, tuple)):
-                entity_type = record[0] if len(record) > 0 else "unknown"
-                member_ids = record[1] if len(record) > 1 else []
-            else:
-                entity_type = record.get("type", "unknown")
-                member_ids = record.get("ids", [])
-
+        for i, (entity_type, member_ids) in enumerate(sorted(grouped_ids.items())):
             if not member_ids:
                 continue
 
@@ -162,39 +377,18 @@ async def _enrich_cluster_summaries(
     detected: list[DetectedCommunity],
 ) -> list[ClusterSummary]:
     """Convert DetectedCommunity to ClusterSummary with type distribution."""
+    entity_by_id = _entity_index(await _list_all_entities(client, organization_id))
     summaries = []
 
     for community in detected:
         if not community.member_ids:
             continue
 
-        # Query type distribution for this cluster's members
-        # Use COALESCE to try entity_type first, then extract from labels array
-        query = """
-        MATCH (n)
-        WHERE n.uuid IN $ids
-        WITH n,
-             CASE
-                 WHEN n.entity_type IS NOT NULL THEN n.entity_type
-                 WHEN n.labels IS NOT NULL AND size(n.labels) > 1 THEN n.labels[1]
-                 ELSE 'unknown'
-             END AS resolved_type
-        RETURN toLower(resolved_type) AS type, count(*) AS cnt
-        """
-
         type_dist: dict[str, int] = {}
-        try:
-            result = await client.execute_read_org(query, organization_id, ids=community.member_ids)
-            for record in result:
-                if isinstance(record, (list, tuple)):
-                    t = record[0] if len(record) > 0 else "unknown"
-                    c = record[1] if len(record) > 1 else 0
-                else:
-                    t = record.get("type", "unknown")
-                    c = record.get("cnt", 0)
-                type_dist[t or "unknown"] = c
-        except Exception:
-            type_dist = {"unknown": len(community.member_ids)}
+        for member_id in community.member_ids:
+            entity = entity_by_id.get(member_id)
+            entity_type = entity.entity_type.value if entity is not None else "unknown"
+            type_dist[entity_type] = type_dist.get(entity_type, 0) + 1
 
         # Find dominant type
         dominant = max(type_dist.items(), key=lambda x: x[1])[0] if type_dist else "unknown"
@@ -236,68 +430,30 @@ async def get_cluster_nodes(
         return {"nodes": [], "edges": [], "error": "Cluster not found"}
 
     member_ids = cluster.member_ids
+    member_id_set = set(member_ids)
+    entity_by_id = _entity_index(await _list_all_entities(client, organization_id))
+    relationships = await _list_all_relationships(client, organization_id)
 
-    # Get nodes
-    node_query = """
-    MATCH (n)
-    WHERE n.uuid IN $ids
-    RETURN n.uuid AS id, n.name AS name, n.entity_type AS type, n.summary AS summary
-    """
+    nodes = [
+        {
+            "id": member_id,
+            "name": entity.name or member_id[:20],
+            "type": entity.entity_type.value,
+            "summary": _entity_summary(entity),
+        }
+        for member_id in member_ids
+        if (entity := entity_by_id.get(member_id)) is not None
+    ]
 
-    nodes = []
-    try:
-        result = await client.execute_read_org(node_query, organization_id, ids=member_ids)
-        for record in result:
-            if isinstance(record, (list, tuple)):
-                nodes.append(
-                    {
-                        "id": record[0],
-                        "name": record[1] or record[0][:20],
-                        "type": record[2] or "unknown",
-                        "summary": record[3] or "",
-                    }
-                )
-            else:
-                nodes.append(
-                    {
-                        "id": record.get("id"),
-                        "name": record.get("name") or record.get("id", "")[:20],
-                        "type": record.get("type", "unknown"),
-                        "summary": record.get("summary", ""),
-                    }
-                )
-    except Exception as e:
-        log.warning("get_cluster_nodes_failed", cluster_id=cluster_id, error=str(e))
-
-    # Get edges within cluster
-    edge_query = """
-    MATCH (a)-[r]->(b)
-    WHERE a.uuid IN $ids AND b.uuid IN $ids
-    RETURN a.uuid AS source, b.uuid AS target, type(r) AS rel_type
-    """
-
-    edges = []
-    try:
-        result = await client.execute_read_org(edge_query, organization_id, ids=member_ids)
-        for record in result:
-            if isinstance(record, (list, tuple)):
-                edges.append(
-                    {
-                        "source": record[0],
-                        "target": record[1],
-                        "type": record[2] or "RELATED",
-                    }
-                )
-            else:
-                edges.append(
-                    {
-                        "source": record.get("source"),
-                        "target": record.get("target"),
-                        "type": record.get("rel_type", "RELATED"),
-                    }
-                )
-    except Exception as e:
-        log.warning("get_cluster_edges_failed", cluster_id=cluster_id, error=str(e))
+    edges = [
+        {
+            "source": relationship.source_id,
+            "target": relationship.target_id,
+            "type": relationship.relationship_type.value,
+        }
+        for relationship in relationships
+        if relationship.source_id in member_id_set and relationship.target_id in member_id_set
+    ]
 
     return {
         "nodes": nodes,
@@ -378,124 +534,19 @@ async def _get_graph_totals(
     Returns:
         Tuple of (total_nodes, total_edges) matching the filter criteria.
     """
-    total_nodes = 0
-    total_edges = 0
-
     # NOTE: include_neighbors is intentionally ignored for totals.
     # Totals reflect the focused subset selected by project filters.
-
-    # Handle special __unassigned__ filter for entities without a project
-    UNASSIGNED_ID = "__unassigned__"
-    has_unassigned = project_ids and UNASSIGNED_ID in project_ids
-    real_project_ids = [pid for pid in (project_ids or []) if pid != UNASSIGNED_ID]
-
-    params: dict[str, str | list[str]] = {"group_id": organization_id}
-    if real_project_ids:
-        params["project_ids"] = real_project_ids
-
-    def _project_filter(var: str) -> str:
-        if has_unassigned and real_project_ids:
-            return f"({var}.project_id IS NULL OR {var}.uuid IN $project_ids OR {var}.project_id IN $project_ids)"
-        if has_unassigned:
-            return f"{var}.project_id IS NULL"
-        if real_project_ids:
-            return f"({var}.uuid IN $project_ids OR {var}.project_id IN $project_ids)"
-        return "TRUE"
-
-    def _focused_filter(var: str) -> str:
-        if not project_ids:
-            return "TRUE"
-        return (
-            f"({_project_filter(var)} OR ({var}:Document AND EXISTS {{ "
-            f"MATCH ({var})-[:DOCUMENTED_IN]-(owner) "
-            f"WHERE (owner:Episodic OR owner:Entity OR owner:Document) "
-            f"AND owner.group_id = $group_id AND {_project_filter('owner')} "
-            f"}}))"
+    try:
+        entities = await _list_all_entities(client, organization_id)
+        relationships = await _list_all_relationships(client, organization_id)
+        return _graph_totals_from_snapshot(
+            entities,
+            relationships,
+            project_ids=project_ids,
         )
-
-    try:
-        node_query = f"""
-        MATCH (n)
-        WHERE (n:Episodic OR n:Entity OR n:Document)
-          AND n.group_id = $group_id
-          AND {_focused_filter("n")}
-        RETURN count(n) AS cnt
-        """
-
-        result = await client.execute_read_org(node_query, organization_id, **params)
-        if result:
-            record = result[0]
-            total_nodes = record[0] if isinstance(record, (list, tuple)) else record.get("cnt", 0)
     except Exception as e:
-        log.warning("count_nodes_failed", error=str(e))
-
-    # Count edges where BOTH endpoints are in the focused subset.
-    try:
-        edge_query = f"""
-        MATCH (a)-[r]->(b)
-        WHERE r.group_id = $group_id
-          AND (a:Episodic OR a:Entity OR a:Document) AND a.group_id = $group_id AND {_focused_filter("a")}
-          AND (b:Episodic OR b:Entity OR b:Document) AND b.group_id = $group_id AND {_focused_filter("b")}
-        RETURN count(r) AS cnt
-        """
-
-        result = await client.execute_read_org(edge_query, organization_id, **params)
-        if result:
-            record = result[0]
-            total_edges = record[0] if isinstance(record, (list, tuple)) else record.get("cnt", 0)
-    except Exception as e:
-        log.warning("count_edges_failed", error=str(e))
-
-    return total_nodes, total_edges
-
-
-def _extract_entity_type(
-    entity_type: str | None, labels: list[str] | None, name: str | None = None
-) -> str:
-    """Extract entity type from entity_type property, labels array, or infer from name.
-
-    Graphiti stores entity types in two places:
-    - n.entity_type: Direct property (preferred)
-    - n.labels: Array like [Entity, pattern] where second element may be the type
-
-    If neither has type info, try to infer from the entity name.
-    """
-    if entity_type:
-        return entity_type
-
-    # Try to extract from labels array - skip known graph/system labels
-    if labels:
-        skip_labels = {
-            "Entity",
-            "Episodic",
-            "EntityNode",
-            "EpisodicNode",
-            "Cluster",
-            "Community",
-            "Node",  # System labels
-        }
-        for label in labels:
-            if label and label not in skip_labels:
-                return label.lower()
-
-    # Infer type from name patterns
-    if name:
-        name_lower = name.lower()
-        # File paths
-        if any(
-            name_lower.endswith(ext)
-            for ext in (".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go", ".md")
-        ):
-            return "file"
-        # URLs
-        if name_lower.startswith(("http://", "https://", "www.")):
-            return "source"
-        # Code-like names (functions, classes)
-        if "(" in name or name.endswith("()"):
-            return "function"
-
-    # Default to "topic" - most extracted entities without explicit types are topics
-    return "topic"
+        log.warning("count_graph_totals_failed", error=str(e))
+        return 0, 0
 
 
 async def _fetch_graph_nodes(
@@ -507,97 +558,20 @@ async def _fetch_graph_nodes(
     entity_types: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], set[str]]:
     """Fetch nodes with cluster assignments, optionally filtered by project/type."""
-    # Handle special __unassigned__ filter for entities without a project
-    UNASSIGNED_ID = "__unassigned__"
-    has_unassigned = project_ids and UNASSIGNED_ID in project_ids
-    real_project_ids = [pid for pid in (project_ids or []) if pid != UNASSIGNED_ID]
-
-    params: dict[str, Any] = {"group_id": organization_id, "limit": max_nodes}
-    if real_project_ids:
-        params["project_ids"] = real_project_ids
-    if entity_types:
-        params["entity_types"] = entity_types
-
-    def _project_filter(var: str) -> str:
-        if has_unassigned and real_project_ids:
-            return f"({var}.project_id IS NULL OR {var}.uuid IN $project_ids OR {var}.project_id IN $project_ids)"
-        if has_unassigned:
-            return f"{var}.project_id IS NULL"
-        if real_project_ids:
-            return f"({var}.uuid IN $project_ids OR {var}.project_id IN $project_ids)"
-        return "TRUE"
-
-    type_filter = (
-        "AND COALESCE(n.entity_type, CASE WHEN n:Document THEN 'document' ELSE '' END) IN $entity_types"
-        if entity_types
-        else ""
-    )
-    doc_type_filter = (
-        "AND COALESCE(d.entity_type, CASE WHEN d:Document THEN 'document' ELSE '' END) IN $entity_types"
-        if entity_types
-        else ""
-    )
-
-    query = f"""
-    MATCH (n)
-    WHERE (n:Episodic OR n:Entity OR n:Document)
-      AND n.group_id = $group_id
-      AND {_project_filter("n")}
-      {type_filter}
-    RETURN DISTINCT n.uuid AS id, n.name AS name, n.entity_type AS type,
-           n.summary AS summary, labels(n) AS labels, n.project_id AS project_id
-    """
-
-    # Keep documentation visible when focusing projects by pulling docs linked to focused nodes.
-    if project_ids:
-        query += f"""
-        UNION
-        MATCH (d:Document)-[:DOCUMENTED_IN]-(owner)
-        WHERE d.group_id = $group_id
-          AND (owner:Episodic OR owner:Entity OR owner:Document) AND owner.group_id = $group_id
-          AND {_project_filter("owner")}
-          {doc_type_filter}
-        RETURN DISTINCT d.uuid AS id, d.name AS name, d.entity_type AS type,
-               d.summary AS summary, labels(d) AS labels, d.project_id AS project_id
-        """
-
-    query += "\nLIMIT $limit"
-
-    nodes: list[dict[str, Any]] = []
-    node_ids: set[str] = set()
-
     try:
-        result = await client.execute_read_org(query, organization_id, **params)
-        for record in result:
-            if isinstance(record, (list, tuple)):
-                node_id = record[0] if len(record) > 0 else None
-                name = record[1] if len(record) > 1 else ""
-                entity_type = record[2] if len(record) > 2 else None
-                summary = record[3] if len(record) > 3 else ""
-                labels = record[4] if len(record) > 4 else None
-            else:
-                node_id = record.get("id")
-                name = record.get("name", "")
-                entity_type = record.get("type")
-                summary = record.get("summary", "")
-                labels = record.get("labels")
-
-            if node_id:
-                resolved_type = _extract_entity_type(entity_type, labels, name)
-                node_ids.add(node_id)
-                nodes.append(
-                    {
-                        "id": node_id,
-                        "name": name or node_id[:20],
-                        "type": resolved_type,
-                        "summary": summary or "",
-                        "cluster_id": node_to_cluster.get(node_id, "unclustered"),
-                    }
-                )
+        entities = await _list_all_entities(client, organization_id)
+        relationships = await _list_all_relationships(client, organization_id)
+        return _build_graph_nodes_from_snapshot(
+            entities,
+            relationships,
+            node_to_cluster,
+            max_nodes=max_nodes,
+            project_ids=project_ids,
+            entity_types=entity_types,
+        )
     except Exception as e:
         log.warning("fetch_nodes_failed", error=str(e))
-
-    return nodes, node_ids
+        return [], set()
 
 
 async def _fetch_graph_edges(
@@ -610,42 +584,16 @@ async def _fetch_graph_edges(
     if not node_ids:
         return []
 
-    query = """
-    MATCH (a)-[r]->(b)
-    WHERE r.group_id = $group_id
-      AND a.uuid IN $node_ids
-      AND b.uuid IN $node_ids
-    RETURN a.uuid AS source, b.uuid AS target, COALESCE(r.name, type(r)) AS type
-    LIMIT $limit
-    """
-    edges: list[dict[str, Any]] = []
-
     try:
-        result = await client.execute_read_org(
-            query,
-            organization_id,
-            group_id=organization_id,
-            node_ids=list(node_ids),
-            limit=max_edges,
+        relationships = await _list_all_relationships(client, organization_id)
+        return _build_graph_edges_from_snapshot(
+            relationships,
+            node_ids,
+            max_edges=max_edges,
         )
-        for record in result:
-            if isinstance(record, (list, tuple)):
-                source, target, rel_type = (
-                    record[0] if len(record) > 0 else None,
-                    record[1] if len(record) > 1 else None,
-                    record[2] if len(record) > 2 else "RELATED",
-                )
-            else:
-                source = record.get("source")
-                target = record.get("target")
-                rel_type = record.get("type", "RELATED")
-
-            if source and target and source in node_ids and target in node_ids:
-                edges.append({"source": source, "target": target, "type": rel_type or "RELATED"})
     except Exception as e:
         log.warning("fetch_edges_failed", error=str(e))
-
-    return edges
+        return []
 
 
 def _build_cluster_metadata(
@@ -932,65 +880,21 @@ async def export_to_networkx(
     # Create undirected graph for community detection
     G = nx.Graph()
 
-    # Fetch ALL nodes - Episodic, Entity, and Document labels with group_id filter
-    # Also fetch labels array for type resolution
-    node_query = """
-    MATCH (n)
-    WHERE (n:Episodic OR n:Entity OR n:Document) AND n.group_id = $group_id
-    RETURN n.uuid AS id, n.name AS name, n.entity_type AS type, n.labels AS labels
-    """
-
     try:
-        node_result = await client.execute_read_org(
-            node_query, organization_id, group_id=organization_id
-        )
-
-        for record in node_result:
-            if isinstance(record, (list, tuple)):
-                node_id = record[0] if len(record) > 0 else None
-                name = record[1] if len(record) > 1 else ""
-                entity_type = record[2] if len(record) > 2 else None
-                labels = record[3] if len(record) > 3 else None
-            else:
-                node_id = record.get("id")
-                name = record.get("name", "")
-                entity_type = record.get("type")
-                labels = record.get("labels")
-
-            if node_id:
-                # Resolve entity type using helper
-                resolved_type = _extract_entity_type(entity_type, labels, name)
-                G.add_node(node_id, name=name, type=resolved_type)
-
+        entities = await _list_all_entities(client, organization_id)
+        for entity in entities:
+            if entity.id:
+                G.add_node(entity.id, name=entity.name, type=entity.entity_type.value)
     except Exception as e:
         log.warning("export_nodes_failed", error=str(e))
 
-    # Fetch ALL edges - use group_id filter on relationship
-    edge_query = """
-    MATCH (a)-[r]->(b)
-    WHERE r.group_id = $group_id
-    RETURN a.uuid AS source, b.uuid AS target, type(r) AS rel_type
-    """
-
     try:
-        edge_result = await client.execute_read_org(
-            edge_query, organization_id, group_id=organization_id
-        )
-
-        for record in edge_result:
-            if isinstance(record, (list, tuple)):
-                source = record[0] if len(record) > 0 else None
-                target = record[1] if len(record) > 1 else None
-                rel_type = record[2] if len(record) > 2 else ""
-            else:
-                source = record.get("source")
-                target = record.get("target")
-                rel_type = record.get("rel_type", "")
-
-            if source and target and source in G and target in G:
+        relationships = await _list_all_relationships(client, organization_id)
+        for relationship in relationships:
+            if relationship.source_id in G and relationship.target_id in G:
                 # Calculate edge weight with type affinity boost
-                source_type = G.nodes[source].get("type", "")
-                target_type = G.nodes[target].get("type", "")
+                source_type = G.nodes[relationship.source_id].get("type", "")
+                target_type = G.nodes[relationship.target_id].get("type", "")
 
                 # Base weight + bonus if same type
                 weight = 1.0
@@ -998,10 +902,15 @@ async def export_to_networkx(
                     weight += type_affinity_weight
 
                 # Update or add edge (accumulate weight for multi-edges)
-                if G.has_edge(source, target):
-                    G[source][target]["weight"] += weight
+                if G.has_edge(relationship.source_id, relationship.target_id):
+                    G[relationship.source_id][relationship.target_id]["weight"] += weight
                 else:
-                    G.add_edge(source, target, rel_type=rel_type, weight=weight)
+                    G.add_edge(
+                        relationship.source_id,
+                        relationship.target_id,
+                        rel_type=relationship.relationship_type.value,
+                        weight=weight,
+                    )
 
     except Exception as e:
         log.warning("export_edges_failed", error=str(e))

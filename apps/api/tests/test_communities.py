@@ -15,9 +15,32 @@ from sibyl_core.graph.communities import (
     partition_to_communities,
     store_communities,
 )
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 # Test organization ID for multi-tenancy
 TEST_ORG_ID = "test-org-communities"
+
+
+def _make_entity(entity_id: str, name: str, entity_type: EntityType) -> Entity:
+    return Entity(
+        id=entity_id,
+        name=name,
+        entity_type=entity_type,
+    )
+
+
+def _make_relationship(
+    relationship_id: str,
+    source_id: str,
+    target_id: str,
+    relationship_type: RelationshipType = RelationshipType.RELATED_TO,
+) -> Relationship:
+    return Relationship(
+        id=relationship_id,
+        source_id=source_id,
+        target_id=target_id,
+        relationship_type=relationship_type,
+    )
 
 
 class TestCommunityConfig:
@@ -245,41 +268,56 @@ class TestExportToNetworkx:
     @pytest.mark.asyncio
     async def test_nodes_exported(self, mock_client: MagicMock) -> None:
         """Nodes are properly exported."""
-        # First query returns nodes, second returns edges
-        mock_client.execute_read_org = AsyncMock(
-            side_effect=[
-                [
-                    ("e1", "Entity One", "pattern"),
-                    ("e2", "Entity Two", "rule"),
-                ],
-                [],  # No edges
+        entity_manager = MagicMock()
+        entity_manager.list_all = AsyncMock(
+            return_value=[
+                _make_entity("e1", "Entity One", EntityType.PATTERN),
+                _make_entity("e2", "Entity Two", EntityType.RULE),
             ]
         )
+        relationship_manager = MagicMock()
+        relationship_manager.list_all = AsyncMock(return_value=[])
 
-        G = await export_to_networkx(mock_client, TEST_ORG_ID)
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            G = await export_to_networkx(mock_client, TEST_ORG_ID)
 
         assert G.number_of_nodes() == 2
         assert "e1" in G.nodes()
         assert "e2" in G.nodes()
         assert G.nodes["e1"]["name"] == "Entity One"
-        assert G.nodes["e2"]["type"] == "rule"
+        assert G.nodes["e2"]["type"] == EntityType.RULE.value
 
     @pytest.mark.asyncio
     async def test_edges_exported(self, mock_client: MagicMock) -> None:
         """Edges are properly exported."""
-        mock_client.execute_read_org = AsyncMock(
-            side_effect=[
-                [
-                    ("e1", "Entity One", "pattern"),
-                    ("e2", "Entity Two", "pattern"),
-                ],
-                [
-                    ("e1", "e2", "RELATES_TO"),
-                ],
+        entity_manager = MagicMock()
+        entity_manager.list_all = AsyncMock(
+            return_value=[
+                _make_entity("e1", "Entity One", EntityType.PATTERN),
+                _make_entity("e2", "Entity Two", EntityType.PATTERN),
+            ]
+        )
+        relationship_manager = MagicMock()
+        relationship_manager.list_all = AsyncMock(
+            return_value=[
+                _make_relationship("r1", "e1", "e2"),
             ]
         )
 
-        G = await export_to_networkx(mock_client, TEST_ORG_ID)
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            G = await export_to_networkx(mock_client, TEST_ORG_ID)
 
         assert G.number_of_edges() == 1
         assert G.has_edge("e1", "e2")
@@ -313,21 +351,20 @@ class TestDetectCommunities:
     @pytest.mark.asyncio
     async def test_with_mock_louvain(self, mock_client: MagicMock) -> None:
         """Communities detected with mocked Louvain."""
-        # Mock networkx export - uses execute_read_org
-        mock_client.execute_read_org = AsyncMock(
-            side_effect=[
-                # Nodes
-                [
-                    ("e1", "Entity One", "pattern"),
-                    ("e2", "Entity Two", "pattern"),
-                    ("e3", "Entity Three", "pattern"),
-                    ("e4", "Entity Four", "pattern"),
-                ],
-                # Edges - two clusters
-                [
-                    ("e1", "e2", "RELATES_TO"),
-                    ("e3", "e4", "RELATES_TO"),
-                ],
+        entity_manager = MagicMock()
+        entity_manager.list_all = AsyncMock(
+            return_value=[
+                _make_entity("e1", "Entity One", EntityType.PATTERN),
+                _make_entity("e2", "Entity Two", EntityType.PATTERN),
+                _make_entity("e3", "Entity Three", EntityType.PATTERN),
+                _make_entity("e4", "Entity Four", EntityType.PATTERN),
+            ]
+        )
+        relationship_manager = MagicMock()
+        relationship_manager.list_all = AsyncMock(
+            return_value=[
+                _make_relationship("r1", "e1", "e2"),
+                _make_relationship("r2", "e3", "e4"),
             ]
         )
 
@@ -335,7 +372,14 @@ class TestDetectCommunities:
         mock_partition = {"e1": 0, "e2": 0, "e3": 1, "e4": 1}
         mock_modularity = 0.5
 
-        with patch("sibyl_core.graph.communities.detect_communities_louvain") as mock_louvain:
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+            patch("sibyl_core.graph.communities.detect_communities_louvain") as mock_louvain,
+        ):
             mock_louvain.return_value = (mock_partition, mock_modularity)
 
             config = CommunityConfig(resolutions=[1.0], max_levels=1)
