@@ -184,6 +184,11 @@ def test_export_graph_pages_entities_and_relationships(tmp_path: Path, monkeypat
 
     assert result.exit_code == 0
     exported = json.loads(output.read_text())
+    assert exported["version"] == "2.0"
+    assert exported["created_at"]
+    assert exported["organization_id"] == "org-123"
+    assert exported["entity_count"] == 3
+    assert exported["relationship_count"] == 4
     assert exported["metadata"]["entity_count"] == 3
     assert exported["metadata"]["relationship_count"] == 4
     assert entity_manager.list_by_type.await_args_list[:2] == [

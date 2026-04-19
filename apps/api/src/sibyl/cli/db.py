@@ -33,6 +33,45 @@ app = typer.Typer(
 )
 
 
+def _coerce_graph_backup_data(payload: dict[str, object], org_id: str):
+    """Normalize graph backup payloads from backup and export commands."""
+    from sibyl_core.tools.admin import BackupData
+
+    metadata = payload.get("metadata")
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+
+    raw_entities = payload.get("entities")
+    entities = list(raw_entities) if isinstance(raw_entities, list) else []
+
+    raw_relationships = payload.get("relationships")
+    relationships = list(raw_relationships) if isinstance(raw_relationships, list) else []
+
+    def _count(key: str, fallback: int) -> int:
+        value = payload.get(key)
+        if isinstance(value, int):
+            return value
+        meta_value = metadata_dict.get(key)
+        if isinstance(meta_value, int):
+            return meta_value
+        return fallback
+
+    created_at = payload.get("created_at")
+    if not created_at:
+        created_at = metadata_dict.get("exported_at", "")
+
+    organization_id = payload.get("organization_id") or org_id
+
+    return BackupData(
+        version=str(payload.get("version") or "2.0"),
+        created_at=str(created_at or ""),
+        organization_id=str(organization_id or org_id),
+        entity_count=_count("entity_count", len(entities)),
+        relationship_count=_count("relationship_count", len(relationships)),
+        entities=entities,
+        relationships=relationships,
+    )
+
+
 @app.command("backup")
 def backup_db(
     output: Annotated[Path, typer.Option("--output", "-o", help="Backup file path")] = Path(
@@ -79,7 +118,7 @@ def backup_db(
 
 @app.command("restore")
 def restore_db(
-    backup_file: Annotated[Path, typer.Argument(help="Backup file to restore")],
+    backup_file: Annotated[Path, typer.Argument(help="Backup or graph export file to restore")],
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
     org_id: Annotated[
         str,
@@ -90,7 +129,7 @@ def restore_db(
         typer.Option("--skip-existing/--overwrite", help="Skip entities that already exist"),
     ] = True,
 ) -> None:
-    """Restore the database from a backup file."""
+    """Restore the graph runtime from a backup or graph export file."""
     if not org_id:
         error("--org-id is required for graph operations")
         raise typer.Exit(code=1)
@@ -108,23 +147,14 @@ def restore_db(
 
     @run_async
     async def _restore() -> None:
-        from sibyl_core.tools.admin import BackupData, restore_backup
+        from sibyl_core.tools.admin import restore_backup
 
         try:
             # Load backup file (sync I/O before async work)
             with open(backup_file) as f:  # noqa: ASYNC230
                 backup_dict = json.load(f)
 
-            # Convert dict to BackupData
-            backup_data = BackupData(
-                version=backup_dict.get("version", "1.0"),
-                created_at=backup_dict.get("created_at", ""),
-                organization_id=backup_dict.get("organization_id", org_id),
-                entity_count=backup_dict.get("entity_count", 0),
-                relationship_count=backup_dict.get("relationship_count", 0),
-                entities=backup_dict.get("entities", []),
-                relationships=backup_dict.get("relationships", []),
-            )
+            backup_data = _coerce_graph_backup_data(backup_dict, org_id)
 
             info(
                 f"Restoring {backup_data.entity_count} entities and {backup_data.relationship_count} relationships..."
@@ -873,24 +903,15 @@ DROP TABLE IF EXISTS alembic_version CASCADE;
 
 
 def _restore_graph_from_file(graph_path: Path, org_id: str, clean: bool) -> None:
-    """Restore FalkorDB graph from backup file."""
+    """Restore graph data from a backup or export file."""
 
     @run_async
     async def _restore() -> bool:
-        from sibyl_core.tools.admin import BackupData, restore_backup
+        from sibyl_core.tools.admin import restore_backup
 
         try:
             backup_dict = json.loads(graph_path.read_text(encoding="utf-8"))
-
-            backup_data = BackupData(
-                version=backup_dict.get("version", "1.0"),
-                created_at=backup_dict.get("created_at", ""),
-                organization_id=backup_dict.get("organization_id", org_id),
-                entity_count=backup_dict.get("entity_count", 0),
-                relationship_count=backup_dict.get("relationship_count", 0),
-                entities=backup_dict.get("entities", []),
-                relationships=backup_dict.get("relationships", []),
-            )
+            backup_data = _coerce_graph_backup_data(backup_dict, org_id)
 
             result = await restore_backup(
                 backup_data, organization_id=org_id, skip_existing=not clean
@@ -898,7 +919,7 @@ def _restore_graph_from_file(graph_path: Path, org_id: str, clean: bool) -> None
 
             if result.success:
                 success(
-                    f"  FalkorDB restored: {result.entities_restored} entities, "
+                    f"  Graph restored: {result.entities_restored} entities, "
                     f"{result.relationships_restored} relationships"
                 )
             else:

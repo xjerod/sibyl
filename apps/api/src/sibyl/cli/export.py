@@ -4,6 +4,7 @@ Export graph data to JSON/CSV files.
 """
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -146,11 +147,15 @@ def export_graph(
             )
 
             # Build export data
+            exported_at = datetime.now(UTC).isoformat()
             export_data = {
+                "version": "2.0",
+                "created_at": exported_at,
+                "organization_id": org_id,
+                "entity_count": len(entities),
+                "relationship_count": len(relationships),
                 "metadata": {
-                    "exported_at": str(
-                        __import__("datetime").datetime.now(tz=__import__("datetime").timezone.utc)
-                    ),
+                    "exported_at": exported_at,
                     "entity_count": len(entities),
                     "relationship_count": len(relationships),
                 },
