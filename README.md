@@ -171,7 +171,13 @@ curl http://localhost:3334/api/health
 
 ```bash
 # Live artifact-producing evaluation against your running Sibyl stack
-moon run bench-live -- --no-save
+moon run bench-live -- --label legacy --metadata store=legacy
+
+# Compare a later Surreal run against the legacy artifact
+moon run bench-live -- --label surreal --metadata store=surreal
+uv run python benchmarks/compare_eval_reports.py \
+  benchmarks/results/eval_unified_legacy_20260419_120000.json \
+  benchmarks/results/eval_unified_surreal_20260419_123000.json
 
 # Live read-only smoke and latency checks against the same stack
 moon run bench-live-smoke
@@ -185,7 +191,12 @@ uv run python benchmarks/longmemeval_bench.py /path/to/longmemeval.json --mode h
 
 `bench-live` is the canonical runtime evaluation entry point. It exercises the real `/api/search`
 and RAG surfaces with your CLI auth context and writes JSON artifacts to `benchmarks/results/`
-unless you pass `--no-save`.
+unless you pass `--no-save`. Use `--label` and repeated `--metadata key=value` flags when you want
+to compare runs across stores or datasets.
+
+For graph migration drills, `sibyld export graph --org-id ...` now produces a restoreable graph
+artifact. That file can be loaded into the active graph runtime with `sibyld db restore ... --yes`
+before you run `bench-live`.
 
 `bench-live-smoke` keeps the existing read-only pytest latency and shape checks for local health
 verification.

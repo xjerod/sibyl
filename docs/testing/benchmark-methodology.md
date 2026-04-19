@@ -6,7 +6,7 @@ story.
 
 ## Recommended Order
 
-1. `moon run bench-live -- --no-save`
+1. `moon run bench-live -- --label legacy --metadata store=legacy`
 2. `moon run bench-live-smoke`
 3. `moon run bench-retrieval`
 4. `uv run python benchmarks/longmemeval_bench.py /path/to/longmemeval.json --mode hybrid`
@@ -22,6 +22,7 @@ This is the canonical runtime benchmark.
 - Exercises real `/api/search` or RAG HTTP surfaces
 - Uses the shared evaluation runner from `sibyl_core.evals`
 - Writes timestamped JSON reports to `benchmarks/results/` by default
+- Accepts `--label` and repeated `--metadata key=value` flags for saved artifacts
 
 Use this when you want artifact-producing evidence about the current running stack.
 
@@ -73,5 +74,14 @@ Use this for offline comparison work, and label it clearly as such.
 - Runtime evidence: artifact path from `benchmarks/results/`
 - Smoke evidence: `moon run bench-live-smoke`
 - Offline evidence, if relevant: `moon run bench-retrieval` or `longmemeval_bench.py`
+
+## Store Comparison Flow
+
+When you need to compare legacy and Surreal on the same graph data:
+
+1. Export the source org graph with `sibyld export graph --org-id <org> --output /tmp/graph.json`
+2. Boot the target store and import it with `sibyld db restore /tmp/graph.json --org-id <org> --yes`
+3. Run `moon run bench-live -- --label <store> --metadata store=<store>`
+4. Compare the saved artifacts with `uv run python benchmarks/compare_eval_reports.py <legacy.json> <surreal.json>`
 
 That split keeps the public story honest and makes it much easier to compare runs over time.
