@@ -27,7 +27,7 @@ from sibyl.auth.jwt import JwtError, verify_refresh_token
 from sibyl.auth.oauth_state import OAuthStateError, issue_state, verify_state
 from sibyl.auth.users import GitHubUserIdentity
 from sibyl.db.models import User
-from sibyl.persistence.legacy.auth import (
+from sibyl.persistence.auth_runtime import (
     approve_legacy_device_authorization,
     create_legacy_api_key_for_user,
     deny_legacy_device_authorization,

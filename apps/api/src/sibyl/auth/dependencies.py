@@ -16,7 +16,7 @@ from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
 from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import Organization, OrganizationMember, OrganizationRole, User
-from sibyl.persistence.legacy import (
+from sibyl.persistence.auth_runtime import (
     InvalidAuthClaimsError,
     LegacyAuthContextResolver,
     UserNotFoundError,

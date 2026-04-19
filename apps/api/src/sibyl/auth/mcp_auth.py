@@ -17,7 +17,7 @@ from uuid import UUID
 from mcp.server.auth.provider import AccessToken
 
 from sibyl.auth.jwt import JwtError, verify_access_token
-from sibyl.persistence.legacy.auth import authenticate_legacy_api_key
+from sibyl.persistence.auth_runtime import authenticate_legacy_api_key
 
 
 def _parse_scopes(claims: dict[str, Any]) -> list[str]:

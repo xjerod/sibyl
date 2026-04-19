@@ -40,7 +40,7 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 from sibyl import config as config_module
 from sibyl.auth.jwt import JwtError, create_access_token, verify_access_token
 from sibyl.db.models import Organization
-from sibyl.persistence.legacy.auth import (
+from sibyl.persistence.auth_runtime import (
     authenticate_legacy_api_key,
     authenticate_legacy_local_user,
     create_legacy_session_record,

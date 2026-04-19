@@ -16,11 +16,11 @@ from sibyl.auth.authorization import ProjectRole
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
+from sibyl.persistence.auth_runtime import verify_legacy_entity_project_access
 from sibyl.persistence.graph_runtime import (
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
     update_graph_entity as _service_update_graph_entity,
 )
-from sibyl.persistence.legacy.auth import verify_legacy_entity_project_access
 from sibyl_core.models.entities import EntityType
 from sibyl_core.services import KnowledgeReadService
 

@@ -13,7 +13,7 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 
 from sibyl.config import settings
-from sibyl.persistence.legacy.auth import (
+from sibyl.persistence.auth_runtime import (
     authenticate_legacy_api_key,
     has_legacy_owner_membership,
     resolve_legacy_accessible_project_graph_ids,
