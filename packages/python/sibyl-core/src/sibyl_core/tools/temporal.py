@@ -155,80 +155,30 @@ async def get_entity_history(
             message="entity_id is required for history mode",
         )
 
-    # Build query with temporal filtering
-    # Query edges where this entity is source or target
-    temporal_filter = ""
-    if as_of:
-        as_of_str = as_of.isoformat()
-        # System time: must have been created before as_of, not expired before as_of
-        temporal_filter = f"""
-            AND (r.created_at IS NULL OR r.created_at <= datetime('{as_of_str}'))
-            AND (r.expired_at IS NULL OR r.expired_at > datetime('{as_of_str}'))
-            AND (r.valid_at IS NULL OR r.valid_at <= datetime('{as_of_str}'))
-            AND (r.invalid_at IS NULL OR r.invalid_at > datetime('{as_of_str}'))
-        """
-    elif not include_expired:
-        # Default: only current edges (not expired)
-        temporal_filter = "AND r.expired_at IS NULL AND r.invalid_at IS NULL"
-
     context = _get_surreal_temporal_context(client, organization_id)
-    if context is not None:
-        try:
-            driver, edge_ops, node_ops = context
-            edges = await edge_ops.get_by_node_uuid(driver, entity_id)
-            filtered = _filter_history_edges(edges, as_of=as_of, include_expired=include_expired)
-            filtered.sort(key=_created_at_sort_key, reverse=True)
-            temporal_edges = await _graphiti_edges_to_temporal_edges(
-                driver,
-                node_ops,
-                filtered[:limit],
-            )
-            return TemporalResponse(
-                mode="history",
-                entity_id=entity_id,
-                edges=temporal_edges,
-                total=len(temporal_edges),
-                as_of=as_of,
-            )
-        except Exception as e:
-            log.debug("surreal_entity_history_fallback", error=str(e), entity_id=entity_id)
-
-    query = f"""
-        MATCH (source)-[r]-(target)
-        WHERE (source.uuid = $entity_id OR target.uuid = $entity_id)
-          AND r.group_id = $group_id
-          {temporal_filter}
-        RETURN r.uuid AS edge_id,
-               r.name AS name,
-               r.fact AS fact,
-               source.uuid AS source_id,
-               source.name AS source_name,
-               target.uuid AS target_id,
-               target.name AS target_name,
-               r.created_at AS created_at,
-               r.expired_at AS expired_at,
-               r.valid_at AS valid_at,
-               r.invalid_at AS invalid_at
-        ORDER BY r.created_at DESC
-        LIMIT $limit
-    """
-
-    try:
-        result = await client.execute_read_org(
-            query,
-            organization_id,
+    if context is None:
+        return _temporal_backend_unavailable_response(
+            mode="history",
             entity_id=entity_id,
-            group_id=organization_id,
-            limit=limit,
+            as_of=as_of,
         )
 
-        edges = _parse_edge_results(result, include_current_flag=True)
+    try:
+        driver, edge_ops, node_ops = context
+        edges = await edge_ops.get_by_node_uuid(driver, entity_id)
+        filtered = _filter_history_edges(edges, as_of=as_of, include_expired=include_expired)
+        filtered.sort(key=_created_at_sort_key, reverse=True)
+        temporal_edges = await _graphiti_edges_to_temporal_edges(
+            driver,
+            node_ops,
+            filtered[:limit],
+        )
 
         return TemporalResponse(
             mode="history",
             entity_id=entity_id,
-            edges=edges,
-            total=len(edges),
+            edges=temporal_edges,
+            total=len(temporal_edges),
             as_of=as_of,
         )
 
@@ -263,66 +213,31 @@ async def get_entity_timeline(
         )
 
     context = _get_surreal_temporal_context(client, organization_id)
-    if context is not None:
-        try:
-            driver, edge_ops, node_ops = context
-            edges = await edge_ops.get_by_node_uuid(driver, entity_id)
-            edges.sort(key=_created_at_sort_key)
-            temporal_edges = await _graphiti_edges_to_temporal_edges(
-                driver,
-                node_ops,
-                edges[:limit],
-            )
-            return TemporalResponse(
-                mode="timeline",
-                entity_id=entity_id,
-                edges=temporal_edges,
-                total=len(temporal_edges),
-                message=(
-                    f"Timeline shows {len(temporal_edges)} edges. "
-                    "Expired edges indicate superseded information."
-                ),
-            )
-        except Exception as e:
-            log.debug("surreal_entity_timeline_fallback", error=str(e), entity_id=entity_id)
-
-    # Get ALL edges, including expired, ordered by creation time
-    query = """
-        MATCH (source)-[r]-(target)
-        WHERE (source.uuid = $entity_id OR target.uuid = $entity_id)
-          AND r.group_id = $group_id
-        RETURN r.uuid AS edge_id,
-               r.name AS name,
-               r.fact AS fact,
-               source.uuid AS source_id,
-               source.name AS source_name,
-               target.uuid AS target_id,
-               target.name AS target_name,
-               r.created_at AS created_at,
-               r.expired_at AS expired_at,
-               r.valid_at AS valid_at,
-               r.invalid_at AS invalid_at
-        ORDER BY r.created_at ASC
-        LIMIT $limit
-    """
-
-    try:
-        result = await client.execute_read_org(
-            query,
-            organization_id,
+    if context is None:
+        return _temporal_backend_unavailable_response(
+            mode="timeline",
             entity_id=entity_id,
-            group_id=organization_id,
-            limit=limit,
         )
 
-        edges = _parse_edge_results(result, include_current_flag=True)
+    try:
+        driver, edge_ops, node_ops = context
+        edges = await edge_ops.get_by_node_uuid(driver, entity_id)
+        edges.sort(key=_created_at_sort_key)
+        temporal_edges = await _graphiti_edges_to_temporal_edges(
+            driver,
+            node_ops,
+            edges[:limit],
+        )
 
         return TemporalResponse(
             mode="timeline",
             entity_id=entity_id,
-            edges=edges,
-            total=len(edges),
-            message=f"Timeline shows {len(edges)} edges. Expired edges indicate superseded information.",
+            edges=temporal_edges,
+            total=len(temporal_edges),
+            message=(
+                f"Timeline shows {len(temporal_edges)} edges. "
+                "Expired edges indicate superseded information."
+            ),
         )
 
     except Exception as e:
@@ -351,77 +266,29 @@ async def find_conflicts(
     - expired_at IS NOT NULL: Edge was invalidated in the system
     - invalid_at IS NOT NULL: Fact is no longer true in real world
     """
-    # Query for edges with temporal invalidation markers
-    entity_filter = ""
-    if entity_id:
-        entity_filter = "AND (source.uuid = $entity_id OR target.uuid = $entity_id)"
-
-    query = f"""
-        MATCH (source)-[r]->(target)
-        WHERE r.group_id = $group_id
-          AND (r.expired_at IS NOT NULL OR r.invalid_at IS NOT NULL)
-          {entity_filter}
-        RETURN r.uuid AS edge_id,
-               r.name AS name,
-               r.fact AS fact,
-               source.uuid AS source_id,
-               source.name AS source_name,
-               target.uuid AS target_id,
-               target.name AS target_name,
-               r.created_at AS created_at,
-               r.expired_at AS expired_at,
-               r.valid_at AS valid_at,
-               r.invalid_at AS invalid_at
-        ORDER BY COALESCE(r.expired_at, r.invalid_at) DESC
-        LIMIT $limit
-    """
-
-    params = {"group_id": organization_id, "limit": limit}
-    if entity_id:
-        params["entity_id"] = entity_id
-
     context = _get_surreal_temporal_context(client, organization_id)
-    if context is not None:
-        try:
-            driver, edge_ops, node_ops = context
-            edges = await _load_surreal_conflict_edges(
-                driver,
-                edge_ops,
-                organization_id=organization_id,
-                entity_id=entity_id,
-                limit=limit,
-            )
-            temporal_edges = await _graphiti_edges_to_temporal_edges(
-                driver,
-                node_ops,
-                edges,
-            )
-
-            message = f"Found {len(temporal_edges)} invalidated edges"
-            if entity_id:
-                message += f" for entity {entity_id}"
-            message += ". These facts have been superseded by newer information."
-
-            return TemporalResponse(
-                mode="conflicts",
-                entity_id=entity_id,
-                edges=temporal_edges,
-                total=len(temporal_edges),
-                message=message,
-            )
-        except Exception as e:
-            log.debug("surreal_conflicts_fallback", error=str(e), entity_id=entity_id)
-
-    try:
-        result = await client.execute_read_org(
-            query,
-            organization_id,
-            **params,
+    if context is None:
+        return _temporal_backend_unavailable_response(
+            mode="conflicts",
+            entity_id=entity_id,
         )
 
-        edges = _parse_edge_results(result, include_current_flag=True)
+    try:
+        driver, edge_ops, node_ops = context
+        edges = await _load_surreal_conflict_edges(
+            driver,
+            edge_ops,
+            organization_id=organization_id,
+            entity_id=entity_id,
+            limit=limit,
+        )
+        temporal_edges = await _graphiti_edges_to_temporal_edges(
+            driver,
+            node_ops,
+            edges,
+        )
 
-        message = f"Found {len(edges)} invalidated edges"
+        message = f"Found {len(temporal_edges)} invalidated edges"
         if entity_id:
             message += f" for entity {entity_id}"
         message += ". These facts have been superseded by newer information."
@@ -429,8 +296,8 @@ async def find_conflicts(
         return TemporalResponse(
             mode="conflicts",
             entity_id=entity_id,
-            edges=edges,
-            total=len(edges),
+            edges=temporal_edges,
+            total=len(temporal_edges),
             message=message,
         )
 
@@ -443,6 +310,22 @@ async def find_conflicts(
             total=0,
             message=f"Query failed: {e}",
         )
+
+
+def _temporal_backend_unavailable_response(
+    *,
+    mode: Literal["history", "timeline", "conflicts"],
+    entity_id: str | None,
+    as_of: datetime | None = None,
+) -> TemporalResponse:
+    return TemporalResponse(
+        mode=mode,
+        entity_id=entity_id,
+        edges=[],
+        total=0,
+        as_of=as_of,
+        message="Temporal queries require a Surreal-backed graph runtime.",
+    )
 
 
 def _get_surreal_temporal_context(client: Any, organization_id: str) -> tuple[Any, Any, Any] | None:

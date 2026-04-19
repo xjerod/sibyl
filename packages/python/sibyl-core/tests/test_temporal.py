@@ -25,6 +25,64 @@ from sibyl_core.tools.temporal import (
     temporal_query,
 )
 
+
+def _make_temporal_edge(
+    edge_id: str,
+    *,
+    name: str,
+    source_id: str,
+    target_id: str,
+    created_at: datetime,
+    fact: str | None = None,
+    expired_at: datetime | None = None,
+    valid_at: datetime | None = None,
+    invalid_at: datetime | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        uuid=edge_id,
+        name=name,
+        fact=fact,
+        source_node_uuid=source_id,
+        target_node_uuid=target_id,
+        created_at=created_at,
+        expired_at=expired_at,
+        valid_at=valid_at,
+        invalid_at=invalid_at,
+    )
+
+
+def _make_temporal_context(
+    *,
+    node_edges: list[SimpleNamespace] | None = None,
+    group_edges: list[SimpleNamespace] | None = None,
+    node_names: dict[str, str] | None = None,
+    node_error: Exception | None = None,
+    group_error: Exception | None = None,
+) -> tuple[object, SimpleNamespace, SimpleNamespace]:
+    driver = object()
+    edge_ops = SimpleNamespace(
+        get_by_node_uuid=(
+            AsyncMock(side_effect=node_error)
+            if node_error is not None
+            else AsyncMock(return_value=list(node_edges or []))
+        ),
+        get_by_group_ids=(
+            AsyncMock(side_effect=group_error)
+            if group_error is not None
+            else AsyncMock(return_value=list(group_edges if group_edges is not None else node_edges or []))
+        ),
+    )
+    names = node_names or {}
+    node_ops = SimpleNamespace(
+        get_by_uuids=AsyncMock(
+            return_value=[
+                SimpleNamespace(uuid=node_id, name=node_name)
+                for node_id, node_name in names.items()
+            ]
+        )
+    )
+    return driver, edge_ops, node_ops
+
 # =============================================================================
 # Response Model Tests
 # =============================================================================
@@ -369,11 +427,11 @@ class TestTemporalQuery:
     async def test_temporal_query_history_mode(self) -> None:
         """temporal_query routes to history mode correctly."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
+        context = _make_temporal_context()
 
-        with patch(
-            "sibyl_core.tools.temporal.get_graph_client",
-            return_value=mock_client,
+        with (
+            patch("sibyl_core.tools.temporal.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context),
         ):
             response = await temporal_query(
                 mode="history",
@@ -387,11 +445,11 @@ class TestTemporalQuery:
     async def test_temporal_query_timeline_mode(self) -> None:
         """temporal_query routes to timeline mode correctly."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
+        context = _make_temporal_context()
 
-        with patch(
-            "sibyl_core.tools.temporal.get_graph_client",
-            return_value=mock_client,
+        with (
+            patch("sibyl_core.tools.temporal.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context),
         ):
             response = await temporal_query(
                 mode="timeline",
@@ -404,11 +462,11 @@ class TestTemporalQuery:
     async def test_temporal_query_conflicts_mode(self) -> None:
         """temporal_query routes to conflicts mode correctly."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
+        context = _make_temporal_context()
 
-        with patch(
-            "sibyl_core.tools.temporal.get_graph_client",
-            return_value=mock_client,
+        with (
+            patch("sibyl_core.tools.temporal.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context),
         ):
             response = await temporal_query(
                 mode="conflicts",
@@ -436,30 +494,28 @@ class TestGetEntityHistory:
     @pytest.mark.asyncio
     async def test_history_returns_edges(self) -> None:
         """get_entity_history returns edges for entity."""
+        now = datetime(2025, 3, 15, 10, 0, 0, tzinfo=UTC)
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                {
-                    "edge_id": "edge_1",
-                    "name": "RELATED_TO",
-                    "fact": "Entity is related",
-                    "source_id": "entity_123",
-                    "source_name": "Test Entity",
-                    "target_id": "other_entity",
-                    "target_name": "Other Entity",
-                    "created_at": "2025-03-15T10:00:00Z",
-                    "expired_at": None,
-                    "valid_at": None,
-                    "invalid_at": None,
-                }
-            ]
+        context = _make_temporal_context(
+            node_edges=[
+                _make_temporal_edge(
+                    "edge_1",
+                    name="RELATED_TO",
+                    fact="Entity is related",
+                    source_id="entity_123",
+                    target_id="other_entity",
+                    created_at=now,
+                )
+            ],
+            node_names={"entity_123": "Test Entity", "other_entity": "Other Entity"},
         )
 
-        response = await get_entity_history(
-            client=mock_client,
-            organization_id="org_123",
-            entity_id="entity_123",
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await get_entity_history(
+                client=mock_client,
+                organization_id="org_123",
+                entity_id="entity_123",
+            )
         assert response.mode == "history"
         assert response.total == 1
         assert len(response.edges) == 1
@@ -469,30 +525,50 @@ class TestGetEntityHistory:
     async def test_history_with_as_of(self) -> None:
         """get_entity_history respects as_of parameter."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
         as_of = datetime(2025, 3, 15, 10, 0, 0, tzinfo=UTC)
-
-        response = await get_entity_history(
-            client=mock_client,
-            organization_id="org_123",
-            entity_id="entity_123",
-            as_of=as_of,
+        context = _make_temporal_context(
+            node_edges=[
+                _make_temporal_edge(
+                    "edge_early",
+                    name="RELATED_TO",
+                    source_id="entity_123",
+                    target_id="other_entity",
+                    created_at=as_of - timedelta(days=1),
+                ),
+                _make_temporal_edge(
+                    "edge_late",
+                    name="RELATED_TO",
+                    source_id="entity_123",
+                    target_id="other_entity",
+                    created_at=as_of + timedelta(days=1),
+                ),
+            ],
+            node_names={"entity_123": "Test Entity", "other_entity": "Other Entity"},
         )
+
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await get_entity_history(
+                client=mock_client,
+                organization_id="org_123",
+                entity_id="entity_123",
+                as_of=as_of,
+            )
         assert response.as_of == as_of
-        # Verify query was called (temporal filtering in query)
-        mock_client.execute_read_org.assert_called_once()
+        assert response.total == 1
+        assert response.edges[0].id == "edge_early"
 
     @pytest.mark.asyncio
     async def test_history_handles_query_error(self) -> None:
         """get_entity_history handles query errors gracefully."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(side_effect=Exception("DB error"))
+        context = _make_temporal_context(node_error=Exception("DB error"))
 
-        response = await get_entity_history(
-            client=mock_client,
-            organization_id="org_123",
-            entity_id="entity_123",
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await get_entity_history(
+                client=mock_client,
+                organization_id="org_123",
+                entity_id="entity_123",
+            )
         assert response.total == 0
         assert "Query failed" in (response.message or "")
 
@@ -501,37 +577,24 @@ class TestGetEntityHistory:
         """get_entity_history should use Surreal edge ops when available."""
         now = datetime.now(UTC)
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
-        driver = object()
-        edge_ops = SimpleNamespace(
-            get_by_node_uuid=AsyncMock(
-                return_value=[
-                    SimpleNamespace(
-                        uuid="edge_1",
-                        name="RELATED_TO",
-                        fact="Entity is related",
-                        source_node_uuid="entity_123",
-                        target_node_uuid="other_entity",
-                        created_at=now - timedelta(days=1),
-                        expired_at=None,
-                        valid_at=now - timedelta(days=1),
-                        invalid_at=None,
-                    )
-                ]
-            )
-        )
-        node_ops = SimpleNamespace(
-            get_by_uuids=AsyncMock(
-                return_value=[
-                    SimpleNamespace(uuid="entity_123", name="Test Entity"),
-                    SimpleNamespace(uuid="other_entity", name="Other Entity"),
-                ]
-            )
+        context = _make_temporal_context(
+            node_edges=[
+                _make_temporal_edge(
+                    "edge_1",
+                    name="RELATED_TO",
+                    fact="Entity is related",
+                    source_id="entity_123",
+                    target_id="other_entity",
+                    created_at=now - timedelta(days=1),
+                    valid_at=now - timedelta(days=1),
+                )
+            ],
+            node_names={"entity_123": "Test Entity", "other_entity": "Other Entity"},
         )
 
         with patch(
             "sibyl_core.tools.temporal._get_surreal_temporal_context",
-            return_value=(driver, edge_ops, node_ops),
+            return_value=context,
         ):
             response = await get_entity_history(
                 client=mock_client,
@@ -542,7 +605,6 @@ class TestGetEntityHistory:
         assert response.total == 1
         assert response.edges[0].source_name == "Test Entity"
         assert response.edges[0].target_name == "Other Entity"
-        mock_client.execute_read_org.assert_not_called()
 
 
 class TestGetEntityTimeline:
@@ -566,42 +628,35 @@ class TestGetEntityTimeline:
         """get_entity_timeline returns all edge versions."""
         now = datetime.now(UTC)
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                {
-                    "edge_id": "edge_1",
-                    "name": "HAS_STATUS",
-                    "fact": "Status was todo",
-                    "source_id": "task_1",
-                    "source_name": "Task",
-                    "target_id": "status_todo",
-                    "target_name": "Todo",
-                    "created_at": (now - timedelta(days=10)).isoformat(),
-                    "expired_at": (now - timedelta(days=5)).isoformat(),
-                    "valid_at": None,
-                    "invalid_at": None,
-                },
-                {
-                    "edge_id": "edge_2",
-                    "name": "HAS_STATUS",
-                    "fact": "Status is doing",
-                    "source_id": "task_1",
-                    "source_name": "Task",
-                    "target_id": "status_doing",
-                    "target_name": "Doing",
-                    "created_at": (now - timedelta(days=5)).isoformat(),
-                    "expired_at": None,
-                    "valid_at": None,
-                    "invalid_at": None,
-                },
-            ]
+        context = _make_temporal_context(
+            node_edges=[
+                _make_temporal_edge(
+                    "edge_1",
+                    name="HAS_STATUS",
+                    fact="Status was todo",
+                    source_id="task_1",
+                    target_id="status_todo",
+                    created_at=now - timedelta(days=10),
+                    expired_at=now - timedelta(days=5),
+                ),
+                _make_temporal_edge(
+                    "edge_2",
+                    name="HAS_STATUS",
+                    fact="Status is doing",
+                    source_id="task_1",
+                    target_id="status_doing",
+                    created_at=now - timedelta(days=5),
+                ),
+            ],
+            node_names={"task_1": "Task", "status_todo": "Todo", "status_doing": "Doing"},
         )
 
-        response = await get_entity_timeline(
-            client=mock_client,
-            organization_id="org_123",
-            entity_id="task_1",
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await get_entity_timeline(
+                client=mock_client,
+                organization_id="org_123",
+                entity_id="task_1",
+            )
         assert response.mode == "timeline"
         assert response.total == 2
         # First edge should be expired
@@ -613,13 +668,14 @@ class TestGetEntityTimeline:
     async def test_timeline_includes_message(self) -> None:
         """get_entity_timeline includes helpful message."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
+        context = _make_temporal_context()
 
-        response = await get_entity_timeline(
-            client=mock_client,
-            organization_id="org_123",
-            entity_id="entity_123",
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await get_entity_timeline(
+                client=mock_client,
+                organization_id="org_123",
+                entity_id="entity_123",
+            )
         assert "Timeline shows" in (response.message or "")
 
     @pytest.mark.asyncio
@@ -627,49 +683,32 @@ class TestGetEntityTimeline:
         """get_entity_timeline should build results from Surreal edge ops."""
         now = datetime.now(UTC)
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
-        driver = object()
-        edge_ops = SimpleNamespace(
-            get_by_node_uuid=AsyncMock(
-                return_value=[
-                    SimpleNamespace(
-                        uuid="edge_old",
-                        name="HAS_STATUS",
-                        fact="Status was todo",
-                        source_node_uuid="task_1",
-                        target_node_uuid="status_todo",
-                        created_at=now - timedelta(days=10),
-                        expired_at=now - timedelta(days=5),
-                        valid_at=None,
-                        invalid_at=None,
-                    ),
-                    SimpleNamespace(
-                        uuid="edge_new",
-                        name="HAS_STATUS",
-                        fact="Status is doing",
-                        source_node_uuid="task_1",
-                        target_node_uuid="status_doing",
-                        created_at=now - timedelta(days=5),
-                        expired_at=None,
-                        valid_at=None,
-                        invalid_at=None,
-                    ),
-                ]
-            )
-        )
-        node_ops = SimpleNamespace(
-            get_by_uuids=AsyncMock(
-                return_value=[
-                    SimpleNamespace(uuid="task_1", name="Task"),
-                    SimpleNamespace(uuid="status_todo", name="Todo"),
-                    SimpleNamespace(uuid="status_doing", name="Doing"),
-                ]
-            )
+        context = _make_temporal_context(
+            node_edges=[
+                _make_temporal_edge(
+                    "edge_old",
+                    name="HAS_STATUS",
+                    fact="Status was todo",
+                    source_id="task_1",
+                    target_id="status_todo",
+                    created_at=now - timedelta(days=10),
+                    expired_at=now - timedelta(days=5),
+                ),
+                _make_temporal_edge(
+                    "edge_new",
+                    name="HAS_STATUS",
+                    fact="Status is doing",
+                    source_id="task_1",
+                    target_id="status_doing",
+                    created_at=now - timedelta(days=5),
+                ),
+            ],
+            node_names={"task_1": "Task", "status_todo": "Todo", "status_doing": "Doing"},
         )
 
         with patch(
             "sibyl_core.tools.temporal._get_surreal_temporal_context",
-            return_value=(driver, edge_ops, node_ops),
+            return_value=context,
         ):
             response = await get_entity_timeline(
                 client=mock_client,
@@ -680,7 +719,6 @@ class TestGetEntityTimeline:
         assert response.total == 2
         assert response.edges[0].id == "edge_old"
         assert response.edges[1].id == "edge_new"
-        mock_client.execute_read_org.assert_not_called()
 
 
 class TestFindConflicts:
@@ -691,28 +729,26 @@ class TestFindConflicts:
         """find_conflicts returns edges with temporal invalidation."""
         now = datetime.now(UTC)
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                {
-                    "edge_id": "edge_1",
-                    "name": "OLD_FACT",
-                    "fact": "This was believed true",
-                    "source_id": "s1",
-                    "source_name": "Source",
-                    "target_id": "t1",
-                    "target_name": "Target",
-                    "created_at": (now - timedelta(days=30)).isoformat(),
-                    "expired_at": (now - timedelta(days=10)).isoformat(),
-                    "valid_at": None,
-                    "invalid_at": None,
-                }
-            ]
+        context = _make_temporal_context(
+            group_edges=[
+                _make_temporal_edge(
+                    "edge_1",
+                    name="OLD_FACT",
+                    fact="This was believed true",
+                    source_id="s1",
+                    target_id="t1",
+                    created_at=now - timedelta(days=30),
+                    expired_at=now - timedelta(days=10),
+                )
+            ],
+            node_names={"s1": "Source", "t1": "Target"},
         )
 
-        response = await find_conflicts(
-            client=mock_client,
-            organization_id="org_123",
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await find_conflicts(
+                client=mock_client,
+                organization_id="org_123",
+            )
         assert response.mode == "conflicts"
         assert response.total == 1
         assert "invalidated edges" in (response.message or "")
@@ -721,29 +757,28 @@ class TestFindConflicts:
     async def test_conflicts_with_entity_filter(self) -> None:
         """find_conflicts can filter by entity_id."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
+        context = _make_temporal_context()
 
-        response = await find_conflicts(
-            client=mock_client,
-            organization_id="org_123",
-            entity_id="specific_entity",
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await find_conflicts(
+                client=mock_client,
+                organization_id="org_123",
+                entity_id="specific_entity",
+            )
         assert response.entity_id == "specific_entity"
-        # Verify entity filter was passed to query
-        mock_client.execute_read_org.assert_called_once()
-        call_kwargs = mock_client.execute_read_org.call_args.kwargs
-        assert call_kwargs.get("entity_id") == "specific_entity"
+        context[1].get_by_node_uuid.assert_awaited_once_with(context[0], "specific_entity")
 
     @pytest.mark.asyncio
     async def test_conflicts_handles_query_error(self) -> None:
         """find_conflicts handles query errors gracefully."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(side_effect=Exception("DB error"))
+        context = _make_temporal_context(group_error=Exception("DB error"))
 
-        response = await find_conflicts(
-            client=mock_client,
-            organization_id="org_123",
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await find_conflicts(
+                client=mock_client,
+                organization_id="org_123",
+            )
         assert response.total == 0
         assert "Query failed" in (response.message or "")
 
@@ -751,53 +786,40 @@ class TestFindConflicts:
     async def test_conflicts_global_search(self) -> None:
         """find_conflicts can search across all entities."""
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
+        context = _make_temporal_context()
 
-        response = await find_conflicts(
-            client=mock_client,
-            organization_id="org_123",
-            entity_id=None,  # No entity filter
-        )
+        with patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context):
+            response = await find_conflicts(
+                client=mock_client,
+                organization_id="org_123",
+                entity_id=None,  # No entity filter
+            )
         assert response.entity_id is None
-        # Query should not include entity filter
-        mock_client.execute_read_org.assert_called_once()
+        context[1].get_by_group_ids.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_conflicts_prefers_surreal_edge_ops(self) -> None:
         """find_conflicts should use Surreal edge ops when available."""
         now = datetime.now(UTC)
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(return_value=[])
-        driver = object()
-        edge_ops = SimpleNamespace(
-            get_by_group_ids=AsyncMock(
-                return_value=[
-                    SimpleNamespace(
-                        uuid="edge_1",
-                        name="OLD_FACT",
-                        fact="This was believed true",
-                        source_node_uuid="s1",
-                        target_node_uuid="t1",
-                        created_at=now - timedelta(days=30),
-                        expired_at=now - timedelta(days=10),
-                        valid_at=None,
-                        invalid_at=None,
-                    )
-                ]
-            )
-        )
-        node_ops = SimpleNamespace(
-            get_by_uuids=AsyncMock(
-                return_value=[
-                    SimpleNamespace(uuid="s1", name="Source"),
-                    SimpleNamespace(uuid="t1", name="Target"),
-                ]
-            )
+        context = _make_temporal_context(
+            group_edges=[
+                _make_temporal_edge(
+                    "edge_1",
+                    name="OLD_FACT",
+                    fact="This was believed true",
+                    source_id="s1",
+                    target_id="t1",
+                    created_at=now - timedelta(days=30),
+                    expired_at=now - timedelta(days=10),
+                )
+            ],
+            node_names={"s1": "Source", "t1": "Target"},
         )
 
         with patch(
             "sibyl_core.tools.temporal._get_surreal_temporal_context",
-            return_value=(driver, edge_ops, node_ops),
+            return_value=context,
         ):
             response = await find_conflicts(
                 client=mock_client,
@@ -807,7 +829,6 @@ class TestFindConflicts:
         assert response.total == 1
         assert response.edges[0].source_name == "Source"
         assert response.edges[0].target_name == "Target"
-        mock_client.execute_read_org.assert_not_called()
 
 
 # =============================================================================
@@ -845,27 +866,23 @@ class TestTemporalIntegration:
         """End-to-end test with mocked graph client."""
         now = datetime.now(UTC)
         mock_client = AsyncMock()
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                {
-                    "edge_id": "edge_1",
-                    "name": "BELONGS_TO",
-                    "fact": "Task belongs to project",
-                    "source_id": "task_1",
-                    "source_name": "Implement feature",
-                    "target_id": "project_1",
-                    "target_name": "Sibyl",
-                    "created_at": now.isoformat(),
-                    "expired_at": None,
-                    "valid_at": None,
-                    "invalid_at": None,
-                }
-            ]
+        context = _make_temporal_context(
+            node_edges=[
+                _make_temporal_edge(
+                    "edge_1",
+                    name="BELONGS_TO",
+                    fact="Task belongs to project",
+                    source_id="task_1",
+                    target_id="project_1",
+                    created_at=now,
+                )
+            ],
+            node_names={"task_1": "Implement feature", "project_1": "Sibyl"},
         )
 
-        with patch(
-            "sibyl_core.tools.temporal.get_graph_client",
-            return_value=mock_client,
+        with (
+            patch("sibyl_core.tools.temporal.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.temporal._get_surreal_temporal_context", return_value=context),
         ):
             # Test history mode
             history = await temporal_query(
