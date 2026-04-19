@@ -261,6 +261,51 @@ def _empty_project_task_counts() -> dict[str, int]:
     }
 
 
+def _compute_project_task_counts(
+    tasks: list[dict[str, Any]],
+    *,
+    now: datetime,
+) -> dict[str, dict[str, int]]:
+    """Aggregate per-project task rollups from normalized task dictionaries."""
+    project_task_counts: dict[str, dict[str, int]] = defaultdict(_empty_project_task_counts)
+
+    for task in tasks:
+        metadata = task.get("metadata", {})
+        proj_id = metadata.get("project_id", "")
+        if not proj_id:
+            continue
+
+        counts = project_task_counts[proj_id]
+        counts["total"] += 1
+
+        status = metadata.get("status", "backlog")
+        if status == "done":
+            counts["completed"] += 1
+        elif status == "doing":
+            counts["doing"] += 1
+        elif status == "blocked":
+            counts["blocked"] += 1
+        elif status == "review":
+            counts["review"] += 1
+        elif status == "todo":
+            counts["todo"] += 1
+        elif status == "backlog":
+            counts["backlog"] += 1
+
+        if _is_open_status(status):
+            priority = metadata.get("priority", "")
+            if priority == "critical":
+                counts["critical"] += 1
+            elif priority == "high":
+                counts["high"] += 1
+
+            due_date = _parse_iso_date(metadata.get("due_date"))
+            if due_date and due_date < now:
+                counts["overdue"] += 1
+
+    return project_task_counts
+
+
 def _parse_metadata_dict(metadata: Any) -> dict[str, Any]:
     """Parse graph metadata payloads into dictionaries."""
     if isinstance(metadata, dict):
@@ -332,226 +377,6 @@ def _normalize_metric_task_row(row: dict[str, Any]) -> dict[str, Any]:
         "updated_at": row.get("updated_at"),
         "metadata": normalized_metadata,
     }
-
-
-async def _fetch_org_metric_tasks(graph_queries: Any, organization_id: str) -> list[dict[str, Any]]:
-    """Fetch raw task rows and normalize legacy metadata fallbacks in Python."""
-    rows = await graph_queries.execute_read_org(
-        f"""
-        {_task_metrics_where_clause()}
-        RETURN n.project_id AS project_id,
-               n.status AS status,
-               n.priority AS priority,
-               n.assignees AS assignees,
-               n.created_at AS created_at,
-               n.completed_at AS completed_at,
-               n.updated_at AS updated_at,
-               n.due_date AS due_date,
-               n.metadata AS metadata
-        """,
-        organization_id,
-        group_id=organization_id,
-    )
-
-    return [_normalize_metric_task_row(row) for row in rows]
-
-
-def _task_metrics_where_clause() -> str:
-    """Return the shared task filter used by org-wide metrics queries."""
-    return """
-        MATCH (n)
-        WHERE n.entity_type = 'task'
-          AND n.group_id = $group_id
-          AND (n.status IS NULL OR toLower(n.status) <> 'archived')
-          AND NOT toLower(toString(n.metadata)) CONTAINS '"status":"archived"'
-          AND NOT toLower(toString(n.metadata)) CONTAINS '"status": "archived"'
-    """
-
-
-async def _fetch_task_overview(
-    graph_queries: Any, organization_id: str, now: datetime
-) -> tuple[TaskStatusDistribution, TaskPriorityDistribution, int, int]:
-    """Fetch org-wide task counts, distributions, and recent creation totals."""
-    cutoff = (now - timedelta(days=7)).isoformat()
-    rows = await graph_queries.execute_read_org(
-        f"""
-        {_task_metrics_where_clause()}
-        RETURN count(n) AS total_tasks,
-               count(CASE WHEN n.status IS NULL OR toLower(n.status) = 'backlog' THEN 1 END) AS backlog_tasks,
-               count(CASE WHEN toLower(n.status) = 'todo' THEN 1 END) AS todo_tasks,
-               count(CASE WHEN toLower(n.status) = 'doing' THEN 1 END) AS doing_tasks,
-               count(CASE WHEN toLower(n.status) = 'blocked' THEN 1 END) AS blocked_tasks,
-               count(CASE WHEN toLower(n.status) = 'review' THEN 1 END) AS review_tasks,
-               count(CASE WHEN toLower(n.status) = 'done' THEN 1 END) AS done_tasks,
-               count(CASE WHEN n.priority IS NULL OR toLower(n.priority) = 'medium' THEN 1 END) AS medium_tasks,
-               count(CASE WHEN toLower(n.priority) = 'critical' THEN 1 END) AS critical_tasks,
-               count(CASE WHEN toLower(n.priority) = 'high' THEN 1 END) AS high_tasks,
-               count(CASE WHEN toLower(n.priority) = 'low' THEN 1 END) AS low_tasks,
-               count(CASE WHEN toLower(n.priority) = 'someday' THEN 1 END) AS someday_tasks,
-               count(
-                   CASE
-                       WHEN n.created_at IS NOT NULL
-                        AND n.created_at >= $recent_cutoff
-                       THEN 1
-                   END
-               ) AS tasks_created_last_7d
-        """,
-        organization_id,
-        group_id=organization_id,
-        recent_cutoff=cutoff,
-    )
-    row = rows[0] if rows else {}
-
-    status_distribution = TaskStatusDistribution(
-        backlog=int(row.get("backlog_tasks", 0) or 0),
-        todo=int(row.get("todo_tasks", 0) or 0),
-        doing=int(row.get("doing_tasks", 0) or 0),
-        blocked=int(row.get("blocked_tasks", 0) or 0),
-        review=int(row.get("review_tasks", 0) or 0),
-        done=int(row.get("done_tasks", 0) or 0),
-    )
-    priority_distribution = TaskPriorityDistribution(
-        critical=int(row.get("critical_tasks", 0) or 0),
-        high=int(row.get("high_tasks", 0) or 0),
-        medium=int(row.get("medium_tasks", 0) or 0),
-        low=int(row.get("low_tasks", 0) or 0),
-        someday=int(row.get("someday_tasks", 0) or 0),
-    )
-    total_tasks = int(row.get("total_tasks", 0) or 0)
-    tasks_created_last_7d = int(row.get("tasks_created_last_7d", 0) or 0)
-
-    return status_distribution, priority_distribution, total_tasks, tasks_created_last_7d
-
-
-async def _fetch_project_task_counts(
-    graph_queries: Any, organization_id: str, now: datetime
-) -> dict[str, dict]:
-    """Fetch per-project task rollups for org-wide metrics."""
-    rows = await graph_queries.execute_read_org(
-        f"""
-        {_task_metrics_where_clause()}
-          AND coalesce(n.project_id, '') <> ''
-        RETURN n.project_id AS project_id,
-               count(n) AS total,
-               count(CASE WHEN n.status IS NULL OR toLower(n.status) = 'backlog' THEN 1 END) AS backlog,
-               count(CASE WHEN toLower(n.status) = 'todo' THEN 1 END) AS todo,
-               count(CASE WHEN toLower(n.status) = 'doing' THEN 1 END) AS doing,
-               count(CASE WHEN toLower(n.status) = 'blocked' THEN 1 END) AS blocked,
-               count(CASE WHEN toLower(n.status) = 'review' THEN 1 END) AS review,
-               count(CASE WHEN toLower(n.status) = 'done' THEN 1 END) AS completed,
-               count(
-                   CASE
-                       WHEN toLower(coalesce(n.status, 'backlog')) <> 'done'
-                        AND toLower(n.priority) = 'critical'
-                       THEN 1
-                   END
-               ) AS critical,
-               count(
-                   CASE
-                       WHEN toLower(coalesce(n.status, 'backlog')) <> 'done'
-                        AND toLower(n.priority) = 'high'
-                       THEN 1
-                   END
-               ) AS high,
-               count(
-                   CASE
-                       WHEN toLower(coalesce(n.status, 'backlog')) <> 'done'
-                        AND n.due_date IS NOT NULL
-                        AND n.due_date <> ''
-                        AND n.due_date < $now_iso
-                       THEN 1
-                   END
-               ) AS overdue
-        ORDER BY total DESC, project_id ASC
-        """,
-        organization_id,
-        group_id=organization_id,
-        now_iso=now.isoformat(),
-    )
-
-    counts_by_project: dict[str, dict] = {}
-    for row in rows:
-        project_id = row.get("project_id")
-        if not project_id:
-            continue
-        counts_by_project[str(project_id)] = {
-            "total": int(row.get("total", 0) or 0),
-            "completed": int(row.get("completed", 0) or 0),
-            "doing": int(row.get("doing", 0) or 0),
-            "blocked": int(row.get("blocked", 0) or 0),
-            "review": int(row.get("review", 0) or 0),
-            "todo": int(row.get("todo", 0) or 0),
-            "backlog": int(row.get("backlog", 0) or 0),
-            "critical": int(row.get("critical", 0) or 0),
-            "high": int(row.get("high", 0) or 0),
-            "overdue": int(row.get("overdue", 0) or 0),
-        }
-
-    return counts_by_project
-
-
-async def _fetch_top_assignees(graph_queries: Any, organization_id: str) -> list[AssigneeStats]:
-    """Fetch the top assignees without materializing all task rows."""
-    rows = await graph_queries.execute_read_org(
-        f"""
-        {_task_metrics_where_clause()}
-        WITH coalesce(n.assignees, []) AS assignees, coalesce(n.status, '') AS status
-        UNWIND assignees AS assignee
-        WITH assignee, status
-        WHERE assignee IS NOT NULL AND assignee <> ''
-        RETURN assignee AS name,
-               count(*) AS total,
-               count(CASE WHEN toLower(status) = 'done' THEN 1 END) AS completed,
-               count(CASE WHEN toLower(status) = 'doing' THEN 1 END) AS in_progress
-        ORDER BY total DESC, name ASC
-        LIMIT 10
-        """,
-        organization_id,
-        group_id=organization_id,
-    )
-
-    return [
-        AssigneeStats(
-            name=str(row.get("name", "")),
-            total=int(row.get("total", 0) or 0),
-            completed=int(row.get("completed", 0) or 0),
-            in_progress=int(row.get("in_progress", 0) or 0),
-        )
-        for row in rows
-        if row.get("name")
-    ]
-
-
-async def _fetch_velocity_trend(
-    graph_queries: Any, organization_id: str, now: datetime
-) -> tuple[list[TimeSeriesPoint], int]:
-    """Fetch the completion trend and last-7-day completion count."""
-    trend_start = (now - timedelta(days=13)).isoformat()
-    rows = await graph_queries.execute_read_org(
-        f"""
-        {_task_metrics_where_clause()}
-          AND toLower(coalesce(n.status, '')) = 'done'
-          AND coalesce(n.completed_at, n.updated_at) IS NOT NULL
-        WITH substring(coalesce(n.completed_at, n.updated_at), 0, 10) AS date, count(*) AS value
-        WHERE date >= $trend_start
-        RETURN date, value
-        ORDER BY date ASC
-        """,
-        organization_id,
-        group_id=organization_id,
-        trend_start=trend_start[:10],
-    )
-
-    counts_by_date = {
-        str(row.get("date")): int(row.get("value", 0) or 0) for row in rows if row.get("date")
-    }
-    trend: list[TimeSeriesPoint] = []
-    for i in range(13, -1, -1):
-        date = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-        trend.append(TimeSeriesPoint(date=date, value=counts_by_date.get(date, 0)))
-
-    tasks_completed_last_7d = sum(point.value for point in trend[-7:])
-    return trend, tasks_completed_last_7d
 
 
 @router.get("/projects/{project_id}", response_model=ProjectMetricsResponse)
@@ -629,16 +454,22 @@ async def get_project_summaries(
     try:
         group_id = str(org.id)
         service = await get_legacy_knowledge_read_adapter(group_id)
-        graph_queries = await get_legacy_graph_query_adapter(group_id)
         projects = await _list_entities_by_type_paginated_via_service(
             service,
             EntityType.PROJECT,
             batch_size=500,
         )
-        counts_by_project = await _fetch_project_task_counts(
-            graph_queries,
-            group_id,
-            datetime.now(UTC),
+        tasks = [
+            task.model_dump()
+            for task in await _list_entities_by_type_paginated_via_service(
+                service,
+                EntityType.TASK,
+                batch_size=1000,
+            )
+        ]
+        counts_by_project = _compute_project_task_counts(
+            tasks,
+            now=datetime.now(UTC),
         )
 
         return ProjectSummariesResponse(
@@ -660,7 +491,6 @@ async def get_org_metrics(
     try:
         group_id = str(org.id)
         service = await get_legacy_knowledge_read_adapter(group_id)
-        graph_queries = await get_legacy_graph_query_adapter(group_id)
 
         # Get all projects
         projects = await _list_entities_by_type_paginated_via_service(
@@ -668,7 +498,14 @@ async def get_org_metrics(
             EntityType.PROJECT,
             batch_size=500,
         )
-        tasks = await _fetch_org_metric_tasks(graph_queries, group_id)
+        tasks = [
+            task.model_dump()
+            for task in await _list_entities_by_type_paginated_via_service(
+                service,
+                EntityType.TASK,
+                batch_size=1000,
+            )
+        ]
 
         status_dist = _compute_status_distribution(tasks)
         priority_dist = _compute_priority_distribution(tasks)
@@ -686,40 +523,8 @@ async def get_org_metrics(
         completed = status_dist.done
         completion_rate = (completed / total_tasks * 100) if total_tasks > 0 else 0.0
 
-        project_task_counts: dict[str, dict[str, int]] = defaultdict(_empty_project_task_counts)
         now = datetime.now(UTC)
-        for task in tasks:
-            metadata = task.get("metadata", {})
-            proj_id = metadata.get("project_id", "")
-            if proj_id:
-                counts = project_task_counts[proj_id]
-                counts["total"] += 1
-
-                status = metadata.get("status", "backlog")
-                if status == "done":
-                    counts["completed"] += 1
-                elif status == "doing":
-                    counts["doing"] += 1
-                elif status == "blocked":
-                    counts["blocked"] += 1
-                elif status == "review":
-                    counts["review"] += 1
-                elif status == "todo":
-                    counts["todo"] += 1
-                elif status == "backlog":
-                    counts["backlog"] += 1
-
-                if _is_open_status(status):
-                    priority = metadata.get("priority", "")
-                    if priority == "critical":
-                        counts["critical"] += 1
-                    elif priority == "high":
-                        counts["high"] += 1
-
-                    due_date = _parse_iso_date(metadata.get("due_date"))
-                    if due_date and due_date < now:
-                        counts["overdue"] += 1
-
+        project_task_counts = _compute_project_task_counts(tasks, now=now)
         projects_summary = _build_project_summaries(projects, project_task_counts)
 
         return OrgMetricsResponse(

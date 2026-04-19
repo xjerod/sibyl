@@ -1,6 +1,5 @@
 """Tests for metrics endpoints and computation functions."""
 
-import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import uuid4
@@ -649,7 +648,6 @@ class TestGetOrgMetrics:
         from sibyl.api.routes.metrics import get_org_metrics
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
 
         # Create mock projects
@@ -660,37 +658,50 @@ class TestGetOrgMetrics:
 
         now = datetime.now(UTC)
         recent = now.isoformat()
+        mock_tasks = [
+            create_mock_entity(
+                entity_type="task",
+                name="Task A1",
+                entity_id="task_a1",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "done",
+                    "priority": "critical",
+                    "assignees": ["alice"],
+                    "created_at": recent,
+                    "completed_at": recent,
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Task A2",
+                entity_id="task_a2",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "doing",
+                    "priority": "high",
+                    "assignees": ["alice"],
+                    "created_at": recent,
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Task B1",
+                entity_id="task_b1",
+                metadata={
+                    "project_id": "proj_b",
+                    "status": "todo",
+                    "priority": "medium",
+                    "assignees": [],
+                    "created_at": recent,
+                },
+            ),
+        ]
 
         mock_service.list_entities = AsyncMock(
-            return_value=Page(items=mock_projects, next_cursor=None)
-        )
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                create_metric_task_row(
-                    project_id="proj_a",
-                    status="done",
-                    priority="critical",
-                    assignees=["alice"],
-                    created_at=recent,
-                    completed_at=recent,
-                    updated_at=recent,
-                ),
-                create_metric_task_row(
-                    project_id="proj_a",
-                    status="doing",
-                    priority="high",
-                    assignees=["alice"],
-                    created_at=recent,
-                    updated_at=recent,
-                ),
-                create_metric_task_row(
-                    project_id="proj_b",
-                    status="todo",
-                    priority="medium",
-                    assignees=[],
-                    created_at=recent,
-                    updated_at=recent,
-                ),
+            side_effect=[
+                Page(items=mock_projects, next_cursor=None),
+                Page(items=mock_tasks, next_cursor=None),
             ]
         )
 
@@ -698,10 +709,6 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -711,9 +718,13 @@ class TestGetOrgMetrics:
                     EntityType.PROJECT,
                     limit=500,
                     cursor=None,
-                )
+                ),
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    cursor=None,
+                ),
             ]
-            assert mock_client.execute_read_org.call_count == 1
             assert result.total_projects == 2
             assert result.total_tasks == 3
             assert result.status_distribution.done == 1
@@ -734,20 +745,19 @@ class TestGetOrgMetrics:
         from sibyl.api.routes.metrics import get_org_metrics
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
 
-        mock_service.list_entities = AsyncMock(return_value=Page(items=[], next_cursor=None))
-        mock_client.execute_read_org = AsyncMock(return_value=[])
+        mock_service.list_entities = AsyncMock(
+            side_effect=[
+                Page(items=[], next_cursor=None),
+                Page(items=[], next_cursor=None),
+            ]
+        )
 
         with (
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -757,9 +767,13 @@ class TestGetOrgMetrics:
                     EntityType.PROJECT,
                     limit=500,
                     cursor=None,
-                )
+                ),
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    cursor=None,
+                ),
             ]
-            assert mock_client.execute_read_org.call_count == 1
             assert result.total_projects == 0
             assert result.total_tasks == 0
             assert result.completion_rate == 0.0
@@ -772,28 +786,37 @@ class TestGetOrgMetrics:
         from sibyl.api.routes.metrics import get_org_metrics
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
 
         mock_projects = [
             create_mock_entity(entity_type="project", name="Small", entity_id="proj_s"),
             create_mock_entity(entity_type="project", name="Large", entity_id="proj_l"),
         ]
+        mock_tasks = [
+            create_mock_entity(
+                entity_type="task",
+                name="Large done",
+                entity_id="task_large_done",
+                metadata={"project_id": "proj_l", "status": "done"},
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Large todo",
+                entity_id="task_large_todo",
+                metadata={"project_id": "proj_l", "status": "todo"},
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Small todo",
+                entity_id="task_small_todo",
+                metadata={"project_id": "proj_s", "status": "todo"},
+            ),
+        ]
 
         mock_service.list_entities = AsyncMock(
-            return_value=Page(items=mock_projects, next_cursor=None)
-        )
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                create_metric_task_row(
-                    project_id="proj_l", status="done", updated_at="2026-04-12T10:00:00+00:00"
-                ),
-                create_metric_task_row(
-                    project_id="proj_l", status="todo", updated_at="2026-04-11T10:00:00+00:00"
-                ),
-                create_metric_task_row(
-                    project_id="proj_s", status="todo", updated_at="2026-04-10T10:00:00+00:00"
-                ),
+            side_effect=[
+                Page(items=mock_projects, next_cursor=None),
+                Page(items=mock_tasks, next_cursor=None),
             ]
         )
 
@@ -801,10 +824,6 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -814,7 +833,12 @@ class TestGetOrgMetrics:
                     EntityType.PROJECT,
                     limit=500,
                     cursor=None,
-                )
+                ),
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    cursor=None,
+                ),
             ]
             # First project should be the one with more tasks
             assert result.projects_summary[0].id == "proj_l"
@@ -828,27 +852,59 @@ class TestGetOrgMetrics:
         from sibyl.api.routes.metrics import get_org_metrics
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
 
         mock_projects = [
             create_mock_entity(entity_type="project", name="Alpha", entity_id="proj_a"),
         ]
+        mock_tasks = [
+            create_mock_entity(
+                entity_type="task",
+                name="Critical doing",
+                entity_id="task_a_doing",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "doing",
+                    "priority": "critical",
+                    "due_date": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="High blocked",
+                entity_id="task_a_blocked",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "blocked",
+                    "priority": "high",
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="High review",
+                entity_id="task_a_review",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "review",
+                    "priority": "high",
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Critical done",
+                entity_id="task_a_done",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "done",
+                    "priority": "critical",
+                },
+            ),
+        ]
 
         mock_service.list_entities = AsyncMock(
-            return_value=Page(items=mock_projects, next_cursor=None)
-        )
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                create_metric_task_row(
-                    project_id="proj_a",
-                    status="doing",
-                    priority="critical",
-                    due_date=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
-                ),
-                create_metric_task_row(project_id="proj_a", status="blocked", priority="high"),
-                create_metric_task_row(project_id="proj_a", status="review", priority="high"),
-                create_metric_task_row(project_id="proj_a", status="done", priority="critical"),
+            side_effect=[
+                Page(items=mock_projects, next_cursor=None),
+                Page(items=mock_tasks, next_cursor=None),
             ]
         )
 
@@ -856,10 +912,6 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -869,7 +921,12 @@ class TestGetOrgMetrics:
                     EntityType.PROJECT,
                     limit=500,
                     cursor=None,
-                )
+                ),
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    cursor=None,
+                ),
             ]
             summary = result.projects_summary[0]
             assert summary.total == 4
@@ -887,7 +944,6 @@ class TestGetOrgMetrics:
         from sibyl.api.routes.metrics import get_org_metrics
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
 
         mock_projects = [
@@ -897,45 +953,52 @@ class TestGetOrgMetrics:
         recent = datetime.now(UTC).isoformat()
         overdue = (datetime.now(UTC) - timedelta(days=2)).isoformat()
 
+        mock_tasks = [
+            create_mock_entity(
+                entity_type="task",
+                name="Legacy done",
+                entity_id="task_legacy_done",
+                metadata={
+                    "project_id": "proj_legacy",
+                    "status": "done",
+                    "priority": "critical",
+                    "assignees": "alice",
+                    "created_at": recent,
+                    "completed_at": recent,
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Legacy doing",
+                entity_id="task_legacy_doing",
+                metadata={
+                    "project_id": "proj_legacy",
+                    "status": "doing",
+                    "priority": "critical",
+                    "assignees": ["bob"],
+                    "created_at": recent,
+                    "due_date": overdue,
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Legacy todo",
+                entity_id="task_legacy_todo",
+                metadata={
+                    "project_id": "proj_legacy",
+                    "status": "todo",
+                    "priority": "high",
+                    "created_at": "not-a-date",
+                    "assignees": "carol",
+                },
+            ),
+        ]
+        mock_tasks[2].created_at = "not-a-date"
+
         mock_service.list_entities = AsyncMock(
-            return_value=Page(items=mock_projects, next_cursor=None)
-        )
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                create_metric_task_row(
-                    metadata=json.dumps(
-                        {
-                            "project_id": "proj_legacy",
-                            "status": "done",
-                            "priority": "critical",
-                            "assignees": "alice",
-                            "created_at": recent,
-                            "completed_at": recent,
-                        }
-                    ),
-                    updated_at=recent,
-                ),
-                create_metric_task_row(
-                    metadata={
-                        "project_id": "proj_legacy",
-                        "status": "doing",
-                        "priority": "critical",
-                        "assignees": ["bob"],
-                        "created_at": recent,
-                        "due_date": overdue,
-                    },
-                    updated_at=recent,
-                ),
-                create_metric_task_row(
-                    project_id="proj_legacy",
-                    metadata={
-                        "status": "todo",
-                        "priority": "high",
-                        "created_at": "not-a-date",
-                        "assignees": "carol",
-                    },
-                    updated_at=recent,
-                ),
+            side_effect=[
+                Page(items=mock_projects, next_cursor=None),
+                Page(items=mock_tasks, next_cursor=None),
             ]
         )
 
@@ -943,10 +1006,6 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -976,7 +1035,6 @@ class TestGetOrgMetrics:
         from sibyl.api.routes.metrics import get_org_metrics
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
         first_page = [
             create_mock_entity(
@@ -992,18 +1050,14 @@ class TestGetOrgMetrics:
             side_effect=[
                 Page(items=first_page, next_cursor="500"),
                 Page(items=second_page, next_cursor=None),
+                Page(items=[], next_cursor=None),
             ]
         )
-        mock_client.execute_read_org = AsyncMock(return_value=[])
 
         with (
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -1015,12 +1069,17 @@ class TestGetOrgMetrics:
                 limit=500,
                 cursor=None,
             ),
-            call(
-                EntityType.PROJECT,
-                limit=500,
-                cursor="500",
-            ),
-        ]
+                call(
+                    EntityType.PROJECT,
+                    limit=500,
+                    cursor="500",
+                ),
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    cursor=None,
+                ),
+            ]
 
 
 class TestGetProjectSummaries:
@@ -1032,45 +1091,49 @@ class TestGetProjectSummaries:
         from sibyl.api.routes.metrics import get_project_summaries
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
 
         mock_projects = [
             create_mock_entity(entity_type="project", name="Project A", entity_id="proj_a"),
             create_mock_entity(entity_type="project", name="Project B", entity_id="proj_b"),
         ]
+        mock_tasks = [
+            create_mock_entity(
+                entity_type="task",
+                name="Proj B doing",
+                entity_id="task_proj_b",
+                metadata={
+                    "project_id": "proj_b",
+                    "status": "doing",
+                    "priority": "critical",
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Proj A done",
+                entity_id="task_proj_a_done",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "done",
+                    "priority": "high",
+                },
+            ),
+            create_mock_entity(
+                entity_type="task",
+                name="Proj A todo",
+                entity_id="task_proj_a_todo",
+                metadata={
+                    "project_id": "proj_a",
+                    "status": "todo",
+                    "priority": "high",
+                },
+            ),
+        ]
 
         mock_service.list_entities = AsyncMock(
-            return_value=Page(items=mock_projects, next_cursor=None)
-        )
-        mock_client.execute_read_org = AsyncMock(
-            return_value=[
-                {
-                    "project_id": "proj_b",
-                    "total": 1,
-                    "completed": 0,
-                    "doing": 1,
-                    "blocked": 0,
-                    "review": 0,
-                    "todo": 0,
-                    "backlog": 0,
-                    "critical": 1,
-                    "high": 0,
-                    "overdue": 0,
-                },
-                {
-                    "project_id": "proj_a",
-                    "total": 2,
-                    "completed": 1,
-                    "doing": 0,
-                    "blocked": 0,
-                    "review": 0,
-                    "todo": 1,
-                    "backlog": 0,
-                    "critical": 0,
-                    "high": 1,
-                    "overdue": 0,
-                },
+            side_effect=[
+                Page(items=mock_projects, next_cursor=None),
+                Page(items=mock_tasks, next_cursor=None),
             ]
         )
 
@@ -1078,10 +1141,6 @@ class TestGetProjectSummaries:
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_project_summaries(org=mock_org)
@@ -1091,9 +1150,13 @@ class TestGetProjectSummaries:
                     EntityType.PROJECT,
                     limit=500,
                     cursor=None,
-                )
+                ),
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    cursor=None,
+                ),
             ]
-            assert mock_client.execute_read_org.call_count == 1
             assert len(result.projects_summary) == 2
             assert result.projects_summary[0].id == "proj_a"
             assert result.projects_summary[0].total == 2
@@ -1109,7 +1172,6 @@ class TestGetProjectSummaries:
         from sibyl.api.routes.metrics import get_project_summaries
 
         mock_org = create_mock_org()
-        mock_client = AsyncMock()
         mock_service = AsyncMock()
         first_page = [
             create_mock_entity(
@@ -1125,18 +1187,14 @@ class TestGetProjectSummaries:
             side_effect=[
                 Page(items=first_page, next_cursor="500"),
                 Page(items=second_page, next_cursor=None),
+                Page(items=[], next_cursor=None),
             ]
         )
-        mock_client.execute_read_org = AsyncMock(return_value=[])
 
         with (
             patch(
                 "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
-            ),
-            patch(
-                "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
-                return_value=mock_client,
             ),
         ):
             result = await get_project_summaries(org=mock_org)
@@ -1148,12 +1206,17 @@ class TestGetProjectSummaries:
                 limit=500,
                 cursor=None,
             ),
-            call(
-                EntityType.PROJECT,
-                limit=500,
-                cursor="500",
-            ),
-        ]
+                call(
+                    EntityType.PROJECT,
+                    limit=500,
+                    cursor="500",
+                ),
+                call(
+                    EntityType.TASK,
+                    limit=1000,
+                    cursor=None,
+                ),
+            ]
 
 
 class TestMetricsErrorHandling:
@@ -1194,7 +1257,7 @@ class TestMetricsErrorHandling:
         mock_org = create_mock_org()
 
         with patch(
-            "sibyl.api.routes.metrics.get_legacy_graph_query_adapter",
+            "sibyl.api.routes.metrics.get_legacy_knowledge_read_adapter",
             side_effect=Exception("Database error"),
         ):
             with pytest.raises(HTTPException) as exc_info:
