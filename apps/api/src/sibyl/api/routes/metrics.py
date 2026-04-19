@@ -21,7 +21,7 @@ from sibyl.api.schemas import (
 )
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
-from sibyl.persistence.legacy.graph import (
+from sibyl.persistence.graph_runtime import (
     get_entity_graph_runtime as _service_get_entity_graph_runtime,
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
 )

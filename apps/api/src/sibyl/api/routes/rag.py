@@ -42,7 +42,7 @@ from sibyl.db import (
     get_session,
 )
 from sibyl.db.models import OrganizationRole
-from sibyl.persistence.legacy.graph import (
+from sibyl.persistence.graph_runtime import (
     get_entity_graph_runtime as _service_get_entity_graph_runtime,
 )
 from sibyl.persistence.legacy.rag import (

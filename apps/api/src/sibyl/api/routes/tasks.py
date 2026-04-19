@@ -24,7 +24,7 @@ from sibyl.auth.dependencies import (
 from sibyl.auth.rls import AuthSession, get_auth_session
 from sibyl.db.models import Organization, OrganizationRole, User
 from sibyl.locks import entity_lock
-from sibyl.persistence.legacy.graph import (
+from sibyl.persistence.graph_runtime import (
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
     get_task_graph_runtime as _service_get_task_graph_runtime,
 )

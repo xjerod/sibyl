@@ -704,7 +704,7 @@ def _register_resources(mcp: FastMCP) -> None:
         """
         import json
 
-        from sibyl.persistence.legacy.graph import get_graph_stats_payload
+        from sibyl.persistence.graph_runtime import get_graph_stats_payload
 
         # Get org context (required for stats)
         org_id = await _require_org_id()

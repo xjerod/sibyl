@@ -16,11 +16,11 @@ from sibyl.auth.authorization import ProjectRole
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
-from sibyl.persistence.legacy.auth import verify_legacy_entity_project_access
-from sibyl.persistence.legacy.graph import (
+from sibyl.persistence.graph_runtime import (
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
-    update_legacy_entity,
+    update_graph_entity as _service_update_graph_entity,
 )
+from sibyl.persistence.legacy.auth import verify_legacy_entity_project_access
 from sibyl_core.models.entities import EntityType
 from sibyl_core.services import KnowledgeReadService
 
@@ -38,6 +38,14 @@ async def get_legacy_knowledge_read_adapter(group_id: str):
 
 async def get_knowledge_read_adapter(group_id: str):
     return await get_legacy_knowledge_read_adapter(group_id)
+
+
+async def update_legacy_entity(group_id: str, entity_id: str, patch: dict[str, object]):
+    return await _service_update_graph_entity(group_id, entity_id, patch)
+
+
+async def update_graph_entity(group_id: str, entity_id: str, patch: dict[str, object]):
+    return await update_legacy_entity(group_id, entity_id, patch)
 
 router = APIRouter(
     prefix="/epics",
@@ -153,7 +161,7 @@ async def _update_project_activity(group_id: str, epic: Any) -> None:
         return
 
     try:
-        await update_legacy_entity(
+        await update_graph_entity(
             group_id,
             project_id,
             {"last_activity_at": datetime.now(UTC).isoformat()},
@@ -181,7 +189,7 @@ async def start_epic(
         epic = await _verify_epic_access(epic_id, org, ctx, ProjectRole.CONTRIBUTOR)
 
         group_id = str(org.id)
-        await update_legacy_entity(group_id, epic_id, {"status": "in_progress"})
+        await update_graph_entity(group_id, epic_id, {"status": "in_progress"})
         await _update_project_activity(group_id, epic)
 
         await _broadcast_epic_update(
@@ -229,7 +237,7 @@ async def complete_epic(
         if learnings:
             updates["learnings"] = learnings
 
-        await update_legacy_entity(group_id, epic_id, updates)
+        await update_graph_entity(group_id, epic_id, updates)
         await _update_project_activity(group_id, epic)
 
         await _broadcast_epic_update(
@@ -270,7 +278,7 @@ async def archive_epic(
 
         group_id = str(org.id)
         reason = request.reason if request else None
-        await update_legacy_entity(group_id, epic_id, {"status": "archived"})
+        await update_graph_entity(group_id, epic_id, {"status": "archived"})
         await _update_project_activity(group_id, epic)
 
         await _broadcast_epic_update(
@@ -329,7 +337,7 @@ async def update_epic(
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
 
-        await update_legacy_entity(group_id, epic_id, updates)
+        await update_graph_entity(group_id, epic_id, updates)
         await _update_project_activity(group_id, epic)
 
         await _broadcast_epic_update(

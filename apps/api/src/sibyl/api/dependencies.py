@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from fastapi import Depends
 
 from sibyl.auth.dependencies import get_current_organization
-from sibyl.persistence.legacy.graph import ActiveGraphStore, GraphReadServiceAdapter
+from sibyl.persistence.graph_runtime import ActiveGraphStore, GraphReadServiceAdapter
 from sibyl_core.graph import EntityManager, RelationshipManager
 from sibyl_core.graph.client import get_graph_client
 from sibyl_core.services import KnowledgeReadService

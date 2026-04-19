@@ -1,7 +1,6 @@
-"""Backend-agnostic service contracts."""
+"""Active graph runtime helpers for higher-level service layers."""
 
-from sibyl_core.services.contracts import KnowledgeReadService, KnowledgeWriteService
-from sibyl_core.services.graph_runtime import (
+from sibyl_core.services.legacy_graph import (
     ActiveGraphRuntime,
     LegacyGraphRuntime,
     count_entities_by_type,
@@ -15,8 +14,6 @@ from sibyl_core.services.graph_runtime import (
 
 __all__ = [
     "ActiveGraphRuntime",
-    "KnowledgeReadService",
-    "KnowledgeWriteService",
     "LegacyGraphRuntime",
     "count_entities_by_type",
     "execute_graph_query",

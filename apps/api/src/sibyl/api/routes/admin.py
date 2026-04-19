@@ -20,11 +20,11 @@ from sibyl.api.schemas import (
 )
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
-from sibyl.persistence.legacy.admin import recover_legacy_stuck_sources
-from sibyl.persistence.legacy.graph import (
+from sibyl.persistence.graph_runtime import (
     execute_legacy_debug_query,
     get_graph_stats_payload as _service_get_graph_stats_payload,
 )
+from sibyl.persistence.legacy.admin import recover_legacy_stuck_sources
 
 log = structlog.get_logger()
 
