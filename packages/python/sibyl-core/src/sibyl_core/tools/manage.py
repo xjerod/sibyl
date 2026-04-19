@@ -15,10 +15,8 @@ from typing import Any
 
 import structlog
 
-from sibyl_core.graph.client import get_graph_client
-from sibyl_core.graph.entities import EntityManager
-from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import EntityType
+from sibyl_core.services.legacy_graph import get_legacy_graph_client, get_legacy_graph_runtime
 from sibyl_core.tasks.dependencies import detect_dependency_cycles
 from sibyl_core.tools.link_graph_status import get_link_graph_status_data
 
@@ -218,9 +216,10 @@ async def _handle_task_action(
             message="organization_id required for task actions",
         )
 
-    client = await get_graph_client()
-    entity_manager = EntityManager(client, group_id=organization_id)
-    relationship_manager = RelationshipManager(client, group_id=organization_id)
+    runtime = await get_legacy_graph_runtime(organization_id)
+    client = runtime.client
+    entity_manager = runtime.entity_manager
+    relationship_manager = runtime.relationship_manager
 
     # Use workflow engine for state-validated transitions
     from sibyl_core.errors import InvalidTransitionError
@@ -324,7 +323,7 @@ async def _handle_task_action(
 
 
 async def _update_task(
-    entity_manager: EntityManager,
+    entity_manager: Any,
     entity_id: str | None,
     data: dict[str, Any],
     *,
@@ -422,8 +421,8 @@ async def _update_task(
 
 
 async def _add_note(
-    entity_manager: EntityManager,
-    relationship_manager: RelationshipManager,
+    entity_manager: Any,
+    relationship_manager: Any,
     task_id: str | None,
     data: dict[str, Any],
 ) -> ManageResponse:
@@ -563,8 +562,8 @@ async def _handle_epic_action(
             message="organization_id required for epic actions",
         )
 
-    client = await get_graph_client()
-    entity_manager = EntityManager(client, group_id=organization_id)
+    runtime = await get_legacy_graph_runtime(organization_id)
+    entity_manager = runtime.entity_manager
 
     # Get the epic
     try:
@@ -642,7 +641,7 @@ async def _handle_epic_action(
 
 
 async def _update_epic(
-    entity_manager: EntityManager,
+    entity_manager: Any,
     entity_id: str | None,
     data: dict[str, Any],
 ) -> ManageResponse:
@@ -997,8 +996,6 @@ async def _link_graph(
     from sqlalchemy import select
     from sqlmodel import col
 
-    from sibyl_core.graph.client import get_graph_client
-
     max_chunks = data.get("max_chunks", 1000)
     create_new_entities = bool(data.get("create_new_entities", False))
     org_uuid = UUID(organization_id)
@@ -1039,7 +1036,7 @@ async def _link_graph(
         )
 
     # Process chunks
-    client = await get_graph_client()
+    client = await get_legacy_graph_client()
     integration = GraphIntegrationService(
         client,
         organization_id,
@@ -1116,9 +1113,10 @@ async def _handle_analysis_action(
             message="organization_id required for analysis actions",
         )
 
-    client = await get_graph_client()
-    entity_manager = EntityManager(client, group_id=organization_id)
-    relationship_manager = RelationshipManager(client, group_id=organization_id)
+    runtime = await get_legacy_graph_runtime(organization_id)
+    client = runtime.client
+    entity_manager = runtime.entity_manager
+    relationship_manager = runtime.relationship_manager
 
     if action == "estimate":
         return await _estimate_effort(entity_manager, relationship_manager, entity_id)
@@ -1136,8 +1134,8 @@ async def _handle_analysis_action(
 
 
 async def _estimate_effort(
-    entity_manager: EntityManager,
-    relationship_manager: RelationshipManager,
+    entity_manager: Any,
+    relationship_manager: Any,
     task_id: str,
 ) -> ManageResponse:
     """Estimate task effort based on similar completed tasks."""
@@ -1176,8 +1174,8 @@ async def _estimate_effort(
 
 
 async def _prioritize_tasks(
-    entity_manager: EntityManager,
-    _relationship_manager: RelationshipManager,
+    entity_manager: Any,
+    _relationship_manager: Any,
     project_id: str,
 ) -> ManageResponse:
     """Get smart task ordering for a project."""
@@ -1272,8 +1270,8 @@ async def _detect_cycles(
 
 
 async def _suggest_knowledge(
-    entity_manager: EntityManager,
-    relationship_manager: RelationshipManager,
+    entity_manager: Any,
+    relationship_manager: Any,
     task_id: str,
 ) -> ManageResponse:
     """Suggest relevant knowledge for a task."""

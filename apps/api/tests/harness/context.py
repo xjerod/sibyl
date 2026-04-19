@@ -91,9 +91,8 @@ class ToolTestContext:
             # Add tool
             patch("sibyl_core.tools.add.get_legacy_graph_runtime", async_get_graph_runtime),
             # Manage tool
-            patch("sibyl_core.tools.manage.get_graph_client", async_get_graph_client),
-            patch("sibyl_core.tools.manage.EntityManager", make_entity_manager),
-            patch("sibyl_core.tools.manage.RelationshipManager", make_relationship_manager),
+            patch("sibyl_core.tools.manage.get_legacy_graph_client", async_get_graph_client),
+            patch("sibyl_core.tools.manage.get_legacy_graph_runtime", async_get_graph_runtime),
             # Health tool
             patch("sibyl_core.tools.health.get_legacy_graph_client", async_get_graph_client),
             patch("sibyl_core.tools.health.get_legacy_graph_runtime", async_get_graph_runtime),
@@ -174,7 +173,17 @@ async def mock_graph_connected() -> AsyncGenerator[MockGraphClient]:
                 )
             ),
         ),
-        patch("sibyl_core.tools.manage.get_graph_client", async_get_client),
+        patch("sibyl_core.tools.manage.get_legacy_graph_client", async_get_client),
+        patch(
+            "sibyl_core.tools.manage.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=LegacyGraphRuntime(
+                    client=client,
+                    entity_manager=MockEntityManager(),
+                    relationship_manager=MockRelationshipManager(),
+                )
+            ),
+        ),
         patch("sibyl_core.tools.health.get_legacy_graph_client", async_get_client),
         patch(
             "sibyl_core.tools.health.get_legacy_graph_runtime",
@@ -245,7 +254,17 @@ async def mock_graph_disconnected() -> AsyncGenerator[MockGraphClient]:
                 )
             ),
         ),
-        patch("sibyl_core.tools.manage.get_graph_client", async_get_client),
+        patch("sibyl_core.tools.manage.get_legacy_graph_client", async_get_client),
+        patch(
+            "sibyl_core.tools.manage.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=LegacyGraphRuntime(
+                    client=client,
+                    entity_manager=MockEntityManager(),
+                    relationship_manager=MockRelationshipManager(),
+                )
+            ),
+        ),
         patch("sibyl_core.tools.health.get_legacy_graph_client", async_get_client),
         patch(
             "sibyl_core.tools.health.get_legacy_graph_runtime",
