@@ -33,6 +33,7 @@ CLUSTER_CACHE_TTL = timedelta(minutes=5)
 # Cache for hierarchical graph community detection (expensive operation)
 HIERARCHICAL_CACHE: dict[str, tuple[datetime, dict[str, str], list[dict]]] = {}
 HIERARCHICAL_CACHE_TTL = timedelta(minutes=5)
+_COMMUNITY_PAGE_SIZE = 500
 
 
 def _entity_summary(entity: Entity) -> str:
@@ -40,6 +41,69 @@ def _entity_summary(entity: Entity) -> str:
     if isinstance(summary, str) and summary:
         return summary
     return entity.description or ""
+
+
+def _community_name(community: DetectedCommunity) -> str:
+    return f"Community L{community.level} ({community.member_count} members)"
+
+
+def _community_metadata(entity: Entity) -> dict[str, Any]:
+    return entity.metadata if isinstance(entity.metadata, dict) else {}
+
+
+def _community_level(entity: Entity) -> int:
+    level = _community_metadata(entity).get("level")
+    return level if isinstance(level, int) else 0
+
+
+def _community_member_count(entity: Entity) -> int:
+    member_count = _community_metadata(entity).get("member_count")
+    return member_count if isinstance(member_count, int) else 0
+
+
+def _build_community_entity(community: DetectedCommunity, *, created_at: datetime) -> Entity:
+    summary = ""
+    return Entity(
+        id=community.id,
+        entity_type=EntityType.COMMUNITY,
+        name=_community_name(community),
+        description=summary,
+        content=summary,
+        created_at=created_at,
+        metadata={
+            "member_ids": list(community.member_ids),
+            "member_count": community.member_count,
+            "level": community.level,
+            "resolution": community.resolution,
+            "modularity": community.modularity,
+            "parent_community_id": community.parent_id,
+            "child_community_ids": list(community.child_ids),
+            "summary": summary,
+        },
+    )
+
+
+async def _list_community_entities(
+    entity_manager: EntityManager,
+) -> list[Entity]:
+    communities: list[Entity] = []
+    offset = 0
+
+    while True:
+        batch = await entity_manager.list_by_type(
+            EntityType.COMMUNITY,
+            limit=_COMMUNITY_PAGE_SIZE,
+            offset=offset,
+            include_archived=True,
+        )
+        if not batch:
+            break
+        communities.extend(batch)
+        if len(batch) < _COMMUNITY_PAGE_SIZE:
+            break
+        offset += _COMMUNITY_PAGE_SIZE
+
+    return communities
 
 
 async def _list_all_entities(
@@ -1190,58 +1254,25 @@ async def store_communities(
         return 0
 
     log.info("store_communities_start", count=len(communities), clear_existing=clear_existing)
+    entity_manager = EntityManager(client, group_id=organization_id)
+    relationship_manager = RelationshipManager(client, group_id=organization_id)
 
     # Clear existing communities if requested
     if clear_existing:
-        clear_query = """
-        MATCH (c:Entity {entity_type: 'community'})
-        DETACH DELETE c
-        """
         try:
-            await client.execute_write_org(clear_query, organization_id)
+            for community in await _list_community_entities(entity_manager):
+                with contextlib.suppress(Exception):
+                    await entity_manager.delete(community.id)
         except Exception as e:
             log.warning("clear_communities_failed", error=str(e))
 
     # Store each community
     stored = 0
-    now = datetime.now(UTC).isoformat()
+    now = datetime.now(UTC)
 
     for community in communities:
-        create_query = """
-        CREATE (c:Entity {
-            uuid: $id,
-            entity_type: 'community',
-            name: $name,
-            member_ids: $member_ids,
-            member_count: $member_count,
-            level: $level,
-            resolution: $resolution,
-            modularity: $modularity,
-            parent_community_id: $parent_id,
-            child_community_ids: $child_ids,
-            created_at: $created_at
-        })
-        RETURN c.uuid AS id
-        """
-
-        # Generate name
-        name = f"Community L{community.level} ({community.member_count} members)"
-
         try:
-            await client.execute_write_org(
-                create_query,
-                organization_id,
-                id=community.id,
-                name=name,
-                member_ids=community.member_ids,
-                member_count=community.member_count,
-                level=community.level,
-                resolution=community.resolution,
-                modularity=community.modularity,
-                parent_id=community.parent_id,
-                child_ids=community.child_ids,
-                created_at=now,
-            )
+            await entity_manager.create(_build_community_entity(community, created_at=now))
             stored += 1
         except Exception as e:
             log.warning("store_community_failed", community_id=community.id, error=str(e))
@@ -1249,16 +1280,14 @@ async def store_communities(
     # Create BELONGS_TO relationships from members to communities
     for community in communities:
         for member_id in community.member_ids:
-            link_query = """
-            MATCH (e:Entity {uuid: $entity_id}), (c:Entity {uuid: $community_id})
-            MERGE (e)-[:BELONGS_TO]->(c)
-            """
             with contextlib.suppress(Exception):
-                await client.execute_write_org(
-                    link_query,
-                    organization_id,
-                    entity_id=member_id,
-                    community_id=community.id,
+                await relationship_manager.create(
+                    Relationship(
+                        id=str(uuid.uuid4()),
+                        source_id=member_id,
+                        target_id=community.id,
+                        relationship_type=RelationshipType.BELONGS_TO,
+                    )
                 )
 
     log.info("store_communities_complete", stored=stored)
@@ -1279,44 +1308,36 @@ async def get_entity_communities(
     Returns:
         List of community info dicts.
     """
-    query = """
-    MATCH (e:Entity {uuid: $entity_id})-[:BELONGS_TO]->(c:Entity {entity_type: 'community'})
-    RETURN c.uuid AS id,
-           c.name AS name,
-           c.level AS level,
-           c.member_count AS member_count,
-           c.summary AS summary
-    ORDER BY c.level
-    """
-
     communities: list[dict[str, Any]] = []
+    entity_manager = EntityManager(client, group_id=organization_id)
+    relationship_manager = RelationshipManager(client, group_id=organization_id)
 
     try:
-        result = await client.execute_read_org(query, organization_id, entity_id=entity_id)
+        relationships = await relationship_manager.get_for_entity(
+            entity_id,
+            [RelationshipType.BELONGS_TO],
+            direction="outgoing",
+        )
 
-        for record in result:
-            if isinstance(record, (list, tuple)):
-                comm = {
-                    "id": record[0] if len(record) > 0 else None,
-                    "name": record[1] if len(record) > 1 else "",
-                    "level": record[2] if len(record) > 2 else 0,
-                    "member_count": record[3] if len(record) > 3 else 0,
-                    "summary": record[4] if len(record) > 4 else "",
-                }
-            else:
-                comm = {
-                    "id": record.get("id"),
-                    "name": record.get("name", ""),
-                    "level": record.get("level", 0),
-                    "member_count": record.get("member_count", 0),
-                    "summary": record.get("summary", ""),
-                }
-            if comm["id"]:
-                communities.append(comm)
+        for relationship in relationships:
+            with contextlib.suppress(Exception):
+                community = await entity_manager.get(relationship.target_id)
+                if community.entity_type != EntityType.COMMUNITY:
+                    continue
+                communities.append(
+                    {
+                        "id": community.id,
+                        "name": community.name,
+                        "level": _community_level(community),
+                        "member_count": _community_member_count(community),
+                        "summary": _entity_summary(community),
+                    }
+                )
 
     except Exception as e:
         log.warning("get_entity_communities_failed", entity_id=entity_id, error=str(e))
 
+    communities.sort(key=lambda community: community["level"])
     return communities
 
 
@@ -1336,42 +1357,28 @@ async def get_community_members(
     Returns:
         List of member entity info.
     """
-    query = """
-    MATCH (c:Entity {uuid: $community_id})<-[:BELONGS_TO]-(e:Entity)
-    RETURN e.uuid AS id,
-           e.name AS name,
-           e.entity_type AS type,
-           e.description AS description
-    LIMIT $limit
-    """
-
     members: list[dict[str, Any]] = []
+    entity_manager = EntityManager(client, group_id=organization_id)
+    relationship_manager = RelationshipManager(client, group_id=organization_id)
 
     try:
-        result = await client.execute_read_org(
-            query,
-            organization_id,
-            community_id=community_id,
-            limit=limit,
+        relationships = await relationship_manager.get_for_entity(
+            community_id,
+            [RelationshipType.BELONGS_TO],
+            direction="incoming",
         )
 
-        for record in result:
-            if isinstance(record, (list, tuple)):
-                member = {
-                    "id": record[0] if len(record) > 0 else None,
-                    "name": record[1] if len(record) > 1 else "",
-                    "type": record[2] if len(record) > 2 else "",
-                    "description": record[3] if len(record) > 3 else "",
-                }
-            else:
-                member = {
-                    "id": record.get("id"),
-                    "name": record.get("name", ""),
-                    "type": record.get("type", ""),
-                    "description": record.get("description", ""),
-                }
-            if member["id"]:
-                members.append(member)
+        for relationship in relationships[:limit]:
+            with contextlib.suppress(Exception):
+                member = await entity_manager.get(relationship.source_id)
+                members.append(
+                    {
+                        "id": member.id,
+                        "name": member.name,
+                        "type": member.entity_type.value,
+                        "description": member.description,
+                    }
+                )
 
     except Exception as e:
         log.warning("get_community_members_failed", community_id=community_id, error=str(e))

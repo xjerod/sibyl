@@ -43,6 +43,26 @@ def _make_relationship(
     )
 
 
+def _make_community_entity(
+    entity_id: str,
+    *,
+    level: int,
+    member_count: int,
+    summary: str = "",
+) -> Entity:
+    return Entity(
+        id=entity_id,
+        name=f"Community L{level}",
+        entity_type=EntityType.COMMUNITY,
+        description=summary,
+        metadata={
+            "level": level,
+            "member_count": member_count,
+            "summary": summary,
+        },
+    )
+
+
 class TestCommunityConfig:
     """Tests for CommunityConfig dataclass."""
 
@@ -392,76 +412,129 @@ class TestDetectCommunities:
 class TestStoreCommunities:
     """Tests for store_communities function."""
 
-    @pytest.fixture
-    def mock_client(self) -> MagicMock:
-        """Create mock graph client."""
-        client = MagicMock()
-        client.execute_read_org = AsyncMock(return_value=[])
-        client.execute_write_org = AsyncMock(return_value=[])
-        return client
-
     @pytest.mark.asyncio
-    async def test_empty_list(self, mock_client: MagicMock) -> None:
+    async def test_empty_list(self) -> None:
         """Empty community list returns 0."""
+        mock_client = MagicMock()
         stored = await store_communities(mock_client, TEST_ORG_ID, [])
         assert stored == 0
 
     @pytest.mark.asyncio
-    async def test_stores_communities(self, mock_client: MagicMock) -> None:
+    async def test_stores_communities(self) -> None:
         """Communities are stored in graph."""
+        mock_client = MagicMock()
+        entity_manager = MagicMock()
+        entity_manager.list_by_type = AsyncMock(return_value=[])
+        entity_manager.create = AsyncMock(side_effect=["c1", "c2"])
+        relationship_manager = MagicMock()
+        relationship_manager.create = AsyncMock(side_effect=["r1", "r2", "r3", "r4"])
         communities = [
             DetectedCommunity(id="c1", member_ids=["e1", "e2"], level=0, resolution=1.0),
             DetectedCommunity(id="c2", member_ids=["e3", "e4"], level=0, resolution=1.0),
         ]
 
-        stored = await store_communities(mock_client, TEST_ORG_ID, communities)
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            stored = await store_communities(mock_client, TEST_ORG_ID, communities)
 
         assert stored == 2
-        # Verify execute_write_org was called for each community + clear + links
-        assert mock_client.execute_write_org.call_count >= 3
+        assert entity_manager.create.await_count == 2
+        assert relationship_manager.create.await_count == 4
+
+        first_entity = entity_manager.create.await_args_list[0].args[0]
+        assert first_entity.entity_type == EntityType.COMMUNITY
+        assert first_entity.metadata["member_ids"] == ["e1", "e2"]
+        assert first_entity.metadata["member_count"] == 2
+        assert first_entity.metadata["level"] == 0
 
     @pytest.mark.asyncio
-    async def test_clears_existing(self, mock_client: MagicMock) -> None:
+    async def test_clears_existing(self) -> None:
         """Existing communities are cleared."""
+        mock_client = MagicMock()
+        entity_manager = MagicMock()
+        entity_manager.list_by_type = AsyncMock(
+            side_effect=[
+                [_make_community_entity("c_existing", level=1, member_count=3)],
+                [],
+            ]
+        )
+        entity_manager.delete = AsyncMock(return_value=True)
+        entity_manager.create = AsyncMock(return_value="c1")
+        relationship_manager = MagicMock()
+        relationship_manager.create = AsyncMock(return_value="r1")
         communities = [
             DetectedCommunity(id="c1", member_ids=["e1", "e2"], level=0, resolution=1.0),
         ]
 
-        await store_communities(mock_client, TEST_ORG_ID, communities, clear_existing=True)
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            await store_communities(mock_client, TEST_ORG_ID, communities, clear_existing=True)
 
-        # First call should be the clear query
-        first_call = mock_client.execute_write_org.call_args_list[0]
-        assert "DELETE" in first_call[0][0]
+        entity_manager.delete.assert_awaited_once_with("c_existing")
+        first_list_call = entity_manager.list_by_type.await_args_list[0]
+        assert first_list_call.args[0] == EntityType.COMMUNITY
+        assert first_list_call.kwargs["include_archived"] is True
 
 
 class TestGetEntityCommunities:
     """Tests for get_entity_communities function."""
 
-    @pytest.fixture
-    def mock_client(self) -> MagicMock:
-        """Create mock graph client."""
-        client = MagicMock()
-        client.execute_read_org = AsyncMock(return_value=[])
-        client.execute_write_org = AsyncMock(return_value=[])
-        return client
-
     @pytest.mark.asyncio
-    async def test_no_communities(self, mock_client: MagicMock) -> None:
+    async def test_no_communities(self) -> None:
         """Entity with no communities returns empty list."""
-        communities = await get_entity_communities(mock_client, TEST_ORG_ID, "e1")
+        mock_client = MagicMock()
+        entity_manager = MagicMock()
+        relationship_manager = MagicMock()
+        relationship_manager.get_for_entity = AsyncMock(return_value=[])
+
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            communities = await get_entity_communities(mock_client, TEST_ORG_ID, "e1")
+
         assert communities == []
 
     @pytest.mark.asyncio
-    async def test_returns_communities(self, mock_client: MagicMock) -> None:
+    async def test_returns_communities(self) -> None:
         """Returns communities entity belongs to."""
-        mock_client.execute_read_org = AsyncMock(
+        mock_client = MagicMock()
+        entity_manager = MagicMock()
+        entity_manager.get = AsyncMock(
+            side_effect=[
+                _make_community_entity("c2", level=1, member_count=10, summary="Broader summary"),
+                _make_community_entity("c1", level=0, member_count=5, summary="Summary text"),
+            ]
+        )
+        relationship_manager = MagicMock()
+        relationship_manager.get_for_entity = AsyncMock(
             return_value=[
-                ("c1", "Community L0", 0, 5, "Summary text"),
-                ("c2", "Community L1", 1, 10, "Broader summary"),
+                _make_relationship("r1", "e1", "c2", RelationshipType.BELONGS_TO),
+                _make_relationship("r2", "e1", "c1", RelationshipType.BELONGS_TO),
             ]
         )
 
-        communities = await get_entity_communities(mock_client, TEST_ORG_ID, "e1")
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            communities = await get_entity_communities(mock_client, TEST_ORG_ID, "e1")
 
         assert len(communities) == 2
         assert communities[0]["id"] == "c1"
@@ -472,31 +545,52 @@ class TestGetEntityCommunities:
 class TestGetCommunityMembers:
     """Tests for get_community_members function."""
 
-    @pytest.fixture
-    def mock_client(self) -> MagicMock:
-        """Create mock graph client."""
-        client = MagicMock()
-        client.execute_read_org = AsyncMock(return_value=[])
-        client.execute_write_org = AsyncMock(return_value=[])
-        return client
-
     @pytest.mark.asyncio
-    async def test_empty_community(self, mock_client: MagicMock) -> None:
+    async def test_empty_community(self) -> None:
         """Empty community returns empty list."""
-        members = await get_community_members(mock_client, TEST_ORG_ID, "c1")
+        mock_client = MagicMock()
+        entity_manager = MagicMock()
+        relationship_manager = MagicMock()
+        relationship_manager.get_for_entity = AsyncMock(return_value=[])
+
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            members = await get_community_members(mock_client, TEST_ORG_ID, "c1")
+
         assert members == []
 
     @pytest.mark.asyncio
-    async def test_returns_members(self, mock_client: MagicMock) -> None:
+    async def test_returns_members(self) -> None:
         """Returns community members."""
-        mock_client.execute_read_org = AsyncMock(
+        mock_client = MagicMock()
+        entity_manager = MagicMock()
+        entity_manager.get = AsyncMock(
+            side_effect=[
+                _make_entity("e1", "Error Handling", EntityType.PATTERN),
+                _make_entity("e2", "Logging", EntityType.PATTERN),
+            ]
+        )
+        relationship_manager = MagicMock()
+        relationship_manager.get_for_entity = AsyncMock(
             return_value=[
-                ("e1", "Error Handling", "pattern", "Description 1"),
-                ("e2", "Logging", "pattern", "Description 2"),
+                _make_relationship("r1", "e1", "c1", RelationshipType.BELONGS_TO),
+                _make_relationship("r2", "e2", "c1", RelationshipType.BELONGS_TO),
             ]
         )
 
-        members = await get_community_members(mock_client, TEST_ORG_ID, "c1")
+        with (
+            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.communities.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+        ):
+            members = await get_community_members(mock_client, TEST_ORG_ID, "c1")
 
         assert len(members) == 2
         assert members[0]["id"] == "e1"
