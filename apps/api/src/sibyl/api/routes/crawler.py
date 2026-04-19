@@ -16,8 +16,6 @@ from uuid import UUID
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
-from sqlmodel import col
 
 from sibyl.api.event_types import WSEvent
 from sibyl.api.schemas import (
@@ -47,12 +45,25 @@ from sibyl.db import (
     CrawledDocument,
     CrawlSource,
     CrawlStatus,
-    DocumentChunk,
     SourceType,
     check_postgres_health,
     get_session,
 )
 from sibyl.db.models import Organization, OrganizationRole, utcnow_naive
+from sibyl.persistence.legacy.crawler import (
+    count_remaining_unlinked_chunks,
+    get_crawl_stats_payload,
+    get_crawled_document_for_org,
+    get_org_crawl_source,
+    get_source_sync_counts,
+    list_crawled_documents_for_org,
+    list_document_chunks,
+    list_source_chunks,
+    list_source_documents as list_source_documents_for_delete,
+    list_source_documents_page,
+    list_sources_for_graph_linking,
+    list_unlinked_source_chunks,
+)
 from sibyl_core.services.link_graph_status import get_link_graph_status_data
 
 log = structlog.get_logger()
@@ -72,13 +83,11 @@ async def _get_org_source(session: Any, source_id: str, org: Organization) -> Cr
     Raises:
         HTTPException: 404 if not found or not owned by org
     """
-    result = await session.execute(
-        select(CrawlSource).where(
-            col(CrawlSource.id) == UUID(source_id),
-            col(CrawlSource.organization_id) == org.id,
-        )
+    source = await get_org_crawl_source(
+        session,
+        source_id=UUID(source_id),
+        organization_id=org.id,
     )
-    source = result.scalar_one_or_none()
     if not source:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
     return source
@@ -151,58 +160,14 @@ async def get_stats(
 ) -> CrawlStatsResponse:
     """Get crawler statistics for the current organization."""
     async with get_session() as session:
-        # Count sources (org-scoped)
-        sources_result = await session.execute(
-            select(func.count(CrawlSource.id)).where(col(CrawlSource.organization_id) == org.id)
-        )
-        total_sources = sources_result.scalar() or 0
-
-        # Count documents (via org-scoped sources)
-        docs_result = await session.execute(
-            select(func.count(CrawledDocument.id))
-            .join(CrawlSource)
-            .where(col(CrawlSource.organization_id) == org.id)
-        )
-        total_documents = docs_result.scalar() or 0
-
-        # Count chunks (via org-scoped sources)
-        chunks_result = await session.execute(
-            select(func.count(DocumentChunk.id))
-            .join(CrawledDocument)
-            .join(CrawlSource)
-            .where(col(CrawlSource.organization_id) == org.id)
-        )
-        total_chunks = chunks_result.scalar() or 0
-
-        # Count chunks with embeddings (via org-scoped sources)
-        embedded_result = await session.execute(
-            select(func.count(DocumentChunk.id))
-            .join(CrawledDocument)
-            .join(CrawlSource)
-            .where(
-                col(CrawlSource.organization_id) == org.id,
-                col(DocumentChunk.embedding).is_not(None),
-            )
-        )
-        chunks_with_embeddings = embedded_result.scalar() or 0
-
-        # Count sources by status (org-scoped)
-        status_result = await session.execute(
-            select(CrawlSource.crawl_status, func.count(CrawlSource.id))
-            .where(col(CrawlSource.organization_id) == org.id)
-            .group_by(CrawlSource.crawl_status)
-        )
-        sources_by_status = {
-            str(status.value) if hasattr(status, "value") else str(status): count
-            for status, count in status_result.all()
-        }
+        stats = await get_crawl_stats_payload(session, organization_id=org.id)
 
     return CrawlStatsResponse(
-        total_sources=total_sources,
-        total_documents=total_documents,
-        total_chunks=total_chunks,
-        chunks_with_embeddings=chunks_with_embeddings,
-        sources_by_status=sources_by_status,
+        total_sources=stats.total_sources,
+        total_documents=stats.total_documents,
+        total_chunks=stats.total_chunks,
+        chunks_with_embeddings=stats.chunks_with_embeddings,
+        sources_by_status=stats.sources_by_status,
     )
 
 
@@ -242,25 +207,12 @@ async def list_documents(
 ) -> CrawlDocumentListResponse:
     """List crawled documents for the current organization."""
     async with get_session() as session:
-        # Filter documents by org-owned sources
-        query = (
-            select(CrawledDocument)
-            .join(CrawlSource)
-            .where(col(CrawlSource.organization_id) == org.id)
-            .order_by(col(CrawledDocument.crawled_at).desc())
-            .offset(offset)
-            .limit(limit)
+        documents, total = await list_crawled_documents_for_org(
+            session,
+            organization_id=org.id,
+            limit=limit,
+            offset=offset,
         )
-        result = await session.execute(query)
-        documents = list(result.scalars().all())
-
-        # Get total count (org-scoped)
-        count_result = await session.execute(
-            select(func.count(CrawledDocument.id))
-            .join(CrawlSource)
-            .where(col(CrawlSource.organization_id) == org.id)
-        )
-        total = count_result.scalar() or 0
 
     return CrawlDocumentListResponse(
         documents=[_document_to_response(d) for d in documents],
@@ -277,16 +229,11 @@ async def get_document(
     # Strip 'doc:' prefix if present
     uuid_str = document_id.removeprefix("doc:")
     async with get_session() as session:
-        # Query with org check via source join
-        result = await session.execute(
-            select(CrawledDocument)
-            .join(CrawlSource)
-            .where(
-                col(CrawledDocument.id) == UUID(uuid_str),
-                col(CrawlSource.organization_id) == org.id,
-            )
+        doc = await get_crawled_document_for_org(
+            session,
+            document_id=UUID(uuid_str),
+            organization_id=org.id,
         )
-        doc = result.scalar_one_or_none()
         if not doc:
             raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
 
@@ -295,12 +242,7 @@ async def get_document(
         response.raw_content = doc.raw_content
 
         # Fetch chunks and assemble markdown content
-        chunks_result = await session.execute(
-            select(DocumentChunk)
-            .where(col(DocumentChunk.document_id) == doc.id)
-            .order_by(DocumentChunk.chunk_index)
-        )
-        chunks = chunks_result.scalars().all()
+        chunks = await list_document_chunks(session, document_id=doc.id)
         if chunks:
             response.markdown_content = "\n\n".join(c.content for c in chunks)
 
@@ -314,27 +256,19 @@ async def delete_document(
 ) -> dict[str, Any]:
     """Delete a crawled document and its chunks (org-scoped)."""
     async with get_session() as session:
-        # Query with org check via source join
-        result = await session.execute(
-            select(CrawledDocument)
-            .join(CrawlSource)
-            .where(
-                col(CrawledDocument.id) == UUID(document_id),
-                col(CrawlSource.organization_id) == org.id,
-            )
+        doc = await get_crawled_document_for_org(
+            session,
+            document_id=UUID(document_id),
+            organization_id=org.id,
         )
-        doc = result.scalar_one_or_none()
         if not doc:
             raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
 
         source_id = str(doc.source_id)
 
         # Delete chunks first
-        chunks = await session.execute(
-            select(DocumentChunk).where(col(DocumentChunk.document_id) == UUID(document_id))
-        )
         chunks_deleted = 0
-        for chunk in chunks.scalars():
+        for chunk in await list_document_chunks(session, document_id=UUID(document_id)):
             await session.delete(chunk)
             chunks_deleted += 1
 
@@ -567,19 +501,14 @@ async def delete_source(
         source = await _get_org_source(session, source_id, org)
 
         # Delete chunks first (foreign key constraint)
-        chunks_deleted = await session.execute(
-            select(DocumentChunk)
-            .join(CrawledDocument)
-            .where(col(CrawledDocument.source_id) == UUID(source_id))
-        )
-        for chunk in chunks_deleted.scalars():
+        for chunk in await list_source_chunks(session, source_id=UUID(source_id)):
             await session.delete(chunk)
 
         # Delete documents
-        docs_deleted = await session.execute(
-            select(CrawledDocument).where(col(CrawledDocument.source_id) == UUID(source_id))
-        )
-        for doc in docs_deleted.scalars():
+        for doc in await list_source_documents_for_delete(
+            session,
+            source_id=UUID(source_id),
+        ):
             await session.delete(doc)
 
         # Delete source
@@ -762,21 +691,10 @@ async def sync_source(
     async with get_session() as session:
         source = await _get_org_source(session, source_id, org)
 
-        # Count actual documents
-        doc_count_result = await session.execute(
-            select(func.count(CrawledDocument.id)).where(
-                col(CrawledDocument.source_id) == UUID(source_id)
-            )
+        actual_doc_count, actual_chunk_count = await get_source_sync_counts(
+            session,
+            source_id=UUID(source_id),
         )
-        actual_doc_count = doc_count_result.scalar() or 0
-
-        # Count actual chunks
-        chunk_count_result = await session.execute(
-            select(func.count(DocumentChunk.id))
-            .join(CrawledDocument)
-            .where(col(CrawledDocument.source_id) == UUID(source_id))
-        )
-        actual_chunk_count = chunk_count_result.scalar() or 0
 
         # Determine correct status
         old_status = source.crawl_status
@@ -885,22 +803,13 @@ async def _process_graph_linking(
 
     # Get sources to process (org-scoped)
     async with get_session() as session:
-        if source_id:
-            result = await session.execute(
-                select(CrawlSource).where(
-                    col(CrawlSource.id) == UUID(source_id),
-                    col(CrawlSource.organization_id) == org_uuid,
-                )
-            )
-            source = result.scalar_one_or_none()
-            if not source:
-                raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
-            sources = [source]
-        else:
-            result = await session.execute(
-                select(CrawlSource).where(col(CrawlSource.organization_id) == org_uuid)
-            )
-            sources = list(result.scalars().all())
+        sources = await list_sources_for_graph_linking(
+            session,
+            organization_id=org_uuid,
+            source_id=UUID(source_id) if source_id else None,
+        )
+        if source_id and not sources:
+            raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
         if not sources:
             return LinkGraphResponse(
@@ -917,15 +826,11 @@ async def _process_graph_linking(
 
         for source in sources:
             # Get unprocessed chunks for this source
-            chunk_query = (
-                select(DocumentChunk)
-                .join(CrawledDocument)
-                .where(col(CrawledDocument.source_id) == source.id)
-                .where(col(DocumentChunk.has_entities) == False)  # noqa: E712
-                .limit(request.batch_size * 10)
+            chunks = await list_unlinked_source_chunks(
+                session,
+                source_id=source.id,
+                limit=request.batch_size * 10,
             )
-            result = await session.execute(chunk_query)
-            chunks = list(result.scalars().all())
 
             if not chunks:
                 continue
@@ -947,19 +852,11 @@ async def _process_graph_linking(
 
     # Count remaining unprocessed chunks
     async with get_session() as session:
-        remaining_query = (
-            select(func.count(DocumentChunk.id))
-            .join(CrawledDocument, col(CrawledDocument.id) == col(DocumentChunk.document_id))
-            .join(CrawlSource, col(CrawlSource.id) == col(CrawledDocument.source_id))
-            .where(col(CrawlSource.organization_id) == org_uuid)
-            .where(col(DocumentChunk.has_entities) == False)  # noqa: E712
+        chunks_remaining = await count_remaining_unlinked_chunks(
+            session,
+            organization_id=org_uuid,
+            source_id=UUID(source_id) if source_id else None,
         )
-        if source_id:
-            remaining_query = remaining_query.where(
-                col(CrawledDocument.source_id) == UUID(source_id)
-            )
-        remaining_result = await session.execute(remaining_query)
-        chunks_remaining = remaining_result.scalar() or 0
 
     if request.dry_run:
         return LinkGraphResponse(
@@ -1014,23 +911,12 @@ async def list_source_documents(
 ) -> CrawlDocumentListResponse:
     """List documents for a source."""
     async with get_session() as session:
-        query = (
-            select(CrawledDocument)
-            .where(col(CrawledDocument.source_id) == UUID(source_id))
-            .order_by(col(CrawledDocument.crawled_at).desc())
-            .offset(offset)
-            .limit(limit)
+        documents, total = await list_source_documents_page(
+            session,
+            source_id=UUID(source_id),
+            limit=limit,
+            offset=offset,
         )
-        result = await session.execute(query)
-        documents = list(result.scalars().all())
-
-        # Get total count
-        count_result = await session.execute(
-            select(func.count(CrawledDocument.id)).where(
-                col(CrawledDocument.source_id) == UUID(source_id)
-            )
-        )
-        total = count_result.scalar() or 0
 
     return CrawlDocumentListResponse(
         documents=[_document_to_response(d) for d in documents],
