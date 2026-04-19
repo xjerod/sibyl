@@ -16,8 +16,7 @@ def test_collect_direct_storage_imports_flags_unallowlisted_modules(tmp_path: Pa
     route_dir.mkdir(parents=True)
     path = route_dir / "bad.py"
     path.write_text(
-        "from sibyl_core.graph.client import get_graph_client\n"
-        "from sqlmodel import select\n",
+        "from sibyl_core.graph.client import get_graph_client\nfrom sqlmodel import select\n",
         encoding="utf-8",
     )
 
@@ -34,8 +33,7 @@ def test_collect_direct_storage_imports_honors_exact_allowlist_entries(tmp_path:
     route_dir.mkdir(parents=True)
     path = route_dir / "allowed.py"
     path.write_text(
-        "from sibyl_core.graph.client import get_graph_client\n"
-        "from sqlmodel import select\n",
+        "from sibyl_core.graph.client import get_graph_client\nfrom sqlmodel import select\n",
         encoding="utf-8",
     )
 
@@ -84,3 +82,7 @@ def test_main_returns_nonzero_for_unallowlisted_imports(tmp_path: Path) -> None:
     )
 
     assert main(["--path", str(route_dir)]) == 1
+
+
+def test_repository_has_no_live_direct_storage_import_debt() -> None:
+    assert collect_direct_storage_imports() == []

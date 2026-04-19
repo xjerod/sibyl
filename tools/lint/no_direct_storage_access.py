@@ -24,23 +24,7 @@ FORBIDDEN_MODULE_PREFIXES = {
     "sqlalchemy": "raw SQLAlchemy import",
     "sqlmodel": "raw SQLModel import",
 }
-ALLOW_SQL = ("sibyl.db.connection", "sqlalchemy", "sqlmodel")
-ALLOW_GRAPH = ("sibyl_core.graph",)
-ALLOWLIST: dict[str, tuple[str, ...]] = {
-    "apps/api/src/sibyl/api/routes/crawler.py": ("sqlalchemy", "sqlmodel"),
-    "apps/api/src/sibyl/api/routes/entities.py": ALLOW_SQL,
-    "apps/api/src/sibyl/api/routes/rag.py": ("sqlalchemy", "sqlmodel"),
-    "packages/python/sibyl-core/src/sibyl_core/tools/add.py": ALLOW_GRAPH,
-    "packages/python/sibyl-core/src/sibyl_core/tools/admin.py": ALLOW_GRAPH,
-    "packages/python/sibyl-core/src/sibyl_core/tools/conflicts.py": ALLOW_GRAPH,
-    "packages/python/sibyl-core/src/sibyl_core/tools/explore.py": ALLOW_GRAPH,
-    "packages/python/sibyl-core/src/sibyl_core/tools/health.py": ALLOW_GRAPH,
-    "packages/python/sibyl-core/src/sibyl_core/tools/helpers.py": ALLOW_GRAPH,
-    "packages/python/sibyl-core/src/sibyl_core/tools/link_graph_status.py": ("sqlalchemy", "sqlmodel"),
-    "packages/python/sibyl-core/src/sibyl_core/tools/manage.py": (*ALLOW_GRAPH, "sqlalchemy", "sqlmodel"),
-    "packages/python/sibyl-core/src/sibyl_core/tools/search.py": (*ALLOW_GRAPH, "sqlalchemy", "sqlmodel"),
-    "packages/python/sibyl-core/src/sibyl_core/tools/temporal.py": ALLOW_GRAPH,
-}
+ALLOWLIST: dict[str, tuple[str, ...]] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +99,9 @@ def collect_direct_storage_imports(
                     )
                     break
 
-    return sorted(violations, key=lambda violation: (violation.path, violation.lineno, violation.module))
+    return sorted(
+        violations, key=lambda violation: (violation.path, violation.lineno, violation.module)
+    )
 
 
 def render_report(violations: Sequence[DirectStorageImport]) -> str:
@@ -142,9 +128,7 @@ def render_report(violations: Sequence[DirectStorageImport]) -> str:
         lines.append("")
         lines.append("allowlisted debt:")
         for violation in allowlisted_violations:
-            lines.append(
-                f"  - {violation.path}:{violation.lineno} imports `{violation.module}`"
-            )
+            lines.append(f"  - {violation.path}:{violation.lineno} imports `{violation.module}`")
 
     return "\n".join(lines)
 

@@ -39,7 +39,13 @@ def test_runtime_surface_finds_known_contracts() -> None:
     assert surface.websocket_routes[0].path == "/ws"
     assert {record.name for record in surface.mcp_tools} >= {"search", "explore", "add"}
     assert "User" in surface.sqlmodel_tables
-    assert any(record.path == "apps/api/src/sibyl/server.py" for record in surface.direct_sql_usage)
+    assert any(
+        record.path == "apps/api/src/sibyl/persistence/legacy/crawler.py"
+        for record in surface.direct_sql_usage
+    )
+    assert not any(
+        record.path == "apps/api/src/sibyl/server.py" for record in surface.direct_sql_usage
+    )
     assert any(
         record.path == "packages/python/sibyl-core/src/sibyl_core/graph/entities.py"
         for record in surface.graphiti_imports
