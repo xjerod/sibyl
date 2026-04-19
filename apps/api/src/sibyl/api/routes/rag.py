@@ -42,7 +42,7 @@ from sibyl.db import (
     get_session,
 )
 from sibyl.db.models import OrganizationRole
-from sibyl.persistence.legacy.graph import get_legacy_graph_query_adapter
+from sibyl.persistence.legacy.graph import get_legacy_entity_runtime
 from sibyl.persistence.legacy.rag import (
     get_document_by_url_for_org,
     hybrid_search_chunks,
@@ -662,10 +662,10 @@ async def get_document_related_entities(
     # Search the knowledge graph using document title as query
     entities: list[DocumentRelatedEntity] = []
     try:
-        graph_queries = await get_legacy_graph_query_adapter(auth.organization_id)
+        entity_runtime = await get_legacy_entity_runtime(auth.organization_id)
 
         # Semantic search using document title
-        search_results = await graph_queries.search_entities(
+        search_results = await entity_runtime.entity_manager.search(
             query=doc_title,
             limit=15,
         )

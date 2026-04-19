@@ -447,7 +447,7 @@ class TestDocumentRelatedEntities:
     """Tests for document-related entity lookup."""
 
     @pytest.mark.asyncio
-    async def test_get_document_related_entities_uses_legacy_graph_adapter(
+    async def test_get_document_related_entities_uses_entity_runtime_search(
         self,
         mock_session,
         mock_auth_context,
@@ -470,8 +470,8 @@ class TestDocumentRelatedEntities:
         blocked.entity_type.value = "task"
         blocked.description = "Should be filtered"
         blocked.metadata = {"project_id": "proj-2"}
-        adapter = MagicMock()
-        adapter.search_entities = AsyncMock(return_value=[(entity, 0.7), (blocked, 0.8)])
+        runtime = MagicMock()
+        runtime.entity_manager.search = AsyncMock(return_value=[(entity, 0.7), (blocked, 0.8)])
 
         with (
             patch("sibyl.api.routes.rag.get_session") as mock_get_session,
@@ -480,8 +480,8 @@ class TestDocumentRelatedEntities:
                 AsyncMock(return_value={"proj-1"}),
             ),
             patch(
-                "sibyl.api.routes.rag.get_legacy_graph_query_adapter",
-                AsyncMock(return_value=adapter),
+                "sibyl.api.routes.rag.get_legacy_entity_runtime",
+                AsyncMock(return_value=runtime),
             ),
         ):
             mock_get_session.return_value = mock_session
@@ -496,7 +496,7 @@ class TestDocumentRelatedEntities:
         assert response.document_id == str(sample_document.id)
         assert response.total == 1
         assert response.entities[0].id == "task-1"
-        adapter.search_entities.assert_awaited_once_with(
+        runtime.entity_manager.search.assert_awaited_once_with(
             query=sample_document.title,
             limit=15,
         )
