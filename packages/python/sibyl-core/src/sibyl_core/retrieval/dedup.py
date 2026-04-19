@@ -361,16 +361,11 @@ class EntityDeduplicator:
         Returns:
             List of (id, name, type, embedding) tuples.
         """
-        list_all = getattr(self.entity_manager, "list_all", None)
-        if callable(list_all):
-            try:
-                entities = await self._fetch_entities_with_embeddings_via_manager(entity_types)
-                if entities:
-                    return entities
-            except Exception as e:
-                log.debug("fetch_entities_with_embeddings_manager_failed", error=str(e))
-
-        return await self._fetch_entities_with_embeddings_via_query(entity_types)
+        try:
+            return await self._fetch_entities_with_embeddings_via_manager(entity_types)
+        except Exception as e:
+            log.warning("fetch_entities_with_embeddings_failed", error=str(e))
+            return []
 
     async def _fetch_entities_with_embeddings_via_manager(
         self,
@@ -401,55 +396,6 @@ class EntityDeduplicator:
 
         return entities
 
-    async def _fetch_entities_with_embeddings_via_query(
-        self,
-        entity_types: list[str] | None = None,
-    ) -> list[tuple[str, str, str, list[float]]]:
-        # Build Cypher query to fetch entities with embeddings
-        type_filter = ""
-        params: dict[str, Any] = {}
-
-        if entity_types:
-            type_filter = "AND n.entity_type IN $types"
-            params["types"] = entity_types
-
-        query = f"""
-        MATCH (n:Entity)
-        WHERE n.name_embedding IS NOT NULL {type_filter}
-        RETURN n.uuid AS id,
-               n.name AS name,
-               n.entity_type AS type,
-               n.name_embedding AS embedding
-        """
-
-        try:
-            group_id = self._require_group_id()
-            result = await self.client.execute_read_org(query, group_id, **params)
-
-            entities: list[tuple[str, str, str, list[float]]] = []
-            for record in result:
-                if isinstance(record, (list, tuple)):
-                    entity_id = str(record[0]) if len(record) > 0 else None
-                    name = str(record[1]) if len(record) > 1 else ""
-                    entity_type = str(record[2]) if len(record) > 2 else ""
-                    embedding = record[3] if len(record) > 3 else None
-                elif isinstance(record, dict):
-                    entity_id = str(record.get("id", ""))
-                    name = str(record.get("name", ""))
-                    entity_type = str(record.get("type", ""))
-                    embedding = record.get("embedding")
-                else:
-                    continue  # Skip unknown record types
-
-                if entity_id and embedding and isinstance(embedding, list):
-                    entities.append((entity_id, name, entity_type, embedding))
-
-            return entities
-
-        except Exception as e:
-            log.warning("fetch_entities_with_embeddings_failed", error=str(e))
-            return []
-
     async def _redirect_relationships(self, from_id: str, to_id: str) -> int:
         """Redirect all relationships from one entity to another.
 
@@ -470,9 +416,8 @@ class EntityDeduplicator:
                 to_id,
             )
         except Exception as e:
-            log.debug("redirect_relationships_manager_failed", error=str(e))
-
-        return await self._redirect_relationships_via_query(from_id, to_id)
+            log.warning("redirect_relationships_failed", error=str(e))
+            return 0
 
     def _get_relationship_manager(self) -> Any:
         from sibyl_core.graph.relationships import RelationshipManager
@@ -524,62 +469,6 @@ class EntityDeduplicator:
             count=total_redirected,
             strategy="relationship_manager",
         )
-
-        return total_redirected
-
-    async def _redirect_relationships_via_query(self, from_id: str, to_id: str) -> int:
-        # Redirect outgoing relationships
-        # Note: FalkorDB/Cypher doesn't support dynamic relationship types in MERGE,
-        # so we preserve the original type as relationship_type property
-        outgoing_query = """
-        MATCH (source:Entity {uuid: $from_id})-[r]->(target)
-        WHERE target.uuid <> $to_id
-        WITH source, r, target, type(r) AS rel_type, properties(r) AS props
-        MERGE (keep:Entity {uuid: $to_id})
-        MERGE (keep)-[new_r:RELATIONSHIP]->(target)
-        SET new_r = props, new_r.relationship_type = rel_type
-        DELETE r
-        RETURN count(r) AS redirected
-        """
-
-        # Redirect incoming relationships
-        incoming_query = """
-        MATCH (source)-[r]->(target:Entity {uuid: $from_id})
-        WHERE source.uuid <> $to_id
-        WITH source, r, target, type(r) AS rel_type, properties(r) AS props
-        MERGE (keep:Entity {uuid: $to_id})
-        MERGE (source)-[new_r:RELATIONSHIP]->(keep)
-        SET new_r = props, new_r.relationship_type = rel_type
-        DELETE r
-        RETURN count(r) AS redirected
-        """
-
-        total_redirected = 0
-        params = {"from_id": from_id, "to_id": to_id}
-
-        try:
-            group_id = self._require_group_id()
-            # Execute both redirections
-            for query in [outgoing_query, incoming_query]:
-                result = await self.client.execute_write_org(query, group_id, **params)
-                if result:
-                    for record in result:
-                        if isinstance(record, (list, tuple)) and len(record) > 0:
-                            val = record[0]
-                            total_redirected += int(val) if val else 0
-                        elif isinstance(record, dict):
-                            total_redirected += int(record.get("redirected", 0))
-
-            log.debug(
-                "relationships_redirected",
-                from_id=from_id,
-                to_id=to_id,
-                count=total_redirected,
-                strategy="query",
-            )
-
-        except Exception as e:
-            log.warning("redirect_relationships_failed", error=str(e))
 
         return total_redirected
 

@@ -109,6 +109,7 @@ class MockEntityManagerForDedup:
     entities: dict[str, Entity] = field(default_factory=dict)
     deleted_ids: list[str] = field(default_factory=list)
     updated_ids: list[str] = field(default_factory=list)
+    list_all_calls: list[dict[str, Any]] = field(default_factory=list)
     _group_id: str = "org-123"
 
     async def get(self, entity_id: str) -> Entity | None:
@@ -139,6 +140,13 @@ class MockEntityManagerForDedup:
         include_archived: bool = False,
     ) -> list[Entity]:
         """List entities with pagination for seam-driven dedup."""
+        self.list_all_calls.append(
+            {
+                "limit": limit,
+                "offset": offset,
+                "include_archived": include_archived,
+            }
+        )
         del include_archived
         return list(self.entities.values())[offset : offset + limit]
 
@@ -465,9 +473,16 @@ class TestEntityDeduplicatorFindDuplicates:
     async def test_find_duplicates_insufficient_entities(self) -> None:
         """Returns empty when fewer than 2 entities."""
         client = MockGraphClientForDedup()
-        client.entities_with_embeddings = [("id1", "Entity One", "topic", [1.0, 0.0])]
-
-        manager = MockEntityManagerForDedup()
+        manager = MockEntityManagerForDedup(
+            entities={
+                "id1": Entity(
+                    id="id1",
+                    name="Entity One",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.0],
+                )
+            }
+        )
         dedup = EntityDeduplicator(client=client, entity_manager=manager)  # type: ignore[arg-type]
 
         pairs = await dedup.find_duplicates()
@@ -477,14 +492,28 @@ class TestEntityDeduplicatorFindDuplicates:
     async def test_find_duplicates_returns_sorted_pairs(self) -> None:
         """Duplicate pairs are sorted by similarity (highest first)."""
         client = MockGraphClientForDedup()
-        # Three entities: (id1, id2) are very similar, (id1, id3) are somewhat similar
-        client.entities_with_embeddings = [
-            ("id1", "Python async", "topic", [1.0, 0.5, 0.0]),
-            ("id2", "Python async", "topic", [1.0, 0.5, 0.0]),  # Identical to id1
-            ("id3", "Python sync", "topic", [1.0, 0.4, 0.1]),  # Similar to id1
-        ]
-
-        manager = MockEntityManagerForDedup()
+        manager = MockEntityManagerForDedup(
+            entities={
+                "id1": Entity(
+                    id="id1",
+                    name="Python async",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.5, 0.0],
+                ),
+                "id2": Entity(
+                    id="id2",
+                    name="Python async",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.5, 0.0],
+                ),
+                "id3": Entity(
+                    id="id3",
+                    name="Python sync",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.4, 0.1],
+                ),
+            }
+        )
         config = DedupConfig(
             similarity_threshold=0.9,
             same_type_only=True,
@@ -502,22 +531,40 @@ class TestEntityDeduplicatorFindDuplicates:
 
     @pytest.mark.asyncio
     async def test_find_duplicates_with_type_filter(self) -> None:
-        """Type filter is passed to query."""
+        """Type filter is applied while staying on the entity manager seam."""
         client = MockGraphClientForDedup()
-        client.entities_with_embeddings = [
-            ("id1", "Entity One", "topic", [1.0, 0.0]),
-            ("id2", "Entity Two", "topic", [1.0, 0.0]),
-        ]
-
-        manager = MockEntityManagerForDedup()
+        manager = MockEntityManagerForDedup(
+            entities={
+                "id1": Entity(
+                    id="id1",
+                    name="Entity One",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.0],
+                ),
+                "id2": Entity(
+                    id="id2",
+                    name="Entity Two",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.0],
+                ),
+                "id3": Entity(
+                    id="id3",
+                    name="Entity Three",
+                    entity_type=EntityType.PATTERN,
+                    embedding=[1.0, 0.0],
+                ),
+            }
+        )
         dedup = EntityDeduplicator(client=client, entity_manager=manager)  # type: ignore[arg-type]
 
-        await dedup.find_duplicates(entity_types=["topic"])
+        pairs = await dedup.find_duplicates(entity_types=["topic"])
 
-        # Verify query was made
-        assert len(client.query_history) >= 1
+        assert len(pairs) == 1
+        assert {pairs[0].entity1_id, pairs[0].entity2_id} == {"id1", "id2"}
+        assert client.query_history == []
         assert client.read_calls == []
-        assert client.read_org_calls[0][0] == manager._group_id
+        assert client.read_org_calls == []
+        assert manager.list_all_calls[0]["include_archived"] is True
 
     @pytest.mark.asyncio
     async def test_find_duplicates_prefers_entity_manager_list_all(self) -> None:
