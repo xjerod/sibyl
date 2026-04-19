@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +34,8 @@ class EvalConfig:
     timeout_seconds: float = 30.0
     output_dir: Path = field(default_factory=lambda: Path("eval_results"))
     save_results: bool = True
+    label: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -59,8 +62,11 @@ class EvalReport:
         """Convert the report to a JSON-safe dictionary."""
         return {
             "timestamp": self.timestamp,
+            "label": self.config.label,
+            "api_base_url": self.config.api_base_url,
             "search_type": self.search_type,
             "num_queries": len(self.queries),
+            "metadata": dict(self.config.metadata),
             "metrics": self.aggregated.to_dict(),
             "per_query": [
                 {
@@ -76,7 +82,12 @@ class EvalReport:
         """Save the report to disk."""
         if path is None:
             self.config.output_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"eval_{self.search_type}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+            label = ""
+            if self.config.label:
+                slug = re.sub(r"[^a-z0-9]+", "_", self.config.label.lower()).strip("_")
+                if slug:
+                    label = f"_{slug}"
+            filename = f"eval_{self.search_type}{label}_{time.strftime('%Y%m%d_%H%M%S')}.json"
             path = self.config.output_dir / filename
 
         path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """Evaluate the live Sibyl runtime path against `/api/search` or RAG endpoints.
 
 This harness talks to a running Sibyl stack and measures the actual HTTP search
@@ -21,11 +22,27 @@ from sibyl_core.evals import EvalConfig, run_evaluation_cli
 
 def _get_client_headers() -> dict[str, str]:
     try:
-        from sibyl_cli.client import SibylClient
+        from sibyl_cli.client import SibylClient  # noqa: PLC0415
 
         return SibylClient()._default_headers()
     except Exception:
         return {"Content-Type": "application/json"}
+
+
+def _parse_metadata(values: list[str]) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            msg = f"Invalid metadata entry: {item!r}. Expected key=value."
+            raise argparse.ArgumentTypeError(msg)
+        key, value = item.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            msg = f"Invalid metadata entry: {item!r}. Key cannot be empty."
+            raise argparse.ArgumentTypeError(msg)
+        metadata[key] = value
+    return metadata
 
 
 def main() -> None:
@@ -54,6 +71,17 @@ def main() -> None:
         help="Directory for saved evaluation reports.",
     )
     parser.add_argument(
+        "--label",
+        help="Optional label to embed in saved reports and filenames.",
+    )
+    parser.add_argument(
+        "--metadata",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Extra metadata to store in the saved report. Repeat as needed.",
+    )
+    parser.add_argument(
         "--no-save",
         action="store_true",
         help="Print the report summary without writing a JSON artifact.",
@@ -65,6 +93,8 @@ def main() -> None:
         headers=_get_client_headers(),
         output_dir=args.output_dir,
         save_results=not args.no_save,
+        label=args.label,
+        metadata=_parse_metadata(args.metadata),
     )
     asyncio.run(
         run_evaluation_cli(
