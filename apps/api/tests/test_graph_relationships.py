@@ -7,7 +7,7 @@ import pytest
 from graphiti_core.edges import EntityEdge
 
 from sibyl_core.graph.relationships import RelationshipManager
-from sibyl_core.models.entities import Relationship, RelationshipType
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 
 @pytest.fixture
@@ -660,30 +660,38 @@ class TestGetRelatedEntities:
         self,
         relationship_manager: RelationshipManager,
     ) -> None:
-        """Should query for related entities when relationships exist."""
-        # Mock get_for_entity to return relationships
-        with patch.object(
-            relationship_manager,
-            "get_for_entity",
-            new_callable=AsyncMock,
-            return_value=[
-                Relationship(
-                    id="rel_1",
-                    source_id="entity_1",
-                    target_id="entity_2",
-                    relationship_type=RelationshipType.DEPENDS_ON,
-                ),
-            ],
+        """Should load related entities through EntityManager."""
+        entity_manager = MagicMock()
+        entity_manager.get = AsyncMock(
+            return_value=Entity(
+                id="entity_2",
+                name="Entity Two",
+                entity_type=EntityType.TOPIC,
+            )
+        )
+
+        with (
+            patch.object(
+                relationship_manager,
+                "get_for_entity",
+                new_callable=AsyncMock,
+                return_value=[
+                    Relationship(
+                        id="rel_1",
+                        source_id="entity_1",
+                        target_id="entity_2",
+                        relationship_type=RelationshipType.DEPENDS_ON,
+                    ),
+                ],
+            ),
+            patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager),
         ):
-            # Mock execute_read_org to return empty (we just verify query happens)
-            relationship_manager._client.execute_read_org = AsyncMock(return_value=[])
+            result = await relationship_manager.get_related_entities("entity_1")
 
-            await relationship_manager.get_related_entities("entity_1")
-
-        # Verify the query was made with correct entity IDs
-        relationship_manager._client.execute_read_org.assert_called_once()
-        call_args = relationship_manager._client.execute_read_org.call_args
-        assert "entity_2" in call_args.kwargs["ids"]
+        entity_manager.get.assert_awaited_once_with("entity_2")
+        assert len(result) == 1
+        assert result[0][0].id == "entity_2"
+        assert result[0][1].id == "rel_1"
 
     @pytest.mark.asyncio
     async def test_returns_empty_for_no_relationships(
@@ -734,6 +742,14 @@ class TestGetRelatedEntities:
             for i in range(10)
         ]
 
+        entity_manager = MagicMock()
+        entity_manager.get = AsyncMock(
+            side_effect=[
+                Entity(id=f"entity_{i}", name=f"Entity {i}", entity_type=EntityType.TOPIC)
+                for i in range(3)
+            ]
+        )
+
         with (
             patch.object(
                 relationship_manager,
@@ -741,24 +757,26 @@ class TestGetRelatedEntities:
                 new_callable=AsyncMock,
                 return_value=many_relationships,
             ),
-            patch("sibyl_core.graph.entities.EntityManager"),
+            patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager),
         ):
-            # Mock execute_read_org
-            relationship_manager._client.execute_read_org = AsyncMock(return_value=[])
-
             await relationship_manager.get_related_entities("entity_1", limit=3)
 
-            # Should only query for first 3 entities
-            call_args = relationship_manager._client.execute_read_org.call_args
-            ids_queried = call_args.kwargs["ids"]
-            assert len(ids_queried) == 3
+        assert entity_manager.get.await_count == 3
+        assert [call.args[0] for call in entity_manager.get.await_args_list] == [
+            "entity_0",
+            "entity_1",
+            "entity_2",
+        ]
 
     @pytest.mark.asyncio
     async def test_skips_entities_without_properties(
         self,
         relationship_manager: RelationshipManager,
     ) -> None:
-        """Should skip nodes that don't have properties attribute."""
+        """Should skip entities that fail to load."""
+        entity_manager = MagicMock()
+        entity_manager.get = AsyncMock(side_effect=RuntimeError("Entity missing"))
+
         with (
             patch.object(
                 relationship_manager,
@@ -773,16 +791,8 @@ class TestGetRelatedEntities:
                     ),
                 ],
             ),
-            patch("sibyl_core.graph.entities.EntityManager"),
+            patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager),
         ):
-            # Return node without properties attribute
-            mock_node = MagicMock(spec=[])  # No properties
-            del mock_node.properties  # Ensure no properties attr
-            relationship_manager._client.execute_read_org = AsyncMock(
-                return_value=[{"n": mock_node}]
-            )
-
             result = await relationship_manager.get_related_entities("entity_1")
 
-        # Should return empty because node couldn't be processed
         assert result == []

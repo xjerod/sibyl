@@ -224,6 +224,34 @@ class EntityManager:
         entities.sort(key=self._entity_sort_key, reverse=True)
         return entities
 
+    async def _list_all_via_type_scans(
+        self,
+        *,
+        include_archived: bool,
+    ) -> list[Entity]:
+        entities_by_id: dict[str, Entity] = {}
+
+        for entity_type in EntityType:
+            offset = 0
+            while True:
+                batch = await self.list_by_type(
+                    entity_type,
+                    limit=100,
+                    offset=offset,
+                    include_archived=include_archived,
+                )
+                if not batch:
+                    break
+                for entity in batch:
+                    entities_by_id[entity.id] = entity
+                if len(batch) < 100:
+                    break
+                offset += 100
+
+        entities = list(entities_by_id.values())
+        entities.sort(key=self._entity_sort_key, reverse=True)
+        return entities
+
     def _entity_sort_key(self, entity: Entity) -> tuple[datetime, str]:
         timestamp = entity.updated_at or entity.created_at or datetime.min.replace(tzinfo=UTC)
         return (timestamp, entity.id)
@@ -1468,57 +1496,12 @@ class EntityManager:
                     include_archived=include_archived
                 )
                 return entities[offset : offset + limit]
-
-            query = """
-                MATCH (n)
-                WHERE n.group_id = $group_id
-                  AND n.entity_type IS NOT NULL
-                RETURN n.uuid AS uuid,
-                       n.name AS name,
-                       n.entity_type AS entity_type,
-                       n.group_id AS group_id,
-                       n.content AS content,
-                       n.description AS description,
-                       n.summary AS summary,
-                       n.name_embedding AS name_embedding,
-                       n.metadata AS metadata,
-                       n.created_at AS created_at,
-                       n.updated_at AS updated_at,
-                       labels(n) AS labels
-                ORDER BY n.updated_at DESC
-                SKIP $offset
-                LIMIT $limit
-            """
-
-            params: dict[str, Any] = {
-                "group_id": self._group_id,
-                "limit": limit,
-                "offset": offset,
-            }
-
-            result = await self._client.execute_read_org(query, self._group_id, **params)
-
-            entities: list[Entity] = []
-            for record in result:
-                try:
-                    metadata = record.get("metadata") or {}
-                    if isinstance(metadata, str):
-                        import json
-
-                        metadata = json.loads(metadata)
-
-                    # Skip archived unless requested
-                    if not include_archived and metadata.get("archived"):
-                        continue
-
-                    entity = self._record_to_entity({**record, "metadata": metadata})
-                    entities.append(entity)
-
-                except Exception as e:
-                    log.debug("Failed to convert record to entity", error=str(e))
-
-            log.debug("Listed all entities", returned=len(entities))
-            return entities
+            entities = await self._list_all_via_type_scans(
+                include_archived=include_archived,
+            )
+            sliced_entities = entities[offset : offset + limit]
+            log.debug("Listed all entities", returned=len(sliced_entities))
+            return sliced_entities
 
         except Exception as e:
             log.exception("Failed to list all entities", error=str(e))

@@ -1510,29 +1510,39 @@ class TestEntityListAll:
     async def test_list_all_basic(
         self,
         entity_manager: EntityManager,
-        mock_graph_client: MagicMock,
     ) -> None:
         """list_all() returns entities of all types."""
-        mock_graph_client.execute_read_org = AsyncMock(
-            return_value=[
-                {
-                    "uuid": "task-001",
-                    "name": "Task 1",
-                    "entity_type": "task",
-                    "group_id": "test-org-123",
-                    "metadata": json.dumps({}),
-                },
-                {
-                    "uuid": "pattern-001",
-                    "name": "Pattern 1",
-                    "entity_type": "pattern",
-                    "group_id": "test-org-123",
-                    "metadata": json.dumps({}),
-                },
-            ]
-        )
+        async def _list_by_type(
+            entity_type: EntityType,
+            limit: int = 50,
+            offset: int = 0,
+            include_archived: bool = False,
+            **_: object,
+        ) -> list[Entity]:
+            if offset > 0 or include_archived:
+                return []
+            if entity_type == EntityType.TASK:
+                return [
+                    Entity(
+                        id="task-001",
+                        name="Task 1",
+                        entity_type=EntityType.TASK,
+                        created_at=datetime(2025, 1, 2, tzinfo=UTC),
+                    )
+                ]
+            if entity_type == EntityType.PATTERN:
+                return [
+                    Entity(
+                        id="pattern-001",
+                        name="Pattern 1",
+                        entity_type=EntityType.PATTERN,
+                        created_at=datetime(2025, 1, 1, tzinfo=UTC),
+                    )
+                ]
+            return []
 
-        results = await entity_manager.list_all()
+        with patch.object(entity_manager, "list_by_type", new=AsyncMock(side_effect=_list_by_type)):
+            results = await entity_manager.list_all()
 
         assert len(results) == 2
         types = {r.entity_type for r in results}
