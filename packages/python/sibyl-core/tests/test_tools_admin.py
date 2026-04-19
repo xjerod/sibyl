@@ -7,8 +7,9 @@ from unittest.mock import ANY, AsyncMock, call, patch
 
 import pytest
 
-from sibyl_core.models.entities import EntityType
+from sibyl_core.models.entities import EntityType, RelationshipType
 from sibyl_core.tools.admin import (
+    backfill_episode_task_relationships,
     backfill_task_project_relationships,
     get_stats,
     health_check,
@@ -246,3 +247,130 @@ class TestBackfillTaskProjectRelationships:
         entity_manager.list_by_type.assert_any_await(
             ANY, limit=1000, offset=1000, include_archived=True
         )
+
+
+class TestBackfillEpisodeTaskRelationships:
+    """Episode/task relationship backfill should use runtime seams."""
+
+    @pytest.mark.asyncio
+    async def test_pages_episode_batches_and_counts_states(self) -> None:
+        """Episodes should be paged and classified through entity/relationship seams."""
+        org_id = "00000000-0000-0000-0000-000000000111"
+        entity_manager = AsyncMock()
+        relationship_manager = AsyncMock()
+
+        page_size = 2
+        episode_page_one = [
+            SimpleNamespace(id="episode-1", metadata={"task_id": "task-1"}),
+            SimpleNamespace(id="episode-2", metadata={"task_id": "task-2"}),
+        ]
+        episode_page_two = [SimpleNamespace(id="episode-3", metadata={"task_id": "task-3"})]
+
+        async def list_by_type(
+            entity_type: EntityType, limit: int = 50, offset: int = 0, **_: object
+        ) -> list[SimpleNamespace]:
+            assert entity_type == EntityType.EPISODE
+            assert limit == page_size
+            if offset == 0:
+                return episode_page_one
+            if offset == page_size:
+                return episode_page_two
+            return []
+
+        entity_manager.list_by_type = AsyncMock(side_effect=list_by_type)
+        entity_manager.get = AsyncMock(
+            side_effect=lambda task_id: (
+                None if task_id == "task-3" else SimpleNamespace(id=task_id)
+            )
+        )
+        relationship_manager.get_for_entity = AsyncMock(
+            side_effect=[
+                [],
+                [SimpleNamespace(source_id="episode-2", target_id="task-2")],
+                [],
+            ]
+        )
+        relationship_manager.create = AsyncMock()
+
+        with (
+            patch(
+                "sibyl_core.tools.admin.get_legacy_graph_runtime",
+                AsyncMock(
+                    return_value=SimpleNamespace(
+                        entity_manager=entity_manager,
+                        relationship_manager=relationship_manager,
+                    )
+                ),
+            ),
+            patch("sibyl_core.tools.admin.BACKFILL_PAGE_SIZE", page_size),
+        ):
+            result = await backfill_episode_task_relationships(
+                organization_id=org_id,
+                dry_run=True,
+            )
+
+        assert result.relationships_created == 1
+        assert result.episodes_already_linked == 1
+        assert result.episodes_without_task == 1
+        entity_manager.list_by_type.assert_has_awaits(
+            [
+                call(
+                    EntityType.EPISODE,
+                    limit=page_size,
+                    offset=0,
+                    include_archived=True,
+                ),
+                call(
+                    EntityType.EPISODE,
+                    limit=page_size,
+                    offset=page_size,
+                    include_archived=True,
+                ),
+                call(
+                    EntityType.EPISODE,
+                    limit=page_size,
+                    offset=page_size + len(episode_page_two),
+                    include_archived=True,
+                ),
+            ]
+        )
+        relationship_manager.create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_creates_related_to_relationships_via_manager(self) -> None:
+        """Backfill should create RELATED_TO edges through the relationship manager."""
+        org_id = "00000000-0000-0000-0000-000000000111"
+        entity_manager = AsyncMock()
+        relationship_manager = AsyncMock()
+
+        entity_manager.list_by_type = AsyncMock(
+            side_effect=[
+                [SimpleNamespace(id="episode-1", metadata={"task_id": "task-1"})],
+                [],
+            ]
+        )
+        entity_manager.get = AsyncMock(return_value=SimpleNamespace(id="task-1"))
+        relationship_manager.get_for_entity = AsyncMock(return_value=[])
+        relationship_manager.create = AsyncMock()
+
+        with patch(
+            "sibyl_core.tools.admin.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    entity_manager=entity_manager,
+                    relationship_manager=relationship_manager,
+                )
+            ),
+        ):
+            result = await backfill_episode_task_relationships(
+                organization_id=org_id,
+                dry_run=False,
+            )
+
+        assert result.relationships_created == 1
+        relationship_manager.create.assert_awaited_once()
+        relationship = relationship_manager.create.await_args.args[0]
+        assert relationship.relationship_type == RelationshipType.RELATED_TO
+        assert relationship.source_id == "episode-1"
+        assert relationship.target_id == "task-1"
+        assert relationship.metadata == {"backfilled": True}

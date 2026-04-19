@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import structlog
 
@@ -1037,86 +1038,63 @@ async def backfill_episode_task_relationships(
     )
 
     try:
-        client = await get_legacy_graph_client()
-
-        # Find episode nodes with task_id in metadata
-        episode_query = """
-        MATCH (n)
-        WHERE (n:Episodic OR n:Entity)
-          AND n.group_id = $group_id
-          AND n.uuid STARTS WITH 'episode_'
-          AND n.metadata IS NOT NULL
-        RETURN n.uuid AS episode_id, n.metadata AS metadata
-        """
-        result = await client.execute_read_org(
-            episode_query, organization_id, group_id=organization_id
-        )
+        runtime = await get_legacy_graph_runtime(organization_id)
+        entity_manager = runtime.entity_manager
+        relationship_manager = runtime.relationship_manager
 
         # Parse metadata and collect episodes with task references
         episodes_to_link: list[tuple[str, str]] = []  # (episode_id, task_id)
+        offset = 0
+        while True:
+            episodes = await entity_manager.list_by_type(
+                EntityType.EPISODE,
+                limit=BACKFILL_PAGE_SIZE,
+                offset=offset,
+                include_archived=True,
+            )
+            if not episodes:
+                break
 
-        for record in result:
-            if isinstance(record, dict):
-                episode_id = record.get("episode_id")
-                metadata_str = record.get("metadata")
-            else:
-                episode_id = record[0]
-                metadata_str = record[1]
+            offset += len(episodes)
+            for episode in episodes:
+                metadata_raw = getattr(episode, "metadata", None)
+                if not metadata_raw:
+                    continue
 
-            if not episode_id or not metadata_str:
-                continue
+                try:
+                    metadata = (
+                        json.loads(metadata_raw) if isinstance(metadata_raw, str) else metadata_raw
+                    )
+                except (json.JSONDecodeError, TypeError):
+                    continue
 
-            try:
-                metadata = (
-                    json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-                )
+                if not isinstance(metadata, dict):
+                    continue
+
                 task_id = metadata.get("task_id")
-                if task_id:
-                    episodes_to_link.append((episode_id, task_id))
-            except (json.JSONDecodeError, TypeError):
-                continue
+                if task_id and getattr(episode, "id", None):
+                    episodes_to_link.append((str(episode.id), str(task_id)))
 
         log.info("backfill_episodes_with_task_ref", count=len(episodes_to_link))
 
         # Check which ones need relationships created
         for episode_id, task_id in episodes_to_link:
-            # Check if relationship already exists
-            rel_check_query = """
-            MATCH (e)-[r]-(t)
-            WHERE e.uuid = $episode_id AND t.uuid = $task_id
-            RETURN count(r) AS cnt
-            """
-            rel_result = await client.execute_read_org(
-                rel_check_query,
-                organization_id,
-                episode_id=episode_id,
-                task_id=task_id,
+            relationships = await relationship_manager.get_for_entity(
+                episode_id,
+                direction="both",
             )
-
-            has_rel = False
-            if rel_result:
-                r = rel_result[0]
-                cnt = r.get("cnt", 0) if isinstance(r, dict) else r[0]
-                has_rel = cnt > 0
+            has_rel = any(
+                (relationship.source_id == episode_id and relationship.target_id == task_id)
+                or (relationship.source_id == task_id and relationship.target_id == episode_id)
+                for relationship in relationships
+            )
 
             if has_rel:
                 episodes_already_linked += 1
                 continue
 
-            # Check if target task exists
-            task_check_query = """
-            MATCH (t)
-            WHERE t.uuid = $task_id AND t.group_id = $group_id
-            RETURN t.uuid
-            """
-            task_result = await client.execute_read_org(
-                task_check_query,
-                organization_id,
-                task_id=task_id,
-                group_id=organization_id,
-            )
-
-            if not task_result:
+            task = await entity_manager.get(task_id)
+            if not task:
                 episodes_without_task += 1
                 continue
 
@@ -1129,26 +1107,15 @@ async def backfill_episode_task_relationships(
                 )
             else:
                 try:
-                    create_rel_query = """
-                    MATCH (e), (t)
-                    WHERE e.uuid = $episode_id AND t.uuid = $task_id
-                      AND e.group_id = $group_id AND t.group_id = $group_id
-                    CREATE (e)-[r:RELATED_TO {
-                        group_id: $group_id,
-                        created_at: $created_at,
-                        backfilled: true
-                    }]->(t)
-                    RETURN r
-                    """
-                    from datetime import UTC, datetime
-
-                    await client.execute_write_org(
-                        create_rel_query,
-                        organization_id,
-                        episode_id=episode_id,
-                        task_id=task_id,
-                        group_id=organization_id,
-                        created_at=datetime.now(UTC).isoformat(),
+                    await relationship_manager.create(
+                        Relationship(
+                            id=f"rel_{uuid4().hex}",
+                            relationship_type=RelationshipType.RELATED_TO,
+                            source_id=episode_id,
+                            target_id=task_id,
+                            metadata={"backfilled": True},
+                            created_at=datetime.now(UTC),
+                        )
                     )
                     log.debug(
                         "created_episode_task_rel",
