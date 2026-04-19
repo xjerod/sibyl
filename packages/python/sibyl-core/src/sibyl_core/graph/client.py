@@ -1,4 +1,4 @@
-"""Graphiti client wrapper for FalkorDB."""
+"""Graphiti client wrapper for Sibyl's active graph runtime."""
 
 import asyncio
 import os
@@ -120,15 +120,12 @@ def _patch_falkordb_driver() -> None:
     FalkorDriver.clone = patched_clone
     FalkorDriver.build_fulltext_query = patched_build_fulltext_query
 
-
-_patch_falkordb_driver()
-
 from sibyl_core.errors import GraphConnectionError  # noqa: E402
 from sibyl_core.utils.resilience import GRAPH_RETRY, TIMEOUTS, retry, with_timeout  # noqa: E402
 
 if TYPE_CHECKING:
     from graphiti_core import Graphiti
-    from graphiti_core.driver.falkordb_driver import FalkorDriver
+    from graphiti_core.driver.driver import GraphDriver
     from graphiti_core.llm_client import LLMClient
 
 log = structlog.get_logger()
@@ -137,17 +134,15 @@ log = structlog.get_logger()
 class GraphClient:
     """Wrapper around Graphiti client for knowledge graph operations.
 
-    This client manages the connection to FalkorDB and provides
+    This client manages the connection to the active graph runtime and provides
     high-level methods for graph operations.
-
-    Uses BlockingConnectionPool for concurrency control - the pool handles
-    connection limiting and blocking when exhausted (max 50 connections, 60s timeout).
     """
 
     def __init__(self) -> None:
         """Initialize the graph client."""
         self._client: Graphiti | None = None
         self._connected = False
+        self._store = settings.store
 
     def _create_llm_client(self) -> "LLMClient":
         """Create the LLM client based on provider settings.
@@ -193,17 +188,33 @@ class GraphClient:
         log.debug("Using OpenAI LLM client", model=settings.llm_model)
         return OpenAIClient(config=config)
 
-    async def connect(self) -> None:
-        """Establish connection to FalkorDB via Graphiti.
+    def _prepare_embedder_env(self) -> None:
+        """Ensure Graphiti's OpenAI embedder sees the configured API key."""
+        openai_key = settings.openai_api_key.get_secret_value()
+        if openai_key and not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = openai_key
 
-        Raises:
-            GraphConnectionError: If connection fails.
-        """
+    def _wrap_graphiti_embedder_cache(self) -> None:
+        """Wrap Graphiti's embedder with a small LRU cache."""
+        if self._client is None:
+            return
+
+        from sibyl_core.graph.cached_embedder import wrap_embedder_with_cache
+
+        self._client.embedder = wrap_embedder_with_cache(
+            self._client.embedder,
+            max_size=2000,
+        )
+
+    async def _connect_legacy(self) -> None:
+        """Establish the legacy FalkorDB runtime connection."""
         try:
             from falkordb.asyncio import FalkorDB
             from graphiti_core import Graphiti
             from graphiti_core.driver.falkordb_driver import FalkorDriver
             from redis.asyncio import BlockingConnectionPool
+
+            _patch_falkordb_driver()
 
             log.info(
                 "Connecting to FalkorDB",
@@ -256,25 +267,15 @@ class GraphClient:
             # Create LLM client based on provider setting
             llm_client = self._create_llm_client()
 
-            # Ensure OpenAI API key is set for embeddings (Graphiti still uses OpenAI for embeddings)
-            openai_key = settings.openai_api_key.get_secret_value()
-            if openai_key and not os.getenv("OPENAI_API_KEY"):
-                os.environ["OPENAI_API_KEY"] = openai_key
+            self._prepare_embedder_env()
 
             # Initialize Graphiti with the driver and LLM client
             self._client = Graphiti(graph_driver=driver, llm_client=llm_client)
 
-            # Wrap embedder with LRU cache to avoid redundant OpenAI API calls
-            # This is critical for performance - search operations generate embeddings
-            # repeatedly for similar queries, and entity creation embeds each entity.
-            from sibyl_core.graph.cached_embedder import wrap_embedder_with_cache
-
-            self._client.embedder = wrap_embedder_with_cache(
-                self._client.embedder,
-                max_size=2000,  # ~12MB for 1536-dim embeddings
-            )
+            self._wrap_graphiti_embedder_cache()
 
             self._connected = True
+            self._store = "legacy"
             log.info("Connected to FalkorDB successfully", llm_provider=settings.llm_provider)
 
         except Exception as e:
@@ -285,12 +286,61 @@ class GraphClient:
                 details={"host": settings.falkordb_host, "port": settings.falkordb_port},
             ) from e
 
+    async def _connect_surreal(self) -> None:
+        """Establish the SurrealDB runtime connection."""
+        try:
+            from graphiti_core import Graphiti
+
+            from sibyl_core.backends.surreal import SurrealDriver
+
+            url = settings.resolved_surreal_url
+            log.info(
+                "Connecting to SurrealDB",
+                url=url,
+                namespace_prefix=settings.surreal_namespace_prefix,
+                database=settings.surreal_database,
+                llm_provider=settings.llm_provider,
+                llm_model=settings.llm_model,
+            )
+
+            driver = SurrealDriver(
+                url,
+                username=settings.surreal_username or None,
+                password=settings.surreal_password.get_secret_value() or None,
+                namespace_prefix=settings.surreal_namespace_prefix,
+                default_database=settings.surreal_database,
+            )
+            llm_client = self._create_llm_client()
+
+            self._prepare_embedder_env()
+            self._client = Graphiti(graph_driver=driver, llm_client=llm_client)
+            self._wrap_graphiti_embedder_cache()
+
+            self._connected = True
+            self._store = "surreal"
+            log.info("Connected to SurrealDB successfully", url=url)
+
+        except Exception as e:
+            log.error("Failed to connect to SurrealDB", error=str(e))
+            raise GraphConnectionError(
+                f"Failed to connect to SurrealDB: {e}",
+                details={"url": settings.resolved_surreal_url},
+            ) from e
+
+    async def connect(self) -> None:
+        """Establish connection to the configured graph runtime."""
+        if settings.store == "surreal":
+            await self._connect_surreal()
+            return
+
+        await self._connect_legacy()
+
     async def disconnect(self) -> None:
         """Close the graph database connection."""
         if self._client is not None:
             await self._client.close()
             self._connected = False
-            log.info("Disconnected from FalkorDB")
+            log.info("Disconnected from graph runtime", store=self._store)
 
     @property
     def client(self) -> "Graphiti":
@@ -309,18 +359,18 @@ class GraphClient:
         return self._connected
 
     @property
-    def driver(self) -> "FalkorDriver":
-        """Get the underlying FalkorDB driver.
+    def driver(self) -> "GraphDriver":
+        """Get the underlying graph driver.
 
         Convenience property to access client.driver directly.
 
         Returns:
-            The FalkorDB driver instance.
+            The active graph driver instance.
 
         Raises:
             GraphConnectionError: If not connected.
         """
-        return self.client.driver  # type: ignore[return-value]
+        return self.client.driver
 
     async def query_with_timeout(
         self,
@@ -341,10 +391,10 @@ class GraphClient:
 
     @staticmethod
     def normalize_result(result: object) -> list[dict]:
-        """Normalize FalkorDB query results to a consistent list of dicts.
+        """Normalize graph driver query results to a consistent list of dicts.
 
-        FalkorDB driver returns (records, header, metadata) tuple, but some
-        code paths expect just a list. This helper ensures consistent handling.
+        FalkorDB returns a tuple, SurrealDB often returns a single dict or list,
+        and some call sites expect just a list of row dicts.
 
         Args:
             result: Raw result from execute_query
@@ -360,37 +410,43 @@ class GraphClient:
             return records if records else []  # type: ignore[return-value]
         if isinstance(result, list):
             return result  # type: ignore[return-value]
+        if isinstance(result, dict):
+            return [result]
         return []
 
-    def get_org_driver(self, organization_id: str) -> "FalkorDriver":
+    def get_org_driver(self, organization_id: str) -> "GraphDriver":
         """Get a driver cloned for a specific organization's graph.
 
-        Each organization has its own isolated graph in FalkorDB.
-        The organization_id becomes the graph/database name.
+        Each organization gets an isolated logical graph. The group ID becomes
+        the cloned driver's org-scoped database or namespace.
 
         Args:
             organization_id: The organization UUID to scope the driver to.
 
         Returns:
-            A FalkorDB driver instance scoped to the org's graph.
+            A graph driver instance scoped to the org's graph.
 
         Raises:
             ValueError: If organization_id is empty.
         """
         if not organization_id:
             raise ValueError("organization_id is required for org-scoped operations")
-        return self.client.driver.clone(organization_id)  # type: ignore[return-value]
+        return self.client.driver.clone(organization_id)
 
     async def ensure_indexes(self, organization_id: str) -> None:
         """Ensure required indexes exist for an organization's graph.
 
-        Creates Graphiti's standard indexes plus vector index for semantic search.
-        Safe to call multiple times - indexes are created idempotently.
+        Safe to call multiple times. The active runtime handles this idempotently.
 
         Args:
             organization_id: The organization UUID.
         """
         driver = self.get_org_driver(organization_id)
+
+        if self._store == "surreal":
+            await driver.build_indices_and_constraints()
+            log.info("Ensured SurrealDB schema", org=organization_id)
+            return
 
         # First, let Graphiti create its standard indexes (range + fulltext)
         # This is idempotent - safe to call if indexes exist

@@ -1,4 +1,4 @@
-"""Core configuration for Sibyl - graph, LLM, and embedding settings.
+"""Core configuration for Sibyl graph runtimes, LLM, and embedding settings.
 
 This module contains settings required by sibyl-core operations.
 Server-specific settings (HTTP, PostgreSQL, auth middleware) remain in sibyl-server.
@@ -39,10 +39,41 @@ class CoreConfig(BaseSettings):
         description="Server/instance name for identification",
     )
 
+    store: Literal["legacy", "surreal"] = Field(
+        default="legacy",
+        description="Active persistence runtime for this process",
+    )
+
     # FalkorDB configuration
     falkordb_host: str = Field(default="localhost", description="FalkorDB host")
     falkordb_port: int = Field(default=6380, description="FalkorDB port")
     falkordb_password: str = Field(default="conventions", description="FalkorDB password")
+
+    # SurrealDB configuration
+    surreal_url: str = Field(
+        default="",
+        description="Explicit SurrealDB connection URL (memory://, surrealkv://, ws://, http://)",
+    )
+    surreal_data_dir: str = Field(
+        default="",
+        description="Local SurrealKV data directory when surreal_url is not provided",
+    )
+    surreal_username: str = Field(
+        default="",
+        description="SurrealDB username for remote runtimes",
+    )
+    surreal_password: SecretStr = Field(
+        default=SecretStr(""),
+        description="SurrealDB password for remote runtimes",
+    )
+    surreal_namespace_prefix: str = Field(
+        default="org_",
+        description="Namespace prefix for org-scoped SurrealDB data",
+    )
+    surreal_database: str = Field(
+        default="graph",
+        description="SurrealDB database name used inside each org namespace",
+    )
 
     # LLM Provider configuration
     llm_provider: Literal["openai", "anthropic"] = Field(
@@ -69,6 +100,15 @@ class CoreConfig(BaseSettings):
     @model_validator(mode="after")
     def check_api_key_fallbacks(self) -> "CoreConfig":
         """Fall back to non-prefixed env vars for API keys."""
+        if "store" not in self.model_fields_set:
+            legacy_backend = os.environ.get("SIBYL_GRAPH_BACKEND", "").strip().lower()
+            legacy_store = {
+                "falkordb": "legacy",
+                "surrealdb": "surreal",
+            }.get(legacy_backend)
+            if legacy_store is not None:
+                object.__setattr__(self, "store", legacy_store)
+
         if not self.anthropic_api_key.get_secret_value():
             fallback = os.environ.get("ANTHROPIC_API_KEY", "")
             if fallback:
@@ -78,6 +118,9 @@ class CoreConfig(BaseSettings):
             fallback = os.environ.get("OPENAI_API_KEY", "")
             if fallback:
                 object.__setattr__(self, "openai_api_key", SecretStr(fallback))
+
+        if self.surreal_url and self.surreal_data_dir:
+            raise ValueError("Configure only one of surreal_url or surreal_data_dir")
 
         return self
 
@@ -138,6 +181,15 @@ class CoreConfig(BaseSettings):
     def falkordb_url(self) -> str:
         """Construct FalkorDB connection URL."""
         return f"redis://:{self.falkordb_password}@{self.falkordb_host}:{self.falkordb_port}"
+
+    @property
+    def resolved_surreal_url(self) -> str:
+        """Construct the effective SurrealDB connection URL."""
+        if self.surreal_url:
+            return self.surreal_url
+        if self.surreal_data_dir:
+            return f"surrealkv://{self.surreal_data_dir}"
+        return "memory://"
 
 
 # Default core config instance

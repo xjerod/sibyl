@@ -59,6 +59,10 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level",
     )
+    store: Literal["legacy", "surreal"] = Field(
+        default="legacy",
+        description="Active persistence runtime for this process",
+    )
 
     # Auth configuration
     disable_auth: bool = Field(
@@ -75,16 +79,21 @@ class Settings(BaseSettings):
                     "CRITICAL: disable_auth=True is forbidden in production environment. "
                     "Set SIBYL_ENVIRONMENT=development to use disable_auth for testing."
                 )
-            # Check for default passwords that should never be used in production
-            if self.falkordb_password == "conventions":  # noqa: S105
+            if self.store == "legacy":
+                if self.falkordb_password == "conventions":  # noqa: S105
+                    raise ValueError(
+                        "CRITICAL: Default FalkorDB password 'conventions' is forbidden in production. "
+                        "Set SIBYL_FALKORDB_PASSWORD to a secure value."
+                    )
+                if self.postgres_password.get_secret_value() == "sibyl_dev":
+                    raise ValueError(
+                        "CRITICAL: Default PostgreSQL password 'sibyl_dev' is forbidden in production. "
+                        "Set SIBYL_POSTGRES_PASSWORD to a secure value."
+                    )
+            elif self.resolved_surreal_url.startswith("memory://"):
                 raise ValueError(
-                    "CRITICAL: Default FalkorDB password 'conventions' is forbidden in production. "
-                    "Set SIBYL_FALKORDB_PASSWORD to a secure value."
-                )
-            if self.postgres_password.get_secret_value() == "sibyl_dev":
-                raise ValueError(
-                    "CRITICAL: Default PostgreSQL password 'sibyl_dev' is forbidden in production. "
-                    "Set SIBYL_POSTGRES_PASSWORD to a secure value."
+                    "CRITICAL: In-memory SurrealDB is forbidden in production. "
+                    "Set SIBYL_SURREAL_URL or SIBYL_SURREAL_DATA_DIR."
                 )
         return self
 
@@ -195,6 +204,32 @@ class Settings(BaseSettings):
         description="Redis database number for job queue (0 is graph data)",
     )
 
+    # SurrealDB configuration
+    surreal_url: str = Field(
+        default="",
+        description="Explicit SurrealDB connection URL (memory://, surrealkv://, ws://, http://)",
+    )
+    surreal_data_dir: str = Field(
+        default="",
+        description="Local SurrealKV data directory when surreal_url is not provided",
+    )
+    surreal_username: str = Field(
+        default="",
+        description="SurrealDB username for remote runtimes",
+    )
+    surreal_password: SecretStr = Field(
+        default=SecretStr(""),
+        description="SurrealDB password for remote runtimes",
+    )
+    surreal_namespace_prefix: str = Field(
+        default="org_",
+        description="Namespace prefix for org-scoped SurrealDB data",
+    )
+    surreal_database: str = Field(
+        default="graph",
+        description="SurrealDB database name used inside each org namespace",
+    )
+
     # PostgreSQL configuration
     postgres_host: str = Field(default="localhost", description="PostgreSQL host")
     postgres_port: int = Field(default=5433, description="PostgreSQL port")
@@ -230,6 +265,15 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def check_api_key_fallbacks(self) -> "Settings":
         """Fall back to non-prefixed env vars for API keys."""
+        if "store" not in self.model_fields_set:
+            legacy_backend = os.environ.get("SIBYL_GRAPH_BACKEND", "").strip().lower()
+            legacy_store = {
+                "falkordb": "legacy",
+                "surrealdb": "surreal",
+            }.get(legacy_backend)
+            if legacy_store is not None:
+                object.__setattr__(self, "store", legacy_store)
+
         # Anthropic: check ANTHROPIC_API_KEY if SIBYL_ANTHROPIC_API_KEY not set
         if not self.anthropic_api_key.get_secret_value():
             fallback = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -260,6 +304,9 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "jwt_secret", SecretStr(fallback))
             elif self.environment != "production":
                 object.__setattr__(self, "jwt_secret", SecretStr(_get_or_create_jwt_secret()))
+
+        if self.surreal_url and self.surreal_data_dir:
+            raise ValueError("Configure only one of surreal_url or surreal_data_dir")
 
         return self
 
@@ -333,6 +380,15 @@ class Settings(BaseSettings):
     def falkordb_url(self) -> str:
         """Construct FalkorDB connection URL."""
         return f"redis://:{self.falkordb_password}@{self.falkordb_host}:{self.falkordb_port}"
+
+    @property
+    def resolved_surreal_url(self) -> str:
+        """Construct the effective SurrealDB connection URL."""
+        if self.surreal_url:
+            return self.surreal_url
+        if self.surreal_data_dir:
+            return f"surrealkv://{self.surreal_data_dir}"
+        return "memory://"
 
     @property
     def postgres_url(self) -> str:

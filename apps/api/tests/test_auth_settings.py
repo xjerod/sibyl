@@ -22,6 +22,25 @@ def test_settings_server_url_default() -> None:
     assert s.server_url == "http://localhost:3334"
 
 
+def test_settings_store_defaults_to_legacy() -> None:
+    s = Settings(_env_file=None)
+    assert s.store == "legacy"
+
+
+def test_settings_store_uses_graph_backend_alias(monkeypatch) -> None:
+    monkeypatch.delenv("SIBYL_STORE", raising=False)
+    monkeypatch.setenv("SIBYL_GRAPH_BACKEND", "surrealdb")
+
+    s = Settings(_env_file=None)
+
+    assert s.store == "surreal"
+
+
+def test_settings_resolves_surreal_data_dir_url() -> None:
+    s = Settings(_env_file=None, store="surreal", surreal_data_dir="./var/sibyl-surreal")
+    assert s.resolved_surreal_url == "surrealkv://./var/sibyl-surreal"
+
+
 def test_settings_server_url_uses_public_url_when_explicit() -> None:
     s = Settings(_env_file=None, public_url="https://public.example.com")
     assert s.server_url == "https://public.example.com"

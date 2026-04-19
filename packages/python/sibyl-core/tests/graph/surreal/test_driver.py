@@ -7,6 +7,16 @@ import pytest
 from sibyl_core.backends.surreal import SurrealDriver, SurrealDriverSession
 from sibyl_core.backends.surreal.driver import _namespace_for_group
 from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
+from sibyl_core.graph.surreal.ops.community_edge_ops import SurrealCommunityEdgeOperations
+from sibyl_core.graph.surreal.ops.community_node_ops import SurrealCommunityNodeOperations
+from sibyl_core.graph.surreal.ops.entity_edge_ops import SurrealEntityEdgeOperations
+from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
+from sibyl_core.graph.surreal.ops.episode_node_ops import SurrealEpisodeNodeOperations
+from sibyl_core.graph.surreal.ops.episodic_edge_ops import SurrealEpisodicEdgeOperations
+from sibyl_core.graph.surreal.ops.graph_ops import SurrealGraphMaintenanceOperations
+from sibyl_core.graph.surreal.ops.has_episode_edge_ops import SurrealHasEpisodeEdgeOperations
+from sibyl_core.graph.surreal.ops.next_episode_edge_ops import SurrealNextEpisodeEdgeOperations
+from sibyl_core.graph.surreal.ops.saga_node_ops import SurrealSagaNodeOperations
 
 
 class TestNamespaceNaming:
@@ -47,6 +57,20 @@ class TestDriverConstruction:
         d = SurrealDriver("memory://")
         session = d.session()
         assert isinstance(session, SurrealDriverSession)
+
+    def test_driver_exposes_graphiti_ops(self) -> None:
+        d = SurrealDriver("memory://")
+
+        assert isinstance(d.entity_node_ops, SurrealEntityNodeOperations)
+        assert isinstance(d.episode_node_ops, SurrealEpisodeNodeOperations)
+        assert isinstance(d.community_node_ops, SurrealCommunityNodeOperations)
+        assert isinstance(d.saga_node_ops, SurrealSagaNodeOperations)
+        assert isinstance(d.entity_edge_ops, SurrealEntityEdgeOperations)
+        assert isinstance(d.episodic_edge_ops, SurrealEpisodicEdgeOperations)
+        assert isinstance(d.community_edge_ops, SurrealCommunityEdgeOperations)
+        assert isinstance(d.has_episode_edge_ops, SurrealHasEpisodeEdgeOperations)
+        assert isinstance(d.next_episode_edge_ops, SurrealNextEpisodeEdgeOperations)
+        assert isinstance(d.graph_ops, SurrealGraphMaintenanceOperations)
 
 
 class TestBuildFulltextQuery:

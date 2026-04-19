@@ -111,40 +111,49 @@ async def _run_migrations() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Run migrations, pre-warm graph client, and start Redis pub/sub on startup."""
-    await _run_migrations()
+    legacy_runtime = settings.store == "legacy"
+
+    if legacy_runtime:
+        await _run_migrations()
+    else:
+        log.info("Surreal store mode enabled; skipping legacy PostgreSQL migrations")
 
     log.info("Pre-warming graph client connection...")
     try:
         from sibyl_core.graph.client import get_graph_client
 
         await get_graph_client()
-        log.info("Graph client ready")
+        log.info("Graph client ready", store=settings.store)
     except Exception as e:
         log.warning("Failed to pre-warm graph client", error=str(e))
 
-    log.info("Initializing Redis pub/sub for WebSocket broadcasts...")
-    try:
-        from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
-        from sibyl.api.websocket import enable_pubsub, local_broadcast
+    if legacy_runtime:
+        log.info("Initializing Redis pub/sub for WebSocket broadcasts...")
+        try:
+            from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
+            from sibyl.api.websocket import enable_pubsub, local_broadcast
 
-        await init_pubsub(local_broadcast)
-        enable_pubsub()
-        log.info("Redis pub/sub ready")
-    except Exception as e:
-        log.warning(
-            "Failed to initialize Redis pub/sub (worker broadcasts may not work)", error=str(e)
-        )
+            await init_pubsub(local_broadcast)
+            enable_pubsub()
+            log.info("Redis pub/sub ready")
+        except Exception as e:
+            log.warning(
+                "Failed to initialize Redis pub/sub (worker broadcasts may not work)", error=str(e)
+            )
+    else:
+        log.info("Surreal store mode enabled; skipping legacy Redis pub/sub startup")
 
     yield
 
-    try:
-        from sibyl.api.pubsub import shutdown_pubsub
-        from sibyl.api.websocket import disable_pubsub
+    if legacy_runtime:
+        try:
+            from sibyl.api.pubsub import shutdown_pubsub
+            from sibyl.api.websocket import disable_pubsub
 
-        disable_pubsub()
-        await shutdown_pubsub()
-    except Exception as e:
-        log.debug("Pub/sub shutdown error (expected during fast restarts)", error=str(e))
+            disable_pubsub()
+            await shutdown_pubsub()
+        except Exception as e:
+            log.debug("Pub/sub shutdown error (expected during fast restarts)", error=str(e))
 
 
 def create_api_app() -> FastAPI:

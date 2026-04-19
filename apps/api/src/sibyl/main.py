@@ -62,6 +62,7 @@ def create_combined_app(  # noqa: PLR0915
         import contextlib
 
         log = structlog.get_logger()
+        legacy_runtime = settings.store == "legacy"
 
         # === Startup Validation ===
         # Check JWT secret when auth is enabled
@@ -80,92 +81,98 @@ def create_combined_app(  # noqa: PLR0915
                 hint="Set SIBYL_JWT_SECRET for authenticated access",
             )
 
-        # Test database connectivity (warn-only, don't hard fail)
         db_connected = False
-        try:
-            from sqlalchemy import text
-
-            from sibyl.db.connection import get_session
-
-            async with get_session() as session:
-                await session.execute(text("SELECT 1"))
-            log.info("PostgreSQL connected", host=settings.postgres_host)
-            db_connected = True
-        except Exception as e:
-            log.warning("PostgreSQL unavailable at startup", error=str(e))
-
-        # Run database migrations (only if DB is connected)
-        if db_connected:
+        if legacy_runtime:
             try:
-                from sibyl.db.migrations import run_migrations
+                from sqlalchemy import text
 
-                await run_migrations()
-            except Exception:
-                log.exception("Database migration failed")
-                raise
+                from sibyl.db.connection import get_session
 
-        # Recover stuck crawl sources (only if DB is connected)
-        if db_connected:
-            try:
-                from sibyl.api.routes.admin import recover_stuck_sources
-
-                await recover_stuck_sources()
+                async with get_session() as session:
+                    await session.execute(text("SELECT 1"))
+                log.info("PostgreSQL connected", host=settings.postgres_host)
+                db_connected = True
             except Exception as e:
-                log.warning("Source recovery failed", error=str(e))
+                log.warning("PostgreSQL unavailable at startup", error=str(e))
 
-        # Load API keys from database into environment BEFORE GraphClient initializes
-        # This bridges the gap between webapp-configured settings (stored in DB)
-        # and CoreConfig (which reads from env vars at import time)
-        if db_connected:
-            from sibyl.services.settings import load_api_keys_from_db
+            if db_connected:
+                try:
+                    from sibyl.db.migrations import run_migrations
 
-            await load_api_keys_from_db()
+                    await run_migrations()
+                except Exception:
+                    log.exception("Database migration failed")
+                    raise
+
+            if db_connected:
+                try:
+                    from sibyl.api.routes.admin import recover_stuck_sources
+
+                    await recover_stuck_sources()
+                except Exception as e:
+                    log.warning("Source recovery failed", error=str(e))
+
+            if db_connected:
+                from sibyl.services.settings import load_api_keys_from_db
+
+                await load_api_keys_from_db()
+        else:
+            log.info("Surreal store mode enabled; skipping legacy PostgreSQL startup")
 
         try:
             from sibyl_core.graph.client import get_graph_client
 
             client = await get_graph_client()
             if client.is_connected:
-                log.info("FalkorDB connected", host=settings.falkordb_host)
+                log.info("Graph runtime connected", store=settings.store)
         except Exception as e:
-            log.warning("FalkorDB unavailable at startup", error=str(e))
+            log.warning("Graph runtime unavailable at startup", store=settings.store, error=str(e))
 
         # Initialize Redis pub/sub for cross-pod WebSocket broadcasts
         pubsub_initialized = False
-        try:
-            from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
-            from sibyl.api.websocket import enable_pubsub, local_broadcast
+        if legacy_runtime:
+            try:
+                from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
+                from sibyl.api.websocket import enable_pubsub, local_broadcast
 
-            await init_pubsub(local_broadcast)
-            enable_pubsub()
-            pubsub_initialized = True
-            log.info("WebSocket pub/sub enabled for multi-pod broadcasts")
-        except Exception as e:
-            log.warning(
-                "Redis pub/sub unavailable - WebSocket broadcasts will be local only",
-                error=str(e),
-            )
+                await init_pubsub(local_broadcast)
+                enable_pubsub()
+                pubsub_initialized = True
+                log.info("WebSocket pub/sub enabled for multi-pod broadcasts")
+            except Exception as e:
+                log.warning(
+                    "Redis pub/sub unavailable - WebSocket broadcasts will be local only",
+                    error=str(e),
+                )
+        else:
+            log.info("Surreal store mode enabled; skipping legacy Redis pub/sub startup")
 
         # Initialize distributed entity locks
         locks_initialized = False
-        try:
-            from sibyl.locks import init_locks
+        if legacy_runtime:
+            try:
+                from sibyl.locks import init_locks
 
-            await init_locks()
-            locks_initialized = True
-            log.info("Distributed entity locks enabled")
-        except Exception as e:
-            log.warning(
-                "Entity locks unavailable - concurrent updates may conflict",
-                error=str(e),
-            )
+                await init_locks()
+                locks_initialized = True
+                log.info("Distributed entity locks enabled")
+            except Exception as e:
+                log.warning(
+                    "Entity locks unavailable - concurrent updates may conflict",
+                    error=str(e),
+                )
+        else:
+            log.info("Surreal store mode enabled; skipping legacy distributed locks")
 
         # Optionally start embedded arq worker (dev mode only)
         worker_task = None
         if embed_worker:
-            from sibyl.jobs.worker import run_worker_async
+            if legacy_runtime:
+                from sibyl.jobs.worker import run_worker_async
 
-            worker_task = asyncio.create_task(run_worker_async())
+                worker_task = asyncio.create_task(run_worker_async())
+            else:
+                log.warning("Embedded worker disabled in surreal mode", store=settings.store)
 
         # The MCP session manager needs to be started for streamable HTTP
         async with mcp.session_manager.run():
