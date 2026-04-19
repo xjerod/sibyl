@@ -252,6 +252,101 @@ async def test_legacy_graph_query_adapter_proxies_scoped_reads() -> None:
 
 
 @pytest.mark.asyncio
+async def test_legacy_graph_query_adapter_lists_entities_with_filtered_offset() -> None:
+    task_1 = Entity(id="task-1", entity_type=EntityType.TASK, name="Task 1")
+    project = Entity(id="project-1", entity_type=EntityType.PROJECT, name="Project 1")
+    task_2 = Entity(id="task-2", entity_type=EntityType.TASK, name="Task 2")
+    task_3 = Entity(id="task-3", entity_type=EntityType.TASK, name="Task 3")
+    entity_manager = AsyncMock()
+    entity_manager.list_all = AsyncMock(
+        side_effect=[
+            [task_1, project, task_2],
+            [task_3],
+        ]
+    )
+    relationships = AsyncMock()
+    client = MagicMock()
+    client.get_org_driver.return_value = MagicMock()
+
+    with (
+        patch("sibyl.persistence.legacy.graph.EntityManager", return_value=entity_manager),
+        patch("sibyl.persistence.legacy.graph.RelationshipManager", return_value=relationships),
+    ):
+        adapter = LegacyGraphQueryAdapter(client, "org-1")
+        result = await adapter.list_entities(
+            entity_types=[EntityType.TASK],
+            limit=2,
+            offset=1,
+            include_archived=True,
+        )
+
+    assert [entity.id for entity in result] == ["task-2", "task-3"]
+    assert entity_manager.list_all.await_args_list[0].kwargs == {
+        "limit": 200,
+        "offset": 0,
+        "include_archived": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_legacy_graph_query_adapter_scopes_relationship_reads_to_entity_ids() -> None:
+    matching = Relationship(
+        id="rel-1",
+        relationship_type=RelationshipType.BELONGS_TO,
+        source_id="task-1",
+        target_id="project-1",
+    )
+    filtered = Relationship(
+        id="rel-2",
+        relationship_type=RelationshipType.RELATED_TO,
+        source_id="task-1",
+        target_id="outside",
+    )
+    matching_second = Relationship(
+        id="rel-3",
+        relationship_type=RelationshipType.RELATED_TO,
+        source_id="task-2",
+        target_id="project-1",
+    )
+    async def list_all(
+        *,
+        relationship_types: list[RelationshipType] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Relationship]:
+        del relationship_types, limit
+        if offset == 0:
+            return [matching, filtered]
+        if offset == 2:
+            return [matching_second]
+        return []
+
+    relationships = AsyncMock()
+    relationships.list_all = AsyncMock(side_effect=list_all)
+    client = MagicMock()
+    client.get_org_driver.return_value = MagicMock()
+
+    with (
+        patch("sibyl.persistence.legacy.graph.EntityManager", return_value=AsyncMock()),
+        patch("sibyl.persistence.legacy.graph.RelationshipManager", return_value=relationships),
+    ):
+        adapter = LegacyGraphQueryAdapter(client, "org-1")
+        result = await adapter.list_relationships_for_entities(
+            {"task-1", "task-2", "project-1"},
+            limit=2,
+            offset=0,
+        )
+        counts = await adapter.get_connection_counts(["task-1", "project-1", "task-2"])
+
+    assert [relationship.id for relationship in result] == ["rel-1", "rel-3"]
+    assert counts == {
+        "task-1": 2,
+        "project-1": 2,
+        "task-2": 1,
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_legacy_graph_query_adapter_uses_graph_client() -> None:
     client = MagicMock()
 

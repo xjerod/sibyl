@@ -36,39 +36,27 @@ async def debug_graph(org: Organization = Depends(get_current_organization)):
     group_id = str(org.id)
     graph_queries = await get_legacy_graph_query_adapter(group_id)
 
-    # Get nodes
-    node_query = """
-        MATCH (n)
-        WHERE (n:Episodic OR n:Entity OR n:Document) AND n.group_id = $group_id
-        RETURN n.uuid as id LIMIT 500
-    """
-    node_rows = await graph_queries.execute_query(node_query)
-    node_ids = {row.get("id") for row in node_rows if row.get("id")}
+    nodes = await graph_queries.list_entities(limit=500, include_archived=True)
+    node_ids = {entity.id for entity in nodes if entity.id}
+    relationships = await graph_queries.list_relationships(limit=1000)
 
-    # Get edges
-    edge_query = """
-        MATCH (s)-[r]->(t)
-        WHERE r.group_id = $group_id
-        RETURN s.uuid as src, t.uuid as tgt LIMIT 1000
-    """
-    edge_rows = await graph_queries.execute_query(edge_query)
-
-    # Check overlap
     matching = sum(
-        1 for row in edge_rows if row.get("src") in node_ids and row.get("tgt") in node_ids
+        1
+        for relationship in relationships
+        if relationship.source_id in node_ids and relationship.target_id in node_ids
     )
 
-    sample_edges = edge_rows[:3] if edge_rows else []
+    sample_edges = relationships[:3] if relationships else []
     sample_nodes = list(node_ids)[:5]
 
     return {
         "node_count": len(node_ids),
-        "edge_count": len(edge_rows),
+        "edge_count": len(relationships),
         "matching_edges": matching,
         "sample_nodes": sample_nodes,
-        "sample_edges": [{"src": e.get("src"), "tgt": e.get("tgt")} for e in sample_edges],
-        "first_edge_src_in_nodes": sample_edges[0].get("src") in node_ids if sample_edges else None,
-        "first_edge_tgt_in_nodes": sample_edges[0].get("tgt") in node_ids if sample_edges else None,
+        "sample_edges": [{"src": e.source_id, "tgt": e.target_id} for e in sample_edges],
+        "first_edge_src_in_nodes": sample_edges[0].source_id in node_ids if sample_edges else None,
+        "first_edge_tgt_in_nodes": sample_edges[0].target_id in node_ids if sample_edges else None,
     }
 
 
@@ -112,60 +100,26 @@ async def get_all_nodes(
     try:
         group_id = str(org.id)
         graph_queries = await get_legacy_graph_query_adapter(group_id)
+        entities = await graph_queries.list_entities(
+            entity_types=types,
+            limit=limit,
+            offset=offset,
+            include_archived=True,
+        )
 
-        # Build type filter for Cypher query
-        type_filter = ""
-        if types:
-            type_values = [f"'{t.value}'" for t in types]
-            type_filter = f"AND n.entity_type IN [{', '.join(type_values)}]"
-
-        # Query nodes directly from graph - both Episodic and Entity labels
-        query = f"""
-            MATCH (n)
-            WHERE (n:Episodic OR n:Entity OR n:Document)
-            AND n.group_id = $group_id
-            {type_filter}
-            RETURN n.uuid as id,
-                   n.name as name,
-                   n.entity_type as entity_type,
-                   n.summary as summary
-            SKIP {offset}
-            LIMIT {limit}
-        """
-
-        rows = await graph_queries.execute_query(query)
-
-        # Count connections for sizing
-        connection_counts: dict[str, int] = {}
-        try:
-            conn_query = """
-                MATCH (n)-[r]-(m)
-                WHERE n.group_id = $group_id
-                RETURN n.uuid as id, count(r) as cnt
-            """
-            for row in await graph_queries.execute_query(conn_query):
-                node_id = row.get("id")
-                if not isinstance(node_id, str) or not node_id:
-                    continue
-                count = row.get("cnt", 0)
-                connection_counts[node_id] = int(count) if isinstance(count, int | float) else 0
-        except Exception:
-            log.debug("connection_count_failed", msg="falling back to zero")
+        connection_counts = await graph_queries.get_connection_counts(
+            [entity.id for entity in entities]
+        )
 
         max_connections = max(connection_counts.values()) if connection_counts else 1
         max_connections = max(max_connections, 1)
 
         nodes = []
-        for row in rows:
-            node_id = row.get("id", "")
+        for entity in entities:
+            node_id = entity.id
             if not node_id:
                 continue
-
-            entity_type_str = row.get("entity_type", "episode")
-            try:
-                entity_type = EntityType(entity_type_str)
-            except ValueError:
-                entity_type = EntityType.EPISODE
+            entity_type = entity.entity_type
 
             conn_count = connection_counts.get(node_id, 0)
             size = 1.0 + (conn_count / max_connections) * 2.0
@@ -174,11 +128,11 @@ async def get_all_nodes(
                 GraphNode(
                     id=node_id,
                     type=entity_type.value,
-                    label=(row.get("name") or node_id[:20])[:50],
+                    label=(entity.name or node_id[:20])[:50],
                     color=get_entity_color(entity_type),
                     size=size,
                     metadata={
-                        "description": (row.get("summary") or "")[:100],
+                        "description": entity.description[:100],
                         "connections": conn_count,
                     },
                 )
@@ -243,90 +197,61 @@ async def get_full_graph(
 ) -> GraphData:
     """Get complete graph data for visualization."""
     try:
-        # Fetch nodes and edges - call underlying logic directly
         group_id = str(org.id)
         graph_queries = await get_legacy_graph_query_adapter(group_id)
 
-        # === NODES: Direct Cypher query ===
-        type_filter = ""
-        if types:
-            type_values = [f"'{t.value}'" for t in types]
-            type_filter = f"AND n.entity_type IN [{', '.join(type_values)}]"
-
-        node_query = f"""
-            MATCH (n)
-            WHERE (n:Episodic OR n:Entity OR n:Document)
-            AND n.group_id = $group_id
-            {type_filter}
-            RETURN n.uuid as id,
-                   n.name as name,
-                   n.entity_type as entity_type,
-                   n.summary as summary
-            LIMIT {max_nodes}
-        """
-        node_rows = await graph_queries.execute_query(node_query)
+        entities = await graph_queries.list_entities(
+            entity_types=types,
+            limit=max_nodes,
+            include_archived=True,
+        )
 
         nodes = []
         node_ids: set[str] = set()
-        for row in node_rows:
-            node_id = row.get("id", "")
+        for entity in entities:
+            node_id = entity.id
             if not node_id:
                 continue
             node_ids.add(node_id)
-
-            entity_type_str = row.get("entity_type", "episode")
-            try:
-                entity_type = EntityType(entity_type_str)
-            except ValueError:
-                entity_type = EntityType.EPISODE
+            entity_type = entity.entity_type
 
             nodes.append(
                 GraphNode(
                     id=node_id,
                     type=entity_type.value,
-                    label=(row.get("name") or node_id[:20])[:50],
+                    label=(entity.name or node_id[:20])[:50],
                     color=get_entity_color(entity_type),
                     size=1.5,
                     metadata={},
                 )
             )
 
-        # === EDGES: Direct Cypher query ===
-        # Use r.name for semantic type (BELONGS_TO, etc), not type(r) which returns graph label
-        edge_query = f"""
-            MATCH (source)-[r]->(target)
-            WHERE r.group_id = $group_id
-            RETURN r.uuid as id,
-                   source.uuid as source_id,
-                   target.uuid as target_id,
-                   COALESCE(r.name, type(r)) as rel_type
-            LIMIT {max_edges}
-        """
-        edge_rows = await graph_queries.execute_query(edge_query)
+        relationships = await graph_queries.list_relationships_for_entities(
+            node_ids,
+            limit=max_edges,
+        )
 
         log.info(
             "graph_full_raw",
             node_count=len(nodes),
-            edge_rows=len(edge_rows),
+            edge_rows=len(relationships),
             node_ids_sample=list(node_ids)[:3],
         )
 
-        # Filter edges to nodes we have
         edges = []
-        for row in edge_rows:
-            source_id = row.get("source_id", "")
-            target_id = row.get("target_id", "")
-            if source_id in node_ids and target_id in node_ids:
-                edges.append(
-                    GraphEdge(
-                        id=row.get("id") or f"{source_id}-{target_id}",
-                        source=source_id,
-                        target=target_id,
-                        type=row.get("rel_type", "RELATED_TO"),
-                        label=row.get("rel_type", "").replace("_", " ").title(),
-                        weight=1.0,
-                    )
+        for relationship in relationships:
+            if relationship.source_id not in node_ids or relationship.target_id not in node_ids:
+                continue
+            edges.append(
+                GraphEdge(
+                    id=relationship.id or f"{relationship.source_id}-{relationship.target_id}",
+                    source=relationship.source_id,
+                    target=relationship.target_id,
+                    type=relationship.relationship_type.value,
+                    label=relationship.relationship_type.value.replace("_", " ").title(),
+                    weight=1.0,
                 )
+            )
 
         log.info("graph_full_filtered", edges_after_filter=len(edges))
 

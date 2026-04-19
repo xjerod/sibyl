@@ -579,6 +579,116 @@ class LegacyGraphQueryAdapter:
             offset=offset,
         )
 
+    async def list_entities(
+        self,
+        *,
+        entity_types: list[EntityType] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        include_archived: bool = False,
+    ) -> list[Entity]:
+        allowed_types = set(entity_types or [])
+        remaining_offset = max(offset, 0)
+        page_offset = 0
+        page_size = max(200, min(max(limit, 1) * 2, 1000))
+        entities: list[Entity] = []
+
+        while len(entities) < limit:
+            batch = await self._entities.list_all(
+                limit=page_size,
+                offset=page_offset,
+                include_archived=include_archived,
+            )
+            if not batch:
+                break
+
+            page_offset += len(batch)
+            for entity in batch:
+                if allowed_types and entity.entity_type not in allowed_types:
+                    continue
+                if remaining_offset:
+                    remaining_offset -= 1
+                    continue
+                entities.append(entity)
+                if len(entities) >= limit:
+                    break
+
+        return entities
+
+    async def list_relationships_for_entities(
+        self,
+        entity_ids: set[str] | Sequence[str],
+        *,
+        relationship_types: list[RelationshipType] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Relationship]:
+        scoped_entity_ids = {entity_id for entity_id in entity_ids if entity_id}
+        if not scoped_entity_ids:
+            return []
+
+        remaining_offset = max(offset, 0)
+        page_offset = 0
+        page_size = max(200, min(max(limit, 1) * 2, 1000))
+        relationships: list[Relationship] = []
+
+        while len(relationships) < limit:
+            batch = await self._relationships.list_all(
+                relationship_types=relationship_types,
+                limit=page_size,
+                offset=page_offset,
+            )
+            if not batch:
+                break
+
+            page_offset += len(batch)
+            for relationship in batch:
+                if (
+                    relationship.source_id not in scoped_entity_ids
+                    or relationship.target_id not in scoped_entity_ids
+                ):
+                    continue
+                if remaining_offset:
+                    remaining_offset -= 1
+                    continue
+                relationships.append(relationship)
+                if len(relationships) >= limit:
+                    break
+
+        return relationships
+
+    async def get_connection_counts(
+        self,
+        entity_ids: Sequence[str],
+        *,
+        relationship_types: list[RelationshipType] | None = None,
+    ) -> dict[str, int]:
+        scoped_entity_ids = {entity_id for entity_id in entity_ids if entity_id}
+        if not scoped_entity_ids:
+            return {}
+
+        counts = dict.fromkeys(scoped_entity_ids, 0)
+        page_offset = 0
+        page_size = 1000
+
+        while True:
+            batch = await self._relationships.list_all(
+                relationship_types=relationship_types,
+                limit=page_size,
+                offset=page_offset,
+            )
+            if not batch:
+                break
+
+            page_offset += len(batch)
+            for relationship in batch:
+                if relationship.source_id in counts:
+                    counts[relationship.source_id] += 1
+                if relationship.target_id in counts and relationship.target_id != relationship.source_id:
+                    counts[relationship.target_id] += 1
+
+        return counts
+
     async def get_related_entities(
         self,
         *,

@@ -17,6 +17,73 @@ def _org() -> SimpleNamespace:
 
 class TestGraphRoutes:
     @pytest.mark.asyncio
+    async def test_debug_graph_uses_legacy_graph_query_adapter(self) -> None:
+        adapter = SimpleNamespace(
+            list_entities=AsyncMock(
+                return_value=[
+                    SimpleNamespace(id="task-1"),
+                    SimpleNamespace(id="project-1"),
+                ]
+            ),
+            list_relationships=AsyncMock(
+                return_value=[
+                    SimpleNamespace(source_id="task-1", target_id="project-1"),
+                    SimpleNamespace(source_id="task-1", target_id="missing"),
+                ]
+            ),
+        )
+
+        with patch(
+            "sibyl.api.routes.graph.get_legacy_graph_query_adapter",
+            AsyncMock(return_value=adapter),
+        ):
+            result = await graph_routes.debug_graph(org=_org())
+
+        assert result["node_count"] == 2
+        assert result["edge_count"] == 2
+        assert result["matching_edges"] == 1
+        adapter.list_entities.assert_awaited_once_with(limit=500, include_archived=True)
+        adapter.list_relationships.assert_awaited_once_with(limit=1000)
+
+    @pytest.mark.asyncio
+    async def test_get_all_nodes_uses_legacy_graph_query_adapter(self) -> None:
+        adapter = SimpleNamespace(
+            list_entities=AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        id="task-1",
+                        entity_type=EntityType.TASK,
+                        name="Task One",
+                        description="Center node",
+                    )
+                ]
+            ),
+            get_connection_counts=AsyncMock(return_value={"task-1": 3}),
+        )
+
+        with patch(
+            "sibyl.api.routes.graph.get_legacy_graph_query_adapter",
+            AsyncMock(return_value=adapter),
+        ):
+            nodes = await graph_routes.get_all_nodes(
+                org=_org(),
+                types=[EntityType.TASK],
+                limit=25,
+                offset=5,
+            )
+
+        assert len(nodes) == 1
+        assert nodes[0].id == "task-1"
+        assert nodes[0].metadata["connections"] == 3
+        adapter.list_entities.assert_awaited_once_with(
+            entity_types=[EntityType.TASK],
+            limit=25,
+            offset=5,
+            include_archived=True,
+        )
+        adapter.get_connection_counts.assert_awaited_once_with(["task-1"])
+
+    @pytest.mark.asyncio
     async def test_get_all_edges_uses_legacy_graph_query_adapter(self) -> None:
         adapter = SimpleNamespace(
             list_relationships=AsyncMock(
@@ -128,6 +195,57 @@ class TestGraphRoutes:
         assert result["total_nodes"] == 3
         assert result["total_clusters"] == 1
         adapter.get_clusters_for_visualization.assert_awaited_once_with(force_refresh=True)
+
+    @pytest.mark.asyncio
+    async def test_get_full_graph_uses_legacy_graph_query_adapter(self) -> None:
+        adapter = SimpleNamespace(
+            list_entities=AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        id="task-1",
+                        entity_type=EntityType.TASK,
+                        name="Task One",
+                    ),
+                    SimpleNamespace(
+                        id="project-1",
+                        entity_type=EntityType.PROJECT,
+                        name="Project One",
+                    ),
+                ]
+            ),
+            list_relationships_for_entities=AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        id="rel-1",
+                        source_id="task-1",
+                        target_id="project-1",
+                        relationship_type=RelationshipType.BELONGS_TO,
+                    )
+                ]
+            ),
+        )
+
+        with patch(
+            "sibyl.api.routes.graph.get_legacy_graph_query_adapter",
+            AsyncMock(return_value=adapter),
+        ):
+            result = await graph_routes.get_full_graph(
+                org=_org(),
+                types=[EntityType.TASK, EntityType.PROJECT],
+                max_nodes=50,
+                max_edges=75,
+            )
+
+        assert result.node_count == 2
+        assert result.edge_count == 1
+        adapter.list_entities.assert_awaited_once_with(
+            entity_types=[EntityType.TASK, EntityType.PROJECT],
+            limit=50,
+            include_archived=True,
+        )
+        adapter.list_relationships_for_entities.assert_awaited_once()
+        assert adapter.list_relationships_for_entities.await_args.args[0] == {"task-1", "project-1"}
+        assert adapter.list_relationships_for_entities.await_args.kwargs == {"limit": 75}
 
     @pytest.mark.asyncio
     async def test_get_hierarchical_graph_data_uses_legacy_graph_query_adapter(self) -> None:
