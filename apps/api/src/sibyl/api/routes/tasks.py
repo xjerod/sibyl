@@ -25,8 +25,8 @@ from sibyl.auth.rls import AuthSession, get_auth_session
 from sibyl.db.models import Organization, OrganizationRole, User
 from sibyl.locks import entity_lock
 from sibyl.persistence.legacy.graph import (
-    get_legacy_knowledge_read_adapter,
-    get_legacy_task_runtime,
+    get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
+    get_task_graph_runtime as _service_get_task_graph_runtime,
 )
 from sibyl_core.models.tasks import AuthorType, Note, TaskComplexity, TaskPriority, TaskStatus
 from sibyl_core.tasks.workflow import TaskWorkflowEngine
@@ -37,6 +37,22 @@ _WRITE_ROLES = (
     OrganizationRole.ADMIN,
     OrganizationRole.MEMBER,
 )
+
+
+async def get_legacy_knowledge_read_adapter(group_id: str):
+    return await _service_get_knowledge_read_adapter(group_id)
+
+
+async def get_knowledge_read_adapter(group_id: str):
+    return await get_legacy_knowledge_read_adapter(group_id)
+
+
+async def get_legacy_task_runtime(group_id: str):
+    return await _service_get_task_graph_runtime(group_id)
+
+
+async def get_task_graph_runtime(group_id: str):
+    return await get_legacy_task_runtime(group_id)
 
 
 async def _verify_task_access(
@@ -50,7 +66,7 @@ async def _verify_task_access(
 
     Raises ProjectAuthorizationError if user lacks required access.
     """
-    service = await get_legacy_knowledge_read_adapter(str(org.id))
+    service = await get_knowledge_read_adapter(str(org.id))
     entity = await service.get_entity(task_id)
     if not entity:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
@@ -172,7 +188,7 @@ async def create_task(
     )
 
     try:
-        runtime = await get_legacy_task_runtime(str(org.id))
+        runtime = await get_task_graph_runtime(str(org.id))
 
         # Create task entity with actor attribution
         task = Task(  # type: ignore[call-arg]  # model_validator sets name from title
@@ -309,7 +325,7 @@ async def _maybe_start_epic(
 
 
 async def _get_task_workflow_runtime(group_id: str) -> tuple[Any, TaskWorkflowEngine]:
-    runtime = await get_legacy_task_runtime(group_id)
+    runtime = await get_task_graph_runtime(group_id)
     workflow = TaskWorkflowEngine(
         runtime.entity_manager,
         runtime.relationship_manager,
@@ -646,7 +662,7 @@ async def update_task(
                     detail="Task is being updated by another process. Please retry.",
                 )
 
-            runtime = await get_legacy_task_runtime(group_id)
+            runtime = await get_task_graph_runtime(group_id)
 
             updated = await runtime.entity_manager.update(task_id, update_data)
             if not updated:
@@ -813,7 +829,7 @@ async def create_note(
             )
 
         # Task exists - create note synchronously
-        runtime = await get_legacy_task_runtime(group_id)
+        runtime = await get_task_graph_runtime(group_id)
 
         # Verify task exists in graph
         task = await runtime.entity_manager.get(task_id)
@@ -888,7 +904,7 @@ async def list_notes(
 
     try:
         group_id = str(org.id)
-        runtime = await get_legacy_task_runtime(group_id)
+        runtime = await get_task_graph_runtime(group_id)
 
         # Get notes for task
         notes_entities = await runtime.entity_manager.get_notes_for_task(task_id, limit=limit)

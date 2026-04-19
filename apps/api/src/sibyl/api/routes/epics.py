@@ -18,7 +18,7 @@ from sibyl.auth.dependencies import get_auth_context, get_current_organization, 
 from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.legacy.auth import verify_legacy_entity_project_access
 from sibyl.persistence.legacy.graph import (
-    get_legacy_knowledge_read_adapter,
+    get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
     update_legacy_entity,
 )
 from sibyl_core.models.entities import EntityType
@@ -30,6 +30,14 @@ _WRITE_ROLES = (
     OrganizationRole.ADMIN,
     OrganizationRole.MEMBER,
 )
+
+
+async def get_legacy_knowledge_read_adapter(group_id: str):
+    return await _service_get_knowledge_read_adapter(group_id)
+
+
+async def get_knowledge_read_adapter(group_id: str):
+    return await get_legacy_knowledge_read_adapter(group_id)
 
 router = APIRouter(
     prefix="/epics",
@@ -108,7 +116,7 @@ async def _verify_epic_access(
     Returns the epic entity if access is granted.
     Raises ProjectAuthorizationError if user lacks required access.
     """
-    service = await get_legacy_knowledge_read_adapter(str(org.id))
+    service = await get_knowledge_read_adapter(str(org.id))
     epic = await _get_epic(service, epic_id)
 
     # Extract project_id from entity metadata
