@@ -28,7 +28,8 @@ from sibyl.db import DocumentChunk, get_session
 from sibyl.services.settings import get_settings_service
 from sibyl_core.graph.client import GraphClient
 from sibyl_core.graph.entities import EntityManager
-from sibyl_core.models.entities import Entity, EntityType
+from sibyl_core.graph.relationships import RelationshipManager
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -351,6 +352,7 @@ class EntityLinker:
         self.organization_id = organization_id
         self.similarity_threshold = similarity_threshold
         self._entity_cache: dict[str, list[dict]] = {}
+        self._entity_manager: EntityManager | None = None
 
     def invalidate_cache(self, *entity_types: str) -> None:
         """Invalidate cached entity lists after graph writes."""
@@ -361,6 +363,11 @@ class EntityLinker:
         self._entity_cache.pop("all", None)
         for entity_type in entity_types:
             self._entity_cache.pop(entity_type, None)
+
+    def _get_entity_manager(self) -> EntityManager:
+        if self._entity_manager is None:
+            self._entity_manager = EntityManager(self.graph_client, group_id=self.organization_id)
+        return self._entity_manager
 
     async def _get_graph_entities(self, entity_type: str | None = None) -> list[dict]:
         """Get entities from graph, with caching.
@@ -374,33 +381,62 @@ class EntityLinker:
         cache_key = entity_type or "all"
 
         if cache_key not in self._entity_cache:
-            # Query graph for entities
-            query = """
-            MATCH (n)
-            WHERE (n:Episodic OR n:Entity)
-            AND n.entity_type IS NOT NULL
-            """
-            params: dict[str, str] = {}
+            try:
+                entity_manager = self._get_entity_manager()
+                if entity_type:
+                    entities = await entity_manager.list_by_type(
+                        EntityType(entity_type),
+                        limit=1000,
+                        include_archived=True,
+                    )
+                else:
+                    entities = await entity_manager.list_all(
+                        limit=1000,
+                        include_archived=True,
+                    )
 
-            if entity_type:
-                query += " AND n.entity_type = $entity_type"
-                params["entity_type"] = entity_type
+                self._entity_cache[cache_key] = [
+                    {
+                        "uuid": entity.id,
+                        "name": entity.name,
+                        "entity_type": entity.entity_type.value,
+                    }
+                    for entity in entities
+                    if entity.id and entity.name
+                ]
+            except Exception as e:
+                log.warning(
+                    "Entity manager lookup failed; falling back to raw graph query",
+                    entity_type=entity_type,
+                    error=str(e),
+                )
 
-            query += (
-                " RETURN n.uuid AS uuid, n.name AS name, n.entity_type AS entity_type LIMIT 1000"
-            )
+                query = """
+                MATCH (n)
+                WHERE (n:Episodic OR n:Entity)
+                AND n.entity_type IS NOT NULL
+                """
+                params: dict[str, str] = {}
 
-            records = await self.graph_client.execute_read_org(
-                query,
-                self.organization_id,
-                **params,
-            )
+                if entity_type:
+                    query += " AND n.entity_type = $entity_type"
+                    params["entity_type"] = entity_type
 
-            self._entity_cache[cache_key] = [
-                {"uuid": r["uuid"], "name": r["name"], "entity_type": r["entity_type"]}
-                for r in records
-                if r.get("uuid") and r.get("name")
-            ]
+                query += (
+                    " RETURN n.uuid AS uuid, n.name AS name, n.entity_type AS entity_type LIMIT 1000"
+                )
+
+                records = await self.graph_client.execute_read_org(
+                    query,
+                    self.organization_id,
+                    **params,
+                )
+
+                self._entity_cache[cache_key] = [
+                    {"uuid": r["uuid"], "name": r["name"], "entity_type": r["entity_type"]}
+                    for r in records
+                    if r.get("uuid") and r.get("name")
+                ]
 
         return self._entity_cache[cache_key]
 
@@ -530,6 +566,56 @@ class GraphIntegrationService:
         self.entity_manager = (
             EntityManager(graph_client, group_id=organization_id) if create_new_entities else None
         )
+        self.relationship_manager: RelationshipManager | None = None
+
+    def _get_entity_manager(self) -> EntityManager:
+        if self.entity_manager is None:
+            self.entity_manager = EntityManager(self.graph_client, group_id=self.organization_id)
+        return self.entity_manager
+
+    def _get_relationship_manager(self) -> RelationshipManager:
+        if self.relationship_manager is None:
+            self.relationship_manager = RelationshipManager(
+                self.graph_client,
+                group_id=self.organization_id,
+            )
+        return self.relationship_manager
+
+    def _uses_surreal_runtime(self) -> bool:
+        try:
+            from sibyl_core.backends.surreal import SurrealDriver
+        except ImportError:
+            return False
+
+        try:
+            driver = self.graph_client.client.driver.clone(self.organization_id)
+        except Exception:
+            return False
+
+        return isinstance(driver, SurrealDriver)
+
+    def _build_document_entity(
+        self,
+        document_id: UUID,
+        *,
+        document_title: str | None,
+        document_url: str | None,
+    ) -> Entity:
+        title = (document_title or "").strip()
+        url = (document_url or "").strip()
+        return Entity(
+            id=str(document_id),
+            entity_type=EntityType.DOCUMENT,
+            name=title or str(document_id),
+            description=title or "Documentation page",
+            content=url or title,
+            organization_id=self.organization_id,
+            metadata={
+                "created_by": "crawler_graph_integration",
+                "title": title or None,
+                "url": url or None,
+            },
+        )
 
     async def _create_entities_for_unlinked(
         self,
@@ -538,9 +624,6 @@ class GraphIntegrationService:
         """Create graph entities for extracted items that could not be matched."""
         if not entities:
             return [], 0
-
-        if self.entity_manager is None:
-            self.entity_manager = EntityManager(self.graph_client, group_id=self.organization_id)
 
         prepared: list[tuple[ExtractedEntity, tuple[str, str]]] = []
         entity_map: dict[tuple[str, str], Entity] = {}
@@ -583,10 +666,11 @@ class GraphIntegrationService:
         created_ids: dict[tuple[str, str], str] = {}
         created_types: set[str] = set()
         errors = 0
+        entity_manager = self._get_entity_manager()
 
         for key, entity in entity_map.items():
             try:
-                created_ids[key] = await self.entity_manager.create_direct(entity)
+                created_ids[key] = await entity_manager.create_direct(entity)
                 created_types.add(entity.entity_type.value)
             except Exception as e:
                 errors += 1
@@ -709,7 +793,79 @@ class GraphIntegrationService:
         if not entity_uuids:
             return 0
 
-        # Create relationships in graph
+        if self._uses_surreal_runtime():
+            return await self._create_doc_relationships_via_managers(
+                document_id,
+                entity_uuids,
+                document_title=document_title,
+                document_url=document_url,
+            )
+
+        return await self._create_doc_relationships_via_query(
+            document_id,
+            entity_uuids,
+            document_title=document_title,
+            document_url=document_url,
+        )
+
+    async def _create_doc_relationships_via_managers(
+        self,
+        document_id: UUID,
+        entity_uuids: list[str],
+        *,
+        document_title: str | None,
+        document_url: str | None,
+    ) -> int:
+        entity_manager = self._get_entity_manager()
+        relationship_manager = self._get_relationship_manager()
+        document_entity = self._build_document_entity(
+            document_id,
+            document_title=document_title,
+            document_url=document_url,
+        )
+
+        try:
+            await entity_manager.create_direct(document_entity, generate_embedding=False)
+        except Exception as e:
+            log.warning(
+                "Failed to materialize document entity for graph linking",
+                doc_uuid=str(document_id),
+                error=str(e),
+            )
+            return 0
+
+        created = 0
+        for entity_uuid in entity_uuids:
+            try:
+                await relationship_manager.create(
+                    Relationship(
+                        id=f"documented_in:{uuid4()}",
+                        relationship_type=RelationshipType.DOCUMENTED_IN,
+                        source_id=entity_uuid,
+                        target_id=str(document_id),
+                        metadata={"created_by": "crawler_graph_integration"},
+                    )
+                )
+                created += 1
+
+            except Exception as e:
+                log.warning(
+                    "Failed to create doc relationship",
+                    entity_uuid=entity_uuid,
+                    doc_uuid=str(document_id),
+                    error=str(e),
+                )
+
+        return created
+
+    async def _create_doc_relationships_via_query(
+        self,
+        document_id: UUID,
+        entity_uuids: list[str],
+        *,
+        document_title: str | None,
+        document_url: str | None,
+    ) -> int:
         created = 0
         for entity_uuid in entity_uuids:
             try:

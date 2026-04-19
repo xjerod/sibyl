@@ -20,7 +20,7 @@ from sibyl.crawler.graph_integration import (
     integrate_document_with_graph,
     normalize_extracted_entity_type,
 )
-from sibyl_core.models.entities import EntityType
+from sibyl_core.models.entities import Entity, EntityType, RelationshipType
 
 # Test organization ID for multi-tenancy
 TEST_ORG_ID = "test-org-crawler-graph"
@@ -214,15 +214,23 @@ class TestEntityExtractor:
 class TestEntityLinker:
     """Tests for entity linking to graph."""
 
+    @staticmethod
+    def _graph_entity(entity_id: str, name: str, entity_type: EntityType) -> Entity:
+        return Entity(
+            id=entity_id,
+            entity_type=entity_type,
+            name=name,
+            description=f"{name} entity",
+        )
+
     @pytest.mark.asyncio
     async def test_link_entity_exact_match(self, mock_graph_client):
         """Test linking with exact name match."""
-        # Mock graph query response
-        mock_graph_client.execute_read_org = AsyncMock(
-            return_value=[{"uuid": "entity-123", "name": "FastAPI", "entity_type": "tool"}]
-        )
-
         linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
+        linker._entity_manager = MagicMock()
+        linker._entity_manager.list_by_type = AsyncMock(
+            return_value=[self._graph_entity("entity-123", "FastAPI", EntityType.TOOL)]
+        )
 
         extracted = ExtractedEntity(
             name="FastAPI",
@@ -240,13 +248,11 @@ class TestEntityLinker:
     @pytest.mark.asyncio
     async def test_link_entity_partial_match(self, mock_graph_client):
         """Test linking with partial name match."""
-        # Use a candidate name closer in length for a higher similarity score
-        # "FastAPI" (7 chars) vs "FastAPI v3" (10 chars) = 7/10 = 0.7
-        mock_graph_client.execute_read_org = AsyncMock(
-            return_value=[{"uuid": "entity-456", "name": "FastAPI v3", "entity_type": "tool"}]
-        )
-
         linker = EntityLinker(mock_graph_client, TEST_ORG_ID, similarity_threshold=0.5)
+        linker._entity_manager = MagicMock()
+        linker._entity_manager.list_by_type = AsyncMock(
+            return_value=[self._graph_entity("entity-456", "FastAPI v3", EntityType.TOOL)]
+        )
 
         extracted = ExtractedEntity(
             name="FastAPI",
@@ -266,11 +272,11 @@ class TestEntityLinker:
     @pytest.mark.asyncio
     async def test_link_entity_no_match(self, mock_graph_client):
         """Test when no matching entity exists."""
-        mock_graph_client.execute_read_org = AsyncMock(
-            return_value=[{"uuid": "other-123", "name": "Django", "entity_type": "tool"}]
-        )
-
         linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
+        linker._entity_manager = MagicMock()
+        linker._entity_manager.list_by_type = AsyncMock(
+            return_value=[self._graph_entity("other-123", "Django", EntityType.TOOL)]
+        )
 
         extracted = ExtractedEntity(
             name="FastAPI",
@@ -286,11 +292,11 @@ class TestEntityLinker:
     @pytest.mark.asyncio
     async def test_link_entity_normalizes_extracted_type_for_lookup(self, mock_graph_client):
         """Extractor-only types should map onto runtime graph entity types."""
-        mock_graph_client.execute_read_org = AsyncMock(
-            return_value=[{"uuid": "topic-123", "name": "Authentication", "entity_type": "topic"}]
-        )
-
         linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
+        linker._entity_manager = MagicMock()
+        linker._entity_manager.list_by_type = AsyncMock(
+            return_value=[self._graph_entity("topic-123", "Authentication", EntityType.TOPIC)]
+        )
 
         extracted = ExtractedEntity(
             name="Authentication",
@@ -302,22 +308,22 @@ class TestEntityLinker:
         link = await linker.link_entity(extracted)
 
         assert link is not None
-        query = mock_graph_client.execute_read_org.await_args.args[0]
-        assert "n.entity_type = $entity_type" in query
-        assert mock_graph_client.execute_read_org.await_args.kwargs["entity_type"] == "topic"
+        assert linker._entity_manager.list_by_type.await_args.args[0] == EntityType.TOPIC
+        assert linker._entity_manager.list_by_type.await_args.kwargs["include_archived"] is True
         assert link.entity_uuid == "topic-123"
 
     @pytest.mark.asyncio
     async def test_link_batch(self, mock_graph_client):
         """Test batch entity linking."""
-        mock_graph_client.execute_read_org = AsyncMock(
-            return_value=[
-                {"uuid": "entity-1", "name": "FastAPI", "entity_type": "tool"},
-                {"uuid": "entity-2", "name": "Python", "entity_type": "language"},
+        linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
+        linker._entity_manager = MagicMock()
+        linker._entity_manager.list_by_type = AsyncMock(
+            side_effect=[
+                [self._graph_entity("entity-1", "FastAPI", EntityType.TOOL)],
+                [self._graph_entity("entity-2", "Python", EntityType.LANGUAGE)],
+                [self._graph_entity("topic-1", "Auth", EntityType.TOPIC)],
             ]
         )
-
-        linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
 
         entities = [
             ExtractedEntity(name="FastAPI", entity_type="tool", description="", confidence=0.9),
@@ -334,19 +340,16 @@ class TestEntityLinker:
     @pytest.mark.asyncio
     async def test_entity_cache(self, mock_graph_client):
         """Test that graph entities are cached."""
-        mock_graph_client.execute_read_org = AsyncMock(
-            return_value=[{"uuid": "entity-1", "name": "FastAPI", "entity_type": "tool"}]
+        linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
+        linker._entity_manager = MagicMock()
+        linker._entity_manager.list_by_type = AsyncMock(
+            return_value=[self._graph_entity("entity-1", "FastAPI", EntityType.TOOL)]
         )
 
-        linker = EntityLinker(mock_graph_client, TEST_ORG_ID)
-
-        # First call should query graph
         await linker._get_graph_entities("tool")
-        assert mock_graph_client.execute_read_org.call_count == 1
-
-        # Second call should use cache
+        assert linker._entity_manager.list_by_type.call_count == 1
         await linker._get_graph_entities("tool")
-        assert mock_graph_client.execute_read_org.call_count == 1
+        assert linker._entity_manager.list_by_type.call_count == 1
 
 
 # =============================================================================
@@ -497,6 +500,41 @@ class TestGraphIntegrationService:
 
         assert count == 3
         assert mock_graph_client.execute_write_org.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_create_doc_relationships_prefers_manager_seams(self, mock_graph_client):
+        """Surreal-backed graph linking should materialize document nodes via managers."""
+        service = GraphIntegrationService(mock_graph_client, TEST_ORG_ID)
+        service.entity_manager = MagicMock()
+        service.entity_manager.create_direct = AsyncMock(return_value="doc-entity")
+        service.relationship_manager = MagicMock()
+        service.relationship_manager.create = AsyncMock(
+            side_effect=["rel-1", "rel-2", "rel-3"]
+        )
+
+        doc_id = uuid4()
+        entity_uuids = ["entity-1", "entity-2", "entity-3"]
+
+        with patch.object(service, "_uses_surreal_runtime", return_value=True):
+            count = await service.create_doc_relationships(
+                doc_id,
+                entity_uuids,
+                document_title="FastAPI Docs",
+                document_url="https://docs.example.com/fastapi",
+            )
+
+        assert count == 3
+        service.entity_manager.create_direct.assert_awaited_once()
+        created_doc = service.entity_manager.create_direct.await_args.args[0]
+        assert created_doc.id == str(doc_id)
+        assert created_doc.entity_type == EntityType.DOCUMENT
+        assert created_doc.metadata["title"] == "FastAPI Docs"
+        assert created_doc.metadata["url"] == "https://docs.example.com/fastapi"
+        assert service.relationship_manager.create.await_count == 3
+        created_relationship = service.relationship_manager.create.await_args_list[0].args[0]
+        assert created_relationship.relationship_type == RelationshipType.DOCUMENTED_IN
+        assert created_relationship.source_id == "entity-1"
+        assert created_relationship.target_id == str(doc_id)
 
     @pytest.mark.asyncio
     async def test_create_doc_relationships_empty(self, mock_graph_client):
