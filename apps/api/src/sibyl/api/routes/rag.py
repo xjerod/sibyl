@@ -15,8 +15,6 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
-from sqlmodel import col
 
 from sibyl.api.schemas import (
     CodeExampleRequest,
@@ -41,11 +39,17 @@ from sibyl.crawler.embedder import embed_text
 from sibyl.db import (
     CrawledDocument,
     CrawlSource,
-    DocumentChunk,
     get_session,
 )
-from sibyl.db.models import ChunkType, OrganizationRole
+from sibyl.db.models import OrganizationRole
 from sibyl.persistence.legacy.graph import get_legacy_graph_query_adapter
+from sibyl.persistence.legacy.rag import (
+    get_document_by_url_for_org,
+    hybrid_search_chunks,
+    list_source_documents_page,
+    search_code_example_chunks,
+    search_rag_chunks,
+)
 
 log = structlog.get_logger()
 router = APIRouter(
@@ -101,44 +105,25 @@ async def rag_search(
         raise HTTPException(status_code=500, detail="Failed to generate query embedding") from e
 
     async with get_session() as session:
-        # Build base query with cosine similarity
-        # Using 1 - cosine_distance for similarity (pgvector uses distance)
-        similarity_expr = 1 - DocumentChunk.embedding.cosine_distance(query_embedding)
-
-        query = (
-            select(
-                DocumentChunk,
-                CrawledDocument,
-                CrawlSource.name.label("source_name"),
-                CrawlSource.id.label("source_id"),
-                similarity_expr.label("similarity"),
-            )
-            .join(CrawledDocument, DocumentChunk.document_id == CrawledDocument.id)
-            .join(CrawlSource, CrawledDocument.source_id == CrawlSource.id)
-            .where(col(DocumentChunk.embedding).is_not(None))
-            # Filter by organization for multi-tenant security
-            .where(col(CrawlSource.organization_id) == auth.organization_id)
-        )
-
-        # Apply source filters
         source_filter_name = None
         if request.source_id:
             source_uuid = _parse_uuid_or_400(request.source_id, "source ID")
-            query = query.where(col(CrawlSource.id) == source_uuid)
             source_filter_name = request.source_id
         elif request.source_name:
-            query = query.where(col(CrawlSource.name).ilike(f"%{request.source_name}%"))
+            source_uuid = None
             source_filter_name = request.source_name
+        else:
+            source_uuid = None
 
-        # Apply similarity threshold and ordering
-        query = (
-            query.where(similarity_expr >= request.similarity_threshold)
-            .order_by(similarity_expr.desc())
-            .limit(request.match_count)
+        rows = await search_rag_chunks(
+            session,
+            query_embedding=query_embedding,
+            organization_id=auth.organization_id,
+            source_id=source_uuid,
+            source_name=request.source_name if source_uuid is None else None,
+            similarity_threshold=request.similarity_threshold,
+            match_count=request.match_count,
         )
-
-        result = await session.execute(query)
-        rows = result.all()
 
         if request.return_mode == "pages":
             # Group by document, return best chunk per doc
@@ -228,36 +213,19 @@ async def search_code_examples(
         raise HTTPException(status_code=500, detail="Failed to generate query embedding") from e
 
     async with get_session() as session:
-        similarity_expr = 1 - DocumentChunk.embedding.cosine_distance(query_embedding)
-
-        query = (
-            select(
-                DocumentChunk,
-                CrawledDocument,
-                CrawlSource.id.label("source_id"),
-                CrawlSource.name.label("source_name"),
-                similarity_expr.label("similarity"),
-            )
-            .join(CrawledDocument, DocumentChunk.document_id == CrawledDocument.id)
-            .join(CrawlSource, CrawledDocument.source_id == CrawlSource.id)
-            .where(col(DocumentChunk.embedding).is_not(None))
-            .where(col(DocumentChunk.chunk_type) == ChunkType.CODE)
-            # Filter by organization for multi-tenant security
-            .where(col(CrawlSource.organization_id) == auth.organization_id)
-        )
-
-        # Apply filters
         if request.source_id:
             source_uuid = _parse_uuid_or_400(request.source_id, "source ID")
-            query = query.where(col(CrawlSource.id) == source_uuid)
+        else:
+            source_uuid = None
 
-        if request.language:
-            query = query.where(col(DocumentChunk.language).ilike(request.language))
-
-        query = query.order_by(similarity_expr.desc()).limit(request.match_count)
-
-        result = await session.execute(query)
-        rows = result.all()
+        rows = await search_code_example_chunks(
+            session,
+            query_embedding=query_embedding,
+            organization_id=auth.organization_id,
+            match_count=request.match_count,
+            source_id=source_uuid,
+            language=request.language,
+        )
 
         examples = [
             CodeExampleResult(
@@ -327,24 +295,14 @@ async def list_source_pages(
         if str(source.organization_id) != auth.organization_id:
             raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
-        # Build query
-        query = select(CrawledDocument).where(col(CrawledDocument.source_id) == source_uuid)
-
-        if has_code is not None:
-            query = query.where(col(CrawledDocument.has_code) == has_code)
-
-        if is_index is not None:
-            query = query.where(col(CrawledDocument.is_index) == is_index)
-
-        # Get total count
-        count_query = select(func.count()).select_from(query.subquery())
-        count_result = await session.execute(count_query)
-        total = count_result.scalar() or 0
-
-        # Apply pagination
-        query = query.order_by(col(CrawledDocument.title)).offset(offset).limit(limit)
-        result = await session.execute(query)
-        documents = list(result.scalars().all())
+        documents, total = await list_source_documents_page(
+            session,
+            source_id=source_uuid,
+            limit=limit,
+            offset=offset,
+            has_code=has_code,
+            is_index=is_index,
+        )
 
         pages = [
             CrawlDocumentResponse(
@@ -433,14 +391,11 @@ async def get_page_by_url(
         raise NoOrgContextError("access this resource")
 
     async with get_session() as session:
-        # Join with source to filter by organization
-        result = await session.execute(
-            select(CrawledDocument)
-            .join(CrawlSource, CrawledDocument.source_id == CrawlSource.id)
-            .where(col(CrawledDocument.url) == url)
-            .where(col(CrawlSource.organization_id) == auth.organization_id)
+        doc = await get_document_by_url_for_org(
+            session,
+            url=url,
+            organization_id=auth.organization_id,
         )
-        doc = result.scalar_one_or_none()
 
         if not doc:
             raise HTTPException(status_code=404, detail=f"Document not found for URL: {url}")
@@ -496,55 +451,26 @@ async def hybrid_search(
         raise HTTPException(status_code=500, detail="Failed to generate query embedding") from e
 
     async with get_session() as session:
-        # Build hybrid query with RRF
-        # RRF score = sum(1 / (k + rank)) for each retriever
-
-        # Vector similarity score
-        similarity_expr = 1 - DocumentChunk.embedding.cosine_distance(query_embedding)
-
-        # Full-text relevance using ts_rank
-        ts_query = func.plainto_tsquery("english", request.query)
-        ts_vector = func.to_tsvector("english", DocumentChunk.content)
-        fts_rank = func.ts_rank(ts_vector, ts_query)
-
-        query = (
-            select(
-                DocumentChunk,
-                CrawledDocument,
-                CrawlSource.name.label("source_name"),
-                CrawlSource.id.label("source_id"),
-                similarity_expr.label("similarity"),
-                fts_rank.label("fts_rank"),
-            )
-            .join(CrawledDocument, DocumentChunk.document_id == CrawledDocument.id)
-            .join(CrawlSource, CrawledDocument.source_id == CrawlSource.id)
-            .where(col(DocumentChunk.embedding).is_not(None))
-            # Filter by organization for multi-tenant security
-            .where(col(CrawlSource.organization_id) == auth.organization_id)
-        )
-
-        # Apply source filters
         source_filter_name = None
         if request.source_id:
             source_uuid = _parse_uuid_or_400(request.source_id, "source ID")
-            query = query.where(col(CrawlSource.id) == source_uuid)
             source_filter_name = request.source_id
         elif request.source_name:
-            query = query.where(col(CrawlSource.name).ilike(f"%{request.source_name}%"))
+            source_uuid = None
             source_filter_name = request.source_name
+        else:
+            source_uuid = None
 
-        # Combine with RRF-style scoring (simplified: weighted combination)
-        # Higher weight for vector similarity since it's more reliable
-        combined_score = similarity_expr * 0.7 + fts_rank * 0.3
-
-        query = (
-            query.where(similarity_expr >= request.similarity_threshold)
-            .order_by(combined_score.desc())
-            .limit(request.match_count)
+        rows = await hybrid_search_chunks(
+            session,
+            query_text=request.query,
+            query_embedding=query_embedding,
+            organization_id=auth.organization_id,
+            similarity_threshold=request.similarity_threshold,
+            match_count=request.match_count,
+            source_id=source_uuid,
+            source_name=request.source_name if source_uuid is None else None,
         )
-
-        result = await session.execute(query)
-        rows = result.all()
 
         results: list[RAGChunkResult | RAGPageResult] = [
             RAGChunkResult(
