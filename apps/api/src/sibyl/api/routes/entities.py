@@ -12,7 +12,7 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from sibyl.api.dependencies import get_legacy_knowledge_read_service
+from sibyl.api.dependencies import get_knowledge_read_service
 from sibyl.api.event_types import WSEvent
 from sibyl.api.schemas import (
     EntityCreate,
@@ -605,7 +605,7 @@ async def list_entities(
 async def get_entity(
     entity_id: str,
     org: Organization = Depends(get_current_organization),
-    service: KnowledgeReadService = Depends(get_legacy_knowledge_read_service),
+    service: KnowledgeReadService = Depends(get_knowledge_read_service),
 ) -> EntityResponse:
     """Get a single entity by ID with related context.
 

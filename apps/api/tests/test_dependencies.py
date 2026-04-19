@@ -14,7 +14,11 @@ import pytest
 from sibyl.api.dependencies import (
     get_entity_manager,
     get_graph,
+    get_graph_store,
     get_group_id,
+    get_knowledge_read_service,
+    get_legacy_graph_store,
+    get_legacy_knowledge_read_service,
     get_relationship_manager,
 )
 
@@ -225,3 +229,55 @@ class TestDependencyPatterns:
         assert manager1._group_id != manager2._group_id
         assert manager1._group_id == str(org1.id)
         assert manager2._group_id == str(org2.id)
+
+
+class TestGraphStoreDependencies:
+    """Tests for graph store and knowledge read dependencies."""
+
+    @pytest.mark.asyncio
+    async def test_get_graph_store_scopes_to_org(self, mock_org: MagicMock) -> None:
+        client = MagicMock()
+        store = MagicMock()
+
+        with (
+            patch("sibyl.api.dependencies.get_graph_client", return_value=client),
+            patch("sibyl.api.dependencies.ActiveGraphStore.from_client", return_value=store) as factory,
+        ):
+            result = await get_graph_store(org=mock_org)
+
+        assert result is store
+        factory.assert_called_once_with(client, str(mock_org.id))
+
+    @pytest.mark.asyncio
+    async def test_get_knowledge_read_service_wraps_store(self) -> None:
+        store = MagicMock()
+
+        service = await get_knowledge_read_service(graph_store=store)
+
+        assert service._store is store
+
+    @pytest.mark.asyncio
+    async def test_legacy_graph_store_wrapper_uses_active_dependency(
+        self, mock_org: MagicMock
+    ) -> None:
+        store = MagicMock()
+
+        with patch("sibyl.api.dependencies.get_graph_store", AsyncMock(return_value=store)) as getter:
+            result = await get_legacy_graph_store(org=mock_org)
+
+        assert result is store
+        getter.assert_awaited_once_with(org=mock_org)
+
+    @pytest.mark.asyncio
+    async def test_legacy_knowledge_read_service_wrapper_uses_active_dependency(self) -> None:
+        store = MagicMock()
+        service = MagicMock()
+
+        with patch(
+            "sibyl.api.dependencies.get_knowledge_read_service",
+            AsyncMock(return_value=service),
+        ) as getter:
+            result = await get_legacy_knowledge_read_service(graph_store=store)
+
+        assert result is service
+        getter.assert_awaited_once_with(graph_store=store)

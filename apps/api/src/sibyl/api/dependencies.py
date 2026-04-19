@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from fastapi import Depends
 
 from sibyl.auth.dependencies import get_current_organization
-from sibyl.persistence.legacy.graph import LegacyGraphStore, LegacyKnowledgeReadAdapter
+from sibyl.persistence.legacy.graph import ActiveGraphStore, GraphReadServiceAdapter
 from sibyl_core.graph import EntityManager, RelationshipManager
 from sibyl_core.graph.client import get_graph_client
 from sibyl_core.services import KnowledgeReadService
@@ -26,6 +26,10 @@ from sibyl_core.services import KnowledgeReadService
 if TYPE_CHECKING:
     from sibyl.db.models import Organization
     from sibyl_core.graph.client import GraphClient
+
+
+LegacyGraphStore = ActiveGraphStore
+LegacyKnowledgeReadAdapter = GraphReadServiceAdapter
 
 
 async def get_graph() -> GraphClient:
@@ -85,19 +89,33 @@ async def get_relationship_manager(
     return RelationshipManager(client, group_id=str(org.id))
 
 
-async def get_legacy_graph_store(
+async def get_graph_store(
     org: Organization = Depends(get_current_organization),
-) -> LegacyGraphStore:
+) -> ActiveGraphStore:
     """Get the backend-agnostic graph store on top of the current runtime."""
     client = await get_graph_client()
-    return LegacyGraphStore.from_client(client, str(org.id))
+    return ActiveGraphStore.from_client(client, str(org.id))
+
+
+async def get_knowledge_read_service(
+    graph_store: ActiveGraphStore = Depends(get_graph_store),
+) -> KnowledgeReadService:
+    """Get the seam-based graph read service backed by the active runtime."""
+    return GraphReadServiceAdapter(graph_store)
+
+
+async def get_legacy_graph_store(
+    org: Organization = Depends(get_current_organization),
+) -> ActiveGraphStore:
+    """Compatibility wrapper for callers still using the legacy name."""
+    return await get_graph_store(org=org)
 
 
 async def get_legacy_knowledge_read_service(
-    graph_store: LegacyGraphStore = Depends(get_legacy_graph_store),
+    graph_store: ActiveGraphStore = Depends(get_graph_store),
 ) -> KnowledgeReadService:
-    """Get the seam-based graph read service backed by the legacy runtime."""
-    return LegacyKnowledgeReadAdapter(graph_store)
+    """Compatibility wrapper for callers still using the legacy name."""
+    return await get_knowledge_read_service(graph_store=graph_store)
 
 
 async def get_group_id(

@@ -16,6 +16,15 @@ from typing import Any
 import structlog
 
 from sibyl_core.models.entities import EntityType
+from sibyl_core.services import (
+    ActiveGraphRuntime,
+)
+from sibyl_core.services import (
+    get_graph_client as _service_get_graph_client,
+)
+from sibyl_core.services import (
+    get_graph_runtime as _service_get_graph_runtime,
+)
 from sibyl_core.services.crawl_sources import (
     _crawl_source_exists,
     _create_or_get_crawl_source,
@@ -24,15 +33,6 @@ from sibyl_core.services.crawl_sources import (
     _list_crawl_source_ids,
     list_unlinked_document_chunks,
 )
-from sibyl_core.services.legacy_graph import (
-    LegacyGraphRuntime,
-)
-from sibyl_core.services.legacy_graph import (
-    get_legacy_graph_client as _service_get_legacy_graph_client,
-)
-from sibyl_core.services.legacy_graph import (
-    get_legacy_graph_runtime as _service_get_legacy_graph_runtime,
-)
 from sibyl_core.services.link_graph_status import get_link_graph_status_data
 from sibyl_core.tasks.dependencies import detect_dependency_cycles
 
@@ -40,7 +40,7 @@ log = structlog.get_logger()
 
 
 async def _default_get_graph_client() -> Any:
-    return await _service_get_legacy_graph_client()
+    return await _service_get_graph_client()
 
 
 def _compat_entity_manager(*args: Any, **kwargs: Any) -> Any:
@@ -61,15 +61,15 @@ async def get_legacy_graph_client() -> Any:
     return await get_graph_client()
 
 
-async def get_legacy_graph_runtime(group_id: str) -> LegacyGraphRuntime:
+async def get_graph_runtime(group_id: str) -> ActiveGraphRuntime:
     if (
         get_graph_client is _default_get_graph_client
         and EntityManager is _compat_entity_manager
         and RelationshipManager is _compat_relationship_manager
     ):
-        return await _service_get_legacy_graph_runtime(group_id)
+        return await _service_get_graph_runtime(group_id)
 
-    runtime = await _service_get_legacy_graph_runtime(group_id)
+    runtime = await _service_get_graph_runtime(group_id)
     client = await get_graph_client()
     entity_manager = runtime.entity_manager
     relationship_manager = runtime.relationship_manager
@@ -80,11 +80,18 @@ async def get_legacy_graph_runtime(group_id: str) -> LegacyGraphRuntime:
     if RelationshipManager is not _compat_relationship_manager:
         relationship_manager = RelationshipManager(client, group_id=str(group_id))
 
-    return LegacyGraphRuntime(
+    return ActiveGraphRuntime(
         client=client,
         entity_manager=entity_manager,
         relationship_manager=relationship_manager,
     )
+
+
+LegacyGraphRuntime = ActiveGraphRuntime
+
+
+async def get_legacy_graph_runtime(group_id: str) -> ActiveGraphRuntime:
+    return await get_graph_runtime(group_id)
 
 
 # =============================================================================

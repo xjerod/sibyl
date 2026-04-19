@@ -5,7 +5,7 @@ from collections.abc import Sequence
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from sibyl.api.dependencies import get_legacy_knowledge_read_service
+from sibyl.api.dependencies import get_knowledge_read_service
 from sibyl.api.schemas import GraphData, GraphEdge, GraphNode, SubgraphRequest
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
@@ -700,7 +700,7 @@ async def get_hierarchical_graph_data(
 
 @router.get("/stats")
 async def get_graph_stats(
-    service: KnowledgeReadService = Depends(get_legacy_knowledge_read_service),
+    service: KnowledgeReadService = Depends(get_knowledge_read_service),
 ) -> dict:
     """Get efficient graph statistics using aggregate queries.
 
