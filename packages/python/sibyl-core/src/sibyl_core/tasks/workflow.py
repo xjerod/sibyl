@@ -1,6 +1,5 @@
 """Task workflow engine for status transitions and automations."""
 
-import json
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -81,21 +80,6 @@ class TaskWorkflowEngine:
         self._relationship_manager = relationship_manager
         self._graph_client = graph_client
         self._organization_id = organization_id
-
-    def _uses_surreal_runtime(self) -> bool:
-        if getattr(self._graph_client, "_store", None) == "surreal":
-            return True
-
-        try:
-            from sibyl_core.backends.surreal import SurrealDriver
-        except ImportError:
-            return False
-
-        driver = getattr(self._graph_client, "driver", None)
-        if driver is None:
-            graphiti_client = getattr(self._graph_client, "client", None)
-            driver = getattr(graphiti_client, "driver", None)
-        return isinstance(driver, SurrealDriver)
 
     def _validate_transition(
         self,
@@ -588,41 +572,13 @@ class TaskWorkflowEngine:
         done = 0
         doing = 0
 
-        if self._uses_surreal_runtime():
-            tasks = await self._entity_manager.list_by_type(
-                EntityType.TASK,
-                project_id=project_id,
-                limit=10_000,
-                include_archived=True,
-            )
-            metadata_rows = [task.metadata or {} for task in tasks]
-        else:
-            # Query project tasks using the current graph shape:
-            # task nodes BELONGS_TO a project, and status typically lives in metadata.
-            query = """
-            MATCH (t)-[:BELONGS_TO]->(p)
-            WHERE t.entity_type = 'task'
-              AND p.entity_type = 'project'
-              AND t.group_id = $group_id
-              AND p.uuid = $project_id
-            RETURN t.metadata AS metadata
-            """
-
-            rows = await self._graph_client.execute_read_org(
-                query,
-                self._organization_id,
-                group_id=self._organization_id,
-                project_id=project_id,
-            )
-            metadata_rows = []
-            for record in rows:
-                metadata = record.get("metadata") or {}
-                if isinstance(metadata, str):
-                    try:
-                        metadata = json.loads(metadata)
-                    except json.JSONDecodeError:
-                        metadata = {}
-                metadata_rows.append(metadata)
+        tasks = await self._entity_manager.list_by_type(
+            EntityType.TASK,
+            project_id=project_id,
+            limit=10_000,
+            include_archived=True,
+        )
+        metadata_rows = [task.metadata or {} for task in tasks]
 
         for metadata in metadata_rows:
             status = (metadata.get("status") if isinstance(metadata, dict) else None) or "todo"
@@ -718,44 +674,20 @@ class TaskWorkflowEngine:
 
         log.debug("Checking epic auto-completion", epic_id=epic_id, task_id=task.id)
 
-        if self._uses_surreal_runtime():
-            epic = await self._entity_manager.get(epic_id)
-            current_status = str((epic.metadata or {}).get("status") or "planning")
-            tasks = await self._entity_manager.list_by_type(
-                EntityType.TASK,
-                epic_id=epic_id,
-                limit=10_000,
-                include_archived=True,
-            )
-            total = len(tasks)
-            terminal = 0
-            for epic_task in tasks:
-                task_status = str((epic_task.metadata or {}).get("status") or "").lower()
-                if task_status in {"done", "archived"}:
-                    terminal += 1
-        else:
-            # Query all tasks in this epic and their statuses
-            query = """
-            MATCH (epic {uuid: $epic_id})<-[:BELONGS_TO]-(t)
-            WHERE t.entity_type = 'task'
-            WITH epic,
-                 count(t) as total,
-                 count(CASE WHEN t.status IN ['done', 'archived'] THEN 1 END) as terminal
-            RETURN epic.status as epic_status, total, terminal
-            """
-
-            rows = await self._graph_client.execute_read_org(
-                query, self._organization_id, epic_id=epic_id
-            )
-
-            if not rows:
-                log.warning("Epic not found for auto-completion", epic_id=epic_id)
-                return False
-
-            record = rows[0]
-            total = record.get("total", 0)
-            terminal = record.get("terminal", 0)
-            current_status = record.get("epic_status", "planning")
+        epic = await self._entity_manager.get(epic_id)
+        current_status = str((epic.metadata or {}).get("status") or "planning")
+        tasks = await self._entity_manager.list_by_type(
+            EntityType.TASK,
+            epic_id=epic_id,
+            limit=10_000,
+            include_archived=True,
+        )
+        total = len(tasks)
+        terminal = 0
+        for epic_task in tasks:
+            task_status = str((epic_task.metadata or {}).get("status") or "").lower()
+            if task_status in {"done", "archived"}:
+                terminal += 1
 
         # Already completed or no tasks
         if current_status in ["completed", "archived"] or total == 0:

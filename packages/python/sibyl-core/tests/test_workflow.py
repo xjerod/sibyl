@@ -101,6 +101,35 @@ class MockEntityManager:
         self.entities[entity.id] = entity
         return entity.id
 
+    async def list_by_type(
+        self,
+        entity_type: EntityType,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        project_id: str | None = None,
+        epic_id: str | None = None,
+        include_archived: bool = False,
+        **_: Any,
+    ) -> list[Entity]:
+        """List entities by type with the workflow filters this suite relies on."""
+        results = []
+        for entity in self.entities.values():
+            if entity.entity_type != entity_type:
+                continue
+
+            metadata = entity.metadata or {}
+            if project_id and metadata.get("project_id") != project_id:
+                continue
+            if epic_id and metadata.get("epic_id") != epic_id:
+                continue
+            if not include_archived and metadata.get("status") == "archived":
+                continue
+
+            results.append(entity)
+
+        return results[offset : offset + limit]
+
     async def get_notes_for_task(self, task_id: str, limit: int = 50) -> list[Entity]:
         """Return stored task notes."""
         notes = (self.notes_by_task or {}).get(task_id, [])
@@ -638,13 +667,12 @@ class TestWorkflowEngine:
         assert result.metadata.get("archive_reason") == "No longer needed"
 
     @pytest.mark.asyncio
-    async def test_update_project_progress_uses_belongs_to_relationship(
+    async def test_update_project_progress_uses_entity_manager_task_metadata(
         self,
         workflow_engine: TaskWorkflowEngine,
         mock_entity_manager: MockEntityManager,
-        mock_graph_client: MockGraphClient,
     ) -> None:
-        """Project progress uses BELONGS_TO edges and task metadata status values."""
+        """Project progress should derive counts from task metadata via the entity seam."""
         project_id = "project_abc123"
         mock_entity_manager.entities[project_id] = make_entity(
             entity_id=project_id,
@@ -652,22 +680,63 @@ class TestWorkflowEngine:
             entity_type=EntityType.PROJECT,
             metadata={},
         )
-        mock_graph_client.query_results = [
-            {"metadata": {"status": "done"}},
-            {"metadata": '{"status":"doing"}'},
-            {"metadata": {"status": "todo"}},
-        ]
+        mock_entity_manager.entities["task_done"] = make_entity(
+            entity_id="task_done",
+            name="Done task",
+            metadata={"status": "done", "project_id": project_id},
+        )
+        mock_entity_manager.entities["task_doing"] = make_entity(
+            entity_id="task_doing",
+            name="Doing task",
+            metadata={"status": "doing", "project_id": project_id},
+        )
+        mock_entity_manager.entities["task_todo"] = make_entity(
+            entity_id="task_todo",
+            name="Todo task",
+            metadata={"status": "todo", "project_id": project_id},
+        )
 
         await workflow_engine._update_project_progress(project_id)
-
-        assert mock_graph_client.last_query is not None
-        assert "BELONGS_TO" in mock_graph_client.last_query
-        assert "CONTAINS" not in mock_graph_client.last_query
 
         project = mock_entity_manager.entities[project_id]
         assert project.metadata["total_tasks"] == 3
         assert project.metadata["completed_tasks"] == 1
         assert project.metadata["in_progress_tasks"] == 1
+
+    @pytest.mark.asyncio
+    async def test_maybe_complete_epic_uses_entity_manager_task_statuses(
+        self,
+        workflow_engine: TaskWorkflowEngine,
+        mock_entity_manager: MockEntityManager,
+    ) -> None:
+        """Epic completion should read child task state through the entity seam."""
+        epic_id = "epic_abc123"
+        task = make_task(task_id="task_done", status=TaskStatus.DONE, epic_id=epic_id)
+
+        mock_entity_manager.entities[epic_id] = make_entity(
+            entity_id=epic_id,
+            name="Test epic",
+            entity_type=EntityType.EPIC,
+            metadata={"status": "in_progress"},
+        )
+        mock_entity_manager.entities[task.id] = make_entity(
+            entity_id=task.id,
+            name=task.title,
+            metadata={"status": "done", "epic_id": epic_id},
+        )
+        mock_entity_manager.entities["task_archived"] = make_entity(
+            entity_id="task_archived",
+            name="Archived task",
+            metadata={"status": "archived", "epic_id": epic_id},
+        )
+
+        result = await workflow_engine._maybe_complete_epic(task)
+
+        assert result is True
+        epic = mock_entity_manager.entities[epic_id]
+        assert epic.metadata["status"] == "completed"
+        assert epic.metadata["total_tasks"] == 2
+        assert epic.metadata["completed_tasks"] == 2
 
     @pytest.mark.asyncio
     async def test_archive_from_archived_raises(
