@@ -151,9 +151,7 @@ def _load_archive_bytes(source: Path) -> dict[str, bytes]:
                 files[path.relative_to(source).as_posix()] = path.read_bytes()
         return files
 
-    if source.is_file() and (
-        source.name.endswith(".tar.gz") or source.name.endswith(".tgz")
-    ):
+    if source.is_file() and (source.name.endswith(".tar.gz") or source.name.endswith(".tgz")):
         with tarfile.open(source, "r:gz") as tar:
             for member in tar.getmembers():
                 if not member.isfile():
@@ -185,7 +183,11 @@ def _legacy_manifest_from_files(files: dict[str, bytes]) -> ArchiveManifest:
             path=name,
             sha256=str(checksums.get(name) or _sha256_bytes(payload)),
             size_bytes=len(payload),
-            kind="graph" if name == GRAPH_FILENAME else "postgres" if name == POSTGRES_FILENAME else "other",
+            kind="graph"
+            if name == GRAPH_FILENAME
+            else "postgres"
+            if name == POSTGRES_FILENAME
+            else "other",
         )
 
     return ArchiveManifest(
@@ -234,6 +236,39 @@ def validate_archive(archive: LoadedArchive) -> list[str]:
 
     for unexpected in sorted(set(archive.files) - set(archive.manifest.files)):
         errors.append(f"unexpected archive file not listed in manifest: {unexpected}")
+
+    graph_bytes = archive.files.get(GRAPH_FILENAME)
+    if graph_bytes is not None:
+        try:
+            graph_payload = json.loads(graph_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            errors.append(f"graph.json is not valid UTF-8 JSON: {exc}")
+        else:
+            declared_entities = graph_payload.get("entity_count")
+            declared_relationships = graph_payload.get("relationship_count")
+            entities = graph_payload.get("entities", [])
+            relationships = graph_payload.get("relationships", [])
+
+            if isinstance(declared_entities, int) and declared_entities != len(entities):
+                errors.append(
+                    "graph.json entity_count mismatch: "
+                    f"declared {declared_entities}, found {len(entities)} entities"
+                )
+            if isinstance(declared_relationships, int) and declared_relationships != len(
+                relationships
+            ):
+                errors.append(
+                    "graph.json relationship_count mismatch: "
+                    f"declared {declared_relationships}, found {len(relationships)} relationships"
+                )
+
+            payload_org_id = str(graph_payload.get("organization_id") or "")
+            manifest_org_id = archive.manifest.organization_id
+            if payload_org_id and manifest_org_id and payload_org_id != manifest_org_id:
+                errors.append(
+                    "graph.json organization_id mismatch: "
+                    f"manifest {manifest_org_id}, payload {payload_org_id}"
+                )
 
     return errors
 

@@ -115,3 +115,7 @@ runtime. That command keeps writes frozen through import, verification, baseline
 optional live bench checks. Reopening writes is a separate explicit step with
 `--reopen-writes --acknowledge-no-instant-rollback`, because instant zero-loss rollback is not
 promised after Surreal starts accepting new writes.
+
+Run `moon run chaos-archive -- /tmp/migration.tar.gz` when you want a quick corruption drill for the
+archive format itself. The current probe mutates checksums, graph counts, and organization IDs to
+make sure the validator rejects obviously bad cutover inputs before a restore window starts.

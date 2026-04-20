@@ -221,6 +221,7 @@ tasks:
     deps:
       - ~:inventory-test
       - ~:bench-gate-test
+      - ~:chaos-test
       - ~:storage-access-test
       - ~:baseline-test
       - core:test
@@ -289,6 +290,22 @@ tasks:
     inputs:
       - tools/**/*.py
       - pyproject.toml
+
+  chaos-archive:
+    command: uv run python -m tools.chaos.archive_probe
+    inputs:
+      - tools/**/*.py
+      - packages/python/sibyl-core/src/**/*.py
+      - pyproject.toml
+      - packages/python/sibyl-core/pyproject.toml
+
+  chaos-test:
+    command: uv run pytest tools/tests/test_archive_probe.py -v
+    inputs:
+      - tools/**/*.py
+      - packages/python/sibyl-core/src/**/*.py
+      - pyproject.toml
+      - packages/python/sibyl-core/pyproject.toml
 
   storage-access-check:
     command: uv run python -m tools.lint.no_direct_storage_access

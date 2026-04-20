@@ -84,6 +84,66 @@ def test_validate_archive_detects_checksum_mismatch(tmp_path: Path) -> None:
     assert "size mismatch" in errors[1]
 
 
+def test_validate_archive_detects_graph_count_drift(tmp_path: Path) -> None:
+    files = {GRAPH_FILENAME: _graph_bytes(entity_count=2, relationship_count=1)}
+    manifest = build_manifest(
+        organization_id="org-123",
+        source_store="legacy",
+        files=files,
+        file_metadata={GRAPH_FILENAME: {"kind": "graph"}},
+    )
+    archive_path = tmp_path / "migration.tar.gz"
+    write_archive(archive_path, manifest=manifest, files=files)
+    loaded = load_archive(archive_path)
+
+    graph_payload = json.loads(loaded.files[GRAPH_FILENAME].decode("utf-8"))
+    graph_payload["entity_count"] = 9
+    loaded = loaded.__class__(
+        source=loaded.source,
+        manifest=build_manifest(
+            organization_id="org-123",
+            source_store="legacy",
+            files={GRAPH_FILENAME: json.dumps(graph_payload).encode("utf-8")},
+            file_metadata={GRAPH_FILENAME: {"kind": "graph"}},
+        ),
+        files={GRAPH_FILENAME: json.dumps(graph_payload).encode("utf-8")},
+    )
+
+    errors = validate_archive(loaded)
+
+    assert errors == ["graph.json entity_count mismatch: declared 9, found 2 entities"]
+
+
+def test_validate_archive_detects_graph_org_mismatch(tmp_path: Path) -> None:
+    files = {GRAPH_FILENAME: _graph_bytes(entity_count=2, relationship_count=1)}
+    manifest = build_manifest(
+        organization_id="org-123",
+        source_store="legacy",
+        files=files,
+        file_metadata={GRAPH_FILENAME: {"kind": "graph"}},
+    )
+    archive_path = tmp_path / "migration.tar.gz"
+    write_archive(archive_path, manifest=manifest, files=files)
+    loaded = load_archive(archive_path)
+
+    graph_payload = json.loads(loaded.files[GRAPH_FILENAME].decode("utf-8"))
+    graph_payload["organization_id"] = "other-org"
+    loaded = loaded.__class__(
+        source=loaded.source,
+        manifest=build_manifest(
+            organization_id="org-123",
+            source_store="legacy",
+            files={GRAPH_FILENAME: json.dumps(graph_payload).encode("utf-8")},
+            file_metadata={GRAPH_FILENAME: {"kind": "graph"}},
+        ),
+        files={GRAPH_FILENAME: json.dumps(graph_payload).encode("utf-8")},
+    )
+
+    errors = validate_archive(loaded)
+
+    assert errors == ["graph.json organization_id mismatch: manifest org-123, payload other-org"]
+
+
 def test_load_archive_supports_legacy_backup_metadata(tmp_path: Path) -> None:
     archive_path = tmp_path / "legacy.tar.gz"
     graph_bytes = _graph_bytes()
@@ -111,7 +171,9 @@ def test_load_archive_supports_legacy_backup_metadata(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_verify_graph_archive_checks_counts_and_samples(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_verify_graph_archive_checks_counts_and_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     files = {GRAPH_FILENAME: _graph_bytes()}
     manifest = build_manifest(
         organization_id="org-123",
