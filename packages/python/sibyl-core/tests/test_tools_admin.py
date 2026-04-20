@@ -53,6 +53,15 @@ class TestRebuildIndices:
         assert "requested target: all" in result.message.lower()
 
 
+class TestBackupInventory:
+    """Migration backups should export the full entity inventory."""
+
+    def test_backup_entity_types_cover_every_entity_type(self) -> None:
+        from sibyl_core.tools.admin import BACKUP_ENTITY_TYPES
+
+        assert set(BACKUP_ENTITY_TYPES) == set(EntityType)
+
+
 class TestHealthAndStats:
     """Admin health/stat helpers should use paged entity seams."""
 
@@ -157,6 +166,7 @@ class TestRestoreBackup:
         relationship_manager = AsyncMock()
         entity_manager.bulk_create_direct = AsyncMock(return_value=(2, 0))
         entity_manager.create_direct = AsyncMock()
+        relationship_manager.create_bulk = AsyncMock(return_value=(1, 0))
         relationship_manager.create = AsyncMock()
         backup_data = BackupData(
             version="2.0",
@@ -202,7 +212,8 @@ class TestRestoreBackup:
         assert result.entities_skipped == 0
         entity_manager.bulk_create_direct.assert_awaited_once()
         entity_manager.create_direct.assert_not_awaited()
-        relationship_manager.create.assert_awaited_once()
+        relationship_manager.create_bulk.assert_awaited_once()
+        relationship_manager.create.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_skip_existing_restore_uses_direct_create_without_embeddings(self) -> None:
@@ -214,6 +225,7 @@ class TestRestoreBackup:
         )
         entity_manager.create_direct = AsyncMock()
         entity_manager.bulk_create_direct = AsyncMock()
+        relationship_manager.create_bulk = AsyncMock(return_value=(0, 0))
         relationship_manager.create = AsyncMock()
         backup_data = BackupData(
             version="2.0",
@@ -255,6 +267,7 @@ class TestRestoreBackup:
         assert result.entities_skipped == 1
         entity_manager.bulk_create_direct.assert_not_awaited()
         entity_manager.create_direct.assert_awaited_once()
+        relationship_manager.create_bulk.assert_not_awaited()
         create_args = entity_manager.create_direct.await_args
         assert create_args.args[0].id == "entity-2"
         assert create_args.kwargs == {"generate_embedding": False}

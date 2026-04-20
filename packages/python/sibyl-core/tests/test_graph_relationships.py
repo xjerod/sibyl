@@ -319,6 +319,49 @@ class TestRelationshipBulkCreate:
     """Test bulk relationship creation."""
 
     @pytest.mark.asyncio
+    async def test_bulk_create_uses_surreal_edge_ops_and_dedupes(
+        self,
+        surreal_relationship_manager: RelationshipManager,
+    ) -> None:
+        ops = surreal_relationship_manager._driver.entity_edge_ops
+        ops.save_bulk = AsyncMock()
+        relationships = [
+            Relationship(
+                id="rel-1",
+                relationship_type=RelationshipType.RELATED_TO,
+                source_id="entity-1",
+                target_id="entity-2",
+                weight=1.0,
+            ),
+            Relationship(
+                id="rel-2",
+                relationship_type=RelationshipType.RELATED_TO,
+                source_id="entity-1",
+                target_id="entity-2",
+                weight=1.0,
+            ),
+            Relationship(
+                id="rel-3",
+                relationship_type=RelationshipType.DEPENDS_ON,
+                source_id="entity-2",
+                target_id="entity-3",
+                weight=1.0,
+            ),
+        ]
+
+        created, failed = await surreal_relationship_manager.create_bulk(relationships)
+
+        assert created == 2
+        assert failed == 0
+        ops.save_bulk.assert_awaited_once()
+        saved_edges = ops.save_bulk.await_args.args[1]
+        assert len(saved_edges) == 2
+        assert {(edge.source_node_uuid, edge.name, edge.target_node_uuid) for edge in saved_edges} == {
+            ("entity-1", "RELATED_TO", "entity-2"),
+            ("entity-2", "DEPENDS_ON", "entity-3"),
+        }
+
+    @pytest.mark.asyncio
     async def test_bulk_create_success(
         self,
         relationship_manager: RelationshipManager,

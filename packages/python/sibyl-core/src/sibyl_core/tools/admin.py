@@ -476,21 +476,8 @@ class RestoreResult:
     duration_seconds: float
 
 
-# Entity types to include in backup
-BACKUP_ENTITY_TYPES = [
-    EntityType.PATTERN,
-    EntityType.RULE,
-    EntityType.TEMPLATE,
-    EntityType.TOOL,
-    EntityType.LANGUAGE,
-    EntityType.TOPIC,
-    EntityType.EPISODE,
-    EntityType.TASK,
-    EntityType.PROJECT,
-    EntityType.TEAM,
-    EntityType.KNOWLEDGE_SOURCE,
-    EntityType.DOCUMENT,
-]
+# Export every entity type that can participate in graph edges.
+BACKUP_ENTITY_TYPES = list(EntityType)
 
 
 async def create_backup(*, organization_id: str) -> BackupResult:
@@ -642,19 +629,35 @@ async def restore_backup(
                     if len(errors) <= 10:
                         log.warning("Entity restore failed", error=error_msg)
 
-        # Restore relationships
+        relationships_to_restore: list[Relationship] = []
         for rel_data in backup_data.relationships:
             try:
                 relationship = Relationship.model_validate(rel_data)
-                # Note: RelationshipManager doesn't have get(id), so we can't check existence
-                # Create will fail if relationship already exists (handled in except block)
-                await relationship_manager.create(relationship)
-                relationships_restored += 1
+                relationships_to_restore.append(relationship)
             except Exception as e:
                 error_msg = f"Relationship {rel_data.get('id', 'unknown')}: {e}"
                 errors.append(error_msg)
                 if len(errors) <= 10:
                     log.warning("Relationship restore failed", error=error_msg)
+
+        create_bulk = getattr(relationship_manager, "create_bulk", None)
+        if relationships_to_restore and callable(create_bulk):
+            created_count, failed_count = await create_bulk(relationships_to_restore)
+            relationships_restored += created_count
+            if failed_count:
+                error_msg = f"Bulk relationship restore failed for {failed_count} relationships"
+                errors.append(error_msg)
+                log.warning("Bulk relationship restore reported failures", failed=failed_count)
+        else:
+            for relationship in relationships_to_restore:
+                try:
+                    await relationship_manager.create(relationship)
+                    relationships_restored += 1
+                except Exception as e:
+                    error_msg = f"Relationship {relationship.id}: {e}"
+                    errors.append(error_msg)
+                    if len(errors) <= 10:
+                        log.warning("Relationship restore failed", error=error_msg)
 
         duration = time.time() - start_time
         log.info(

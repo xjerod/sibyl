@@ -175,6 +175,26 @@ class RelationshipManager:
             "fact": edge.fact,
         }
 
+    def _dedupe_relationships_for_create(
+        self,
+        relationships: list[Relationship],
+    ) -> list[Relationship]:
+        """Preserve the first edge for each source/type/target triplet.
+
+        create() already treats duplicate triplets as idempotent in the active
+        runtime, so batch paths need the same behavior before they bypass that
+        duplicate check.
+        """
+        unique: dict[tuple[str, str, str], Relationship] = {}
+        for relationship in relationships:
+            key = (
+                relationship.source_id,
+                relationship.relationship_type.value,
+                relationship.target_id,
+            )
+            unique.setdefault(key, relationship)
+        return list(unique.values())
+
     async def create(self, relationship: Relationship) -> str:
         """Create a new relationship between entities.
 
@@ -288,10 +308,34 @@ class RelationshipManager:
         Returns:
             Tuple of (created_count, failed_count)
         """
+        relationships = self._dedupe_relationships_for_create(relationships)
         log.info("Creating relationships in bulk", count=len(relationships))
 
         created = 0
         failed = 0
+
+        surreal_edge_ops = self._surreal_entity_edge_ops()
+        if surreal_edge_ops is not None:
+            try:
+                edges = [self._to_graphiti_edge(relationship) for relationship in relationships]
+                await surreal_edge_ops.save_bulk(self._driver, edges)
+                created += len(edges)
+            except Exception as e:
+                log.warning(
+                    "bulk relationship save failed, falling back to per-relationship create",
+                    batch_size=len(relationships),
+                    error=str(e),
+                )
+                for relationship in relationships:
+                    try:
+                        await self.create(relationship)
+                        created += 1
+                    except Exception as item_error:
+                        log.warning("Failed to create relationship", error=str(item_error))
+                        failed += 1
+
+            log.info("Bulk create complete", created=created, failed=failed)
+            return created, failed
 
         groups: dict[str, list[Relationship]] = defaultdict(list)
         for relationship in relationships:
