@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Self
+from uuid import uuid4
+
+from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.errors import EntityNotFoundError
 from sibyl_core.graph.client import GraphClient, get_graph_client, reset_graph_client
@@ -92,6 +97,139 @@ def _coerce_relationship(row: dict[str, object]) -> Relationship:
         target_id=str(row.get("target_id") or ""),
         weight=_coerce_float(row.get("weight")),
         metadata=metadata,
+    )
+
+
+def _surreal_driver_for(driver: Any) -> Any | None:
+    try:
+        from sibyl_core.backends.surreal import SurrealDriver
+    except ImportError:
+        return None
+
+    return driver if isinstance(driver, SurrealDriver) else None
+
+
+def _surreal_entity_node_ops_for(driver: Any) -> Any | None:
+    surreal_driver = _surreal_driver_for(driver)
+    return surreal_driver.entity_node_ops if surreal_driver is not None else None
+
+
+def _surreal_entity_edge_ops_for(driver: Any) -> Any | None:
+    surreal_driver = _surreal_driver_for(driver)
+    return surreal_driver.entity_edge_ops if surreal_driver is not None else None
+
+
+async def _list_surreal_entity_nodes(
+    driver: Any,
+    group_id: str,
+    *,
+    page_size: int = 1000,
+) -> list[Any]:
+    ops = _surreal_entity_node_ops_for(driver)
+    if ops is None:
+        return []
+
+    nodes: list[Any] = []
+    uuid_cursor: str | None = None
+    seen_cursors: set[str] = set()
+
+    while True:
+        batch = await ops.get_by_group_ids(
+            driver,
+            [group_id],
+            limit=page_size,
+            uuid_cursor=uuid_cursor,
+        )
+        if not batch:
+            break
+        nodes.extend(batch)
+        if len(batch) < page_size:
+            break
+        next_cursor = getattr(batch[-1], "uuid", None)
+        if not isinstance(next_cursor, str) or next_cursor in seen_cursors:
+            break
+        seen_cursors.add(next_cursor)
+        uuid_cursor = next_cursor
+
+    return nodes
+
+
+async def _list_surreal_entity_edges(
+    driver: Any,
+    group_id: str,
+    *,
+    page_size: int = 1000,
+) -> list[Any]:
+    ops = _surreal_entity_edge_ops_for(driver)
+    if ops is None:
+        return []
+
+    edges: list[Any] = []
+    uuid_cursor: str | None = None
+    seen_cursors: set[str] = set()
+
+    while True:
+        batch = await ops.get_by_group_ids(
+            driver,
+            [group_id],
+            limit=page_size,
+            uuid_cursor=uuid_cursor,
+        )
+        if not batch:
+            break
+        edges.extend(batch)
+        if len(batch) < page_size:
+            break
+        next_cursor = getattr(batch[-1], "uuid", None)
+        if not isinstance(next_cursor, str) or next_cursor in seen_cursors:
+            break
+        seen_cursors.add(next_cursor)
+        uuid_cursor = next_cursor
+
+    return edges
+
+
+def _relationship_from_edge(edge: Any) -> Relationship:
+    raw_attributes = getattr(edge, "attributes", None)
+    attributes = dict(raw_attributes or {}) if isinstance(raw_attributes, dict) else {}
+    weight = _coerce_float(attributes.pop("weight", 1.0))
+
+    relationship_name = str(getattr(edge, "name", None) or "RELATED_TO")
+    try:
+        relationship_type = RelationshipType(relationship_name)
+    except ValueError:
+        relationship_type = RelationshipType.RELATED_TO
+
+    return Relationship(
+        id=str(getattr(edge, "uuid", "")),
+        relationship_type=relationship_type,
+        source_id=str(getattr(edge, "source_node_uuid", "")),
+        target_id=str(getattr(edge, "target_node_uuid", "")),
+        weight=weight,
+        metadata=attributes,
+    )
+
+
+def _relationship_to_edge(relationship: Relationship, group_id: str) -> Any:
+    from graphiti_core.edges import EntityEdge
+
+    return EntityEdge(
+        uuid=relationship.id or str(uuid4()),
+        group_id=group_id,
+        source_node_uuid=relationship.source_id,
+        target_node_uuid=relationship.target_id,
+        created_at=relationship.created_at or datetime.now(UTC),
+        name=relationship.relationship_type.value,
+        fact=f"{relationship.relationship_type.value} relationship",
+        fact_embedding=None,
+        episodes=[],
+        expired_at=None,
+        valid_at=datetime.now(UTC),
+        invalid_at=None,
+        attributes={
+            "weight": relationship.weight,
+            **(relationship.metadata or {}),
+        },
     )
 
 
@@ -184,7 +322,13 @@ class GraphEntityStore(EntityStore):
     ) -> list[tuple[Entity, float]]:
         return await self._manager.search(query, entity_types=entity_types, limit=limit)
 
+    def entity_from_node(self, node: Any) -> Entity:
+        return self._manager.node_to_entity(node)
+
     async def count(self) -> int:
+        if _surreal_entity_node_ops_for(self._driver) is not None:
+            return len(await _list_surreal_entity_nodes(self._driver, self._group_id))
+
         rows = GraphClient.normalize_result(
             await self._driver.execute_query(
                 """
@@ -215,6 +359,16 @@ class GraphRelationshipStore(RelationshipStore):
         )
 
     async def get(self, relationship_id: str) -> Relationship | None:
+        surreal_edge_ops = _surreal_entity_edge_ops_for(self._driver)
+        if surreal_edge_ops is not None:
+            try:
+                edge = await surreal_edge_ops.get_by_uuid(self._driver, relationship_id)
+            except EdgeNotFoundError:
+                return None
+            if getattr(edge, "group_id", None) != self._group_id:
+                return None
+            return _relationship_from_edge(edge)
+
         rows = GraphClient.normalize_result(
             await self._driver.execute_query(
                 """
@@ -238,6 +392,16 @@ class GraphRelationshipStore(RelationshipStore):
 
     async def upsert(self, relationship: Relationship) -> Relationship:
         existing = await self.get(relationship.id)
+        surreal_edge_ops = _surreal_entity_edge_ops_for(self._driver)
+        if surreal_edge_ops is not None and existing is not None:
+            edge = _relationship_to_edge(relationship, self._group_id)
+            await surreal_edge_ops.save(self._driver, edge)
+            refreshed = await self.get(edge.uuid)
+            if refreshed is None:
+                msg = f"Relationship not found after update: {edge.uuid}"
+                raise LookupError(msg)
+            return refreshed
+
         if existing is not None:
             patch = RelationshipPatch(weight=relationship.weight, metadata=relationship.metadata)
             await self._driver.execute_query(
@@ -283,6 +447,33 @@ class GraphRelationshipStore(RelationshipStore):
         *,
         relationship_type: RelationshipType | None = None,
     ) -> list[Relationship]:
+        surreal_edge_ops = _surreal_entity_edge_ops_for(self._driver)
+        if surreal_edge_ops is not None:
+            matches: dict[str, Relationship] = {}
+            candidate_edges = await surreal_edge_ops.get_between_nodes(
+                self._driver,
+                source_id,
+                target_id,
+            )
+            if source_id != target_id:
+                candidate_edges.extend(
+                    await surreal_edge_ops.get_between_nodes(
+                        self._driver,
+                        target_id,
+                        source_id,
+                    )
+                )
+
+            for edge in candidate_edges:
+                if getattr(edge, "group_id", None) != self._group_id:
+                    continue
+                relationship = _relationship_from_edge(edge)
+                if relationship_type is not None and relationship.relationship_type != relationship_type:
+                    continue
+                matches[relationship.id] = relationship
+
+            return list(matches.values())
+
         rows = GraphClient.normalize_result(
             await self._driver.execute_query(
                 """
@@ -306,6 +497,9 @@ class GraphRelationshipStore(RelationshipStore):
         return [rel for rel in relationships if rel.relationship_type == relationship_type]
 
     async def count(self) -> int:
+        if _surreal_entity_edge_ops_for(self._driver) is not None:
+            return len(await _list_surreal_entity_edges(self._driver, self._group_id))
+
         rows = GraphClient.normalize_result(
             await self._driver.execute_query(
                 """
@@ -357,6 +551,26 @@ class GraphSearchIndex(SearchIndex):
 
     async def stats(self) -> GraphStats:
         driver = self._client.get_org_driver(self._group_id)
+        if _surreal_driver_for(driver) is not None:
+            entity_counts: Counter[str] = Counter()
+            relationship_counts: Counter[str] = Counter()
+
+            for node in await _list_surreal_entity_nodes(driver, self._group_id):
+                entity = self._entities.entity_from_node(node)
+                entity_counts[entity.entity_type.value] += 1
+
+            for edge in await _list_surreal_entity_edges(driver, self._group_id):
+                relationship_counts[str(getattr(edge, "name", None) or "RELATED_TO")] += 1
+
+            entities_by_type = dict(entity_counts)
+            relationships_by_type = dict(relationship_counts)
+            return GraphStats(
+                total_entities=sum(entities_by_type.values()),
+                total_relationships=sum(relationships_by_type.values()),
+                entities_by_type=entities_by_type,
+                relationships_by_type=relationships_by_type,
+            )
+
         node_rows = GraphClient.normalize_result(
             await driver.execute_query(
                 """
