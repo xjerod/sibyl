@@ -941,12 +941,28 @@ def _prepare_graph_runtime(org_id: str, *, clean: bool) -> None:
     @run_async
     async def _prepare() -> None:
         from sibyl.config import settings
+        from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
         from sibyl_core.graph.client import get_graph_client
 
         client = await get_graph_client()
         if settings.store == "surreal":
             driver = client.get_org_driver(org_id)
-            await driver.build_indices_and_constraints(delete_existing=clean)
+
+            async def _clear_surreal_group_data() -> None:
+                # Table names come from the static schema constants above.
+                for table in (*GRAPH_EDGES, *GRAPH_TABLES):
+                    query = f"DELETE FROM {table} WHERE group_id = $group_id;"  # noqa: S608
+                    await driver.execute_query(query, group_id=org_id)
+
+            if clean:
+                graph_ops = getattr(driver, "graph_ops", None)
+                if graph_ops is not None:
+                    try:
+                        await graph_ops.clear_data(driver, group_ids=[org_id])
+                    except Exception:
+                        await _clear_surreal_group_data()
+                else:
+                    await _clear_surreal_group_data()
             return
 
         if clean:

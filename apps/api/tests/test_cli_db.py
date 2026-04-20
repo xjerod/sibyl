@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -154,3 +154,21 @@ def test_restore_prepares_graph_runtime_before_restore(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     prepare.assert_called_once_with("org-123", clean=False)
+
+
+def test_prepare_graph_runtime_surreal_clears_rows_without_bootstrapping_schema(monkeypatch) -> None:
+    driver = MagicMock()
+    driver.graph_ops = SimpleNamespace(clear_data=AsyncMock())
+    driver.build_indices_and_constraints = AsyncMock()
+
+    client = MagicMock()
+    client.get_org_driver.return_value = driver
+
+    monkeypatch.setattr("sibyl.config.settings.store", "surreal")
+
+    with patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)):
+        db_cli._prepare_graph_runtime("org-123", clean=True)
+
+    client.get_org_driver.assert_called_once_with("org-123")
+    driver.graph_ops.clear_data.assert_awaited_once_with(driver, group_ids=["org-123"])
+    driver.build_indices_and_constraints.assert_not_called()
