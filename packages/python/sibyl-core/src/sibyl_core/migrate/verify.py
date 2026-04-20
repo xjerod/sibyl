@@ -19,7 +19,12 @@ class GraphVerificationResult:
     actual_entities: int
     expected_relationships: int
     actual_relationships: int
+    expected_episodes: int = 0
+    actual_episodes: int = 0
+    expected_mentions: int = 0
+    actual_mentions: int = 0
     validated_entity_ids: list[str] = field(default_factory=list)
+    validated_episode_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 
@@ -40,6 +45,10 @@ async def verify_graph_archive(
             actual_entities=0,
             expected_relationships=0,
             actual_relationships=0,
+            expected_episodes=0,
+            actual_episodes=0,
+            expected_mentions=0,
+            actual_mentions=0,
             errors=errors,
         )
 
@@ -49,10 +58,14 @@ async def verify_graph_archive(
     expected_relationships = int(
         graph_payload.get("relationship_count") or len(graph_payload.get("relationships", []))
     )
+    expected_episodes = int(graph_payload.get("episode_count") or len(graph_payload.get("episodes", [])))
+    expected_mentions = int(graph_payload.get("mention_count") or len(graph_payload.get("mentions", [])))
 
     backup_result = await create_backup(organization_id=organization_id)
     actual_entities = backup_result.entity_count
     actual_relationships = backup_result.relationship_count
+    actual_episodes = backup_result.episode_count
+    actual_mentions = backup_result.mention_count
 
     if not backup_result.success:
         errors.append(backup_result.message)
@@ -66,6 +79,10 @@ async def verify_graph_archive(
             "relationship count mismatch: "
             f"expected {expected_relationships}, got {actual_relationships}"
         )
+    if actual_episodes != expected_episodes:
+        errors.append(f"episode count mismatch: expected {expected_episodes}, got {actual_episodes}")
+    if actual_mentions != expected_mentions:
+        errors.append(f"mention count mismatch: expected {expected_mentions}, got {actual_mentions}")
 
     runtime = await get_graph_runtime(organization_id)
     validated_entity_ids: list[str] = []
@@ -82,6 +99,20 @@ async def verify_graph_archive(
             continue
         validated_entity_ids.append(entity_id)
 
+    validated_episode_ids: list[str] = []
+    for episode_payload in list(graph_payload.get("episodes", []))[:sample_size]:
+        episode_id = str(episode_payload.get("uuid") or "")
+        if not episode_id:
+            continue
+        try:
+            episode = await runtime.entity_manager.get(episode_id)
+        except Exception:
+            episode = None
+        if episode is None:
+            errors.append(f"missing imported episode: {episode_id}")
+            continue
+        validated_episode_ids.append(episode_id)
+
     return GraphVerificationResult(
         success=not errors,
         organization_id=organization_id,
@@ -89,7 +120,12 @@ async def verify_graph_archive(
         actual_entities=actual_entities,
         expected_relationships=expected_relationships,
         actual_relationships=actual_relationships,
+        expected_episodes=expected_episodes,
+        actual_episodes=actual_episodes,
+        expected_mentions=expected_mentions,
+        actual_mentions=actual_mentions,
         validated_entity_ids=validated_entity_ids,
+        validated_episode_ids=validated_episode_ids,
         errors=errors,
     )
 

@@ -46,6 +46,12 @@ def _coerce_graph_backup_data(payload: dict[str, object], org_id: str):
     raw_relationships = payload.get("relationships")
     relationships = list(raw_relationships) if isinstance(raw_relationships, list) else []
 
+    raw_episodes = payload.get("episodes")
+    episodes = list(raw_episodes) if isinstance(raw_episodes, list) else []
+
+    raw_mentions = payload.get("mentions")
+    mentions = list(raw_mentions) if isinstance(raw_mentions, list) else []
+
     def _count(key: str, fallback: int) -> int:
         value = payload.get(key)
         if isinstance(value, int):
@@ -69,6 +75,10 @@ def _coerce_graph_backup_data(payload: dict[str, object], org_id: str):
         relationship_count=_count("relationship_count", len(relationships)),
         entities=entities,
         relationships=relationships,
+        episode_count=_count("episode_count", len(episodes)),
+        mention_count=_count("mention_count", len(mentions)),
+        episodes=episodes,
+        mentions=mentions,
     )
 
 
@@ -157,7 +167,11 @@ def restore_db(
             backup_data = _coerce_graph_backup_data(backup_dict, org_id)
 
             info(
-                f"Restoring {backup_data.entity_count} entities and {backup_data.relationship_count} relationships..."
+                "Restoring "
+                f"{backup_data.entity_count} entities, "
+                f"{backup_data.relationship_count} relationships, "
+                f"{backup_data.episode_count} episodes, "
+                f"and {backup_data.mention_count} mentions..."
             )
             _prepare_graph_runtime(org_id, clean=False)
 
@@ -173,11 +187,24 @@ def restore_db(
                 warn("Restore completed with errors")
 
             info(
-                f"Restored: {result.entities_restored} entities, {result.relationships_restored} relationships"
+                "Restored: "
+                f"{result.entities_restored} entities, "
+                f"{result.relationships_restored} relationships, "
+                f"{getattr(result, 'episodes_restored', 0)} episodes, "
+                f"{getattr(result, 'mentions_restored', 0)} mentions"
             )
-            if result.entities_skipped or result.relationships_skipped:
+            if (
+                result.entities_skipped
+                or result.relationships_skipped
+                or getattr(result, "episodes_skipped", 0)
+                or getattr(result, "mentions_skipped", 0)
+            ):
                 info(
-                    f"Skipped: {result.entities_skipped} entities, {result.relationships_skipped} relationships"
+                    "Skipped: "
+                    f"{result.entities_skipped} entities, "
+                    f"{result.relationships_skipped} relationships, "
+                    f"{getattr(result, 'episodes_skipped', 0)} episodes, "
+                    f"{getattr(result, 'mentions_skipped', 0)} mentions"
                 )
             info(f"Duration: {result.duration_seconds:.2f}s")
 

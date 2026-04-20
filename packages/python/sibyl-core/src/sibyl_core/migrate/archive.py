@@ -246,8 +246,12 @@ def validate_archive(archive: LoadedArchive) -> list[str]:
         else:
             declared_entities = graph_payload.get("entity_count")
             declared_relationships = graph_payload.get("relationship_count")
+            declared_episodes = graph_payload.get("episode_count")
+            declared_mentions = graph_payload.get("mention_count")
             entities = graph_payload.get("entities", [])
             relationships = graph_payload.get("relationships", [])
+            episodes = graph_payload.get("episodes", [])
+            mentions = graph_payload.get("mentions", [])
 
             if isinstance(declared_entities, int) and declared_entities != len(entities):
                 errors.append(
@@ -260,6 +264,16 @@ def validate_archive(archive: LoadedArchive) -> list[str]:
                 errors.append(
                     "graph.json relationship_count mismatch: "
                     f"declared {declared_relationships}, found {len(relationships)} relationships"
+                )
+            if isinstance(declared_episodes, int) and declared_episodes != len(episodes):
+                errors.append(
+                    "graph.json episode_count mismatch: "
+                    f"declared {declared_episodes}, found {len(episodes)} episodes"
+                )
+            if isinstance(declared_mentions, int) and declared_mentions != len(mentions):
+                errors.append(
+                    "graph.json mention_count mismatch: "
+                    f"declared {declared_mentions}, found {len(mentions)} mentions"
                 )
 
             payload_org_id = str(graph_payload.get("organization_id") or "")

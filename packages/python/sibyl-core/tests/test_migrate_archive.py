@@ -20,7 +20,12 @@ from sibyl_core.migrate.archive import (
 from sibyl_core.migrate.verify import verify_graph_archive
 
 
-def _graph_bytes(entity_count: int = 2, relationship_count: int = 1) -> bytes:
+def _graph_bytes(
+    entity_count: int = 2,
+    relationship_count: int = 1,
+    episode_count: int = 0,
+    mention_count: int = 0,
+) -> bytes:
     return json.dumps(
         {
             "version": "2.0",
@@ -28,8 +33,12 @@ def _graph_bytes(entity_count: int = 2, relationship_count: int = 1) -> bytes:
             "organization_id": "org-123",
             "entity_count": entity_count,
             "relationship_count": relationship_count,
+            "episode_count": episode_count,
+            "mention_count": mention_count,
             "entities": [{"id": "entity-1"}, {"id": "entity-2"}][:entity_count],
             "relationships": [{"id": "rel-1"}][:relationship_count],
+            "episodes": [{"uuid": "episode-1"}][:episode_count],
+            "mentions": [{"uuid": "mention-1"}][:mention_count],
         }
     ).encode("utf-8")
 
@@ -114,6 +123,41 @@ def test_validate_archive_detects_graph_count_drift(tmp_path: Path) -> None:
     assert errors == ["graph.json entity_count mismatch: declared 9, found 2 entities"]
 
 
+def test_validate_archive_detects_episode_and_mention_count_drift(tmp_path: Path) -> None:
+    files = {GRAPH_FILENAME: _graph_bytes(episode_count=1, mention_count=1)}
+    manifest = build_manifest(
+        organization_id="org-123",
+        source_store="legacy",
+        files=files,
+        file_metadata={GRAPH_FILENAME: {"kind": "graph"}},
+    )
+    archive_path = tmp_path / "migration.tar.gz"
+    write_archive(archive_path, manifest=manifest, files=files)
+    loaded = load_archive(archive_path)
+
+    graph_payload = json.loads(loaded.files[GRAPH_FILENAME].decode("utf-8"))
+    graph_payload["episode_count"] = 2
+    graph_payload["mention_count"] = 3
+    mutated = json.dumps(graph_payload).encode("utf-8")
+    loaded = loaded.__class__(
+        source=loaded.source,
+        manifest=build_manifest(
+            organization_id="org-123",
+            source_store="legacy",
+            files={GRAPH_FILENAME: mutated},
+            file_metadata={GRAPH_FILENAME: {"kind": "graph"}},
+        ),
+        files={GRAPH_FILENAME: mutated},
+    )
+
+    errors = validate_archive(loaded)
+
+    assert errors == [
+        "graph.json episode_count mismatch: declared 2, found 1 episodes",
+        "graph.json mention_count mismatch: declared 3, found 1 mentions",
+    ]
+
+
 def test_validate_archive_detects_graph_org_mismatch(tmp_path: Path) -> None:
     files = {GRAPH_FILENAME: _graph_bytes(entity_count=2, relationship_count=1)}
     manifest = build_manifest(
@@ -174,7 +218,7 @@ def test_load_archive_supports_legacy_backup_metadata(tmp_path: Path) -> None:
 async def test_verify_graph_archive_checks_counts_and_samples(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    files = {GRAPH_FILENAME: _graph_bytes()}
+    files = {GRAPH_FILENAME: _graph_bytes(episode_count=1, mention_count=1)}
     manifest = build_manifest(
         organization_id="org-123",
         source_store="legacy",
@@ -196,6 +240,8 @@ async def test_verify_graph_archive_checks_counts_and_samples(
         success = True
         entity_count = 2
         relationship_count = 1
+        episode_count = 1
+        mention_count = 1
         message = "ok"
 
     async def fake_create_backup(*, organization_id: str):
@@ -214,4 +260,9 @@ async def test_verify_graph_archive_checks_counts_and_samples(
     assert result.success is True
     assert result.expected_entities == 2
     assert result.actual_entities == 2
+    assert result.expected_episodes == 1
+    assert result.actual_episodes == 1
+    assert result.expected_mentions == 1
+    assert result.actual_mentions == 1
     assert result.validated_entity_ids == ["entity-1", "entity-2"]
+    assert result.validated_episode_ids == ["episode-1"]

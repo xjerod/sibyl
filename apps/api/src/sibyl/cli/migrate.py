@@ -74,13 +74,22 @@ def _print_verify_summary(result: object) -> None:
     actual_entities = getattr(result, "actual_entities", 0)
     expected_relationships = getattr(result, "expected_relationships", 0)
     actual_relationships = getattr(result, "actual_relationships", 0)
+    expected_episodes = getattr(result, "expected_episodes", 0)
+    actual_episodes = getattr(result, "actual_episodes", 0)
+    expected_mentions = getattr(result, "expected_mentions", 0)
+    actual_mentions = getattr(result, "actual_mentions", 0)
     validated_entity_ids = list(getattr(result, "validated_entity_ids", []))
+    validated_episode_ids = list(getattr(result, "validated_episode_ids", []))
     errors = list(getattr(result, "errors", []))
 
     info(f"Entities: expected {expected_entities}, actual {actual_entities}")
     info(f"Relationships: expected {expected_relationships}, actual {actual_relationships}")
+    info(f"Episodes: expected {expected_episodes}, actual {actual_episodes}")
+    info(f"Mentions: expected {expected_mentions}, actual {actual_mentions}")
     if validated_entity_ids:
         info(f"Sampled entities: {len(validated_entity_ids)}")
+    if validated_episode_ids:
+        info(f"Sampled episodes: {len(validated_episode_ids)}")
     if errors:
         warn(f"Verification failed with {len(errors)} issue(s)")
         for issue in errors:
@@ -273,7 +282,9 @@ def check_archive(
         info(
             "Graph counts: "
             f"{graph_payload.get('entity_count', len(graph_payload.get('entities', [])))} entities, "
-            f"{graph_payload.get('relationship_count', len(graph_payload.get('relationships', [])))} relationships"
+            f"{graph_payload.get('relationship_count', len(graph_payload.get('relationships', [])))} relationships, "
+            f"{graph_payload.get('episode_count', len(graph_payload.get('episodes', [])))} episodes, "
+            f"{graph_payload.get('mention_count', len(graph_payload.get('mentions', [])))} mentions"
         )
     success("Archive validation passed")
 
@@ -323,11 +334,15 @@ def export_archive(
             "kind": "graph",
             "entity_count": int(graph_payload.get("entity_count", 0)),
             "relationship_count": int(graph_payload.get("relationship_count", 0)),
+            "episode_count": int(graph_payload.get("episode_count", 0)),
+            "mention_count": int(graph_payload.get("mention_count", 0)),
         }
         archive_metadata["graph_entity_count"] = int(graph_payload.get("entity_count", 0))
         archive_metadata["graph_relationship_count"] = int(
             graph_payload.get("relationship_count", 0)
         )
+        archive_metadata["graph_episode_count"] = int(graph_payload.get("episode_count", 0))
+        archive_metadata["graph_mention_count"] = int(graph_payload.get("mention_count", 0))
 
     manifest = build_manifest(
         organization_id=org_id,

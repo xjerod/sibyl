@@ -3,6 +3,7 @@
 Provides maintenance and diagnostic capabilities.
 """
 
+import contextlib
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -10,6 +11,8 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
+from graphiti_core.edges import EpisodicEdge
+from graphiti_core.nodes import EpisodeType, EpisodicNode
 
 from sibyl_core.config import settings
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
@@ -449,6 +452,10 @@ class BackupData:
     relationship_count: int
     entities: list[dict]
     relationships: list[dict]
+    episode_count: int = 0
+    mention_count: int = 0
+    episodes: list[dict] = field(default_factory=list)
+    mentions: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -461,6 +468,8 @@ class BackupResult:
     backup_data: BackupData | None
     message: str
     duration_seconds: float
+    episode_count: int = 0
+    mention_count: int = 0
 
 
 @dataclass
@@ -474,10 +483,300 @@ class RestoreResult:
     relationships_skipped: int
     errors: list[str]
     duration_seconds: float
+    episodes_restored: int = 0
+    episodes_skipped: int = 0
+    mentions_restored: int = 0
+    mentions_skipped: int = 0
 
 
 # Export every entity type that can participate in graph edges.
 BACKUP_ENTITY_TYPES = list(EntityType)
+
+
+def _serialize_backup_datetime(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value or "")
+
+
+def _parse_backup_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        with contextlib.suppress(ValueError):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.now(UTC)
+
+
+def _coerce_episode_type(value: Any) -> EpisodeType:
+    raw_value = str(value or "").strip().lower()
+    for episode_type in EpisodeType:
+        if episode_type.value == raw_value:
+            return episode_type
+    return EpisodeType.message
+
+
+def _episode_payload_from_node(node: EpisodicNode, *, organization_id: str) -> dict[str, Any]:
+    return {
+        "uuid": node.uuid,
+        "name": node.name,
+        "source": node.source.value,
+        "source_description": node.source_description,
+        "content": node.content,
+        "labels": list(node.labels),
+        "group_id": node.group_id or organization_id,
+        "created_at": _serialize_backup_datetime(node.created_at),
+        "valid_at": _serialize_backup_datetime(node.valid_at),
+        "entity_edges": list(node.entity_edges or []),
+    }
+
+
+def _mention_payload_from_edge(edge: EpisodicEdge, *, organization_id: str) -> dict[str, Any]:
+    return {
+        "uuid": edge.uuid,
+        "source_id": edge.source_node_uuid,
+        "target_id": edge.target_node_uuid,
+        "group_id": edge.group_id or organization_id,
+        "created_at": _serialize_backup_datetime(edge.created_at),
+    }
+
+
+def _episode_from_payload(payload: dict[str, Any], *, organization_id: str) -> EpisodicNode:
+    created_at = _parse_backup_datetime(payload.get("created_at"))
+    valid_at = _parse_backup_datetime(payload.get("valid_at") or created_at)
+    return EpisodicNode(
+        uuid=str(payload.get("uuid") or ""),
+        name=str(payload.get("name") or ""),
+        group_id=organization_id,
+        source=_coerce_episode_type(payload.get("source")),
+        source_description=str(payload.get("source_description") or ""),
+        content=str(payload.get("content") or ""),
+        entity_edges=list(payload.get("entity_edges") or []),
+        created_at=created_at,
+        valid_at=valid_at,
+    )
+
+
+def _mention_from_payload(payload: dict[str, Any], *, organization_id: str) -> EpisodicEdge:
+    return EpisodicEdge(
+        uuid=str(payload.get("uuid") or ""),
+        group_id=organization_id,
+        source_node_uuid=str(payload.get("source_id") or payload.get("source_node_uuid") or ""),
+        target_node_uuid=str(payload.get("target_id") or payload.get("target_node_uuid") or ""),
+        created_at=_parse_backup_datetime(payload.get("created_at")),
+    )
+
+
+async def _list_backup_episodes(
+    *,
+    organization_id: str,
+    client: Any,
+) -> list[dict[str, Any]]:
+    driver = client.get_org_driver(organization_id)
+
+    if settings.store == "surreal":
+        episode_ops = getattr(driver, "episode_node_ops", None)
+        if episode_ops is None:
+            return []
+
+        episodes: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            batch = await episode_ops.get_by_group_ids(
+                driver,
+                [organization_id],
+                limit=BACKFILL_PAGE_SIZE,
+                uuid_cursor=cursor,
+            )
+            if not batch:
+                break
+            episodes.extend(
+                _episode_payload_from_node(node, organization_id=organization_id) for node in batch
+            )
+            if len(batch) < BACKFILL_PAGE_SIZE:
+                break
+            cursor = batch[-1].uuid
+        return episodes
+
+    episodes: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        result = await driver.execute_query(
+            f"""
+            MATCH (episode:Episodic)
+            WHERE episode.group_id = $group_id
+            RETURN episode.uuid AS uuid,
+                   episode.name AS name,
+                   episode.source AS source,
+                   episode.source_description AS source_description,
+                   episode.content AS content,
+                   labels(episode) AS labels,
+                   episode.group_id AS group_id,
+                   episode.created_at AS created_at,
+                   episode.valid_at AS valid_at,
+                   episode.entity_edges AS entity_edges
+            ORDER BY uuid DESC
+            SKIP {offset}
+            LIMIT {BACKFILL_PAGE_SIZE}
+            """,
+            group_id=organization_id,
+        )
+        rows = client.normalize_result(result)
+        if not rows:
+            break
+        for row in rows:
+            episodes.append(
+                {
+                    "uuid": str(row.get("uuid") or ""),
+                    "name": str(row.get("name") or ""),
+                    "source": str(row.get("source") or EpisodeType.message.value),
+                    "source_description": row.get("source_description"),
+                    "content": str(row.get("content") or ""),
+                    "labels": list(row.get("labels") or ["Episodic"]),
+                    "group_id": str(row.get("group_id") or organization_id),
+                    "created_at": _serialize_backup_datetime(row.get("created_at")),
+                    "valid_at": _serialize_backup_datetime(
+                        row.get("valid_at") or row.get("created_at")
+                    ),
+                    "entity_edges": list(row.get("entity_edges") or []),
+                }
+            )
+        if len(rows) < BACKFILL_PAGE_SIZE:
+            break
+        offset += len(rows)
+    return episodes
+
+
+async def _list_backup_mentions(
+    *,
+    organization_id: str,
+    client: Any,
+) -> list[dict[str, Any]]:
+    driver = client.get_org_driver(organization_id)
+
+    if settings.store == "surreal":
+        episodic_edge_ops = getattr(driver, "episodic_edge_ops", None)
+        if episodic_edge_ops is None:
+            return []
+
+        mentions: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            batch = await episodic_edge_ops.get_by_group_ids(
+                driver,
+                [organization_id],
+                limit=BACKFILL_PAGE_SIZE,
+                uuid_cursor=cursor,
+            )
+            if not batch:
+                break
+            mentions.extend(
+                _mention_payload_from_edge(edge, organization_id=organization_id) for edge in batch
+            )
+            if len(batch) < BACKFILL_PAGE_SIZE:
+                break
+            cursor = batch[-1].uuid
+        return mentions
+
+    mentions: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        result = await driver.execute_query(
+            f"""
+            MATCH (episode:Episodic)-[mention:MENTIONS]->(entity)
+            WHERE mention.group_id = $group_id
+            RETURN mention.uuid AS uuid,
+                   episode.uuid AS source_id,
+                   entity.uuid AS target_id,
+                   mention.group_id AS group_id,
+                   mention.created_at AS created_at
+            ORDER BY uuid DESC
+            SKIP {offset}
+            LIMIT {BACKFILL_PAGE_SIZE}
+            """,
+            group_id=organization_id,
+        )
+        rows = client.normalize_result(result)
+        if not rows:
+            break
+        for row in rows:
+            mentions.append(
+                {
+                    "uuid": str(row.get("uuid") or ""),
+                    "source_id": str(row.get("source_id") or ""),
+                    "target_id": str(row.get("target_id") or ""),
+                    "group_id": str(row.get("group_id") or organization_id),
+                    "created_at": _serialize_backup_datetime(row.get("created_at")),
+                }
+            )
+        if len(rows) < BACKFILL_PAGE_SIZE:
+            break
+        offset += len(rows)
+    return mentions
+
+
+async def _list_backup_relationships(
+    *,
+    organization_id: str,
+    client: Any,
+    relationship_manager: Any,
+) -> list[Relationship]:
+    if settings.store == "surreal":
+        relationships: list[Relationship] = []
+        offset = 0
+        while True:
+            batch = await relationship_manager.list_all(
+                limit=BACKFILL_PAGE_SIZE,
+                offset=offset,
+            )
+            if not batch:
+                break
+            relationships.extend(batch)
+            if len(batch) < BACKFILL_PAGE_SIZE:
+                break
+            offset += len(batch)
+        return relationships
+
+    driver = client.get_org_driver(organization_id)
+    quoted_types = ", ".join(f"'{relationship_type.value}'" for relationship_type in RelationshipType)
+    relationships: list[Relationship] = []
+    offset = 0
+    while True:
+        result = await driver.execute_query(
+            f"""
+            MATCH (source)-[rel]->(target)
+            WHERE rel.group_id = $group_id
+              AND NOT source:Episodic
+              AND NOT target:Episodic
+              AND type(rel) IN [{quoted_types}]
+            RETURN rel.uuid AS id,
+                   source.uuid AS source_id,
+                   target.uuid AS target_id,
+                   type(rel) AS rel_type,
+                   rel.created_at AS created_at
+            ORDER BY id DESC
+            SKIP {offset}
+            LIMIT {BACKFILL_PAGE_SIZE}
+            """,
+            group_id=organization_id,
+        )
+        rows = client.normalize_result(result)
+        if not rows:
+            break
+        for row in rows:
+            relationships.append(
+                Relationship(
+                    id=str(row.get("id") or str(uuid4())),
+                    source_id=str(row.get("source_id") or ""),
+                    target_id=str(row.get("target_id") or ""),
+                    relationship_type=RelationshipType(str(row.get("rel_type") or "")),
+                    weight=1.0,
+                )
+            )
+        if len(rows) < BACKFILL_PAGE_SIZE:
+            break
+        offset += len(rows)
+    return relationships
 
 
 async def create_backup(*, organization_id: str) -> BackupResult:
@@ -496,18 +795,41 @@ async def create_backup(*, organization_id: str) -> BackupResult:
         runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
+        client = runtime.client
 
         # Collect all entities
         all_entities: list[Entity] = []
         for entity_type in BACKUP_ENTITY_TYPES:
             try:
-                entities = await entity_manager.list_by_type(entity_type, limit=10000)
-                all_entities.extend(entities)
+                offset = 0
+                while True:
+                    entities = await entity_manager.list_by_type(
+                        entity_type,
+                        limit=BACKFILL_PAGE_SIZE,
+                        offset=offset,
+                    )
+                    if not entities:
+                        break
+                    all_entities.extend(entities)
+                    if len(entities) < BACKFILL_PAGE_SIZE:
+                        break
+                    offset += len(entities)
             except Exception as e:
                 log.warning("Failed to backup entity type", type=entity_type.value, error=str(e))
 
-        # Collect all relationships
-        relationships = await relationship_manager.list_all(limit=50000)
+        relationships = await _list_backup_relationships(
+            organization_id=organization_id,
+            client=client,
+            relationship_manager=relationship_manager,
+        )
+        episodes = await _list_backup_episodes(
+            organization_id=organization_id,
+            client=client,
+        )
+        mentions = await _list_backup_mentions(
+            organization_id=organization_id,
+            client=client,
+        )
 
         # Build backup data
         backup_data = BackupData(
@@ -518,6 +840,10 @@ async def create_backup(*, organization_id: str) -> BackupResult:
             relationship_count=len(relationships),
             entities=[e.model_dump(mode="json") for e in all_entities],
             relationships=[r.model_dump(mode="json") for r in relationships],
+            episode_count=len(episodes),
+            mention_count=len(mentions),
+            episodes=episodes,
+            mentions=mentions,
         )
 
         duration = time.time() - start_time
@@ -525,6 +851,8 @@ async def create_backup(*, organization_id: str) -> BackupResult:
             "Backup created",
             entities=len(all_entities),
             relationships=len(relationships),
+            episodes=len(episodes),
+            mentions=len(mentions),
             duration=duration,
         )
 
@@ -533,8 +861,16 @@ async def create_backup(*, organization_id: str) -> BackupResult:
             entity_count=len(all_entities),
             relationship_count=len(relationships),
             backup_data=backup_data,
-            message=f"Backup created: {len(all_entities)} entities, {len(relationships)} relationships",
+            message=(
+                "Backup created: "
+                f"{len(all_entities)} entities, "
+                f"{len(relationships)} relationships, "
+                f"{len(episodes)} episodes, "
+                f"{len(mentions)} mentions"
+            ),
             duration_seconds=duration,
+            episode_count=len(episodes),
+            mention_count=len(mentions),
         )
 
     except Exception as e:
@@ -546,6 +882,8 @@ async def create_backup(*, organization_id: str) -> BackupResult:
             backup_data=None,
             message=f"Backup failed: {e}",
             duration_seconds=time.time() - start_time,
+            episode_count=0,
+            mention_count=0,
         )
 
 
@@ -570,6 +908,8 @@ async def restore_backup(
         organization_id=organization_id,
         entities=backup_data.entity_count,
         relationships=backup_data.relationship_count,
+        episodes=backup_data.episode_count,
+        mentions=backup_data.mention_count,
     )
     start_time = time.time()
 
@@ -578,11 +918,16 @@ async def restore_backup(
     entities_skipped = 0
     relationships_restored = 0
     relationships_skipped = 0
+    episodes_restored = 0
+    episodes_skipped = 0
+    mentions_restored = 0
+    mentions_skipped = 0
 
     try:
         runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
+        driver = runtime.client.get_org_driver(organization_id)
 
         entities_to_restore: list[Entity] = []
         for entity_data in backup_data.entities:
@@ -629,6 +974,59 @@ async def restore_backup(
                     if len(errors) <= 10:
                         log.warning("Entity restore failed", error=error_msg)
 
+        episodes_to_restore: list[EpisodicNode] = []
+        for episode_data in backup_data.episodes:
+            try:
+                episode = _episode_from_payload(episode_data, organization_id=organization_id)
+                if skip_existing:
+                    try:
+                        existing = await entity_manager.get(episode.uuid)
+                        if existing:
+                            episodes_skipped += 1
+                            continue
+                    except Exception:
+                        pass
+
+                episodes_to_restore.append(episode)
+            except Exception as e:
+                error_msg = f"Episode {episode_data.get('uuid', 'unknown')}: {e}"
+                errors.append(error_msg)
+                if len(errors) <= 10:
+                    log.warning("Episode restore failed", error=error_msg)
+
+        episode_ops = getattr(driver, "episode_node_ops", None)
+        if episodes_to_restore and episode_ops is not None:
+            save_bulk = getattr(episode_ops, "save_bulk", None)
+            if not skip_existing and callable(save_bulk):
+                try:
+                    await save_bulk(driver, episodes_to_restore, batch_size=BACKFILL_PAGE_SIZE)
+                    episodes_restored += len(episodes_to_restore)
+                except Exception as e:
+                    log.warning("Bulk episode restore failed", error=str(e))
+                    for episode in episodes_to_restore:
+                        try:
+                            await episode_ops.save(driver, episode)
+                            episodes_restored += 1
+                        except Exception as item_error:
+                            error_msg = f"Episode {episode.uuid}: {item_error}"
+                            errors.append(error_msg)
+                            if len(errors) <= 10:
+                                log.warning("Episode restore failed", error=error_msg)
+            else:
+                for episode in episodes_to_restore:
+                    try:
+                        await episode_ops.save(driver, episode)
+                        episodes_restored += 1
+                    except Exception as e:
+                        error_msg = f"Episode {episode.uuid}: {e}"
+                        errors.append(error_msg)
+                        if len(errors) <= 10:
+                            log.warning("Episode restore failed", error=error_msg)
+        elif episodes_to_restore:
+            error_msg = "Episode restore is not supported by the active runtime driver"
+            errors.append(error_msg)
+            log.warning("Episode restore failed", error=error_msg)
+
         relationships_to_restore: list[Relationship] = []
         for rel_data in backup_data.relationships:
             try:
@@ -659,6 +1057,60 @@ async def restore_backup(
                     if len(errors) <= 10:
                         log.warning("Relationship restore failed", error=error_msg)
 
+        mentions_to_restore: list[EpisodicEdge] = []
+        for mention_data in backup_data.mentions:
+            try:
+                mention = _mention_from_payload(mention_data, organization_id=organization_id)
+                if skip_existing:
+                    episodic_edge_ops = getattr(driver, "episodic_edge_ops", None)
+                    if episodic_edge_ops is not None:
+                        try:
+                            existing = await episodic_edge_ops.get_by_uuid(driver, mention.uuid)
+                            if existing:
+                                mentions_skipped += 1
+                                continue
+                        except Exception:
+                            pass
+                mentions_to_restore.append(mention)
+            except Exception as e:
+                error_msg = f"Mention {mention_data.get('uuid', 'unknown')}: {e}"
+                errors.append(error_msg)
+                if len(errors) <= 10:
+                    log.warning("Mention restore failed", error=error_msg)
+
+        episodic_edge_ops = getattr(driver, "episodic_edge_ops", None)
+        if mentions_to_restore and episodic_edge_ops is not None:
+            save_bulk = getattr(episodic_edge_ops, "save_bulk", None)
+            if not skip_existing and callable(save_bulk):
+                try:
+                    await save_bulk(driver, mentions_to_restore, batch_size=BACKFILL_PAGE_SIZE)
+                    mentions_restored += len(mentions_to_restore)
+                except Exception as e:
+                    log.warning("Bulk mention restore failed", error=str(e))
+                    for mention in mentions_to_restore:
+                        try:
+                            await episodic_edge_ops.save(driver, mention)
+                            mentions_restored += 1
+                        except Exception as item_error:
+                            error_msg = f"Mention {mention.uuid}: {item_error}"
+                            errors.append(error_msg)
+                            if len(errors) <= 10:
+                                log.warning("Mention restore failed", error=error_msg)
+            else:
+                for mention in mentions_to_restore:
+                    try:
+                        await episodic_edge_ops.save(driver, mention)
+                        mentions_restored += 1
+                    except Exception as e:
+                        error_msg = f"Mention {mention.uuid}: {e}"
+                        errors.append(error_msg)
+                        if len(errors) <= 10:
+                            log.warning("Mention restore failed", error=error_msg)
+        elif mentions_to_restore:
+            error_msg = "Mention restore is not supported by the active runtime driver"
+            errors.append(error_msg)
+            log.warning("Mention restore failed", error=error_msg)
+
         duration = time.time() - start_time
         log.info(
             "Restore completed",
@@ -666,6 +1118,10 @@ async def restore_backup(
             entities_skipped=entities_skipped,
             relationships_restored=relationships_restored,
             relationships_skipped=relationships_skipped,
+            episodes_restored=episodes_restored,
+            episodes_skipped=episodes_skipped,
+            mentions_restored=mentions_restored,
+            mentions_skipped=mentions_skipped,
             errors=len(errors),
             duration=duration,
         )
@@ -678,6 +1134,10 @@ async def restore_backup(
             relationships_skipped=relationships_skipped,
             errors=errors[:50],  # Limit error list
             duration_seconds=duration,
+            episodes_restored=episodes_restored,
+            episodes_skipped=episodes_skipped,
+            mentions_restored=mentions_restored,
+            mentions_skipped=mentions_skipped,
         )
 
     except Exception as e:
@@ -690,6 +1150,10 @@ async def restore_backup(
             relationships_skipped=relationships_skipped,
             errors=[str(e), *errors[:49]],
             duration_seconds=time.time() - start_time,
+            episodes_restored=episodes_restored,
+            episodes_skipped=episodes_skipped,
+            mentions_restored=mentions_restored,
+            mentions_skipped=mentions_skipped,
         )
 
 

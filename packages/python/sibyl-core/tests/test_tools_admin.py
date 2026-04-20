@@ -8,12 +8,14 @@ from unittest.mock import ANY, AsyncMock, call, patch
 import pytest
 
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.tools import admin as admin_module
 from sibyl_core.tools.admin import (
     BackupData,
     backfill_episode_task_relationships,
     backfill_project_id_from_relationships,
     backfill_shared_project,
     backfill_task_project_relationships,
+    create_backup,
     get_stats,
     health_check,
     rebuild_indices,
@@ -60,6 +62,105 @@ class TestBackupInventory:
         from sibyl_core.tools.admin import BACKUP_ENTITY_TYPES
 
         assert set(BACKUP_ENTITY_TYPES) == set(EntityType)
+
+    @pytest.mark.asyncio
+    async def test_create_backup_separates_mentions_from_entity_relationships(self) -> None:
+        org_id = "00000000-0000-0000-0000-000000000111"
+        entity_manager = AsyncMock()
+        relationship_manager = AsyncMock()
+
+        async def list_by_type(
+            entity_type: EntityType,
+            *,
+            offset: int = 0,
+            **_: object,
+        ) -> list[Entity]:
+            if entity_type == EntityType.PATTERN and offset == 0:
+                return [Entity(id="entity-1", entity_type=EntityType.PATTERN, name="Pattern")]
+            return []
+
+        entity_manager.list_by_type = AsyncMock(side_effect=list_by_type)
+
+        def normalize_result(result: object) -> list[dict[str, object]]:
+            if isinstance(result, tuple):
+                return result[0]
+            return result if isinstance(result, list) else []
+
+        async def execute_query(query: str, **_: object) -> tuple[list[dict[str, object]], None, None]:
+            if "MATCH (source)-[rel]->(target)" in query:
+                return (
+                    [
+                        {
+                            "id": "rel-1",
+                            "source_id": "document-1",
+                            "target_id": "entity-1",
+                            "rel_type": "MENTIONS",
+                            "created_at": "2026-04-19T00:00:00Z",
+                        }
+                    ],
+                    None,
+                    None,
+                )
+            if "MATCH (episode:Episodic)-[mention:MENTIONS]->(entity)" in query:
+                return (
+                    [
+                        {
+                            "uuid": "mention-1",
+                            "source_id": "episode-1",
+                            "target_id": "entity-1",
+                            "group_id": org_id,
+                            "created_at": "2026-04-19T00:00:00Z",
+                        }
+                    ],
+                    None,
+                    None,
+                )
+            if "MATCH (episode:Episodic)" in query:
+                return (
+                    [
+                        {
+                            "uuid": "episode-1",
+                            "name": "Conversation",
+                            "source": "message",
+                            "source_description": "chat",
+                            "content": "hi",
+                            "labels": ["Episodic"],
+                            "group_id": org_id,
+                            "created_at": "2026-04-19T00:00:00Z",
+                            "valid_at": "2026-04-19T00:00:00Z",
+                            "entity_edges": [],
+                        }
+                    ],
+                    None,
+                    None,
+                )
+            return ([], None, None)
+
+        driver = SimpleNamespace(execute_query=AsyncMock(side_effect=execute_query))
+        runtime = SimpleNamespace(
+            client=SimpleNamespace(
+                get_org_driver=lambda group_id: driver,
+                normalize_result=normalize_result,
+            ),
+            entity_manager=entity_manager,
+            relationship_manager=relationship_manager,
+        )
+
+        with (
+            patch.object(admin_module.settings, "store", "legacy"),
+            patch("sibyl_core.tools.admin.get_legacy_graph_runtime", AsyncMock(return_value=runtime)),
+        ):
+            result = await create_backup(organization_id=org_id)
+
+        assert result.success is True
+        assert result.entity_count == 1
+        assert result.relationship_count == 1
+        assert result.episode_count == 1
+        assert result.mention_count == 1
+        assert result.backup_data is not None
+        assert result.backup_data.relationships[0]["relationship_type"] == "MENTIONS"
+        assert result.backup_data.episodes[0]["uuid"] == "episode-1"
+        assert result.backup_data.mentions[0]["uuid"] == "mention-1"
 
 
 class TestHealthAndStats:
@@ -164,6 +265,7 @@ class TestRestoreBackup:
         org_id = "00000000-0000-0000-0000-000000000111"
         entity_manager = AsyncMock()
         relationship_manager = AsyncMock()
+        driver = SimpleNamespace()
         entity_manager.bulk_create_direct = AsyncMock(return_value=(2, 0))
         entity_manager.create_direct = AsyncMock()
         relationship_manager.create_bulk = AsyncMock(return_value=(1, 0))
@@ -196,6 +298,7 @@ class TestRestoreBackup:
             "sibyl_core.tools.admin.get_legacy_graph_runtime",
             AsyncMock(
                 return_value=SimpleNamespace(
+                    client=SimpleNamespace(get_org_driver=lambda group_id: driver),
                     entity_manager=entity_manager,
                     relationship_manager=relationship_manager,
                 )
@@ -220,6 +323,7 @@ class TestRestoreBackup:
         org_id = "00000000-0000-0000-0000-000000000111"
         entity_manager = AsyncMock()
         relationship_manager = AsyncMock()
+        driver = SimpleNamespace()
         entity_manager.get = AsyncMock(
             side_effect=[SimpleNamespace(id="entity-1"), Exception("missing")]
         )
@@ -251,6 +355,7 @@ class TestRestoreBackup:
             "sibyl_core.tools.admin.get_legacy_graph_runtime",
             AsyncMock(
                 return_value=SimpleNamespace(
+                    client=SimpleNamespace(get_org_driver=lambda group_id: driver),
                     entity_manager=entity_manager,
                     relationship_manager=relationship_manager,
                 )
@@ -271,6 +376,73 @@ class TestRestoreBackup:
         create_args = entity_manager.create_direct.await_args
         assert create_args.args[0].id == "entity-2"
         assert create_args.kwargs == {"generate_embedding": False}
+
+    @pytest.mark.asyncio
+    async def test_restore_rehydrates_episodes_and_mentions(self) -> None:
+        org_id = "00000000-0000-0000-0000-000000000111"
+        entity_manager = AsyncMock()
+        relationship_manager = AsyncMock()
+        episode_ops = SimpleNamespace(save_bulk=AsyncMock(), save=AsyncMock())
+        mention_ops = SimpleNamespace(save_bulk=AsyncMock(), save=AsyncMock(), get_by_uuid=AsyncMock())
+        driver = SimpleNamespace(
+            episode_node_ops=episode_ops,
+            episodic_edge_ops=mention_ops,
+        )
+        entity_manager.bulk_create_direct = AsyncMock(return_value=(0, 0))
+        relationship_manager.create_bulk = AsyncMock(return_value=(0, 0))
+        backup_data = BackupData(
+            version="2.0",
+            created_at="2026-04-19T00:00:00Z",
+            organization_id=org_id,
+            entity_count=0,
+            relationship_count=0,
+            entities=[],
+            relationships=[],
+            episode_count=1,
+            mention_count=1,
+            episodes=[
+                {
+                    "uuid": "episode-1",
+                    "name": "Conversation",
+                    "source": "message",
+                    "source_description": "chat",
+                    "content": "hi",
+                    "created_at": "2026-04-19T00:00:00Z",
+                    "valid_at": "2026-04-19T00:00:00Z",
+                    "entity_edges": [],
+                }
+            ],
+            mentions=[
+                {
+                    "uuid": "mention-1",
+                    "source_id": "episode-1",
+                    "target_id": "entity-1",
+                    "created_at": "2026-04-19T00:00:00Z",
+                }
+            ],
+        )
+
+        with patch(
+            "sibyl_core.tools.admin.get_legacy_graph_runtime",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    client=SimpleNamespace(get_org_driver=lambda group_id: driver),
+                    entity_manager=entity_manager,
+                    relationship_manager=relationship_manager,
+                )
+            ),
+        ):
+            result = await restore_backup(
+                backup_data,
+                organization_id=org_id,
+                skip_existing=False,
+            )
+
+        assert result.success is True
+        assert result.episodes_restored == 1
+        assert result.mentions_restored == 1
+        episode_ops.save_bulk.assert_awaited_once()
+        mention_ops.save_bulk.assert_awaited_once()
 
 
 class TestBackfillTaskProjectRelationships:
