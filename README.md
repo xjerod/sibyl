@@ -433,6 +433,10 @@ moon run install
 # Start everything
 moon run dev
 
+# Start the Surreal-backed stack.
+# Auto-resumes the newest rehearsal store in .moon/cache if one exists.
+moon run dev-surreal
+
 # Individual services
 moon run dev-api          # API + worker
 moon run dev-web          # Frontend only
@@ -447,6 +451,11 @@ moon run core:check       # Full check on core library
 moon run docker-up        # Start FalkorDB + PostgreSQL
 moon run docker-down      # Stop databases
 ```
+
+`moon run dev` still boots the legacy graph path. `moon run dev-surreal` keeps the same
+Docker infra for PostgreSQL and FalkorDB, but points the API and worker at SurrealKV via
+`SIBYL_STORE=surreal`. Set `SIBYL_SURREAL_DATA_DIR=/path/to/store` if you want to pin a
+specific migrated snapshot instead of letting the task pick the newest rehearsal directory.
 
 ## Entity Types
 
