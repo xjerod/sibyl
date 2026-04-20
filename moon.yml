@@ -205,6 +205,7 @@ tasks:
       - ~:inventory-typecheck
       - ~:inventory-test
       - ~:bench-gate-test
+      - ~:chaos-test
       - ~:storage-access-check
       - ~:storage-access-test
       - ~:baseline-test
