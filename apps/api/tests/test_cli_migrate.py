@@ -38,6 +38,18 @@ def _write_graph_archive(path: Path, *, org_id: str = "org-123") -> None:
     write_archive(path, manifest=manifest, files=files)
 
 
+def _verify_result() -> SimpleNamespace:
+    return SimpleNamespace(
+        success=True,
+        expected_entities=1,
+        actual_entities=1,
+        expected_relationships=0,
+        actual_relationships=0,
+        validated_entity_ids=["entity-1"],
+        errors=[],
+    )
+
+
 def test_migrate_check_validates_archive(tmp_path: Path) -> None:
     archive_path = tmp_path / "migration.tar.gz"
     _write_graph_archive(archive_path)
@@ -153,3 +165,121 @@ def test_migrate_rehearse_runs_verify_and_baseline(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Migration rehearsal passed" in result.output
+
+
+def test_migrate_cutover_requires_surreal_store(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_graph_archive(archive_path)
+
+    with patch.object(migrate_cli.settings, "store", "legacy"):
+        result = runner.invoke(
+            migrate_cli.app,
+            ["cutover", str(archive_path), "--dry-run", "--skip-baseline"],
+        )
+
+    assert result.exit_code == 1
+    assert "SIBYL_STORE=surreal" in result.output
+
+
+def test_migrate_cutover_dry_run_prints_plan(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_graph_archive(archive_path)
+
+    with patch.object(migrate_cli.settings, "store", "surreal"):
+        result = runner.invoke(
+            migrate_cli.app,
+            [
+                "cutover",
+                str(archive_path),
+                "--dry-run",
+                "--skip-baseline",
+                "--run-bench-live-smoke",
+                "--run-bench-live",
+                "--reopen-writes",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Cutover plan:" in result.output
+    assert "Import archive into the Surreal runtime" in result.output
+    assert "Run bench-live artifact capture" in result.output
+    assert "Reopen writes on SurrealDB" in result.output
+    assert "Cutover dry run complete" in result.output
+
+
+def test_migrate_cutover_requires_write_freeze_confirmation(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_graph_archive(archive_path)
+
+    with patch.object(migrate_cli.settings, "store", "surreal"):
+        result = runner.invoke(
+            migrate_cli.app,
+            ["cutover", str(archive_path), "--yes", "--skip-baseline"],
+        )
+
+    assert result.exit_code == 1
+    assert "--write-freeze-confirmed" in result.output
+
+
+def test_migrate_cutover_leaves_writes_frozen_until_explicit_reopen(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    manifest_path = tmp_path / "runtime-manifest.json"
+    _write_graph_archive(archive_path)
+    manifest_path.write_text('{"graph_fixture": {}}\n', encoding="utf-8")
+
+    verify_graph_archive = AsyncMock(return_value=_verify_result())
+    replay_all = AsyncMock(return_value=None)
+
+    with (
+        patch.object(migrate_cli.settings, "store", "surreal"),
+        patch("sibyl.cli.migrate._restore_graph_payload", return_value=True),
+        patch("sibyl.cli.migrate.verify_graph_archive", verify_graph_archive),
+        patch("sibyl.cli.migrate._replay_baseline", replay_all),
+    ):
+        result = runner.invoke(
+            migrate_cli.app,
+            [
+                "cutover",
+                str(archive_path),
+                "--yes",
+                "--write-freeze-confirmed",
+                "--manifest-path",
+                str(manifest_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Acceptance suite passed while writes remain frozen" in result.output
+    assert "Rollback is still supported at this point" in result.output
+
+
+def test_migrate_cutover_requires_ack_before_reopen(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    manifest_path = tmp_path / "runtime-manifest.json"
+    _write_graph_archive(archive_path)
+    manifest_path.write_text('{"graph_fixture": {}}\n', encoding="utf-8")
+
+    verify_graph_archive = AsyncMock(return_value=_verify_result())
+    replay_all = AsyncMock(return_value=None)
+
+    with (
+        patch.object(migrate_cli.settings, "store", "surreal"),
+        patch("sibyl.cli.migrate._restore_graph_payload", return_value=True),
+        patch("sibyl.cli.migrate.verify_graph_archive", verify_graph_archive),
+        patch("sibyl.cli.migrate._replay_baseline", replay_all),
+    ):
+        result = runner.invoke(
+            migrate_cli.app,
+            [
+                "cutover",
+                str(archive_path),
+                "--yes",
+                "--write-freeze-confirmed",
+                "--manifest-path",
+                str(manifest_path),
+                "--reopen-writes",
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert "--acknowledge-no-instant-rollback" in result.output

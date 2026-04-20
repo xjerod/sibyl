@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Annotated
@@ -40,6 +41,7 @@ DEFAULT_REHEARSAL_BASELINES_DIR = Path("baselines")
 DEFAULT_REHEARSAL_MANIFEST = Path(".moon/cache/baseline-runtime-manifest.json")
 DEFAULT_REHEARSAL_EMAIL = "baseline-corpus@sibyl.dev"
 DEFAULT_REHEARSAL_PASSWORD = "baseline-corpus-password-secure-123!"  # noqa: S105
+DEFAULT_CUTOVER_BENCH_LABEL = "cutover-acceptance"
 
 
 def _load_valid_archive(source: Path):
@@ -103,6 +105,110 @@ async def _replay_baseline(
         password=password,
         manifest_path=manifest_path,
     )
+
+
+def _run_moon_task(task: list[str], *, label: str) -> None:
+    moon = shutil.which("moon")
+    if moon is None:
+        error("moon executable not found in PATH")
+        raise typer.Exit(code=1)
+
+    result = subprocess.run(  # noqa: S603 - trusted moon task invocation
+        [moon, "run", *task],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        error(f"{label} failed")
+        if result.stdout.strip():
+            console.print(f"[dim]{result.stdout.strip()}[/dim]")
+        if result.stderr.strip():
+            console.print(f"[dim]{result.stderr.strip()}[/dim]")
+        raise typer.Exit(code=1)
+
+    success(f"{label} passed")
+
+
+def _print_cutover_plan(
+    *,
+    run_baseline: bool,
+    run_bench_live_smoke: bool,
+    run_bench_live: bool,
+    reopen_writes: bool,
+    manifest_path: Path,
+) -> None:
+    info("Cutover plan:")
+    info("  1. Confirm legacy writes are frozen")
+    info("  2. Import archive into the Surreal runtime")
+    info("  3. Verify imported counts and sample entities")
+    if run_baseline:
+        info("  4. Replay deterministic runtime baseline")
+    if run_bench_live_smoke:
+        info("  5. Run bench-live-smoke acceptance check")
+    if run_bench_live:
+        info("  6. Run bench-live artifact capture")
+    if reopen_writes:
+        info("  7. Reopen writes on SurrealDB after operator acknowledgment")
+    if run_baseline and not manifest_path.exists():
+        warn(f"Baseline manifest not found yet: {manifest_path}")
+
+
+async def _run_cutover_acceptance(
+    *,
+    archive: object,
+    organization_id: str,
+    sample_size: int,
+    run_baseline: bool,
+    base_url: str,
+    baselines_dir: Path,
+    email: str,
+    password: str,
+    manifest_path: Path,
+    run_bench_live_smoke: bool,
+    run_bench_live: bool,
+    bench_label: str,
+) -> None:
+    result = await verify_graph_archive(
+        archive,
+        organization_id=organization_id,
+        sample_size=sample_size,
+    )
+    _print_verify_summary(result)
+    success("Archive verification passed")
+
+    if run_baseline:
+        info(f"Replaying deterministic baseline against {base_url}...")
+        await _replay_baseline(
+            base_url=base_url,
+            baselines_dir=baselines_dir,
+            email=email,
+            password=password,
+            manifest_path=manifest_path,
+        )
+        success("Baseline replay passed")
+
+    if run_bench_live_smoke:
+        info("Running bench-live-smoke acceptance check...")
+        _run_moon_task(["bench-live-smoke"], label="bench-live-smoke")
+
+    if run_bench_live:
+        info("Running bench-live acceptance capture...")
+        _run_moon_task(
+            [
+                "bench-live",
+                "--",
+                "--label",
+                bench_label,
+                "--metadata",
+                "store=surreal",
+                "--metadata",
+                "mode=cutover",
+            ],
+            label="bench-live",
+        )
+
+    success("Acceptance suite passed while writes remain frozen")
 
 
 def _load_graph_export(org_id: str) -> tuple[dict[str, object], bytes]:
@@ -416,3 +522,164 @@ def rehearse_archive(
         success("Migration rehearsal passed")
 
     _rehearse()
+
+
+@app.command("cutover")
+def cutover_archive(
+    source: Annotated[Path, typer.Argument(help="Archive .tar.gz or directory to cut over from")],
+    org_id: Annotated[
+        str,
+        typer.Option("--org-id", help="Organization UUID override"),
+    ] = "",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print the cutover plan without importing data"),
+    ] = False,
+    write_freeze_confirmed: Annotated[
+        bool,
+        typer.Option(
+            "--write-freeze-confirmed",
+            help="Acknowledge that legacy writes are frozen before cutover begins",
+        ),
+    ] = False,
+    clean: Annotated[
+        bool,
+        typer.Option("--clean", help="Clear the target graph before import"),
+    ] = True,
+    restore_postgres: Annotated[
+        bool,
+        typer.Option("--restore-postgres", help="Restore postgres.sql before graph import"),
+    ] = False,
+    run_baseline: Annotated[
+        bool,
+        typer.Option("--run-baseline/--skip-baseline", help="Replay the deterministic runtime baseline"),
+    ] = True,
+    run_bench_live_smoke: Annotated[
+        bool,
+        typer.Option("--run-bench-live-smoke", help="Run the live smoke bench after baseline replay"),
+    ] = False,
+    run_bench_live: Annotated[
+        bool,
+        typer.Option("--run-bench-live", help="Run the artifact-producing live bench after acceptance smoke"),
+    ] = False,
+    bench_label: Annotated[
+        str,
+        typer.Option("--bench-label", help="Label used when running bench-live"),
+    ] = DEFAULT_CUTOVER_BENCH_LABEL,
+    base_url: Annotated[
+        str,
+        typer.Option("--base-url", help="Base URL for baseline replay"),
+    ] = DEFAULT_REHEARSAL_BASE_URL,
+    baselines_dir: Annotated[
+        Path,
+        typer.Option("--baselines-dir", help="Directory containing baseline case files"),
+    ] = DEFAULT_REHEARSAL_BASELINES_DIR,
+    manifest_path: Annotated[
+        Path,
+        typer.Option("--manifest-path", help="Runtime baseline manifest from `moon run baseline-seed`"),
+    ] = DEFAULT_REHEARSAL_MANIFEST,
+    email: Annotated[
+        str,
+        typer.Option("--email", help="Baseline user email"),
+    ] = DEFAULT_REHEARSAL_EMAIL,
+    password: Annotated[
+        str,
+        typer.Option("--password", help="Baseline user password"),
+    ] = DEFAULT_REHEARSAL_PASSWORD,
+    sample_size: Annotated[
+        int,
+        typer.Option("--sample-size", help="How many entity IDs to spot-check during verify"),
+    ] = 10,
+    reopen_writes: Annotated[
+        bool,
+        typer.Option("--reopen-writes", help="Mark the acceptance gate complete and permit writes on SurrealDB"),
+    ] = False,
+    acknowledge_no_instant_rollback: Annotated[
+        bool,
+        typer.Option(
+            "--acknowledge-no-instant-rollback",
+            help="Acknowledge that rollback is no longer promised once writes reopen on SurrealDB",
+        ),
+    ] = False,
+) -> None:
+    """Run the explicit Surreal cutover acceptance gate on a validated archive."""
+    if settings.store != "surreal":
+        error("Cutover must run with SIBYL_STORE=surreal on the target runtime")
+        raise typer.Exit(code=1)
+
+    archive = _load_valid_archive(source)
+    effective_org_id = _resolve_org_id(org_id, archive.manifest.organization_id)
+
+    if restore_postgres and POSTGRES_FILENAME not in archive.files:
+        error("Archive does not contain postgres.sql")
+        raise typer.Exit(code=1)
+    if GRAPH_FILENAME not in archive.files:
+        error("Archive does not contain graph.json")
+        raise typer.Exit(code=1)
+
+    warn("Rollback is supported only until writes reopen on SurrealDB.")
+    warn("This command does not unfreeze or freeze writes for you; it enforces the operator gate.")
+
+    if dry_run:
+        _print_cutover_plan(
+            run_baseline=run_baseline,
+            run_bench_live_smoke=run_bench_live_smoke,
+            run_bench_live=run_bench_live,
+            reopen_writes=reopen_writes,
+            manifest_path=manifest_path,
+        )
+        success("Cutover dry run complete")
+        return
+
+    if not write_freeze_confirmed:
+        error("Cutover requires --write-freeze-confirmed before import begins")
+        raise typer.Exit(code=1)
+    if run_baseline and not manifest_path.exists():
+        error(f"Baseline manifest not found: {manifest_path}")
+        raise typer.Exit(code=1)
+
+    if not yes:
+        warn("This will import the archive and run acceptance checks while writes remain frozen.")
+        if not typer.confirm("Continue?"):
+            info("Cancelled")
+            return
+
+    if restore_postgres:
+        info("Restoring PostgreSQL payload...")
+        _restore_pg_sql(archive.files[POSTGRES_FILENAME].decode("utf-8"), clean)
+
+    info("Importing graph payload into the Surreal runtime...")
+    payload = json.loads(archive.files[GRAPH_FILENAME].decode("utf-8"))
+    if not _restore_graph_payload(payload, effective_org_id, clean=clean):
+        error("Graph import failed")
+        raise typer.Exit(code=1)
+    run_async(_run_cutover_acceptance)(
+        archive=archive,
+        organization_id=effective_org_id,
+        sample_size=sample_size,
+        run_baseline=run_baseline,
+        base_url=base_url,
+        baselines_dir=baselines_dir,
+        email=email,
+        password=password,
+        manifest_path=manifest_path,
+        run_bench_live_smoke=run_bench_live_smoke,
+        run_bench_live=run_bench_live,
+        bench_label=bench_label,
+    )
+
+    if not reopen_writes:
+        warn("Writes remain frozen. Rollback is still supported at this point.")
+        info(
+            "Rerun with --reopen-writes --acknowledge-no-instant-rollback "
+            "after final operator sign-off."
+        )
+        return
+
+    if not acknowledge_no_instant_rollback:
+        error("Refusing to reopen writes without --acknowledge-no-instant-rollback")
+        raise typer.Exit(code=1)
+
+    warn("Rollback is no longer promised once writes reopen on SurrealDB.")
+    success("Acceptance gate complete. Writes may now be reopened on the Surreal runtime.")
