@@ -225,6 +225,149 @@ class EntityManager:
         entities.sort(key=self._entity_sort_key, reverse=True)
         return entities
 
+    async def _surreal_select_entity_records(
+        self,
+        *,
+        entity_type: EntityType | None = None,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+
+        where_clauses = ["group_id = $group_id"]
+        params: dict[str, Any] = {
+            "group_id": self._group_id,
+            "query_limit": max(limit, 1),
+            "query_offset": max(offset, 0),
+        }
+
+        if entity_type is not None:
+            where_clauses.append("entity_type = $entity_type")
+            params["entity_type"] = entity_type.value
+
+        query = f"""
+            SELECT uuid,
+                   name,
+                   entity_type,
+                   group_id,
+                   summary,
+                   attributes.metadata AS metadata,
+                   attributes.description AS description,
+                   attributes.content AS content,
+                   attributes.source_file AS source_file,
+                   attributes.updated_at AS updated_at,
+                   created_at
+            FROM entity
+            WHERE {" AND ".join(where_clauses)}
+            ORDER BY updated_at DESC, created_at DESC, uuid DESC
+            LIMIT $query_limit START $query_offset;
+        """
+
+        return GraphClient.normalize_result(await self._driver.execute_query(query, **params))
+
+    async def _surreal_list_entities_direct(
+        self,
+        *,
+        entity_type: EntityType | None = None,
+        limit: int,
+        offset: int,
+        project_id: str | None = None,
+        epic_id: str | None = None,
+        no_epic: bool = False,
+        status_values: list[str] | None = None,
+        priority_values: list[str] | None = None,
+        complexity_values: list[str] | None = None,
+        feature: str | None = None,
+        tags: list[str] | None = None,
+        include_archived: bool = False,
+    ) -> list[Entity]:
+        if limit <= 0:
+            return []
+
+        requires_python_rechecks = any(
+            [
+                project_id is not None,
+                epic_id is not None,
+                no_epic,
+                bool(status_values),
+                bool(priority_values),
+                bool(complexity_values),
+                feature is not None,
+                bool(tags),
+                not include_archived,
+            ]
+        )
+        target_count = offset + limit if requires_python_rechecks else limit
+        query_offset = 0 if requires_python_rechecks else offset
+        page_size = (
+            min(max(target_count, 100), 1000)
+            if requires_python_rechecks
+            else min(max(limit, 1), 1000)
+        )
+        entities: list[Entity] = []
+        seen_entity_ids: set[str] = set()
+        seen_pages: set[tuple[str | None, ...]] = set()
+
+        while len(entities) < target_count:
+            records = await self._surreal_select_entity_records(
+                entity_type=entity_type,
+                limit=page_size,
+                offset=query_offset,
+            )
+            if not records:
+                break
+
+            page_signature = tuple(
+                record_uuid if isinstance(record_uuid := record.get("uuid"), str) else None
+                for record in records
+            )
+            if page_signature in seen_pages:
+                log.warning(
+                    "Surreal entity page repeated, stopping pagination",
+                    entity_type=entity_type,
+                    query_offset=query_offset,
+                    query_limit=page_size,
+                )
+                break
+            seen_pages.add(page_signature)
+
+            for record in records:
+                try:
+                    entity = self._coerce_entity(self._record_to_entity(record))
+                except Exception as exc:
+                    log.debug("Failed to hydrate Surreal entity record", error=str(exc))
+                    continue
+
+                if entity.id in seen_entity_ids:
+                    continue
+                if entity_type is not None and entity.entity_type != entity_type:
+                    continue
+                if not self._entity_matches_filters(
+                    entity,
+                    project_id=project_id,
+                    epic_id=epic_id,
+                    no_epic=no_epic,
+                    status_values=status_values,
+                    priority_values=priority_values,
+                    complexity_values=complexity_values,
+                    feature=feature,
+                    tags=tags,
+                    include_archived=include_archived,
+                ):
+                    continue
+
+                seen_entity_ids.add(entity.id)
+                entities.append(entity)
+
+            query_offset += len(records)
+            if len(records) < page_size:
+                break
+
+        if requires_python_rechecks:
+            return entities[offset : offset + limit]
+        return entities[:limit]
+
     async def _list_all_via_type_scans(
         self,
         *,
@@ -1220,26 +1363,20 @@ class EntityManager:
 
         if self._surreal_entity_node_ops() is not None:
             try:
-                entities = [
-                    entity
-                    for entity in await self._surreal_entities_for_group(
-                        include_archived=include_archived
-                    )
-                    if entity.entity_type == entity_type
-                    and self._entity_matches_filters(
-                        entity,
-                        project_id=project_id,
-                        epic_id=epic_id,
-                        no_epic=no_epic,
-                        status_values=status_list,
-                        priority_values=priority_list,
-                        complexity_values=complexity_list,
-                        feature=feature,
-                        tags=tags,
-                        include_archived=include_archived,
-                    )
-                ]
-                return entities[offset : offset + limit]
+                return await self._surreal_list_entities_direct(
+                    entity_type=entity_type,
+                    limit=limit,
+                    offset=offset,
+                    project_id=project_id,
+                    epic_id=epic_id,
+                    no_epic=no_epic,
+                    status_values=status_list,
+                    priority_values=priority_list,
+                    complexity_values=complexity_list,
+                    feature=feature,
+                    tags=tags,
+                    include_archived=include_archived,
+                )
             except Exception as e:
                 log.exception("Failed to list entities", entity_type=entity_type, error=str(e))
                 return []
@@ -1506,10 +1643,11 @@ class EntityManager:
 
         try:
             if self._surreal_entity_node_ops() is not None:
-                entities = await self._surreal_entities_for_group(
-                    include_archived=include_archived
+                return await self._surreal_list_entities_direct(
+                    limit=limit,
+                    offset=offset,
+                    include_archived=include_archived,
                 )
-                return entities[offset : offset + limit]
             entities = await self._list_all_via_type_scans(
                 include_archived=include_archived,
             )

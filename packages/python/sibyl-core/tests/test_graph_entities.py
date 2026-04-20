@@ -905,39 +905,32 @@ class TestEntityListByType:
     """Test listing entities by type with filters."""
 
     @pytest.mark.asyncio
-    async def test_list_by_type_uses_surreal_node_scan(
+    async def test_list_by_type_uses_surreal_direct_query_path(
         self,
         surreal_entity_manager: EntityManager,
     ) -> None:
-        doing_node = EntityNode(
-            uuid="task-001",
-            name="Doing Task",
-            group_id="test-org-123",
-            labels=["Entity", "task"],
-            created_at=datetime.now(UTC),
-            summary="",
-            attributes={
-                "entity_type": "task",
-                "description": "Doing",
-                "metadata": json.dumps({"status": "doing", "project_id": "project-001"}),
-            },
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "uuid": "task-001",
+                    "name": "Doing Task",
+                    "entity_type": "task",
+                    "group_id": "test-org-123",
+                    "description": "Doing",
+                    "metadata": json.dumps({"status": "doing", "project_id": "project-001"}),
+                    "created_at": datetime.now(UTC),
+                },
+                {
+                    "uuid": "task-002",
+                    "name": "Todo Task",
+                    "entity_type": "task",
+                    "group_id": "test-org-123",
+                    "description": "Todo",
+                    "metadata": json.dumps({"status": "todo", "project_id": "project-001"}),
+                    "created_at": datetime.now(UTC),
+                },
+            ]
         )
-        todo_node = EntityNode(
-            uuid="task-002",
-            name="Todo Task",
-            group_id="test-org-123",
-            labels=["Entity", "task"],
-            created_at=datetime.now(UTC),
-            summary="",
-            attributes={
-                "entity_type": "task",
-                "description": "Todo",
-                "metadata": json.dumps({"status": "todo", "project_id": "project-001"}),
-            },
-        )
-
-        ops = surreal_entity_manager._driver.entity_node_ops
-        ops.get_by_group_ids = AsyncMock(return_value=[doing_node, todo_node])
 
         results = await surreal_entity_manager.list_by_type(
             EntityType.TASK,
@@ -947,6 +940,10 @@ class TestEntityListByType:
 
         assert len(results) == 1
         assert results[0].id == "task-001"
+        query = surreal_entity_manager._driver.execute_query.await_args.args[0]
+        assert "FROM entity" in query
+        assert "entity_type = $entity_type" in query
+        assert surreal_entity_manager._driver.execute_query.await_args.kwargs["entity_type"] == "task"
 
     @pytest.mark.asyncio
     async def test_list_by_type_basic(
@@ -1572,6 +1569,41 @@ class TestEntityListAll:
         types = {r.entity_type for r in results}
         assert EntityType.TASK in types
         assert EntityType.PATTERN in types
+
+    @pytest.mark.asyncio
+    async def test_list_all_uses_surreal_direct_query_path(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "uuid": "task-001",
+                    "name": "Task 1",
+                    "entity_type": "task",
+                    "group_id": "test-org-123",
+                    "metadata": json.dumps({"status": "todo"}),
+                    "created_at": datetime(2025, 1, 2, tzinfo=UTC),
+                },
+                {
+                    "uuid": "pattern-001",
+                    "name": "Pattern 1",
+                    "entity_type": "pattern",
+                    "group_id": "test-org-123",
+                    "metadata": json.dumps({"status": "todo"}),
+                    "created_at": datetime(2025, 1, 1, tzinfo=UTC),
+                },
+            ]
+        )
+
+        results = await surreal_entity_manager.list_all(limit=2, include_archived=True)
+
+        assert [result.id for result in results] == ["task-001", "pattern-001"]
+        query = surreal_entity_manager._driver.execute_query.await_args.args[0]
+        assert "FROM entity" in query
+        assert "entity_type = $entity_type" not in query
+        assert surreal_entity_manager._driver.execute_query.await_args.kwargs["query_limit"] == 2
+        assert surreal_entity_manager._driver.execute_query.await_args.kwargs["query_offset"] == 0
 
 
 # =============================================================================
