@@ -12,8 +12,11 @@ from sibyl_core.migrate.archive import (
     MANIFEST_FILENAME,
     POSTGRES_FILENAME,
     build_manifest,
+    effective_graph_counts,
     graph_payload_from_archive,
     load_archive,
+    normalize_mention_payloads,
+    normalize_relationship_payloads,
     validate_archive,
     write_archive,
 )
@@ -186,6 +189,36 @@ def test_validate_archive_detects_graph_org_mismatch(tmp_path: Path) -> None:
     errors = validate_archive(loaded)
 
     assert errors == ["graph.json organization_id mismatch: manifest org-123, payload other-org"]
+
+
+def test_effective_graph_counts_normalize_duplicate_edges() -> None:
+    graph_payload = {
+        "entity_count": 2,
+        "relationship_count": 3,
+        "episode_count": 1,
+        "mention_count": 3,
+        "entities": [{"id": "entity-1"}, {"id": "entity-2"}],
+        "episodes": [{"uuid": "episode-1"}],
+        "relationships": [
+            {"id": "rel-1", "source_id": "entity-1", "relationship_type": "related_to", "target_id": "entity-2"},
+            {"id": "rel-2", "source_id": "entity-1", "relationship_type": "related_to", "target_id": "entity-2"},
+            {"id": "rel-1", "source_id": "entity-2", "relationship_type": "depends_on", "target_id": "entity-1"},
+        ],
+        "mentions": [
+            {"uuid": "mention-1", "source_id": "episode-1", "target_id": "entity-1"},
+            {"uuid": "mention-2", "source_id": "episode-1", "target_id": "entity-2"},
+            {"uuid": "mention-1", "source_id": "episode-1", "target_id": "entity-2"},
+        ],
+    }
+
+    assert len(normalize_relationship_payloads(graph_payload["relationships"])) == 1
+    assert len(normalize_mention_payloads(graph_payload["mentions"])) == 2
+    assert effective_graph_counts(graph_payload) == {
+        "entity_count": 2,
+        "relationship_count": 1,
+        "episode_count": 1,
+        "mention_count": 2,
+    }
 
 
 def test_load_archive_supports_legacy_backup_metadata(tmp_path: Path) -> None:

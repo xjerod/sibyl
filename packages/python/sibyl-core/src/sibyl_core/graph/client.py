@@ -143,6 +143,7 @@ class GraphClient:
         self._client: Graphiti | None = None
         self._connected = False
         self._store = settings.store
+        self._org_drivers: dict[str, GraphDriver] = {}
 
     def _create_llm_client(self) -> "LLMClient":
         """Create the LLM client based on provider settings.
@@ -337,6 +338,16 @@ class GraphClient:
 
     async def disconnect(self) -> None:
         """Close the graph database connection."""
+        seen_driver_ids: set[int] = set()
+        for driver in self._org_drivers.values():
+            driver_id = id(driver)
+            if driver_id in seen_driver_ids:
+                continue
+            seen_driver_ids.add(driver_id)
+            close = getattr(driver, "close", None)
+            if close is not None:
+                await close()
+        self._org_drivers.clear()
         if self._client is not None:
             await self._client.close()
             self._connected = False
@@ -431,7 +442,9 @@ class GraphClient:
         """
         if not organization_id:
             raise ValueError("organization_id is required for org-scoped operations")
-        return self.client.driver.clone(organization_id)
+        if organization_id not in self._org_drivers:
+            self._org_drivers[organization_id] = self.client.driver.clone(organization_id)
+        return self._org_drivers[organization_id]
 
     async def ensure_indexes(self, organization_id: str) -> None:
         """Ensure required indexes exist for an organization's graph.

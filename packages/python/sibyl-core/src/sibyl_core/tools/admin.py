@@ -1010,6 +1010,11 @@ async def restore_backup(
     mentions_skipped = 0
 
     try:
+        from sibyl_core.migrate.archive import (
+            normalize_mention_payloads,
+            normalize_relationship_payloads,
+        )
+
         runtime = await get_graph_runtime(organization_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
@@ -1114,7 +1119,7 @@ async def restore_backup(
             log.warning("Episode restore failed", error=error_msg)
 
         relationships_to_restore: list[Relationship] = []
-        for rel_data in backup_data.relationships:
+        for rel_data in normalize_relationship_payloads(backup_data.relationships):
             try:
                 relationship = Relationship.model_validate(rel_data)
                 relationships_to_restore.append(relationship)
@@ -1144,7 +1149,7 @@ async def restore_backup(
                         log.warning("Relationship restore failed", error=error_msg)
 
         mentions_to_restore: list[EpisodicEdge] = []
-        for mention_data in backup_data.mentions:
+        for mention_data in normalize_mention_payloads(backup_data.mentions):
             try:
                 mention = _mention_from_payload(mention_data, organization_id=organization_id)
                 if skip_existing:

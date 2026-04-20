@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sibyl_core.migrate.archive import LoadedArchive, graph_payload_from_archive, validate_archive
+from sibyl_core.migrate.archive import (
+    LoadedArchive,
+    effective_graph_counts,
+    graph_payload_from_archive,
+    validate_archive,
+)
 from sibyl_core.services.graph_runtime import get_graph_runtime
 from sibyl_core.tools.admin import create_backup
 
@@ -52,14 +57,11 @@ async def verify_graph_archive(
             errors=errors,
         )
 
-    expected_entities = int(
-        graph_payload.get("entity_count") or len(graph_payload.get("entities", []))
-    )
-    expected_relationships = int(
-        graph_payload.get("relationship_count") or len(graph_payload.get("relationships", []))
-    )
-    expected_episodes = int(graph_payload.get("episode_count") or len(graph_payload.get("episodes", [])))
-    expected_mentions = int(graph_payload.get("mention_count") or len(graph_payload.get("mentions", [])))
+    expected_counts = effective_graph_counts(graph_payload)
+    expected_entities = expected_counts["entity_count"]
+    expected_relationships = expected_counts["relationship_count"]
+    expected_episodes = expected_counts["episode_count"]
+    expected_mentions = expected_counts["mention_count"]
 
     backup_result = await create_backup(organization_id=organization_id)
     actual_entities = backup_result.entity_count

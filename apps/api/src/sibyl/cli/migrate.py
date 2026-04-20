@@ -23,6 +23,7 @@ from sibyl_core.migrate import (
     GRAPH_FILENAME,
     POSTGRES_FILENAME,
     build_manifest,
+    effective_graph_counts,
     graph_payload_from_archive,
     load_archive,
     validate_archive,
@@ -279,6 +280,7 @@ def check_archive(
 
     graph_payload = graph_payload_from_archive(archive)
     if graph_payload is not None:
+        effective_counts = effective_graph_counts(graph_payload)
         info(
             "Graph counts: "
             f"{graph_payload.get('entity_count', len(graph_payload.get('entities', [])))} entities, "
@@ -286,6 +288,19 @@ def check_archive(
             f"{graph_payload.get('episode_count', len(graph_payload.get('episodes', [])))} episodes, "
             f"{graph_payload.get('mention_count', len(graph_payload.get('mentions', [])))} mentions"
         )
+        if (
+            effective_counts["relationship_count"]
+            != int(graph_payload.get("relationship_count", len(graph_payload.get("relationships", []))))
+            or effective_counts["mention_count"]
+            != int(graph_payload.get("mention_count", len(graph_payload.get("mentions", []))))
+        ):
+            info(
+                "Effective restore counts: "
+                f"{effective_counts['entity_count']} entities, "
+                f"{effective_counts['relationship_count']} relationships, "
+                f"{effective_counts['episode_count']} episodes, "
+                f"{effective_counts['mention_count']} mentions"
+            )
     success("Archive validation passed")
 
 
@@ -329,6 +344,7 @@ def export_archive(
     if include_graph:
         info(f"Exporting graph runtime from {settings.store} store...")
         graph_payload, graph_bytes = _load_graph_export(org_id)
+        effective_counts = effective_graph_counts(graph_payload)
         files[GRAPH_FILENAME] = graph_bytes
         file_metadata[GRAPH_FILENAME] = {
             "kind": "graph",
@@ -336,6 +352,8 @@ def export_archive(
             "relationship_count": int(graph_payload.get("relationship_count", 0)),
             "episode_count": int(graph_payload.get("episode_count", 0)),
             "mention_count": int(graph_payload.get("mention_count", 0)),
+            "effective_relationship_count": effective_counts["relationship_count"],
+            "effective_mention_count": effective_counts["mention_count"],
         }
         archive_metadata["graph_entity_count"] = int(graph_payload.get("entity_count", 0))
         archive_metadata["graph_relationship_count"] = int(
@@ -343,6 +361,10 @@ def export_archive(
         )
         archive_metadata["graph_episode_count"] = int(graph_payload.get("episode_count", 0))
         archive_metadata["graph_mention_count"] = int(graph_payload.get("mention_count", 0))
+        archive_metadata["graph_effective_relationship_count"] = effective_counts[
+            "relationship_count"
+        ]
+        archive_metadata["graph_effective_mention_count"] = effective_counts["mention_count"]
 
     manifest = build_manifest(
         organization_id=org_id,

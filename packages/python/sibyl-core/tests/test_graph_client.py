@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import graphiti_core
 import pytest
@@ -123,3 +123,37 @@ async def test_connect_surreal_constructs_surreal_driver(monkeypatch) -> None:
     assert client.driver.namespace_prefix == "tenant_"
     assert client.driver.default_database == "graph_test"
     assert client.is_connected is True
+
+
+def test_get_org_driver_reuses_same_clone_for_same_org() -> None:
+    client = GraphClient()
+    base_driver = MagicMock()
+    org_driver = MagicMock()
+    client._client = SimpleNamespace(driver=base_driver)
+    client._connected = True
+    base_driver.clone.return_value = org_driver
+
+    first = client.get_org_driver("org-123")
+    second = client.get_org_driver("org-123")
+
+    assert first is org_driver
+    assert second is org_driver
+    base_driver.clone.assert_called_once_with("org-123")
+
+
+@pytest.mark.asyncio
+async def test_disconnect_closes_cached_org_drivers_once() -> None:
+    client = GraphClient()
+    base_graphiti = SimpleNamespace(close=AsyncMock())
+    org_driver = MagicMock()
+    org_driver.close = AsyncMock()
+    client._client = base_graphiti
+    client._connected = True
+    client._org_drivers["org-123"] = org_driver
+    client._org_drivers["org-456"] = org_driver
+
+    await client.disconnect()
+
+    org_driver.close.assert_awaited_once_with()
+    base_graphiti.close.assert_awaited_once_with()
+    assert client._org_drivers == {}

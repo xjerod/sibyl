@@ -82,8 +82,7 @@ class RelationshipManager:
             raise ValueError("group_id is required - cannot access graph without org context")
         self._client = client
         self._group_id = group_id
-        # Clone the driver to use the org-specific graph
-        self._driver = client.client.driver.clone(group_id)
+        self._driver = client.get_org_driver(group_id)
 
     def _surreal_entity_edge_ops(self):
         try:
@@ -194,6 +193,24 @@ class RelationshipManager:
             )
             unique.setdefault(key, relationship)
         return list(unique.values())
+
+    def _dedupe_relationships_for_persistence(
+        self,
+        relationships: list[Relationship],
+    ) -> list[Relationship]:
+        """Match the active runtime's effective persistence semantics."""
+
+        triplet_deduped = self._dedupe_relationships_for_create(relationships)
+        deduped_by_id: dict[str, Relationship] = {}
+        passthrough: list[Relationship] = []
+
+        for relationship in triplet_deduped:
+            if not relationship.id:
+                passthrough.append(relationship)
+                continue
+            deduped_by_id[relationship.id] = relationship
+
+        return [*passthrough, *deduped_by_id.values()]
 
     async def create(self, relationship: Relationship) -> str:
         """Create a new relationship between entities.
@@ -308,7 +325,7 @@ class RelationshipManager:
         Returns:
             Tuple of (created_count, failed_count)
         """
-        relationships = self._dedupe_relationships_for_create(relationships)
+        relationships = self._dedupe_relationships_for_persistence(relationships)
         log.info("Creating relationships in bulk", count=len(relationships))
 
         created = 0

@@ -115,9 +115,7 @@ class EntityManager:
             raise ValueError("group_id is required - cannot access graph without org context")
         self._client = client
         self._group_id = group_id
-        # Clone the driver to use the org-specific graph (group_id as database name)
-        # This enables multi-tenancy: each org has its own isolated graph
-        self._driver = client.client.driver.clone(group_id)
+        self._driver = client.get_org_driver(group_id)
 
     def _surreal_entity_node_ops(self):
         try:

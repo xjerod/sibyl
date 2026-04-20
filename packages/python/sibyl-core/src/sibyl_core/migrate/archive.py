@@ -294,6 +294,86 @@ def graph_payload_from_archive(archive: LoadedArchive) -> dict[str, Any] | None:
     return json.loads(payload.decode("utf-8"))
 
 
+def normalize_relationship_payloads(
+    relationships: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Normalize legacy relationship rows to the effective restore shape.
+
+    Restore semantics currently preserve the first unique
+    ``(source_id, relationship_type, target_id)`` triplet, then let later
+    duplicate UUIDs overwrite earlier rows because the active runtime uses a
+    delete-by-uuid upsert. Verification has to model the same behavior or it
+    will fail on legacy archives that contain duplicate edge rows.
+    """
+
+    deduped_by_triplet: list[dict[str, Any]] = []
+    seen_triplets: set[tuple[str, str, str]] = set()
+
+    for payload in relationships:
+        source_id = str(payload.get("source_id") or payload.get("source_node_uuid") or "")
+        relationship_type = str(
+            payload.get("relationship_type") or payload.get("rel_type") or payload.get("name") or ""
+        )
+        target_id = str(payload.get("target_id") or payload.get("target_node_uuid") or "")
+        triplet = (source_id, relationship_type, target_id)
+
+        if all(triplet) and triplet in seen_triplets:
+            continue
+        if all(triplet):
+            seen_triplets.add(triplet)
+        deduped_by_triplet.append(payload)
+
+    deduped_by_id: dict[str, dict[str, Any]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for payload in deduped_by_triplet:
+        relationship_id = str(payload.get("id") or payload.get("uuid") or "").strip()
+        if not relationship_id:
+            passthrough.append(payload)
+            continue
+        deduped_by_id[relationship_id] = payload
+
+    return [*passthrough, *deduped_by_id.values()]
+
+
+def normalize_mention_payloads(
+    mentions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Normalize legacy mention rows to the effective restore shape."""
+
+    deduped_by_id: dict[str, dict[str, Any]] = {}
+    passthrough: list[dict[str, Any]] = []
+
+    for payload in mentions:
+        mention_id = str(payload.get("uuid") or "").strip()
+        if not mention_id:
+            passthrough.append(payload)
+            continue
+        deduped_by_id[mention_id] = payload
+
+    return [*passthrough, *deduped_by_id.values()]
+
+
+def effective_graph_counts(graph_payload: dict[str, Any]) -> dict[str, int]:
+    """Return the effective graph counts after restore normalization."""
+
+    entities = list(graph_payload.get("entities", []))
+    relationships = list(graph_payload.get("relationships", []))
+    episodes = list(graph_payload.get("episodes", []))
+    mentions = list(graph_payload.get("mentions", []))
+    return {
+        "entity_count": int(graph_payload.get("entity_count") or len(entities)),
+        "relationship_count": int(
+            graph_payload.get("effective_relationship_count")
+            or len(normalize_relationship_payloads(relationships))
+        ),
+        "episode_count": int(graph_payload.get("episode_count") or len(episodes)),
+        "mention_count": int(
+            graph_payload.get("effective_mention_count")
+            or len(normalize_mention_payloads(mentions))
+        ),
+    }
+
+
 __all__ = [
     "ARCHIVE_VERSION",
     "GRAPH_FILENAME",
@@ -304,8 +384,11 @@ __all__ = [
     "ArchiveManifest",
     "LoadedArchive",
     "build_manifest",
+    "effective_graph_counts",
     "graph_payload_from_archive",
     "load_archive",
+    "normalize_mention_payloads",
+    "normalize_relationship_payloads",
     "validate_archive",
     "write_archive",
 ]

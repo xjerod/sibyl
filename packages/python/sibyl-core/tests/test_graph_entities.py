@@ -52,6 +52,9 @@ def mock_graph_client(mock_graphiti_client: MagicMock) -> MagicMock:
     """Create a mock GraphClient wrapper."""
     graph_client = MagicMock()
     graph_client.client = mock_graphiti_client
+    graph_client.driver = mock_graphiti_client.driver
+    graph_client.get_org_driver = MagicMock(return_value=mock_graphiti_client.driver)
+    graph_client.normalize_result = MagicMock(side_effect=lambda x: x[0] if x else [])
     return graph_client
 
 
@@ -65,6 +68,7 @@ def entity_manager(mock_graph_client: MagicMock) -> EntityManager:
 def surreal_entity_manager() -> EntityManager:
     """Create EntityManager backed by a Surreal driver clone."""
     driver = SurrealDriver("memory://")
+    org_driver = driver.clone("test-org-123")
     client = MagicMock()
     client.driver = driver
     client.add_episode = AsyncMock()
@@ -74,6 +78,8 @@ def surreal_entity_manager() -> EntityManager:
     graph_client = MagicMock()
     graph_client.client = client
     graph_client.driver = driver
+    graph_client.get_org_driver = MagicMock(return_value=org_driver)
+    graph_client.normalize_result = MagicMock(side_effect=lambda x: x[0] if x else [])
     return EntityManager(graph_client, group_id="test-org-123")
 
 
@@ -186,10 +192,10 @@ class TestEntityManagerInit:
         with pytest.raises(ValueError, match="group_id is required"):
             EntityManager(mock_graph_client, group_id="")
 
-    def test_init_clones_driver_for_org(self, mock_graph_client: MagicMock) -> None:
-        """EntityManager clones driver with org-specific graph."""
+    def test_init_gets_org_driver_for_org(self, mock_graph_client: MagicMock) -> None:
+        """EntityManager scopes itself through the graph runtime helper."""
         EntityManager(mock_graph_client, group_id="my-org")
-        mock_graph_client.client.driver.clone.assert_called_once_with("my-org")
+        mock_graph_client.get_org_driver.assert_called_once_with("my-org")
 
 
 # =============================================================================
