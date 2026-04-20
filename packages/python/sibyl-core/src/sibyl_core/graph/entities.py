@@ -643,6 +643,21 @@ class EntityManager:
         try:
             _t0 = _time.perf_counter()
             results: list[tuple[Entity, float]] = []
+            if self._surreal_entity_node_ops() is not None:
+                exact_name_results = await self._exact_name_search(
+                    query=query,
+                    entity_types=entity_types,
+                    limit=limit,
+                )
+                fallback_results = await self._fallback_text_search(
+                    query=query,
+                    entity_types=entity_types,
+                    limit=limit,
+                )
+                results = self._merge_ranked_results(exact_name_results, fallback_results, limit)
+                log.info("Search completed", query=query, results_count=len(results), mode="surreal_scan")
+                return results
+
             try:
                 # Use search_() with NODE_HYBRID_SEARCH for direct node search
                 # This searches node embeddings directly instead of going through edges
@@ -706,10 +721,8 @@ class EntityManager:
                         results.append((entity, score))
                     except Exception as e:
                         log.debug("Failed to convert EpisodicNode", error=str(e))
-            except Exception as e:
-                if self._surreal_entity_node_ops() is None:
-                    raise
-                log.warning("Surreal hybrid search unavailable, using scan fallback", error=str(e))
+            except Exception:
+                raise
 
             # Sort by score and limit results
             results.sort(key=lambda x: x[1], reverse=True)

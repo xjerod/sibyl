@@ -1583,7 +1583,7 @@ class TestEntitySearch:
     """Test semantic search operations."""
 
     @pytest.mark.asyncio
-    async def test_search_falls_back_to_surreal_scan_when_hybrid_search_fails(
+    async def test_search_uses_surreal_scan_path_without_graphiti_hybrid_search(
         self,
         surreal_entity_manager: EntityManager,
     ) -> None:
@@ -1616,9 +1616,7 @@ class TestEntitySearch:
             },
         )
 
-        surreal_entity_manager._client.client.search_ = AsyncMock(
-            side_effect=RuntimeError("hybrid unavailable")
-        )
+        surreal_entity_manager._client.client.search_ = AsyncMock()
         ops = surreal_entity_manager._driver.entity_node_ops
         ops.get_by_group_ids = AsyncMock(return_value=[matching_node, other_node])
 
@@ -1626,6 +1624,7 @@ class TestEntitySearch:
 
         assert len(results) == 1
         assert results[0][0].id == "pattern-001"
+        surreal_entity_manager._client.client.search_.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_search_basic(
