@@ -25,9 +25,14 @@ import {
   X,
 } from '@/components/ui/icons';
 import { LoadingState } from '@/components/ui/spinner';
-import type { HierarchicalCluster, HierarchicalEdge, HierarchicalNode } from '@/lib/api';
+import type {
+  HierarchicalCluster,
+  HierarchicalEdge,
+  HierarchicalNode,
+  RelatedEntitySummary,
+} from '@/lib/api';
 import { ENTITY_TYPES, GRAPH_DEFAULTS, getClusterColor, getEntityColor } from '@/lib/constants';
-import { useHierarchicalGraph, useProjects } from '@/lib/hooks';
+import { useHierarchicalGraph, useMediaQuery, useProjects } from '@/lib/hooks';
 import { useProjectContext } from '@/lib/project-context';
 import { useTheme } from '@/lib/theme';
 
@@ -79,7 +84,15 @@ export interface KnowledgeGraphRef {
 }
 
 // Mobile bottom sheet for entity details
-function MobileEntitySheet({ entityId, onClose }: { entityId: string; onClose: () => void }) {
+function MobileEntitySheet({
+  entityId,
+  onClose,
+  relatedEntities,
+}: {
+  entityId: string;
+  onClose: () => void;
+  relatedEntities: RelatedEntitySummary[];
+}) {
   return (
     <div className="fixed inset-0 z-50 md:hidden">
       <button
@@ -93,7 +106,13 @@ function MobileEntitySheet({ entityId, onClose }: { entityId: string; onClose: (
         <div className="flex justify-center py-2">
           <div className="w-10 h-1 bg-sc-fg-subtle/30 rounded-full" />
         </div>
-        <EntityDetailPanel entityId={entityId} onClose={onClose} variant="sheet" />
+        <EntityDetailPanel
+          entityId={entityId}
+          onClose={onClose}
+          variant="sheet"
+          queryMode="graph"
+          relatedEntities={relatedEntities}
+        />
       </div>
     </div>
   );
@@ -704,6 +723,7 @@ function GraphPageContent() {
   const colors = CANVAS_COLORS[theme];
   const { selectedProjects } = useProjectContext();
   const { data: projectsData } = useProjects();
+  const isMobile = useMediaQuery('(max-width: 767px)');
   const graphRef = useRef<ForceGraphMethods | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -768,6 +788,7 @@ function GraphPageContent() {
   const projectKey = projectFilter?.join(',') || 'all';
   const selectedTypesKey = selectedTypes.join(',');
   const filtersKey = `${projectKey}:${selectedTypesKey}`;
+  const graphRenderKey = `${theme}-${projectKey}-${selectedTypesKey}-${selectedCluster || 'all'}`;
 
   useEffect(() => {
     const nextKey = `${projectKey}:${selectedTypesKey}:${selectedCluster ?? 'all'}`;
@@ -995,7 +1016,7 @@ function GraphPageContent() {
   useEffect(() => {
     const nodeCount = graphData.nodes.length;
     const linkCount = graphData.links.length;
-    if (!graphRef.current || (nodeCount === 0 && linkCount === 0)) return;
+    if (!graphRef.current || !graphRenderKey || (nodeCount === 0 && linkCount === 0)) return;
 
     // Adaptive forces keep large graphs readable and prevent "starfield" dispersion
     // after project filter transitions.
@@ -1031,7 +1052,7 @@ function GraphPageContent() {
     if (typeof graph.d3ReheatSimulation === 'function') {
       graph.d3ReheatSimulation();
     }
-  }, [graphData.nodes.length, graphData.links.length]);
+  }, [graphData.nodes.length, graphData.links.length, graphRenderKey]);
 
   // Clean node rendering - entity colors + degree-based sizing
   // Labels scale with zoom: more labels appear as you zoom in
@@ -1254,6 +1275,44 @@ function GraphPageContent() {
     setSelectedNodeId(null);
   }, []);
 
+  const selectedNodeRelated = useMemo<RelatedEntitySummary[]>(() => {
+    if (!selectedNodeId) return [];
+
+    const nodesById = new Map(graphData.nodes.map(node => [node.id, node]));
+    const related: RelatedEntitySummary[] = [];
+    const seenIds = new Set<string>();
+
+    for (const edge of graphData.links) {
+      const sourceId = getLinkEndpointId(edge.source);
+      const targetId = getLinkEndpointId(edge.target);
+
+      if (sourceId !== selectedNodeId && targetId !== selectedNodeId) {
+        continue;
+      }
+
+      const otherId = sourceId === selectedNodeId ? targetId : sourceId;
+      if (!otherId || seenIds.has(otherId)) {
+        continue;
+      }
+
+      const otherNode = nodesById.get(otherId);
+      if (!otherNode) {
+        continue;
+      }
+
+      seenIds.add(otherId);
+      related.push({
+        id: otherId,
+        name: otherNode.label || otherNode.name || otherId,
+        entity_type: otherNode.type,
+        relationship: edge.type,
+        direction: sourceId === selectedNodeId ? 'outgoing' : 'incoming',
+      });
+    }
+
+    return related;
+  }, [getLinkEndpointId, graphData.links, graphData.nodes, selectedNodeId]);
+
   const handleZoomIn = useCallback(() => {
     if (graphRef.current) {
       const currentZoom = graphRef.current.zoom();
@@ -1371,7 +1430,7 @@ function GraphPageContent() {
           {/* Graph - key forces re-render when theme changes */}
           {!isLoading && graphData.nodes.length > 0 && (
             <ForceGraph2D
-              key={`${theme}-${projectKey}-${selectedTypesKey}-${selectedCluster || 'all'}`}
+              key={graphRenderKey}
               ref={graphRef as React.MutableRefObject<ForceGraphMethods | undefined>}
               graphData={graphData as { nodes: object[]; links: object[] }}
               nodeLabel={() => ''} // Disable default tooltip - we render labels on canvas
@@ -1432,15 +1491,26 @@ function GraphPageContent() {
         </div>
 
         {/* Entity detail panel - desktop sidebar */}
-        {selectedNodeId && (
+        {!isMobile && selectedNodeId && (
           <div className="hidden md:block">
-            <EntityDetailPanel entityId={selectedNodeId} onClose={handleClosePanel} />
+            <EntityDetailPanel
+              entityId={selectedNodeId}
+              onClose={handleClosePanel}
+              queryMode="graph"
+              relatedEntities={selectedNodeRelated}
+            />
           </div>
         )}
       </div>
 
       {/* Entity detail panel - mobile bottom sheet */}
-      {selectedNodeId && <MobileEntitySheet entityId={selectedNodeId} onClose={handleClosePanel} />}
+      {isMobile && selectedNodeId && (
+        <MobileEntitySheet
+          entityId={selectedNodeId}
+          onClose={handleClosePanel}
+          relatedEntities={selectedNodeRelated}
+        />
+      )}
     </div>
   );
 }

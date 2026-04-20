@@ -145,6 +145,11 @@ export interface Entity {
   related?: RelatedEntitySummary[] | null;
 }
 
+export interface EntityGetParams {
+  include_summary?: boolean;
+  related_limit?: number;
+}
+
 export interface EntityCreate {
   name: string;
   description?: string;
@@ -1366,7 +1371,15 @@ export const api = {
       return fetchApi<EntityListResponse>(`/entities${query ? `?${query}` : ''}`);
     },
 
-    get: (id: string) => fetchApi<Entity>(`/entities/${id}`),
+    get: (id: string, params?: EntityGetParams) => {
+      const searchParams = new URLSearchParams();
+      if (params?.include_summary === false) searchParams.set('include_summary', 'false');
+      if (params?.related_limit !== undefined) {
+        searchParams.set('related_limit', params.related_limit.toString());
+      }
+      const query = searchParams.toString();
+      return fetchApi<Entity>(`/entities/${id}${query ? `?${query}` : ''}`);
+    },
 
     create: (entity: EntityCreate) =>
       fetchApi<Entity>('/entities', {

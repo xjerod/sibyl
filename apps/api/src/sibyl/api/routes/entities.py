@@ -6,7 +6,7 @@ Transparently handles both graph entities (FalkorDB) and document chunks (Postgr
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 import structlog
@@ -227,6 +227,8 @@ async def _enrich_entity_with_related(
     entity_manager: Any,
     relationship_manager: Any,
     preloaded_related: list[RelatedEntitySummary] | None = None,
+    *,
+    related_limit: int = 5,
 ) -> tuple[dict[str, Any], list[RelatedEntitySummary] | None]:
     """Enrich entity metadata and fetch related entities based on entity type.
 
@@ -246,10 +248,10 @@ async def _enrich_entity_with_related(
                 "progress_pct": summary.get("progress_pct", 0.0),
                 "critical_tasks": summary.get("critical_tasks", []),
                 "epics": summary.get("epics", []),
+                "actionable_tasks": summary.get("actionable_tasks", []),
             }
-            # Return actionable tasks as "related"
             actionable = summary.get("actionable_tasks", [])
-            if actionable:
+            if actionable and not related:
                 related = [
                     RelatedEntitySummary(
                         id=task["id"],
@@ -280,28 +282,12 @@ async def _enrich_entity_with_related(
             log.debug("Failed to fetch epic progress", error=str(epic_err))
 
     # For non-project/epic entities, fetch generic related entities
-    if related is None:
-        try:
-            related_pairs = await relationship_manager.get_related_entities(entity_id, limit=5)
-            if related_pairs:
-                # Dedupe by entity ID
-                seen_ids: set[str] = set()
-                deduped: list[RelatedEntitySummary] = []
-                for rel_entity, rel in related_pairs:
-                    if rel_entity.id not in seen_ids:
-                        seen_ids.add(rel_entity.id)
-                        deduped.append(
-                            RelatedEntitySummary(
-                                id=rel_entity.id,
-                                name=rel_entity.name,
-                                entity_type=str(rel_entity.entity_type),
-                                relationship=str(rel.relationship_type),
-                                direction="outgoing" if rel.source_id == entity_id else "incoming",
-                            )
-                        )
-                related = deduped if deduped else None
-        except Exception as rel_err:
-            log.debug("Failed to fetch related entities", error=str(rel_err))
+    if related is None and related_limit > 0:
+        related = await _fetch_related_entity_summaries(
+            relationship_manager,
+            entity_id=entity_id,
+            limit=related_limit,
+        )
 
     return metadata, related
 
@@ -311,6 +297,7 @@ def _summarize_related_entities(
     *,
     related_entities: list[Any],
     relationships: list[Any],
+    limit: int | None = None,
 ) -> list[RelatedEntitySummary] | None:
     if not related_entities or not relationships:
         return None
@@ -328,10 +315,14 @@ def _summarize_related_entities(
         relationships_by_other_id.setdefault(other_id, (relationship, direction))
 
     summaries: list[RelatedEntitySummary] = []
+    seen_ids: set[str] = set()
     for related_entity in related_entities:
         relationship_pair = relationships_by_other_id.get(related_entity.id)
         if relationship_pair is None:
             continue
+        if related_entity.id in seen_ids:
+            continue
+        seen_ids.add(related_entity.id)
         relationship, direction = relationship_pair
         summaries.append(
             RelatedEntitySummary(
@@ -342,8 +333,43 @@ def _summarize_related_entities(
                 direction=direction,
             )
         )
+        if limit is not None and len(summaries) >= limit:
+            break
 
     return summaries or None
+
+
+async def _fetch_related_entity_summaries(
+    relationship_manager: Any,
+    *,
+    entity_id: str,
+    limit: int,
+) -> list[RelatedEntitySummary] | None:
+    try:
+        related_pairs = await relationship_manager.get_related_entities(entity_id=entity_id, limit=limit)
+        if not related_pairs:
+            return None
+
+        seen_ids: set[str] = set()
+        deduped: list[RelatedEntitySummary] = []
+        for rel_entity, rel in related_pairs:
+            if rel_entity.id in seen_ids:
+                continue
+            seen_ids.add(rel_entity.id)
+            deduped.append(
+                RelatedEntitySummary(
+                    id=rel_entity.id,
+                    name=rel_entity.name,
+                    entity_type=str(rel_entity.entity_type),
+                    relationship=str(rel.relationship_type),
+                    direction="outgoing" if rel.source_id == entity_id else "incoming",
+                )
+            )
+
+        return deduped or None
+    except Exception as rel_err:
+        log.debug("Failed to fetch related entities", error=str(rel_err))
+        return None
 
 
 # =============================================================================
@@ -616,6 +642,20 @@ async def get_entity(
     entity_id: str,
     org: Organization = Depends(get_current_organization),
     service: KnowledgeReadService = Depends(get_knowledge_read_service),
+    include_summary: Annotated[
+        bool,
+        Query(
+            description="Include expensive project/epic summary enrichment",
+        ),
+    ] = True,
+    related_limit: Annotated[
+        int,
+        Query(
+            ge=0,
+            le=50,
+            description="Maximum related entities to embed in the response",
+        ),
+    ] = 5,
 ) -> EntityResponse:
     """Get a single entity by ID with related context.
 
@@ -626,6 +666,37 @@ async def get_entity(
     Always includes up to 5 related entities from the knowledge graph.
     """
     try:
+        if not include_summary:
+            entity = await service.get_entity(entity_id)
+            if entity is not None:
+                metadata = dict(getattr(entity, "metadata", {}) or {})
+                related = None
+                if related_limit > 0:
+                    runtime = await get_entity_graph_runtime(str(org.id))
+                    related = await _fetch_related_entity_summaries(
+                        runtime.relationship_manager,
+                        entity_id=entity_id,
+                        limit=related_limit,
+                    )
+
+                return EntityResponse(
+                    id=entity.id,
+                    entity_type=entity.entity_type,
+                    name=entity.name,
+                    description=entity.description or "",
+                    content=(entity.content or "")[:50000],
+                    category=getattr(entity, "category", None) or entity.metadata.get("category"),
+                    languages=getattr(entity, "languages", None)
+                    or entity.metadata.get("languages", [])
+                    or [],
+                    tags=getattr(entity, "tags", None) or entity.metadata.get("tags", []) or [],
+                    metadata=metadata,
+                    source_file=getattr(entity, "source_file", None),
+                    created_at=getattr(entity, "created_at", None),
+                    updated_at=getattr(entity, "updated_at", None),
+                    related=related,
+                )
+
         graph_bundle = await service.get_entity_bundle(entity_id)
         if graph_bundle is not None:
             entity = graph_bundle.entity
@@ -634,6 +705,7 @@ async def get_entity(
                 entity_id,
                 related_entities=graph_bundle.related_entities,
                 relationships=graph_bundle.relationships,
+                limit=related_limit,
             )
 
             if entity.entity_type in {EntityType.PROJECT, EntityType.EPIC}:
@@ -647,6 +719,7 @@ async def get_entity(
                     runtime.entity_manager,
                     runtime.relationship_manager,
                     preloaded_related=related,
+                    related_limit=related_limit,
                 )
 
             return EntityResponse(

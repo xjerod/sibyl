@@ -47,7 +47,8 @@ export const queryKeys = {
     all: ['entities'] as const,
     list: (params?: Parameters<typeof api.entities.list>[0]) =>
       ['entities', 'list', params] as const,
-    detail: (id: string) => ['entities', 'detail', id] as const,
+    detail: (id: string, params?: Parameters<typeof api.entities.get>[1]) =>
+      ['entities', 'detail', id, params] as const,
   },
   rawCaptures: {
     all: ['raw-captures'] as const,
@@ -508,10 +509,14 @@ export function useEntities(
   });
 }
 
-export function useEntity(id: string, initialData?: import('./api').Entity) {
+export function useEntity(
+  id: string,
+  initialData?: import('./api').Entity,
+  params?: Parameters<typeof api.entities.get>[1]
+) {
   return useQuery({
-    queryKey: queryKeys.entities.detail(id),
-    queryFn: () => api.entities.get(id),
+    queryKey: queryKeys.entities.detail(id, params),
+    queryFn: () => api.entities.get(id, params),
     enabled: !!id,
     initialData,
   });
@@ -1287,20 +1292,6 @@ export function useEpicManage() {
 // =============================================================================
 // Explore Hooks
 // =============================================================================
-
-export function useRelatedEntities(entityId: string) {
-  return useQuery({
-    queryKey: queryKeys.explore.related(entityId),
-    queryFn: () =>
-      api.search.explore({
-        mode: 'related',
-        entity_id: entityId,
-        depth: 1,
-        limit: 20,
-      }),
-    enabled: !!entityId,
-  });
-}
 
 // =============================================================================
 // Source Hooks

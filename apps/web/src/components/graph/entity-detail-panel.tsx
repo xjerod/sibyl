@@ -6,22 +6,43 @@ import { EntityBadge, RelationshipBadge } from '@/components/ui/badge';
 import { ChevronDown, ChevronUp, Network } from '@/components/ui/icons';
 import { Markdown } from '@/components/ui/markdown';
 import { LoadingState } from '@/components/ui/spinner';
-import { useEntity, useRelatedEntities } from '@/lib/hooks';
+import type { RelatedEntitySummary } from '@/lib/api';
+import { useEntity } from '@/lib/hooks';
 
-interface RelatedEntity {
-  id: string;
-  name: string;
-  type: string;
-  relationship: string;
-  direction: 'outgoing' | 'incoming';
-  distance?: number;
-}
+interface RelatedEntity extends RelatedEntitySummary {}
 
 interface EntityDetailPanelProps {
   entityId: string;
   onClose: () => void;
   onNavigate?: (entityId: string) => void;
   variant?: 'sidebar' | 'sheet';
+  queryMode?: 'default' | 'graph';
+  relatedEntities?: RelatedEntity[] | null;
+}
+
+function diversifyRelatedEntities(entities: RelatedEntity[]): RelatedEntity[] {
+  if (entities.length <= 2) return entities;
+
+  const buckets = new Map<string, RelatedEntity[]>();
+  for (const entity of entities) {
+    const bucket = buckets.get(entity.entity_type) ?? [];
+    bucket.push(entity);
+    buckets.set(entity.entity_type, bucket);
+  }
+
+  const orderedBuckets = [...buckets.entries()]
+    .sort(([, left], [, right]) => right.length - left.length)
+    .map(([, bucket]) => [...bucket]);
+
+  const diversified: RelatedEntity[] = [];
+  while (orderedBuckets.some(bucket => bucket.length > 0)) {
+    for (const bucket of orderedBuckets) {
+      const next = bucket.shift();
+      if (next) diversified.push(next);
+    }
+  }
+
+  return diversified;
 }
 
 // Collapsible section component
@@ -61,17 +82,26 @@ export const EntityDetailPanel = memo(function EntityDetailPanel({
   onClose,
   onNavigate,
   variant = 'sidebar',
+  queryMode = 'default',
+  relatedEntities: providedRelatedEntities,
 }: EntityDetailPanelProps) {
-  const { data: entity, isLoading, error } = useEntity(entityId);
-  const { data: related } = useRelatedEntities(entityId);
+  const {
+    data: entity,
+    isLoading,
+    error,
+  } = useEntity(
+    entityId,
+    undefined,
+    queryMode === 'graph' ? { include_summary: false, related_limit: 0 } : undefined
+  );
 
   const isSheet = variant === 'sheet';
 
   // Group related entities by direction
   const groupedRelated = useMemo(() => {
-    if (!related?.entities) return { incoming: [], outgoing: [] };
+    const entities = providedRelatedEntities ?? entity?.related ?? [];
+    if (entities.length === 0) return { incoming: [], outgoing: [] };
 
-    const entities = related.entities as RelatedEntity[];
     const seen = new Set<string>();
     const unique = entities.filter(rel => {
       if (seen.has(rel.id)) return false;
@@ -80,10 +110,10 @@ export const EntityDetailPanel = memo(function EntityDetailPanel({
     });
 
     return {
-      incoming: unique.filter(r => r.direction === 'incoming'),
-      outgoing: unique.filter(r => r.direction === 'outgoing'),
+      incoming: diversifyRelatedEntities(unique.filter(r => r.direction === 'incoming')),
+      outgoing: diversifyRelatedEntities(unique.filter(r => r.direction === 'outgoing')),
     };
-  }, [related]);
+  }, [entity?.related, providedRelatedEntities]);
 
   // Extract learnings from metadata if present
   const learnings = useMemo(() => {
@@ -286,7 +316,7 @@ function RelatedEntityRow({
 }) {
   return (
     <div className="group flex items-center gap-2 p-2 bg-sc-bg-highlight/50 hover:bg-sc-bg-highlight rounded-lg transition-colors">
-      <EntityBadge type={entity.type} size="sm" />
+      <EntityBadge type={entity.entity_type} size="sm" />
 
       {onNavigate ? (
         <button
