@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$repo_root"
+
 resolve_surreal_data_dir() {
   local surreal_data_dir="${SIBYL_SURREAL_DATA_DIR:-}"
 
@@ -15,6 +18,10 @@ resolve_surreal_data_dir() {
 
   if [[ -z "$surreal_data_dir" ]]; then
     surreal_data_dir=".moon/cache/surreal-dev"
+  fi
+
+  if [[ "$surreal_data_dir" != /* ]]; then
+    surreal_data_dir="$repo_root/${surreal_data_dir#./}"
   fi
 
   printf '%s\n' "$surreal_data_dir"
