@@ -35,6 +35,9 @@ CLUSTER_CACHE_TTL = timedelta(minutes=5)
 HIERARCHICAL_CACHE: dict[str, tuple[datetime, dict[str, str], list[dict]]] = {}
 HIERARCHICAL_CACHE_TTL = timedelta(minutes=5)
 _COMMUNITY_PAGE_SIZE = 500
+_GRAPH_DIVERSITY_THRESHOLD = 100
+_GRAPH_PRIMARY_SAMPLE_SHARE = 0.8
+_GRAPH_MISSING_TYPE_MIN_RESERVE = 5
 
 
 def _entity_summary(entity: Entity) -> str:
@@ -170,6 +173,141 @@ def _entity_timestamp(entity: Entity | None) -> datetime:
     return entity.updated_at or entity.created_at or datetime.min.replace(tzinfo=UTC)
 
 
+def _entity_priority_key(
+    entity_id: str,
+    entity_by_id: dict[str, Entity],
+    degrees: Counter[str],
+) -> tuple[int, datetime, str]:
+    return (
+        degrees.get(entity_id, 0),
+        _entity_timestamp(entity_by_id.get(entity_id)),
+        entity_id,
+    )
+
+
+def _allocate_diversity_quotas(
+    remaining_by_type: dict[str, list[str]],
+    *,
+    represented_types: set[str],
+    budget: int,
+) -> dict[str, int]:
+    quotas = {entity_type: 0 for entity_type, ids in remaining_by_type.items() if ids}
+    if budget <= 0 or not quotas:
+        return quotas
+
+    missing_types = [
+        entity_type
+        for entity_type, ids in remaining_by_type.items()
+        if ids and entity_type not in represented_types
+    ]
+    for entity_type in missing_types:
+        if budget <= 0:
+            break
+        reserve = min(_GRAPH_MISSING_TYPE_MIN_RESERVE, len(remaining_by_type[entity_type]), budget)
+        quotas[entity_type] += reserve
+        budget -= reserve
+
+    while budget > 0:
+        eligible_types = [
+            entity_type
+            for entity_type, ids in remaining_by_type.items()
+            if quotas.get(entity_type, 0) < len(ids)
+        ]
+        if not eligible_types:
+            break
+        next_type = max(
+            eligible_types,
+            key=lambda entity_type: (
+                len(remaining_by_type[entity_type]) - quotas.get(entity_type, 0),
+                entity_type,
+            ),
+        )
+        quotas[next_type] += 1
+        budget -= 1
+
+    return quotas
+
+
+def _pick_representative_node_ids(
+    focused_ids: set[str],
+    entity_by_id: dict[str, Entity],
+    degrees: Counter[str],
+    *,
+    max_nodes: int,
+) -> list[str]:
+    ranked_ids = sorted(
+        focused_ids,
+        key=lambda entity_id: _entity_priority_key(entity_id, entity_by_id, degrees),
+        reverse=True,
+    )
+    if len(ranked_ids) <= max_nodes or max_nodes < _GRAPH_DIVERSITY_THRESHOLD:
+        return ranked_ids[:max_nodes]
+
+    primary_target = max(1, min(len(ranked_ids), int(max_nodes * _GRAPH_PRIMARY_SAMPLE_SHARE)))
+    selected_ids = set(ranked_ids[:primary_target])
+    remaining_budget = max_nodes - len(selected_ids)
+    if remaining_budget <= 0:
+        return ranked_ids[:max_nodes]
+
+    represented_types = {
+        entity.entity_type.value
+        for entity_id in selected_ids
+        if (entity := entity_by_id.get(entity_id)) is not None
+    }
+
+    remaining_by_type: dict[str, list[str]] = {}
+    for entity_id in ranked_ids[primary_target:]:
+        entity = entity_by_id.get(entity_id)
+        if entity is None:
+            continue
+        remaining_by_type.setdefault(entity.entity_type.value, []).append(entity_id)
+
+    quotas = _allocate_diversity_quotas(
+        remaining_by_type,
+        represented_types=represented_types,
+        budget=remaining_budget,
+    )
+    for entity_type, quota in quotas.items():
+        if quota <= 0:
+            continue
+        selected_ids.update(remaining_by_type[entity_type][:quota])
+
+    if len(selected_ids) < max_nodes:
+        for entity_id in ranked_ids[primary_target:]:
+            if entity_id in selected_ids:
+                continue
+            selected_ids.add(entity_id)
+            if len(selected_ids) >= max_nodes:
+                break
+
+    return [entity_id for entity_id in ranked_ids if entity_id in selected_ids][:max_nodes]
+
+
+def _cluster_type_counts(
+    entity_ids: set[str],
+    entity_by_id: dict[str, Entity],
+    node_to_cluster: dict[str, str],
+) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+
+    for entity_id in entity_ids:
+        entity = entity_by_id.get(entity_id)
+        if entity is None:
+            continue
+        cluster_id = node_to_cluster.get(entity_id, "unclustered")
+        entity_type = entity.entity_type.value
+        cluster_counts = counts.setdefault(cluster_id, {})
+        cluster_counts[entity_type] = cluster_counts.get(entity_type, 0) + 1
+
+    return counts
+
+
+def _dominant_type(type_counts: dict[str, int]) -> str:
+    if not type_counts:
+        return "unknown"
+    return max(type_counts.items(), key=lambda item: (item[1], item[0]))[0]
+
+
 def _snapshot_to_networkx(
     entities: list[Entity],
     relationships: list[Relationship],
@@ -291,11 +429,13 @@ def _graph_totals_from_snapshot(
     relationships: list[Relationship],
     *,
     project_ids: list[str] | None = None,
+    entity_types: list[str] | None = None,
 ) -> tuple[int, int]:
     node_ids = _focused_entity_ids(
         entities,
         relationships,
         project_ids=project_ids,
+        entity_types=entity_types,
     )
     edge_count = sum(
         1
@@ -329,15 +469,12 @@ def _build_graph_nodes_from_snapshot(
         if relationship.target_id != relationship.source_id:
             degrees[relationship.target_id] += 1
 
-    selected_ids = sorted(
+    selected_ids = _pick_representative_node_ids(
         focused_ids,
-        key=lambda entity_id: (
-            degrees.get(entity_id, 0),
-            _entity_timestamp(entity_by_id.get(entity_id)),
-            entity_id,
-        ),
-        reverse=True,
-    )[:max_nodes]
+        entity_by_id,
+        degrees,
+        max_nodes=max_nodes,
+    )
 
     nodes: list[dict[str, Any]] = []
     node_ids = set(selected_ids)
@@ -651,6 +788,7 @@ async def _get_graph_totals(
     client: GraphClient,
     organization_id: str,
     project_ids: list[str] | None = None,
+    entity_types: list[str] | None = None,
     include_neighbors: bool = True,
 ) -> tuple[int, int]:
     """Get total node and edge counts (no LIMIT) for stats display.
@@ -673,6 +811,7 @@ async def _get_graph_totals(
             entities,
             relationships,
             project_ids=project_ids,
+            entity_types=entity_types,
         )
     except Exception as e:
         log.warning("count_graph_totals_failed", error=str(e))
@@ -731,52 +870,53 @@ def _build_cluster_metadata(
     clusters_meta: list[dict[str, Any]],
     node_to_cluster: dict[str, str],
     edges: list[dict[str, Any]],
+    entity_by_id: dict[str, Entity],
+    focused_ids: set[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Build enriched cluster metadata and inter-cluster edges."""
-    # Count entity types per cluster
-    cluster_type_counts: dict[str, dict[str, int]] = {}
+    focused_cluster_type_counts = _cluster_type_counts(focused_ids, entity_by_id, node_to_cluster)
+    displayed_cluster_type_counts: dict[str, dict[str, int]] = {}
     for node in nodes:
         cluster_id = node["cluster_id"]
         entity_type = node["type"]
-        if cluster_id not in cluster_type_counts:
-            cluster_type_counts[cluster_id] = {}
-        cluster_type_counts[cluster_id][entity_type] = (
-            cluster_type_counts[cluster_id].get(entity_type, 0) + 1
+        if cluster_id not in displayed_cluster_type_counts:
+            displayed_cluster_type_counts[cluster_id] = {}
+        displayed_cluster_type_counts[cluster_id][entity_type] = (
+            displayed_cluster_type_counts[cluster_id].get(entity_type, 0) + 1
         )
 
-    # Enrich clusters with type distribution (only include clusters with displayed nodes)
     enriched_clusters = []
     for cluster in clusters_meta:
-        type_dist = cluster_type_counts.get(cluster["id"], {})
-        if not type_dist:
-            # Skip clusters with no nodes in the current filtered view
+        cluster_id = cluster["id"]
+        displayed_type_dist = displayed_cluster_type_counts.get(cluster_id, {})
+        if not displayed_type_dist:
             continue
-        displayed_count = sum(type_dist.values())
-        dominant = max(type_dist.items(), key=lambda x: x[1])[0]
+        total_type_dist = focused_cluster_type_counts.get(cluster_id, {})
         enriched_clusters.append(
             {
                 **cluster,
-                "type_distribution": type_dist,
-                "dominant_type": dominant,
-                "member_count": displayed_count,  # Override with actual displayed count
+                "type_distribution": total_type_dist,
+                "displayed_type_distribution": displayed_type_dist,
+                "dominant_type": _dominant_type(total_type_dist),
+                "displayed_dominant_type": _dominant_type(displayed_type_dist),
+                "member_count": sum(total_type_dist.values()),
+                "displayed_member_count": sum(displayed_type_dist.values()),
             }
         )
 
-    # Add unclustered pseudo-cluster if needed
-    unclustered_types = cluster_type_counts.get("unclustered", {})
-    if unclustered_types:
-        dominant = (
-            max(unclustered_types.items(), key=lambda x: x[1])[0]
-            if unclustered_types
-            else "unknown"
-        )
+    unclustered_total_types = focused_cluster_type_counts.get("unclustered", {})
+    unclustered_displayed_types = displayed_cluster_type_counts.get("unclustered", {})
+    if unclustered_displayed_types:
         enriched_clusters.append(
             {
                 "id": "unclustered",
-                "member_count": sum(unclustered_types.values()),
+                "member_count": sum(unclustered_total_types.values()),
+                "displayed_member_count": sum(unclustered_displayed_types.values()),
                 "level": 0,
-                "type_distribution": unclustered_types,
-                "dominant_type": dominant,
+                "type_distribution": unclustered_total_types,
+                "displayed_type_distribution": unclustered_displayed_types,
+                "dominant_type": _dominant_type(unclustered_total_types),
+                "displayed_dominant_type": _dominant_type(unclustered_displayed_types),
             }
         )
 
@@ -890,6 +1030,7 @@ async def get_hierarchical_graph(
         entities,
         relationships,
         project_ids=project_ids,
+        entity_types=entity_types,
     )
     log.info(
         "graph_totals_queried",
@@ -958,16 +1099,25 @@ async def get_hierarchical_graph(
         max_edges=max_edges,
     )
 
-    # Fallback: if focused totals query fails or undercounts, use displayed values.
-    # This prevents confusing "0 nodes / 0 edges" overlays when focused data exists.
-    if project_ids and total_node_count == 0 and nodes:
+    if (project_ids or entity_types) and total_node_count == 0 and nodes:
         total_node_count = len(nodes)
-    if project_ids and total_edge_count == 0 and edges:
+    if (project_ids or entity_types) and total_edge_count == 0 and edges:
         total_edge_count = len(edges)
 
-    # Build cluster metadata
+    entity_by_id = _entity_index(entities)
+    focused_ids = _focused_entity_ids(
+        entities,
+        relationships,
+        project_ids=project_ids,
+        entity_types=entity_types,
+    )
     enriched_clusters, cluster_edges = _build_cluster_metadata(
-        nodes, clusters_meta, node_to_cluster, edges
+        nodes,
+        clusters_meta,
+        node_to_cluster,
+        edges,
+        entity_by_id,
+        focused_ids,
     )
 
     log.info(

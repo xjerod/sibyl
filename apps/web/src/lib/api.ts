@@ -337,9 +337,12 @@ export interface HierarchicalEdge {
 export interface HierarchicalCluster {
   id: string;
   member_count: number;
+  displayed_member_count?: number;
   level: number;
   type_distribution: Record<string, number>;
+  displayed_type_distribution?: Record<string, number>;
   dominant_type: string;
+  displayed_dominant_type?: string;
 }
 
 export interface ClusterEdge {

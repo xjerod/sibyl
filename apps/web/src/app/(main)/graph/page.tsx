@@ -127,6 +127,18 @@ function getClusterLabel(cluster: HierarchicalCluster, nodes: GraphNode[]): stri
   return topNames.join(', ');
 }
 
+function getClusterDisplayCount(cluster: HierarchicalCluster): number {
+  return cluster.displayed_member_count ?? cluster.member_count;
+}
+
+function formatClusterCount(cluster: HierarchicalCluster): string {
+  const displayed = cluster.displayed_member_count;
+  if (displayed == null || displayed === cluster.member_count) {
+    return cluster.member_count.toLocaleString();
+  }
+  return `${displayed.toLocaleString()}/${cluster.member_count.toLocaleString()}`;
+}
+
 // Cluster legend component
 function ClusterLegend({
   clusters,
@@ -170,7 +182,7 @@ function ClusterLegend({
             <span>All clusters</span>
           </button>
           {[...clusters]
-            .sort((a, b) => b.member_count - a.member_count)
+            .sort((a, b) => getClusterDisplayCount(b) - getClusterDisplayCount(a))
             .map(cluster => {
               const color = clusterColorMap.get(cluster.id) || '#8b85a0';
               const isSelected = selectedCluster === cluster.id;
@@ -193,7 +205,7 @@ function ClusterLegend({
                   />
                   <span className="truncate">{label}</span>
                   <span className="ml-auto text-sc-fg-subtle flex-shrink-0">
-                    {cluster.member_count}
+                    {formatClusterCount(cluster)}
                   </span>
                 </button>
               );
@@ -213,6 +225,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   procedure: 'Procedures',
   episode: 'Episodes',
   topic: 'Topics',
+  note: 'Notes',
   concept: 'Concepts',
   rule: 'Rules',
   template: 'Templates',
@@ -352,6 +365,7 @@ function GraphToolbar({
     'procedure',
     'episode',
     'topic',
+    'note',
     'concept',
   ];
   const secondaryTypes = ENTITY_TYPES.filter(t => !primaryTypes.includes(t));

@@ -346,3 +346,37 @@ class TestGraphRoutes:
             max_nodes=200,
             max_edges=300,
         )
+
+    @pytest.mark.asyncio
+    async def test_get_hierarchical_graph_data_uses_type_filter_fallback_totals(self) -> None:
+        runtime = SimpleNamespace(client=object())
+        data = SimpleNamespace(
+            nodes=[{"id": "topic-1", "type": "topic", "name": "Topic One"}],
+            edges=[{"source": "topic-1", "target": "topic-2", "type": "RELATED_TO"}],
+            clusters=[],
+            cluster_edges=[],
+            total_nodes=0,
+            total_edges=0,
+            displayed_nodes=1,
+            displayed_edges=1,
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.graph.get_legacy_entity_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.graph.get_hierarchical_graph",
+                AsyncMock(return_value=data),
+            ),
+        ):
+            result = await graph_routes.get_hierarchical_graph_data(
+                org=_org(),
+                types=[EntityType.TOPIC],
+                max_nodes=200,
+                max_edges=300,
+            )
+
+        assert result["total_nodes"] == 1
+        assert result["total_edges"] == 1

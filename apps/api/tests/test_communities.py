@@ -461,6 +461,136 @@ class TestHierarchicalGraph:
         list_entities.assert_awaited_once_with(mock_client, TEST_ORG_ID)
         list_relationships.assert_awaited_once_with(mock_client, TEST_ORG_ID)
 
+    @pytest.mark.asyncio
+    async def test_honors_type_filters_in_totals_and_clusters(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        entities = [
+            _make_entity("topic-1", "Topic 1", EntityType.TOPIC),
+            _make_entity("topic-2", "Topic 2", EntityType.TOPIC),
+            _make_entity("task-1", "Task 1", EntityType.TASK),
+            _make_entity("note-1", "Note 1", EntityType.NOTE),
+        ]
+        relationships = [
+            _make_relationship("r1", "topic-1", "topic-2"),
+            _make_relationship("r2", "topic-1", "task-1"),
+        ]
+        partition = {entity.id: 0 for entity in entities}
+
+        with (
+            patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch(
+                "sibyl_core.graph.communities._list_all_entities",
+                AsyncMock(return_value=entities),
+            ),
+            patch(
+                "sibyl_core.graph.communities._list_all_relationships",
+                AsyncMock(return_value=relationships),
+            ),
+            patch(
+                "sibyl_core.graph.communities.detect_communities_louvain",
+                return_value=(partition, 0.5),
+            ),
+        ):
+            data = await get_hierarchical_graph(
+                mock_client,
+                TEST_ORG_ID,
+                entity_types=["topic"],
+                max_nodes=10,
+                max_edges=10,
+            )
+
+        assert data.total_nodes == 2
+        assert data.total_edges == 1
+        assert data.displayed_nodes == 2
+        assert data.displayed_edges == 1
+        assert {node["type"] for node in data.nodes} == {"topic"}
+        assert len(data.clusters) == 1
+        assert data.clusters[0]["member_count"] == 2
+        assert data.clusters[0]["displayed_member_count"] == 2
+        assert data.clusters[0]["type_distribution"] == {"topic": 2}
+
+    @pytest.mark.asyncio
+    async def test_sampling_preserves_secondary_entity_types(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        task_entities = [
+            _make_entity(f"task-{index}", f"Task {index}", EntityType.TASK) for index in range(110)
+        ]
+        topic_entities = [
+            _make_entity(f"topic-{index}", f"Topic {index}", EntityType.TOPIC) for index in range(10)
+        ]
+        entities = [*task_entities, *topic_entities]
+        relationships = [
+            _make_relationship(f"task-edge-{index}", "task-0", f"task-{index}")
+            for index in range(1, 110)
+        ]
+        relationships.extend(
+            _make_relationship(f"topic-edge-{index}", f"topic-{index}", f"topic-{index + 1}")
+            for index in range(9)
+        )
+        partition = {entity.id: 0 for entity in entities}
+
+        with (
+            patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch(
+                "sibyl_core.graph.communities._list_all_entities",
+                AsyncMock(return_value=entities),
+            ),
+            patch(
+                "sibyl_core.graph.communities._list_all_relationships",
+                AsyncMock(return_value=relationships),
+            ),
+            patch(
+                "sibyl_core.graph.communities.detect_communities_louvain",
+                return_value=(partition, 0.5),
+            ),
+        ):
+            data = await get_hierarchical_graph(mock_client, TEST_ORG_ID, max_nodes=100, max_edges=300)
+
+        topic_count = sum(1 for node in data.nodes if node["type"] == EntityType.TOPIC.value)
+        assert data.displayed_nodes == 100
+        assert topic_count >= 5
+
+    @pytest.mark.asyncio
+    async def test_clusters_keep_total_member_count_when_sampled(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        entities = [
+            _make_entity(f"task-{index}", f"Task {index}", EntityType.TASK) for index in range(120)
+        ]
+        relationships = [
+            _make_relationship(f"edge-{index}", f"task-{index}", f"task-{index + 1}")
+            for index in range(119)
+        ]
+        partition = {entity.id: 0 for entity in entities}
+
+        with (
+            patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch(
+                "sibyl_core.graph.communities._list_all_entities",
+                AsyncMock(return_value=entities),
+            ),
+            patch(
+                "sibyl_core.graph.communities._list_all_relationships",
+                AsyncMock(return_value=relationships),
+            ),
+            patch(
+                "sibyl_core.graph.communities.detect_communities_louvain",
+                return_value=(partition, 0.5),
+            ),
+        ):
+            data = await get_hierarchical_graph(mock_client, TEST_ORG_ID, max_nodes=100, max_edges=300)
+
+        cluster = next(cluster for cluster in data.clusters if cluster["id"] != "unclustered")
+        assert data.total_nodes == 120
+        assert data.displayed_nodes == 100
+        assert cluster["member_count"] == 120
+        assert cluster["displayed_member_count"] == 100
+
 
 class TestStoreCommunities:
     """Tests for store_communities function."""

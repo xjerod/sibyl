@@ -708,9 +708,10 @@ async def get_hierarchical_graph_data(
 
         # Guard against focused-mode totals undercounting. If filtered data exists,
         # don't surface 0 totals in the UI.
-        if projects and data.total_nodes == 0 and data.displayed_nodes > 0:
+        has_focus_filters = bool(projects or types)
+        if has_focus_filters and data.total_nodes == 0 and data.displayed_nodes > 0:
             data.total_nodes = data.displayed_nodes
-        if projects and data.total_edges == 0 and data.displayed_edges > 0:
+        if has_focus_filters and data.total_edges == 0 and data.displayed_edges > 0:
             data.total_edges = data.displayed_edges
 
         # Transform nodes to include colors

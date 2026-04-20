@@ -24,6 +24,7 @@ export const ENTITY_TYPES = [
   'milestone',
   'source',
   'document',
+  'note',
   'concept', // Generic extracted entities
   'file', // File paths
   'function', // Functions/methods
@@ -54,6 +55,7 @@ export const ENTITY_COLORS: Record<EntityType, string> = {
   milestone: '#f1fa8c', // Electric Yellow
   source: '#ff9580', // Warm Orange
   document: '#6272a4', // Muted Blue
+  note: '#9f95c2', // Muted Lilac
   concept: '#a8a8a8', // Neutral Gray (generic entities)
   file: '#61afef', // Sky Blue (files)
   function: '#c678dd', // Purple (code)
@@ -84,6 +86,7 @@ export const ENTITY_ICONS: Record<EntityType, string> = {
   milestone: '◎',
   source: '⊕',
   document: '▤',
+  note: '✎',
   concept: '○', // Generic entity
   file: '▢', // File
   function: 'ƒ', // Function
@@ -281,6 +284,15 @@ export const ENTITY_STYLES: Record<EntityType, EntityStyle> = {
     gradient: 'from-[#f1fa8c]/15 via-transparent to-transparent',
     border: 'border-[#f1fa8c]/30',
     glow: 'shadow-[#f1fa8c]/20',
+  },
+  note: {
+    badge: 'bg-[#9f95c2]/20 text-[#9f95c2] border-[#9f95c2]/30',
+    card: 'hover:border-[#9f95c2]/50 hover:shadow-[#9f95c2]/20',
+    dot: 'bg-[#9f95c2]',
+    accent: 'bg-[#9f95c2]',
+    gradient: 'from-[#9f95c2]/15 via-transparent to-transparent',
+    border: 'border-[#9f95c2]/30',
+    glow: 'shadow-[#9f95c2]/20',
   },
   concept: {
     badge: 'bg-[#a8a8a8]/20 text-[#a8a8a8] border-[#a8a8a8]/30',

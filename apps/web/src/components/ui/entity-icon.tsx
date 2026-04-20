@@ -50,6 +50,7 @@ const ENTITY_ICON_MAP: Record<EntityType, IconComponent> = {
   milestone: Star,
   source: Globe,
   document: Journal,
+  note: EditPencil,
   concept: Circle,
   file: Page,
   function: CodeBrackets,
