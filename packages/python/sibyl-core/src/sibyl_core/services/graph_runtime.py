@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from sibyl_core.graph.client import GraphClient
 from sibyl_core.models.entities import EntityType
 
 
@@ -52,6 +53,48 @@ async def count_entities_by_type(
     """Count entities by type without assuming backend-specific aggregations."""
 
     counts = {entity_type.value: 0 for entity_type in EntityType}
+    driver = getattr(entity_manager, "_driver", None)
+    group_id = getattr(entity_manager, "_group_id", None)
+
+    if driver is not None and group_id:
+        try:
+            try:
+                from sibyl_core.backends.surreal import SurrealDriver
+            except ImportError:
+                SurrealDriver = None  # type: ignore[assignment]
+
+            if SurrealDriver is not None and isinstance(driver, SurrealDriver):
+                rows = GraphClient.normalize_result(
+                    await driver.execute_query(
+                        """
+                        SELECT entity_type, count() AS cnt
+                        FROM entity
+                        WHERE group_id = $group_id
+                        GROUP BY entity_type;
+                        """,
+                        group_id=group_id,
+                    )
+                )
+            else:
+                rows = GraphClient.normalize_result(
+                    await driver.execute_query(
+                        """
+                        MATCH (n)
+                        WHERE n.group_id = $group_id AND n.entity_type IS NOT NULL
+                        RETURN n.entity_type AS entity_type, count(*) AS cnt
+                        """,
+                        group_id=group_id,
+                    )
+                )
+
+            for row in rows:
+                entity_type = row.get("entity_type")
+                if entity_type:
+                    counts[str(entity_type)] = int(row.get("cnt", 0))
+            return counts
+        except Exception:
+            pass
+
     offset = 0
 
     while True:

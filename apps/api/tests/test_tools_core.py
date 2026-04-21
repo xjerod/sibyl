@@ -1,11 +1,13 @@
 """Tests for the core MCP tools (search, explore, add, manage)."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
 from sibyl_core.models.entities import EntityType
+from sibyl_core.services.graph_runtime import count_entities_by_type
 from sibyl_core.tools.core import (
     VALID_ENTITY_TYPES,
     AddResponse,
@@ -562,7 +564,7 @@ class TestGetHealth:
 
     @pytest.mark.asyncio
     async def test_health_paginates_counts_beyond_page_size(self) -> None:
-        """Health should count all entities even when a type exceeds 1000 rows."""
+        """Health should count all entities with a single paged pass."""
 
         counts_by_page = {
             0: [EntityType.PATTERN] * 1000,
@@ -590,10 +592,12 @@ class TestGetHealth:
             assert result["entity_counts"]["pattern"] == 1250
             assert result["entity_counts"]["rule"] == 1001
             assert result["entity_counts"]["episode"] == 0
-            assert any(
-                call.kwargs.get("offset") == 1000
-                for call in ctx.entity_manager.list_all.await_args_list
-            )
+            assert ctx.entity_manager.list_all.await_args_list == [
+                call(limit=1000, offset=0, include_archived=False),
+                call(limit=1000, offset=1000, include_archived=False),
+                call(limit=1000, offset=2000, include_archived=False),
+                call(limit=1000, offset=2251, include_archived=False),
+            ]
 
     @pytest.mark.asyncio
     async def test_health_handles_connection_failure(self) -> None:
@@ -607,6 +611,31 @@ class TestGetHealth:
 
             assert result["status"] == "unhealthy"
             assert len(result["errors"]) > 0
+
+
+class TestCountEntitiesByType:
+    @pytest.mark.asyncio
+    async def test_prefers_driver_aggregation_when_available(self) -> None:
+        driver = AsyncMock()
+        driver.execute_query = AsyncMock(
+            return_value=[
+                {"entity_type": "pattern", "cnt": 3},
+                {"entity_type": "task", "cnt": 2},
+            ]
+        )
+        entity_manager = SimpleNamespace(
+            _driver=driver,
+            _group_id=TEST_ORG_ID,
+            list_all=AsyncMock(),
+        )
+
+        counts = await count_entities_by_type(entity_manager)
+
+        assert counts["pattern"] == 3
+        assert counts["task"] == 2
+        assert counts["episode"] == 0
+        driver.execute_query.assert_awaited_once()
+        entity_manager.list_all.assert_not_awaited()
 
 
 class TestGetStats:

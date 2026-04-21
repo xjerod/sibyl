@@ -41,12 +41,6 @@ execute_graph_query = _execute_graph_query
 execute_legacy_graph_query = _execute_graph_query
 
 
-async def _count_entities(entity_manager: Any, entity_type: EntityType) -> int:
-    """Count entities of a type without truncating large orgs."""
-    counts = await count_entities_by_type(entity_manager)
-    return counts.get(entity_type.value, 0)
-
-
 async def get_health(*, organization_id: str | None = None) -> dict[str, Any]:
     """Get server health status.
 
@@ -80,14 +74,16 @@ async def get_health(*, organization_id: str | None = None) -> dict[str, Any]:
             runtime = await get_graph_runtime(organization_id)
             entity_manager = runtime.entity_manager
 
+            try:
+                counts = await count_entities_by_type(entity_manager)
+            except Exception:
+                counts = None
+
             for entity_type in [EntityType.PATTERN, EntityType.RULE, EntityType.EPISODE]:
-                try:
-                    health["entity_counts"][entity_type.value] = await _count_entities(
-                        entity_manager,
-                        entity_type,
-                    )
-                except Exception:
+                if counts is None:
                     health["entity_counts"][entity_type.value] = -1
+                else:
+                    health["entity_counts"][entity_type.value] = counts.get(entity_type.value, 0)
 
         health["status"] = "healthy"
 
