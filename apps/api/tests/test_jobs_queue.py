@@ -1,28 +1,16 @@
-import importlib.util
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-
-def _load_queue_module():
-    queue_spec = importlib.util.spec_from_file_location(
-        "test_jobs_queue_module",
-        Path(__file__).resolve().parents[1] / "src" / "sibyl" / "jobs" / "queue.py",
-    )
-    assert queue_spec is not None
-    assert queue_spec.loader is not None
-
-    queue_module = importlib.util.module_from_spec(queue_spec)
-    queue_spec.loader.exec_module(queue_module)
-    return queue_module
-
-
-queue_module = _load_queue_module()
-JobInfo = queue_module.JobInfo
-JobStatus = queue_module.JobStatus
+from sibyl.coordination._redis.broker import RedisQueueBroker
+from sibyl.coordination.broker import (
+    RECENT_JOB_INDEX_KEY,
+    RECENT_JOB_INDEX_LIMIT,
+    JobInfo,
+    JobStatus,
+)
 
 
 class FakePool:
@@ -32,12 +20,13 @@ class FakePool:
         self._recent_ids = recent_ids
         self._scan_ids = scan_ids
         self.keys = AsyncMock(side_effect=AssertionError("list_jobs should not call KEYS"))
-        self.zadd_calls = 0
+        self.zadd = AsyncMock()
+        self.zremrangebyrank = AsyncMock()
         self.zrevrange_calls = 0
         self.scan_iter_calls = 0
 
     async def zrevrange(self, key: str, start: int, stop: int):
-        assert key == queue_module.RECENT_JOB_INDEX_KEY
+        assert key == RECENT_JOB_INDEX_KEY
         assert start == 0
         assert stop == -1
         self.zrevrange_calls += 1
@@ -72,22 +61,26 @@ class RecordingEnqueuePool:
         return SimpleNamespace(job_id=kwargs["_job_id"])
 
 
+def make_broker(pool: object) -> RedisQueueBroker:
+    broker = RedisQueueBroker()
+    broker.get_pool = AsyncMock(return_value=pool)  # type: ignore[method-assign]
+    return broker
+
+
 def assert_recent_job_indexed(pool: RecordingEnqueuePool, job_id: str) -> None:
     assert pool.zadd.await_count >= 1
     key, mapping = pool.zadd.await_args_list[-1].args
-    assert key == queue_module.RECENT_JOB_INDEX_KEY
+    assert key == RECENT_JOB_INDEX_KEY
     assert mapping == {job_id: mapping[job_id]}
     pool.zremrangebyrank.assert_awaited_with(
-        queue_module.RECENT_JOB_INDEX_KEY,
+        RECENT_JOB_INDEX_KEY,
         0,
-        -(queue_module.RECENT_JOB_INDEX_LIMIT + 1),
+        -(RECENT_JOB_INDEX_LIMIT + 1),
     )
 
 
 @pytest.mark.asyncio
-async def test_list_jobs_uses_recent_index_and_sorts_newest_first(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_list_jobs_uses_recent_index_and_sorts_newest_first() -> None:
     now = datetime.now(UTC)
     pool = FakePool([b"newest", b"older", "no-time"])
     infos = {
@@ -110,14 +103,10 @@ async def test_list_jobs_uses_recent_index_and_sorts_newest_first(
         ),
     }
 
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
-    monkeypatch.setattr(
-        queue_module,
-        "get_job_status",
-        AsyncMock(side_effect=lambda job_id: infos[job_id]),
-    )
+    broker = make_broker(pool)
+    broker.get_job_status = AsyncMock(side_effect=lambda job_id: infos[job_id])  # type: ignore[method-assign]
 
-    jobs = await queue_module.list_jobs(limit=10)
+    jobs = await broker.list_jobs(limit=10)
 
     assert [job.job_id for job in jobs] == ["newest", "older", "no-time"]
     pool.keys.assert_not_called()
@@ -126,18 +115,9 @@ async def test_list_jobs_uses_recent_index_and_sorts_newest_first(
 
 
 @pytest.mark.asyncio
-async def test_list_jobs_filters_limits_and_skips_failed_statuses(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_list_jobs_filters_limits_and_skips_failed_statuses() -> None:
     now = datetime.now(UTC)
-    pool = FakePool(
-        [
-            "alpha",
-            "beta",
-            "gamma",
-            "broken",
-        ]
-    )
+    pool = FakePool(["alpha", "beta", "gamma", "broken"])
     infos = {
         "alpha": JobInfo(
             job_id="alpha",
@@ -164,22 +144,19 @@ async def test_list_jobs_filters_limits_and_skips_failed_statuses(
             raise RuntimeError("boom")
         return infos[job_id]
 
-    get_job_status = AsyncMock(side_effect=fake_get_job_status)
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
-    monkeypatch.setattr(queue_module, "get_job_status", get_job_status)
+    broker = make_broker(pool)
+    broker.get_job_status = AsyncMock(side_effect=fake_get_job_status)  # type: ignore[method-assign]
 
-    jobs = await queue_module.list_jobs(function="crawl_source", limit=1)
+    jobs = await broker.list_jobs(function="crawl_source", limit=1)
 
     assert [job.job_id for job in jobs] == ["gamma"]
-    assert get_job_status.await_count == 4
+    assert broker.get_job_status.await_count == 4  # type: ignore[attr-defined]
     assert pool.scan_iter_calls == 0
     assert pool.zrevrange_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_list_jobs_falls_back_to_scan_when_index_is_empty(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_list_jobs_falls_back_to_scan_when_index_is_empty() -> None:
     now = datetime.now(UTC)
     pool = FakePool([], scan_ids=["arq:job:older", b"arq:job:newest"])
     infos = {
@@ -197,14 +174,10 @@ async def test_list_jobs_falls_back_to_scan_when_index_is_empty(
         ),
     }
 
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
-    monkeypatch.setattr(
-        queue_module,
-        "get_job_status",
-        AsyncMock(side_effect=lambda job_id: infos[job_id]),
-    )
+    broker = make_broker(pool)
+    broker.get_job_status = AsyncMock(side_effect=lambda job_id: infos[job_id])  # type: ignore[method-assign]
 
-    jobs = await queue_module.list_jobs(limit=10)
+    jobs = await broker.list_jobs(limit=10)
 
     assert [job.job_id for job in jobs] == ["newest", "older"]
     assert pool.scan_iter_calls == 1
@@ -212,14 +185,12 @@ async def test_list_jobs_falls_back_to_scan_when_index_is_empty(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_backup_uses_unique_backup_id_for_job_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_enqueue_backup_uses_unique_backup_id_for_job_id() -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
 
-    first_job_id = await queue_module.enqueue_backup("org-123", backup_id="backup_a")
-    second_job_id = await queue_module.enqueue_backup("org-123", backup_id="backup_b")
+    first_job_id = await broker.enqueue_backup("org-123", backup_id="backup_a")
+    second_job_id = await broker.enqueue_backup("org-123", backup_id="backup_b")
 
     assert first_job_id == "backup:backup_a"
     assert second_job_id == "backup:backup_b"
@@ -234,14 +205,13 @@ async def test_enqueue_backup_generates_backup_id_when_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
     monkeypatch.setattr(
-        queue_module,
-        "generate_backup_id",
+        "sibyl.coordination._redis.broker.generate_backup_id",
         lambda organization_id: f"backup_generated_for_{organization_id}",
     )
 
-    job_id = await queue_module.enqueue_backup("org-123")
+    job_id = await broker.enqueue_backup("org-123")
 
     assert job_id == "backup:backup_generated_for_org-123"
     assert pool.calls[0][2]["backup_id"] == "backup_generated_for_org-123"
@@ -249,13 +219,11 @@ async def test_enqueue_backup_generates_backup_id_when_missing(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_crawl_includes_org_metadata_when_provided(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_enqueue_crawl_includes_org_metadata_when_provided() -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
 
-    job_id = await queue_module.enqueue_crawl("source-123", organization_id="org-123")
+    job_id = await broker.enqueue_crawl("source-123", organization_id="org-123")
 
     assert job_id == "crawl:source-123"
     assert pool.calls[0][0] == "crawl_source"
@@ -265,13 +233,11 @@ async def test_enqueue_crawl_includes_org_metadata_when_provided(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_sync_includes_org_metadata_when_provided(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_enqueue_sync_includes_org_metadata_when_provided() -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
 
-    job_id = await queue_module.enqueue_sync("source-123", organization_id="org-123")
+    job_id = await broker.enqueue_sync("source-123", organization_id="org-123")
 
     assert job_id == "sync:source-123"
     assert pool.calls[0][0] == "sync_source"
@@ -281,28 +247,25 @@ async def test_enqueue_sync_includes_org_metadata_when_provided(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_backup_cleanup_indexes_recent_job(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_enqueue_backup_cleanup_indexes_recent_job() -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
 
-    job_id = await queue_module.enqueue_backup_cleanup(retention_days=7)
+    job_id = await broker.enqueue_backup_cleanup(retention_days=7)
 
     assert job_id == "backup_cleanup"
     assert pool.calls[0][0] == "cleanup_old_backups"
     assert pool.calls[0][2]["retention_days"] == 7
+    assert pool.delete.await_args_list[-1].args == ("arq:result:backup_cleanup",)
     assert_recent_job_indexed(pool, "backup_cleanup")
 
 
 @pytest.mark.asyncio
-async def test_enqueue_create_learning_procedure_indexes_recent_job(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_enqueue_create_learning_procedure_indexes_recent_job() -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
 
-    job_id = await queue_module.enqueue_create_learning_procedure(
+    job_id = await broker.enqueue_create_learning_procedure(
         {"id": "task-123", "title": "Ship the thing"},
         "org-123",
     )
@@ -316,13 +279,11 @@ async def test_enqueue_create_learning_procedure_indexes_recent_job(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_consolidation_uses_org_scoped_job_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_enqueue_consolidation_uses_org_scoped_job_id() -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
 
-    job_id = await queue_module.enqueue_consolidation("org-123")
+    job_id = await broker.enqueue_consolidation("org-123")
 
     assert job_id == "consolidate:org-123"
     assert pool.calls[0][0] == "consolidate_org"
@@ -334,13 +295,11 @@ async def test_enqueue_consolidation_uses_org_scoped_job_id(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_priority_decay_uses_org_scoped_job_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_enqueue_priority_decay_uses_org_scoped_job_id() -> None:
     pool = RecordingEnqueuePool()
-    monkeypatch.setattr(queue_module, "get_pool", AsyncMock(return_value=pool))
+    broker = make_broker(pool)
 
-    job_id = await queue_module.enqueue_priority_decay("org-123")
+    job_id = await broker.enqueue_priority_decay("org-123")
 
     assert job_id == "priority_decay:org-123"
     assert pool.calls[0][0] == "priority_decay"

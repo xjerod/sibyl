@@ -109,7 +109,7 @@ async def _run_migrations() -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
     """Run migrations, pre-warm graph client, and start coordination backends."""
     legacy_runtime = settings.store == "legacy"
     coordination_backend = settings.resolved_coordination_backend
@@ -127,6 +127,27 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         log.info("Graph client ready", store=settings.store)
     except Exception as e:
         log.warning("Failed to pre-warm graph client", error=str(e))
+
+    broker_initialized = False
+    queue_backend = "unknown"
+    try:
+        from sibyl.coordination.broker import get_broker, get_queue_backend
+
+        queue_backend = get_queue_backend()
+        await get_broker().startup()
+        broker_initialized = True
+        log.info(
+            "Coordination broker ready",
+            backend=coordination_backend,
+            queue_backend=queue_backend,
+        )
+    except Exception as e:
+        log.warning(
+            "Failed to initialize coordination broker",
+            backend=coordination_backend,
+            queue_backend=queue_backend,
+            error=str(e),
+        )
 
     pubsub_initialized = False
     try:
@@ -177,6 +198,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await shutdown_locks()
         except Exception as e:
             log.debug("Lock shutdown error (expected during fast restarts)", error=str(e))
+
+    if broker_initialized:
+        try:
+            from sibyl.coordination.broker import get_broker
+
+            await get_broker().shutdown()
+        except Exception as e:
+            log.debug("Broker shutdown error (expected during fast restarts)", error=str(e))
 
 
 def create_api_app() -> FastAPI:

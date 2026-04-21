@@ -22,29 +22,25 @@ def uses_redis_coordination() -> bool:
 async def get_coordination_health() -> dict[str, Any]:
     """Return coordination health metadata for admin and jobs surfaces."""
     backend = get_coordination_backend()
+    from sibyl.coordination.broker import get_queue_backend
+
+    queue_backend = get_queue_backend()
     health: dict[str, Any] = {
         "backend": backend,
         "store": settings.store,
         "durable": backend == "redis",
+        "queue_backend": queue_backend,
+        "queue_durable": queue_backend == "redis",
         "single_process": backend == "local",
         "queue_healthy": False,
         "worker_healthy": False,
         "queue_depth": 0,
     }
 
-    if backend == "local":
-        return {
-            **health,
-            "status": "degraded",
-            "error": "Local coordination is active, but the local job broker is not implemented yet",
-        }
-
     try:
-        from sibyl.jobs.queue import get_pool
+        from sibyl.coordination.broker import get_broker
 
-        pool = await get_pool()
-        redis_info = await pool.info()
-        pool_info = await pool.pool.info()
+        broker_health = await get_broker().health()
     except Exception:
         return {
             **health,
@@ -52,13 +48,4 @@ async def get_coordination_health() -> dict[str, Any]:
             "error": "Health check failed",
         }
 
-    return {
-        **health,
-        "status": "healthy",
-        "queue_healthy": bool(redis_info),
-        "worker_healthy": bool(pool_info.get("workers", 0)),
-        "queue_depth": pool_info.get("pending_jobs", 0) if pool_info else 0,
-        "redis_version": redis_info.get("redis_version", "unknown"),
-        "connected_clients": redis_info.get("connected_clients", 0),
-        "used_memory_human": redis_info.get("used_memory_human", "unknown"),
-    }
+    return {**health, **broker_health}

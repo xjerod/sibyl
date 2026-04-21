@@ -136,6 +136,27 @@ def create_combined_app(  # noqa: PLR0915
         except Exception as e:
             log.warning("Graph runtime unavailable at startup", store=settings.store, error=str(e))
 
+        broker_initialized = False
+        queue_backend = "unknown"
+        try:
+            from sibyl.coordination.broker import get_broker, get_queue_backend
+
+            queue_backend = get_queue_backend()
+            await get_broker().startup()
+            broker_initialized = True
+            log.info(
+                "Coordination broker ready",
+                backend=coordination_backend,
+                queue_backend=queue_backend,
+            )
+        except Exception as e:
+            log.warning(
+                "Coordination broker unavailable",
+                backend=coordination_backend,
+                queue_backend=queue_backend,
+                error=str(e),
+            )
+
         # Initialize coordination event bus for WebSocket broadcasts
         pubsub_initialized = False
         try:
@@ -206,6 +227,14 @@ def create_combined_app(  # noqa: PLR0915
                 await shutdown_locks()
             except Exception as e:
                 log.warning("Error shutting down locks", error=str(e))
+
+        if broker_initialized:
+            try:
+                from sibyl.coordination.broker import get_broker
+
+                await get_broker().shutdown()
+            except Exception as e:
+                log.warning("Error shutting down broker", error=str(e))
 
         # Shutdown embedded worker if running
         if worker_task:

@@ -285,13 +285,19 @@ class TestEnqueueCreateEntityMarksPending:
 
     @pytest.mark.asyncio
     async def test_enqueue_create_entity_marks_pending(self, mock_registry: MagicMock) -> None:
+        from sibyl.coordination._redis.broker import RedisQueueBroker
+
         mock_pool = AsyncMock()
         mock_job = MagicMock()
         mock_job.job_id = "create_entity:task_123"
         mock_pool.enqueue_job.return_value = mock_job
+        mock_pool.zadd = AsyncMock()
+        mock_pool.zremrangebyrank = AsyncMock()
+        broker = RedisQueueBroker()
+        broker.get_pool = AsyncMock(return_value=mock_pool)  # type: ignore[method-assign]
 
         with (
-            patch("sibyl.jobs.queue.get_pool", return_value=mock_pool),
+            patch("sibyl.jobs.queue.get_queue", return_value=broker),
             patch("sibyl.jobs.pending.get_pending", return_value=mock_registry),
         ):
             from sibyl.jobs.queue import enqueue_create_entity
