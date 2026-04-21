@@ -200,7 +200,7 @@ def create_combined_app(  # noqa: PLR0915
 
                 worker_task = asyncio.create_task(run_worker_async())
             elif coordination_backend == "local":
-                log.warning("Embedded local coordination worker is not implemented yet")
+                log.info("Local queue broker runs in-process; no embedded worker task needed")
             else:
                 log.warning("Embedded worker disabled in surreal mode", store=settings.store)
 

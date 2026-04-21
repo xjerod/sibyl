@@ -161,12 +161,7 @@ _broker_backend: QueueBackend | None = None
 
 def get_queue_backend() -> QueueBackend:
     """Return the queue backend used for job execution."""
-    backend = get_coordination_backend()
-    if backend == "redis":
-        return "redis"
-
-    # Keep jobs on the existing arq/Redis path until the local queue backend exists.
-    return "redis"
+    return get_coordination_backend()
 
 
 def get_broker() -> QueueBroker:

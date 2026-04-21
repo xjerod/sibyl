@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -12,7 +12,7 @@ from sibyl.coordination._local.broker import LOCAL_BROKER_ERROR, LocalQueueBroke
 from sibyl.coordination._local.events import LocalEventBus
 from sibyl.coordination._local.locks import LocalLockManager
 from sibyl.coordination._local.pending import LocalPendingRegistry
-from sibyl.coordination._redis.broker import RedisQueueBroker
+from sibyl.coordination.broker import JobInfo, JobStatus
 
 
 @pytest.mark.asyncio
@@ -93,15 +93,271 @@ async def test_local_queue_broker_reports_degraded_health() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_queue_broker_enqueue_is_unsupported() -> None:
-    broker = LocalQueueBroker()
+async def test_local_queue_broker_executes_local_jobs_and_reports_health() -> None:
+    calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
 
-    with pytest.raises(RuntimeError, match=LOCAL_BROKER_ERROR):
-        await broker.enqueue_sync("source_123")
+    async def crawl_source(
+        ctx: dict[str, object],
+        source_id: str,
+        *,
+        organization_id: str | None = None,
+        max_pages: int = 100,
+        max_depth: int = 3,
+        generate_embeddings: bool = True,
+    ) -> dict[str, object]:
+        calls.append(
+            (
+                "crawl_source",
+                (source_id,),
+                {
+                    "organization_id": organization_id,
+                    "max_pages": max_pages,
+                    "max_depth": max_depth,
+                    "generate_embeddings": generate_embeddings,
+                    "ctx_has_start_time": "start_time" in ctx,
+                },
+            )
+        )
+        return {"source_id": source_id, "ok": True}
+
+    async def create_entity(
+        ctx: dict[str, object],
+        entity_data: dict[str, object],
+        entity_type: str,
+        group_id: str,
+        relationships: list[dict[str, object]] | None = None,
+        auto_link_params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        calls.append(
+            (
+                "create_entity",
+                (entity_data, entity_type, group_id),
+                {
+                    "relationships": relationships,
+                    "auto_link_params": auto_link_params,
+                    "ctx_has_start_time": "start_time" in ctx,
+                },
+            )
+        )
+        return {"entity_id": entity_data["id"], "ok": True}
+
+    async def update_task(
+        ctx: dict[str, object],
+        task_id: str,
+        updates: dict[str, object],
+        group_id: str,
+        *,
+        epic_id: str | None = None,
+        new_status: str | None = None,
+        add_depends_on: list[str] | None = None,
+        remove_depends_on: list[str] | None = None,
+    ) -> dict[str, object]:
+        calls.append(
+            (
+                "update_task",
+                (task_id, updates, group_id),
+                {
+                    "epic_id": epic_id,
+                    "new_status": new_status,
+                    "add_depends_on": add_depends_on,
+                    "remove_depends_on": remove_depends_on,
+                    "ctx_has_start_time": "start_time" in ctx,
+                },
+            )
+        )
+        return {"task_id": task_id, "ok": True}
+
+    async def run_backup(
+        ctx: dict[str, object],
+        organization_id: str,
+        *,
+        include_postgres: bool = True,
+        include_graph: bool = True,
+        backup_id: str | None = None,
+    ) -> dict[str, object]:
+        calls.append(
+            (
+                "run_backup",
+                (organization_id,),
+                {
+                    "include_postgres": include_postgres,
+                    "include_graph": include_graph,
+                    "backup_id": backup_id,
+                    "ctx_has_start_time": "start_time" in ctx,
+                },
+            )
+        )
+        return {"backup_id": backup_id, "ok": True}
+
+    async def consolidate_org(
+        ctx: dict[str, object],
+        group_id: str,
+        similarity_threshold: float = 0.90,
+        max_merges_per_run: int = 50,
+    ) -> dict[str, object]:
+        calls.append(
+            (
+                "consolidate_org",
+                (group_id,),
+                {
+                    "similarity_threshold": similarity_threshold,
+                    "max_merges_per_run": max_merges_per_run,
+                    "ctx_has_start_time": "start_time" in ctx,
+                },
+            )
+        )
+        return {"group_id": group_id, "ok": True}
+
+    broker = LocalQueueBroker(
+        functions={
+            "crawl_source": crawl_source,
+            "create_entity": create_entity,
+            "update_task": update_task,
+            "run_backup": run_backup,
+            "consolidate_org": consolidate_org,
+        },
+        max_concurrency=1,
+        result_ttl_seconds=60,
+    )
+
+    await broker.startup()
+    health = await broker.health()
+    assert health["status"] == "healthy"
+    assert health["queue_healthy"] is True
+    assert health["worker_healthy"] is True
+
+    with patch("sibyl.jobs.pending.mark_pending", AsyncMock()) as mark_pending:
+        crawl_job_id = await broker.enqueue_crawl("source_123", organization_id="org_456")
+        entity_job_id = await broker.enqueue_create_entity(
+            "entity_123",
+            {"id": "entity_123", "name": "Entity"},
+            "task",
+            "org_456",
+        )
+        task_job_id = await broker.enqueue_update_task(
+            "task_123",
+            {"status": "doing"},
+            "org_456",
+            new_status="doing",
+        )
+        backup_job_id = await broker.enqueue_backup("org_456", backup_id="backup_123")
+        consolidation_job_id = await broker.enqueue_consolidation("org_456")
+
+        mark_pending.assert_awaited_once_with(
+            "entity_123",
+            entity_job_id,
+            "task",
+            "org_456",
+        )
+
+    crawl_info = await _wait_for_job_status(broker, crawl_job_id, JobStatus.COMPLETE)
+    entity_info = await _wait_for_job_status(broker, entity_job_id, JobStatus.COMPLETE)
+    task_info = await _wait_for_job_status(broker, task_job_id, JobStatus.COMPLETE)
+    backup_info = await _wait_for_job_status(broker, backup_job_id, JobStatus.COMPLETE)
+    consolidation_info = await _wait_for_job_status(
+        broker,
+        consolidation_job_id,
+        JobStatus.COMPLETE,
+    )
+
+    assert crawl_info.result == {"source_id": "source_123", "ok": True}
+    assert entity_info.result == {"entity_id": "entity_123", "ok": True}
+    assert task_info.result == {"task_id": "task_123", "ok": True}
+    assert backup_info.result == {"backup_id": "backup_123", "ok": True}
+    assert consolidation_info.result == {"group_id": "org_456", "ok": True}
+    assert [call[0] for call in calls] == [
+        "crawl_source",
+        "create_entity",
+        "update_task",
+        "run_backup",
+        "consolidate_org",
+    ]
+    assert all(call[2]["ctx_has_start_time"] is True for call in calls)
+
+    await broker.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_local_queue_broker_force_reruns_completed_job() -> None:
+    calls: list[str] = []
+
+    async def crawl_source(
+        _ctx: dict[str, object],
+        source_id: str,
+        *,
+        organization_id: str | None = None,
+        max_pages: int = 100,
+        max_depth: int = 3,
+        generate_embeddings: bool = True,
+    ) -> dict[str, object]:
+        del organization_id, max_pages, max_depth, generate_embeddings
+        calls.append(source_id)
+        return {"source_id": source_id, "calls": len(calls)}
+
+    broker = LocalQueueBroker(
+        functions={"crawl_source": crawl_source},
+        max_concurrency=1,
+        result_ttl_seconds=60,
+    )
+
+    await broker.startup()
+
+    first_job_id = await broker.enqueue_crawl("source_123")
+    first_info = await _wait_for_job_status(broker, first_job_id, JobStatus.COMPLETE)
+    same_job_id = await broker.enqueue_crawl("source_123")
+    same_info = await _wait_for_job_status(broker, same_job_id, JobStatus.COMPLETE)
+    forced_job_id = await broker.enqueue_crawl("source_123", force=True)
+    forced_info = await _wait_for_job_status(broker, forced_job_id, JobStatus.COMPLETE)
+
+    assert first_job_id == "crawl:source_123"
+    assert same_job_id == first_job_id
+    assert forced_job_id == first_job_id
+    assert first_info.result == {"source_id": "source_123", "calls": 1}
+    assert same_info.result == {"source_id": "source_123", "calls": 1}
+    assert forced_info.result == {"source_id": "source_123", "calls": 2}
+    assert calls == ["source_123", "source_123"]
+
+    await broker.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_local_queue_broker_cancels_queued_jobs_and_best_effort_running_jobs() -> None:
+    release = asyncio.Event()
+
+    async def sync_source(
+        _ctx: dict[str, object],
+        source_id: str,
+        *,
+        _organization_id: str | None = None,
+    ) -> dict[str, object]:
+        await release.wait()
+        return {"source_id": source_id, "ok": True}
+
+    broker = LocalQueueBroker(
+        functions={"sync_source": sync_source},
+        max_concurrency=1,
+        result_ttl_seconds=60,
+    )
+
+    await broker.startup()
+
+    running_job_id = await broker.enqueue_sync("source_running")
+    await _wait_for_job_status(broker, running_job_id, JobStatus.IN_PROGRESS)
+    queued_job_id = await broker.enqueue_sync("source_queued")
+
+    assert await broker.cancel_job(queued_job_id) is True
+    queued_info = await broker.get_job_status(queued_job_id)
+    assert queued_info.status == JobStatus.NOT_FOUND
+
+    assert await broker.cancel_job(running_job_id) is False
+    running_info = await _wait_for_job_status(broker, running_job_id, JobStatus.NOT_FOUND)
+    assert running_info.status == JobStatus.NOT_FOUND
+
+    await broker.shutdown()
 
 
 @pytest.mark.parametrize("configured_backend", ["auto", "local"])
-def test_surreal_queue_backend_stays_redis_until_local_jobs_exist(
+def test_surreal_queue_backend_uses_local_broker(
     monkeypatch: pytest.MonkeyPatch,
     configured_backend: str,
 ) -> None:
@@ -111,8 +367,22 @@ def test_surreal_queue_backend_stays_redis_until_local_jobs_exist(
     broker_module._broker_backend = None
 
     try:
-        assert broker_module.get_queue_backend() == "redis"
-        assert isinstance(broker_module.get_broker(), RedisQueueBroker)
+        assert broker_module.get_queue_backend() == "local"
+        assert isinstance(broker_module.get_broker(), LocalQueueBroker)
     finally:
         broker_module._broker = None
         broker_module._broker_backend = None
+
+
+async def _wait_for_job_status(
+    broker: LocalQueueBroker,
+    job_id: str,
+    expected_status: JobStatus,
+) -> JobInfo:
+    for _ in range(100):
+        info = await broker.get_job_status(job_id)
+        if info.status == expected_status:
+            return info
+        await asyncio.sleep(0.01)
+
+    pytest.fail(f"Timed out waiting for {job_id} to reach {expected_status.value}")
