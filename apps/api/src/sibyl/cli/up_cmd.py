@@ -78,10 +78,21 @@ def _default_local_surreal_url(env: dict[str, str]) -> str:
     return f"ws://127.0.0.1:{port}/rpc"
 
 
+def _resolve_coordination_backend(env: dict[str, str]) -> str:
+    configured = env.get("SIBYL_COORDINATION_BACKEND", "auto")
+    if configured == "auto":
+        return "redis" if env.get("SIBYL_STORE", "legacy") == "legacy" else "local"
+    return configured
+
+
 def _apply_surreal_dev_defaults(env: dict[str, str]) -> None:
     env.setdefault("SIBYL_STORE", "surreal")
+    env.setdefault("SIBYL_COORDINATION_BACKEND", "auto")
 
     if env["SIBYL_STORE"] != "surreal":
+        env.setdefault("SIBYL_REDIS_HOST", "127.0.0.1")
+        env.setdefault("SIBYL_REDIS_PORT", "6381")
+        env.setdefault("SIBYL_REDIS_PASSWORD", "")
         return
 
     env.setdefault("SIBYL_SURREAL_URL", _default_local_surreal_url(env))
@@ -99,9 +110,58 @@ def _apply_surreal_dev_defaults(env: dict[str, str]) -> None:
         env.setdefault("SIBYL_SURREAL_USERNAME", "root")
         env.setdefault("SIBYL_SURREAL_PASSWORD", "root")
 
-    env.setdefault("SIBYL_REDIS_HOST", "127.0.0.1")
-    env.setdefault("SIBYL_REDIS_PORT", "6381")
-    env.setdefault("SIBYL_REDIS_PASSWORD", "")
+    if _resolve_coordination_backend(env) == "redis":
+        env.setdefault("SIBYL_REDIS_HOST", "127.0.0.1")
+        env.setdefault("SIBYL_REDIS_PORT", "6381")
+        env.setdefault("SIBYL_REDIS_PASSWORD", "")
+    else:
+        env.pop("SIBYL_REDIS_HOST", None)
+        env.pop("SIBYL_REDIS_PORT", None)
+        env.pop("SIBYL_REDIS_PASSWORD", None)
+
+
+def _load_runtime_env(project_root: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src")
+
+    env_file = project_root / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                env[key.strip()] = value.strip().strip('"').strip("'")
+
+    _apply_surreal_dev_defaults(env)
+    return env
+
+
+def _compose_services_for_env(env: dict[str, str]) -> list[str]:
+    if env["SIBYL_STORE"] == "legacy":
+        return ["falkordb", "postgres", "redis"]
+
+    services = ["surrealdb"]
+    if _resolve_coordination_backend(env) == "redis":
+        services.append("redis")
+    return services
+
+
+def _configure_requested_worker_mode(env: dict[str, str], *, with_worker: bool) -> None:
+    if not with_worker:
+        return
+
+    coordination_backend = _resolve_coordination_backend(env)
+    if coordination_backend == "local":
+        info("Local coordination already runs jobs and schedules in-process")
+        return
+
+    if env.get("SIBYL_STORE", "legacy") == "legacy":
+        info("Worker mode: running embedded arq worker in the API process")
+        env["SIBYL_RUN_WORKER"] = "true"
+        return
+
+    warn("`--with-worker` is only supported in legacy mode")
+    info("Run `moon run api:worker` or `uv run sibyld worker` in another shell.")
 
 
 def up(
@@ -133,6 +193,8 @@ def up(
         f"\n[{ELECTRIC_PURPLE}]Starting Sibyl[/{ELECTRIC_PURPLE}] [dim]from {project_root}[/dim]\n"
     )
 
+    env = _load_runtime_env(project_root)
+
     # Check Docker
     if not skip_docker:
         if not _check_docker():
@@ -141,7 +203,7 @@ def up(
 
         # Start Docker services
         with console.status(f"[{NEON_CYAN}]Starting Docker services...[/{NEON_CYAN}]"):
-            result = _run_docker_compose(["up", "-d"], project_root)
+            result = _run_docker_compose(["up", "-d", *_compose_services_for_env(env)], project_root)
             if result.returncode != 0:
                 error("Failed to start Docker services")
                 console.print(f"[dim]{result.stderr}[/dim]")
@@ -163,27 +225,13 @@ def up(
     if detach:
         _start_server_detached(project_root, with_worker)
     else:
-        _start_server_foreground(project_root, with_worker)
+        _start_server_foreground(project_root, with_worker, env)
 
 
-def _start_server_foreground(project_root: Path, with_worker: bool) -> None:
+def _start_server_foreground(project_root: Path, with_worker: bool, env: dict[str, str]) -> None:
     """Start server in foreground (blocking)."""
     console.print(f"\n[{SUCCESS_GREEN}]Starting API server...[/{SUCCESS_GREEN}]")
     console.print("[dim]Press Ctrl+C to stop[/dim]\n")
-
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-
-    # Load .env if it exists
-    env_file = project_root / ".env"
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                env[key.strip()] = value.strip().strip('"').strip("'")
-
-    _apply_surreal_dev_defaults(env)
 
     cmd = [
         sys.executable,
@@ -197,9 +245,7 @@ def _start_server_foreground(project_root: Path, with_worker: bool) -> None:
         "--reload",
     ]
 
-    if with_worker:
-        info("Worker mode: Running with in-process job worker")
-        env["SIBYL_RUN_WORKER"] = "true"
+    _configure_requested_worker_mode(env, with_worker=with_worker)
 
     try:
         process = subprocess.Popen(  # noqa: S603

@@ -160,12 +160,19 @@ cp .env.example .env
 # Install CLIs globally (editable, source changes reflect immediately)
 moon run install-dev
 
-# Launch everything
+# Launch the Surreal local-dev path
+moon run dev-surreal
+
+# Legacy Falkor/Postgres dev path
 moon run dev
 
 # Verify
 curl http://localhost:3334/api/health
 ```
+
+`moon run dev-surreal` is the recommended single-machine flow. It starts local SurrealDB and runs
+jobs plus schedules in-process under `sibyld serve`. Redis stays opt-in for multi-process or
+distributed dev work.
 
 ### Retrieval Benchmarks
 
@@ -210,11 +217,13 @@ measurement ladder, artifact expectations, and how to avoid benchmark drift.
 
 **Ports:**
 
-| Service   | Port | URL                   |
-| --------- | ---- | --------------------- |
-| API + MCP | 3334 | http://localhost:3334 |
-| Web UI    | 3337 | http://localhost:3337 |
-| FalkorDB  | 6380 | -                     |
+| Service             | Port | URL                     |
+| ------------------- | ---- | ----------------------- |
+| API + MCP           | 3334 | http://localhost:3334   |
+| Web UI              | 3337 | http://localhost:3337   |
+| SurrealDB           | 8000 | ws://localhost:8000/rpc |
+| FalkorDB (legacy)   | 6380 | -                       |
+| PostgreSQL (legacy) | 5433 | -                       |
 
 ## 🔮 Core Workflow
 
@@ -433,7 +442,7 @@ moon run install
 # Start everything
 moon run dev
 
-# Start the Surreal-backed stack explicitly.
+# Recommended Surreal local-dev path.
 moon run dev-surreal
 
 # Move one local org from Falkor/Postgres into local Surreal and verify it.
@@ -453,16 +462,26 @@ moon run web:typecheck    # TypeScript check
 moon run core:check       # Full check on core library
 
 # Database
-moon run docker-up        # Start SurrealDB + Redis/Valkey
+moon run docker-up        # Start default local data services (SurrealDB)
 moon run docker-down      # Stop databases
 ```
 
 `moon run dev` stays on the FalkorDB/PostgreSQL stack for now while the Surreal path stabilizes.
 `moon run dev-surreal` is the explicit Surreal server-mode flow. When `SIBYL_SURREAL_URL` is unset
-it starts local SurrealDB plus Redis/Valkey, points the API and worker at `ws://127.0.0.1:8000/rpc`,
-and stores local database files in `.moon/cache/surreal-dev`. Set `SURREAL_DATA_DIR=/your/path` if
-you want the local Docker volume somewhere else. Set `SIBYL_SURREAL_URL` to a hosted SurrealDB
-endpoint, including Surreal Cloud, to skip the local database and connect remotely instead.
+it starts local SurrealDB, points the API at `ws://127.0.0.1:8000/rpc`, and stores local database
+files in `.moon/cache/surreal-dev`. Jobs and schedules run in-process by default with
+`SIBYL_COORDINATION_BACKEND=local`. Set `SURREAL_DATA_DIR=/your/path` if you want the local Docker
+volume somewhere else. Set `SIBYL_SURREAL_URL` to a hosted SurrealDB endpoint, including Surreal
+Cloud, to skip the local database and connect remotely instead.
+
+If you want Redis-backed coordination for multi-process dev, set `SIBYL_COORDINATION_BACKEND=redis`
+and start Redis explicitly:
+
+```bash
+docker compose --profile redis up -d surrealdb redis
+moon run dev-surreal
+```
+
 `moon run dev-legacy` remains as an alias for the Falkor/PostgreSQL path.
 
 `moon run migrate-local-surreal -- --org-id <uuid>` is the simple local data move: it exports the

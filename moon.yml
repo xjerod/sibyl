@@ -26,6 +26,7 @@ tasks:
     env:
       FORCE_COLOR: "1"
       SIBYL_STORE: "surreal"
+      SIBYL_COORDINATION_BACKEND: "local"
     preset: server
     options:
       persistent: true
@@ -57,17 +58,15 @@ tasks:
 
   dev-api:
     script: |
-      docker compose up -d surrealdb redis
+      docker compose up -d surrealdb
       sleep 1
       uv run --directory apps/api sibyld serve --reload
     env:
       SIBYL_STORE: "surreal"
+      SIBYL_COORDINATION_BACKEND: "local"
       SIBYL_SURREAL_URL: "ws://127.0.0.1:8000/rpc"
       SIBYL_SURREAL_USERNAME: "root"
       SIBYL_SURREAL_PASSWORD: "root"
-      SIBYL_REDIS_HOST: "127.0.0.1"
-      SIBYL_REDIS_PORT: "6381"
-      SIBYL_REDIS_PASSWORD: ""
     preset: server
     options:
       persistent: true
