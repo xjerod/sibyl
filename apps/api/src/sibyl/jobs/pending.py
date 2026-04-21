@@ -15,14 +15,18 @@ With this registry:
 
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from sibyl.jobs.queue import get_pool
+from sibyl.coordination.pending import (
+    PENDING_OPS_PREFIX,
+    PENDING_PREFIX,
+    PENDING_TTL,
+    get_pending,
+)
 
 if TYPE_CHECKING:
     from sibyl_core.graph.entities import EntityManager
@@ -30,12 +34,18 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-# Pending entities auto-expire after 5 minutes (prevents stale state if worker dies)
-PENDING_TTL = timedelta(minutes=5)
-
-# Redis key prefixes
-PENDING_PREFIX = "sibyl:pending:"
-PENDING_OPS_PREFIX = "sibyl:pending_ops:"
+__all__ = [
+    "PENDING_OPS_PREFIX",
+    "PENDING_PREFIX",
+    "PENDING_TTL",
+    "clear_pending",
+    "clear_pending_operations",
+    "get_pending_operations",
+    "is_pending",
+    "mark_pending",
+    "process_pending_operations",
+    "queue_pending_operation",
+]
 
 
 async def mark_pending(
@@ -52,18 +62,8 @@ async def mark_pending(
         entity_type: Type of entity (task, episode, etc.)
         group_id: Organization ID
     """
-    pool = await get_pool()
-    key = f"{PENDING_PREFIX}{entity_id}"
-
-    data = {
-        "job_id": job_id,
-        "entity_type": entity_type,
-        "group_id": group_id,
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-
-    await pool.setex(key, int(PENDING_TTL.total_seconds()), json.dumps(data))
-    log.debug("mark_pending", entity_id=entity_id, job_id=job_id, entity_type=entity_type)
+    registry = get_pending()
+    await registry.mark_pending(entity_id, job_id, entity_type, group_id)
 
 
 async def is_pending(entity_id: str) -> dict[str, Any] | None:
@@ -75,13 +75,8 @@ async def is_pending(entity_id: str) -> dict[str, Any] | None:
     Returns:
         Pending info dict if pending, None if materialized or unknown
     """
-    pool = await get_pool()
-    key = f"{PENDING_PREFIX}{entity_id}"
-
-    data = await pool.get(key)
-    if data:
-        return json.loads(data)
-    return None
+    registry = get_pending()
+    return await registry.is_pending(entity_id)
 
 
 async def clear_pending(entity_id: str) -> bool:
@@ -93,13 +88,8 @@ async def clear_pending(entity_id: str) -> bool:
     Returns:
         True if was pending and cleared, False if wasn't pending
     """
-    pool = await get_pool()
-    key = f"{PENDING_PREFIX}{entity_id}"
-
-    deleted = await pool.delete(key)
-    if deleted:
-        log.debug("clear_pending", entity_id=entity_id)
-    return deleted > 0
+    registry = get_pending()
+    return await registry.clear_pending(entity_id)
 
 
 async def queue_pending_operation(
@@ -119,29 +109,8 @@ async def queue_pending_operation(
     Returns:
         Operation ID for tracking
     """
-    pool = await get_pool()
-    key = f"{PENDING_OPS_PREFIX}{entity_id}"
-    op_id = f"pending_op_{uuid.uuid4()}"
-
-    op_data = {
-        "op_id": op_id,
-        "operation": operation,
-        "payload": payload,
-        "user_id": user_id,
-        "queued_at": datetime.now(UTC).isoformat(),
-    }
-
-    await pool.rpush(key, json.dumps(op_data))
-    await pool.expire(key, int(PENDING_TTL.total_seconds()))
-
-    log.info(
-        "queue_pending_operation",
-        entity_id=entity_id,
-        operation=operation,
-        op_id=op_id,
-    )
-
-    return op_id
+    registry = get_pending()
+    return await registry.queue_pending_operation(entity_id, operation, payload, user_id)
 
 
 async def get_pending_operations(entity_id: str) -> list[dict[str, Any]]:
@@ -153,11 +122,8 @@ async def get_pending_operations(entity_id: str) -> list[dict[str, Any]]:
     Returns:
         List of pending operation dicts, in queue order (FIFO)
     """
-    pool = await get_pool()
-    key = f"{PENDING_OPS_PREFIX}{entity_id}"
-
-    ops = await pool.lrange(key, 0, -1)
-    return [json.loads(op) for op in ops]
+    registry = get_pending()
+    return await registry.get_pending_operations(entity_id)
 
 
 async def clear_pending_operations(entity_id: str) -> int:
@@ -171,16 +137,8 @@ async def clear_pending_operations(entity_id: str) -> int:
     Returns:
         Number of operations that were cleared
     """
-    pool = await get_pool()
-    key = f"{PENDING_OPS_PREFIX}{entity_id}"
-
-    # Get count before deleting
-    count = await pool.llen(key)
-    if count > 0:
-        await pool.delete(key)
-        log.debug("clear_pending_operations", entity_id=entity_id, count=count)
-
-    return count
+    registry = get_pending()
+    return await registry.clear_pending_operations(entity_id)
 
 
 async def process_pending_operations(

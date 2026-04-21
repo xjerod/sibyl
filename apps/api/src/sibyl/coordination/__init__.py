@@ -35,8 +35,8 @@ async def get_coordination_health() -> dict[str, Any]:
     if backend == "local":
         return {
             **health,
-            "status": "unavailable",
-            "error": "Local coordination backend is not implemented yet",
+            "status": "degraded",
+            "error": "Local coordination is active, but the local job broker is not implemented yet",
         }
 
     try:

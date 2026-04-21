@@ -16,7 +16,6 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from sibyl.config import settings
-from sibyl.coordination import uses_redis_coordination
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -137,46 +136,39 @@ def create_combined_app(  # noqa: PLR0915
         except Exception as e:
             log.warning("Graph runtime unavailable at startup", store=settings.store, error=str(e))
 
-        # Initialize Redis pub/sub for cross-pod WebSocket broadcasts
+        # Initialize coordination event bus for WebSocket broadcasts
         pubsub_initialized = False
-        if uses_redis_coordination():
-            try:
-                from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
-                from sibyl.api.websocket import enable_pubsub, local_broadcast
+        try:
+            from sibyl.api.pubsub import init_pubsub
+            from sibyl.api.websocket import enable_pubsub, local_broadcast
 
-                await init_pubsub(local_broadcast)
-                enable_pubsub()
-                pubsub_initialized = True
-                log.info("WebSocket pub/sub enabled for multi-pod broadcasts")
-            except Exception as e:
-                log.warning(
-                    "Redis pub/sub unavailable - WebSocket broadcasts will be local only",
-                    error=str(e),
-                )
-        else:
+            await init_pubsub(local_broadcast)
+            enable_pubsub()
+            pubsub_initialized = True
             log.info(
-                "Redis coordination disabled; skipping Redis pub/sub startup",
+                "Coordination event bus enabled for WebSocket broadcasts",
                 backend=coordination_backend,
             )
-
-        # Initialize distributed entity locks
-        locks_initialized = False
-        if uses_redis_coordination():
-            try:
-                from sibyl.locks import init_locks
-
-                await init_locks()
-                locks_initialized = True
-                log.info("Distributed entity locks enabled")
-            except Exception as e:
-                log.warning(
-                    "Entity locks unavailable - concurrent updates may conflict",
-                    error=str(e),
-                )
-        else:
-            log.info(
-                "Redis coordination disabled; skipping distributed locks",
+        except Exception as e:
+            log.warning(
+                "Coordination event bus unavailable - WebSocket broadcasts will stay direct",
                 backend=coordination_backend,
+                error=str(e),
+            )
+
+        # Initialize entity locks
+        locks_initialized = False
+        try:
+            from sibyl.locks import init_locks
+
+            await init_locks()
+            locks_initialized = True
+            log.info("Coordination locks enabled", backend=coordination_backend)
+        except Exception as e:
+            log.warning(
+                "Coordination locks unavailable - concurrent updates may conflict",
+                backend=coordination_backend,
+                error=str(e),
             )
 
         # Optionally start embedded arq worker (dev mode only)
@@ -195,7 +187,7 @@ def create_combined_app(  # noqa: PLR0915
         async with mcp.session_manager.run():
             yield
 
-        # Shutdown pub/sub
+        # Shutdown coordination event bus
         if pubsub_initialized:
             try:
                 from sibyl.api.pubsub import shutdown_pubsub

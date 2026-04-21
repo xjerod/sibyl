@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.applications import Starlette
@@ -30,7 +30,11 @@ async def test_surreal_mode_skips_legacy_startup(monkeypatch: pytest.MonkeyPatch
     recover_stuck_sources = AsyncMock()
     load_api_keys_from_db = AsyncMock()
     init_pubsub = AsyncMock()
+    shutdown_pubsub = AsyncMock()
     init_locks = AsyncMock()
+    shutdown_locks = AsyncMock()
+    enable_pubsub = MagicMock()
+    disable_pubsub = MagicMock()
 
     monkeypatch.setattr(main_module.settings, "store", "surreal")
     monkeypatch.setattr("sibyl.api.app.create_api_app", lambda: Starlette())
@@ -39,7 +43,11 @@ async def test_surreal_mode_skips_legacy_startup(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("sibyl.api.routes.admin.recover_stuck_sources", recover_stuck_sources)
     monkeypatch.setattr("sibyl.services.settings.load_api_keys_from_db", load_api_keys_from_db)
     monkeypatch.setattr("sibyl.api.pubsub.init_pubsub", init_pubsub)
+    monkeypatch.setattr("sibyl.api.pubsub.shutdown_pubsub", shutdown_pubsub)
     monkeypatch.setattr("sibyl.locks.init_locks", init_locks)
+    monkeypatch.setattr("sibyl.locks.shutdown_locks", shutdown_locks)
+    monkeypatch.setattr("sibyl.api.websocket.enable_pubsub", enable_pubsub)
+    monkeypatch.setattr("sibyl.api.websocket.disable_pubsub", disable_pubsub)
     monkeypatch.setattr(
         "sibyl_core.graph.client.get_graph_client",
         AsyncMock(return_value=SimpleNamespace(is_connected=True)),
@@ -53,5 +61,9 @@ async def test_surreal_mode_skips_legacy_startup(monkeypatch: pytest.MonkeyPatch
     run_migrations.assert_not_awaited()
     recover_stuck_sources.assert_not_awaited()
     load_api_keys_from_db.assert_not_awaited()
-    init_pubsub.assert_not_awaited()
-    init_locks.assert_not_awaited()
+    init_pubsub.assert_awaited_once()
+    init_locks.assert_awaited_once()
+    shutdown_pubsub.assert_awaited_once()
+    shutdown_locks.assert_awaited_once()
+    enable_pubsub.assert_called_once_with()
+    disable_pubsub.assert_called_once_with()

@@ -76,7 +76,7 @@ class TestEntityLockManager:
     @pytest.mark.asyncio
     async def test_connect(self, manager: EntityLockManager, mock_redis: AsyncMock) -> None:
         """Manager connects to Redis."""
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
             mock_redis.ping.assert_called_once()
 
@@ -85,7 +85,7 @@ class TestEntityLockManager:
         self, manager: EntityLockManager, mock_redis: AsyncMock
     ) -> None:
         """Connect is idempotent - only connects once."""
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
             await manager.connect()  # Second call should be no-op
             mock_redis.ping.assert_called_once()
@@ -93,7 +93,7 @@ class TestEntityLockManager:
     @pytest.mark.asyncio
     async def test_disconnect(self, manager: EntityLockManager, mock_redis: AsyncMock) -> None:
         """Manager disconnects from Redis."""
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
             await manager.disconnect()
             mock_redis.close.assert_called_once()
@@ -104,7 +104,7 @@ class TestEntityLockManager:
         """Acquire returns token on success."""
         mock_redis.set = AsyncMock(return_value=True)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             token = await manager.acquire("org_123", "entity_456")
 
         assert token is not None
@@ -121,7 +121,7 @@ class TestEntityLockManager:
         """Non-blocking acquire returns None if lock held."""
         mock_redis.set = AsyncMock(return_value=False)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             token = await manager.acquire("org_123", "entity_456", blocking=False)
 
         assert token is None
@@ -134,7 +134,7 @@ class TestEntityLockManager:
         # First call fails, second succeeds
         mock_redis.set = AsyncMock(side_effect=[False, True])
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             token = await manager.acquire("org_123", "entity_456", wait_timeout=5.0)
 
         assert token is not None
@@ -148,7 +148,7 @@ class TestEntityLockManager:
         mock_redis.set = AsyncMock(return_value=False)
 
         with (
-            patch("sibyl.locks.Redis", return_value=mock_redis),
+            patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis),
             pytest.raises(LockAcquisitionError) as exc_info,
         ):
             await manager.acquire("org_123", "entity_456", wait_timeout=0.1)
@@ -162,7 +162,7 @@ class TestEntityLockManager:
         """Release returns True when lock is released."""
         mock_redis.eval = AsyncMock(return_value=1)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
             released = await manager.release("org_123", "entity_456", "token_abc")
 
@@ -176,7 +176,7 @@ class TestEntityLockManager:
         """Release returns False when not lock owner."""
         mock_redis.eval = AsyncMock(return_value=0)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
             released = await manager.release("org_123", "entity_456", "wrong_token")
 
@@ -193,7 +193,7 @@ class TestEntityLockManager:
         """Extend returns True when TTL is extended."""
         mock_redis.eval = AsyncMock(return_value=1)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
             extended = await manager.extend("org_123", "entity_456", "token_abc")
 
@@ -206,7 +206,7 @@ class TestEntityLockManager:
         """Extend returns False when not lock owner."""
         mock_redis.eval = AsyncMock(return_value=0)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
             extended = await manager.extend("org_123", "entity_456", "wrong_token")
 
@@ -220,7 +220,7 @@ class TestEntityLockManager:
         mock_redis.set = AsyncMock(return_value=True)
         mock_redis.eval = AsyncMock(return_value=1)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             async with manager.lock("org_123", "entity_456") as token:
                 assert token is not None
 
@@ -235,7 +235,7 @@ class TestEntityLockManager:
         mock_redis.set = AsyncMock(return_value=True)
         mock_redis.eval = AsyncMock(return_value=1)
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             try:
                 async with manager.lock("org_123", "entity_456") as token:
                     assert token is not None
@@ -387,7 +387,7 @@ class TestConcurrentLocking:
 
         manager = EntityLockManager()
 
-        with patch("sibyl.locks.Redis", return_value=mock_redis):
+        with patch("sibyl.coordination._redis.locks.Redis", return_value=mock_redis):
             await manager.connect()
 
             async def worker(worker_id: int) -> None:

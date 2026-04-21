@@ -45,7 +45,6 @@ from sibyl.api.routes import (
 from sibyl.api.websocket import websocket_handler
 from sibyl.auth.middleware import AuthMiddleware
 from sibyl.config import settings
-from sibyl.coordination import uses_redis_coordination
 
 log = structlog.get_logger()
 
@@ -111,7 +110,7 @@ async def _run_migrations() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-    """Run migrations, pre-warm graph client, and start Redis pub/sub on startup."""
+    """Run migrations, pre-warm graph client, and start coordination backends."""
     legacy_runtime = settings.store == "legacy"
     coordination_backend = settings.resolved_coordination_backend
 
@@ -129,28 +128,39 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     except Exception as e:
         log.warning("Failed to pre-warm graph client", error=str(e))
 
-    if uses_redis_coordination():
-        log.info("Initializing Redis pub/sub for WebSocket broadcasts...")
-        try:
-            from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
-            from sibyl.api.websocket import enable_pubsub, local_broadcast
+    pubsub_initialized = False
+    try:
+        from sibyl.api.pubsub import init_pubsub
+        from sibyl.api.websocket import enable_pubsub, local_broadcast
 
-            await init_pubsub(local_broadcast)
-            enable_pubsub()
-            log.info("Redis pub/sub ready")
-        except Exception as e:
-            log.warning(
-                "Failed to initialize Redis pub/sub (worker broadcasts may not work)", error=str(e)
-            )
-    else:
-        log.info(
-            "Redis coordination disabled; skipping Redis pub/sub startup",
+        await init_pubsub(local_broadcast)
+        enable_pubsub()
+        pubsub_initialized = True
+        log.info("Coordination event bus ready", backend=coordination_backend)
+    except Exception as e:
+        log.warning(
+            "Failed to initialize coordination event bus",
             backend=coordination_backend,
+            error=str(e),
+        )
+
+    locks_initialized = False
+    try:
+        from sibyl.locks import init_locks
+
+        await init_locks()
+        locks_initialized = True
+        log.info("Coordination locks ready", backend=coordination_backend)
+    except Exception as e:
+        log.warning(
+            "Failed to initialize coordination locks",
+            backend=coordination_backend,
+            error=str(e),
         )
 
     yield
 
-    if uses_redis_coordination():
+    if pubsub_initialized:
         try:
             from sibyl.api.pubsub import shutdown_pubsub
             from sibyl.api.websocket import disable_pubsub
@@ -159,6 +169,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await shutdown_pubsub()
         except Exception as e:
             log.debug("Pub/sub shutdown error (expected during fast restarts)", error=str(e))
+
+    if locks_initialized:
+        try:
+            from sibyl.locks import shutdown_locks
+
+            await shutdown_locks()
+        except Exception as e:
+            log.debug("Lock shutdown error (expected during fast restarts)", error=str(e))
 
 
 def create_api_app() -> FastAPI:
