@@ -11,11 +11,13 @@ Docker Compose runs the database services while applications run natively for ho
 +------------------+     +------------------+
 |   Native Apps    |     |   Docker Compose |
 |------------------|     |------------------|
-| Backend (:3334)  |---->| FalkorDB (:6380) |
-| Frontend (:3337) |     | Postgres (:5433) |
-| Worker           |     +------------------+
-+------------------+
+| Backend (:3334)  |---->| SurrealDB (:8000)|
+| Frontend (:3337) |     | Redis* (:6381)   |
+| Jobs + Schedules |     | Legacy profile   |
++------------------+     +------------------+
 ```
+
+`Redis` is opt-in for distributed or multi-process dev. The default local path only needs SurrealDB.
 
 ## Prerequisites
 
@@ -28,71 +30,70 @@ Docker Compose runs the database services while applications run natively for ho
 
 ```bash
 # 1. Start database services
-docker compose up -d
+docker compose up -d surrealdb
 
 # 2. Install dependencies
 uv sync                         # Python packages
 cd apps/web && pnpm install     # Frontend packages
 
 # 3. Configure environment
-cp apps/api/.env.example apps/api/.env
+cp .env.example .env
 # Edit .env and add:
 #   SIBYL_JWT_SECRET=<random-secret>
 #   SIBYL_OPENAI_API_KEY=sk-...
 
-# 4. Run migrations
-cd apps/api && uv run alembic upgrade head
+# 4. Start all services
+moon run dev-surreal
+```
 
-# 5. Start all services
-moon run dev
+For Redis-backed coordination, opt into the `redis` profile explicitly:
+
+```bash
+docker compose --profile redis up -d surrealdb redis
+SIBYL_COORDINATION_BACKEND=redis moon run dev-surreal
 ```
 
 ## Service Definitions
 
-The `docker-compose.yml` defines database services:
+The `docker-compose.yml` defines a Surreal-first local stack plus opt-in profiles:
 
 ```yaml
 services:
-  falkordb:
-    image: falkordb/falkordb:latest
-    container_name: sibyl-falkordb
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    container_name: sibyl-surrealdb
     ports:
-      - "6380:6379" # Redis port (mapped to avoid conflicts)
-      - "3335:3000" # FalkorDB Browser UI
+      - "8000:8000"
     volumes:
-      - falkordb_data:/var/lib/falkordb/data
-    environment:
-      - FALKORDB_ARGS=--requirepass ${SIBYL_FALKORDB_PASSWORD:-conventions}
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${SIBYL_FALKORDB_PASSWORD:-conventions}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - ./.moon/cache/surreal-dev:/data
+
+  redis:
+    image: valkey/valkey:8-alpine
+    container_name: sibyl-redis
+    profiles: ["redis"]
+    ports:
+      - "6381:6379"
+
+  falkordb:
+    profiles: ["legacy"]
 
   postgres:
-    image: pgvector/pgvector:pg18
-    container_name: sibyl-postgres
-    ports:
-      - "5433:5432" # Mapped to avoid conflicts
-    volumes:
-      - postgres_data:/var/lib/postgresql
-    environment:
-      POSTGRES_USER: ${SIBYL_POSTGRES_USER:-sibyl}
-      POSTGRES_PASSWORD: ${SIBYL_POSTGRES_PASSWORD:-sibyl_dev}
-      POSTGRES_DB: ${SIBYL_POSTGRES_DB:-sibyl}
+    profiles: ["legacy"]
 
 volumes:
-  falkordb_data:
   postgres_data:
+  falkordb_data:
 ```
 
 ## Port Mappings
 
-| Service     | Host Port | Container Port | Purpose           |
-| ----------- | --------- | -------------- | ----------------- |
-| FalkorDB    | 6380      | 6379           | Graph database    |
-| FalkorDB UI | 3335      | 3000           | Browser interface |
-| PostgreSQL  | 5433      | 5432           | Relational data   |
+| Service     | Host Port | Container Port | Purpose                       |
+| ----------- | --------- | -------------- | ----------------------------- |
+| SurrealDB   | 8000      | 8000           | Default local graph runtime   |
+| Redis       | 6381      | 6379           | Optional coordination backend |
+| FalkorDB    | 6380      | 6379           | Legacy graph runtime          |
+| FalkorDB UI | 3335      | 3000           | Legacy browser interface      |
+| PostgreSQL  | 5433      | 5432           | Legacy relational/auth data   |
 
 Ports are offset from defaults to avoid conflicts with local services.
 
@@ -105,7 +106,10 @@ moon run docker-up
 # Stop databases
 moon run docker-down
 
-# Start full development stack
+# Start recommended Surreal local-dev stack
+moon run dev-surreal
+
+# Start legacy Falkor/Postgres stack
 moon run dev
 
 # Start API + Worker only (no frontend)
@@ -113,6 +117,9 @@ moon run dev-api
 
 # Start frontend only
 moon run dev-web
+
+# Start Redis worker when SIBYL_COORDINATION_BACKEND=redis
+moon run api:worker
 
 # Stop all services
 moon run stop
@@ -205,14 +212,18 @@ services:
 
 ## Volume Persistence
 
-Data is persisted in Docker volumes:
+The default Surreal local-dev path persists data in the bind mount configured by `SURREAL_DATA_DIR`
+or `.moon/cache/surreal-dev` by default.
 
 ```bash
-# List volumes
-docker volume ls | grep sibyl
+# Inspect the default local Surreal data directory
+ls .moon/cache/surreal-dev
+```
 
-# Inspect volume
-docker volume inspect sibyl_falkordb_data
+Legacy services still use Docker volumes:
+
+```bash
+docker volume ls | grep sibyl
 
 # Remove volumes (DESTROYS DATA)
 docker compose down -v
@@ -220,38 +231,44 @@ docker compose down -v
 
 ## Connecting to Databases
 
-### FalkorDB CLI
+### SurrealDB Health
 
 ```bash
-# Connect via Docker
+curl http://localhost:8000/health
+```
+
+### Redis CLI
+
+```bash
+# Only when the redis profile is running
+docker exec -it sibyl-redis redis-cli
+```
+
+### Legacy Runtime Services
+
+When you need the older stack for migration or debugging:
+
+```bash
+docker compose --profile legacy up -d falkordb postgres
+```
+
+Then you can connect with:
+
+```bash
 docker exec -it sibyl-falkordb redis-cli -a conventions
-
-# Or from host (requires redis-cli installed)
-redis-cli -h localhost -p 6380 -a conventions
-```
-
-### PostgreSQL
-
-```bash
-# Connect via Docker
 docker exec -it sibyl-postgres psql -U sibyl sibyl
-
-# Or from host (requires psql installed)
-psql -h localhost -p 5433 -U sibyl sibyl
 ```
-
-### FalkorDB Browser UI
-
-Open http://localhost:3335 in your browser.
 
 ## Troubleshooting
 
 ### Port Conflicts
 
-If ports 6380 or 5433 are in use:
+If ports 8000, 6381, 6380, or 5433 are in use:
 
 ```bash
 # Check what's using the port
+lsof -i :8000
+lsof -i :6381
 lsof -i :6380
 lsof -i :5433
 
@@ -262,12 +279,12 @@ lsof -i :5433
 
 ```bash
 # Check container logs
-docker compose logs falkordb
-docker compose logs postgres
+docker compose logs surrealdb
+docker compose logs redis
 
 # Restart with clean state
 docker compose down -v
-docker compose up -d
+docker compose up -d surrealdb
 ```
 
 ### Connection Refused
@@ -275,6 +292,8 @@ docker compose up -d
 Ensure your `.env` uses the correct ports:
 
 ```bash
+SIBYL_SURREAL_URL=ws://127.0.0.1:8000/rpc
+SIBYL_REDIS_PORT=6381        # Only when coordination backend is redis
 SIBYL_FALKORDB_PORT=6380  # Not 6379!
 SIBYL_POSTGRES_PORT=5433  # Not 5432!
 ```

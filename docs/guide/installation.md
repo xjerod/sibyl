@@ -16,8 +16,7 @@ Sibyl requires the following:
 
 - **Python 3.13+** - Core backend language
 - **Node.js 22+** - For the web frontend
-- **FalkorDB** - Graph database (runs on port 6380)
-- **PostgreSQL** - Relational storage for users and documents
+- **Docker** - For local SurrealDB and optional dev services
 - **OpenAI API Key** - For generating embeddings
 
 ### Version Management
@@ -75,17 +74,23 @@ moon run api:install-dev
 
 ## Infrastructure Setup
 
-### Start FalkorDB
+### Start Local SurrealDB
 
 ```bash
-# Start repo development infrastructure
+# Start the default local data service
 moon run docker-up
 ```
 
-::: warning Port 6380 FalkorDB runs on port **6380** (not 6379) to avoid conflicts with a standard
-Redis installation. :::
+For distributed or multi-process dev, opt into Redis explicitly:
 
-### PostgreSQL Setup
+```bash
+docker compose --profile redis up -d surrealdb redis
+```
+
+Legacy FalkorDB/PostgreSQL services still exist behind the `legacy` profile when you need the older
+runtime for migration or debugging work.
+
+### Legacy PostgreSQL Setup
 
 ```bash
 # Migrations run automatically during moon run dev,
@@ -110,13 +115,12 @@ Edit the file with your configuration:
 SIBYL_OPENAI_API_KEY=sk-...        # For embeddings
 SIBYL_JWT_SECRET=your-secret-key   # For authentication
 
-# FalkorDB
-SIBYL_FALKORDB_HOST=localhost
-SIBYL_FALKORDB_PORT=6380
-SIBYL_FALKORDB_PASSWORD=conventions
-
-# PostgreSQL
-SIBYL_DATABASE_URL=postgresql+asyncpg://sibyl:sibyl@localhost:5432/sibyl
+# Recommended local runtime
+SIBYL_STORE=surreal
+SIBYL_COORDINATION_BACKEND=local
+SIBYL_SURREAL_URL=ws://127.0.0.1:8000/rpc
+SIBYL_SURREAL_USERNAME=root
+SIBYL_SURREAL_PASSWORD=root
 
 # Optional
 SIBYL_LOG_LEVEL=INFO
@@ -133,15 +137,18 @@ SIBYL_ANTHROPIC_API_KEY=...        # For LLM operations
 
 ### Optional Environment Variables
 
-| Variable                | Default                  | Description                             |
-| ----------------------- | ------------------------ | --------------------------------------- |
-| `SIBYL_FALKORDB_HOST`   | `localhost`              | FalkorDB hostname                       |
-| `SIBYL_FALKORDB_PORT`   | `6380`                   | FalkorDB port                           |
-| `SIBYL_DATABASE_URL`    | -                        | PostgreSQL connection string            |
-| `SIBYL_LOG_LEVEL`       | `INFO`                   | Logging level                           |
-| `SIBYL_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model                  |
-| `SIBYL_SERVER_URL`      | -                        | Public server URL (for OAuth callbacks) |
-| `SIBYL_FRONTEND_URL`    | -                        | Frontend URL (for redirects)            |
+| Variable                     | Default                  | Description                                 |
+| ---------------------------- | ------------------------ | ------------------------------------------- |
+| `SIBYL_STORE`                | `legacy`                 | Persistence runtime (`surreal` or `legacy`) |
+| `SIBYL_COORDINATION_BACKEND` | `auto`                   | `local` or `redis` coordination backend     |
+| `SIBYL_SURREAL_URL`          | -                        | SurrealDB server URL                        |
+| `SIBYL_LOG_LEVEL`            | `INFO`                   | Logging level                               |
+| `SIBYL_EMBEDDING_MODEL`      | `text-embedding-3-small` | OpenAI embedding model                      |
+| `SIBYL_SERVER_URL`           | -                        | Public server URL (for OAuth callbacks)     |
+| `SIBYL_FRONTEND_URL`         | -                        | Frontend URL (for redirects)                |
+| `SIBYL_REDIS_HOST`           | -                        | Redis/Valkey host when `coordination=redis` |
+| `SIBYL_FALKORDB_HOST`        | `localhost`              | Legacy graph runtime host                   |
+| `SIBYL_POSTGRES_HOST`        | `localhost`              | Legacy PostgreSQL host                      |
 
 ## Running Sibyl
 
@@ -157,17 +164,19 @@ sibyl local logs
 
 ### Development Mode
 
-Start all repo services with a single command:
+Start the recommended Surreal local-dev stack:
 
 ```bash
-moon run dev
+moon run dev-surreal
 ```
 
 This starts:
 
 - API server on port 3334
-- Background worker for async jobs
 - Web frontend on port 3337
+- In-process background jobs and schedules
+
+The legacy FalkorDB/PostgreSQL path remains available with `moon run dev`.
 
 ### Individual Services
 
@@ -178,7 +187,7 @@ moon run dev-api
 # Web frontend only
 moon run dev-web
 
-# Background worker
+# Background worker (only when SIBYL_COORDINATION_BACKEND=redis)
 moon run api:worker
 ```
 
@@ -218,19 +227,20 @@ Open [http://localhost:3337](http://localhost:3337) in your browser.
 | ------------ | ---- |
 | API + MCP    | 3334 |
 | Web Frontend | 3337 |
+| SurrealDB    | 8000 |
 | FalkorDB     | 6380 |
-| PostgreSQL   | 5432 |
+| PostgreSQL   | 5433 |
 
 ## Troubleshooting
 
-### FalkorDB Connection Failed
+### SurrealDB Connection Failed
 
 ```bash
-# Check if FalkorDB is running
-docker ps | grep falkordb
+# Check if SurrealDB is running
+docker ps | grep surreal
 
 # Check the port
-redis-cli -p 6380 ping
+curl http://localhost:8000/health
 ```
 
 ### Graph Corruption
@@ -243,13 +253,12 @@ redis-cli -p 6380
 > GRAPH.DELETE <org-uuid>
 ```
 
-### Database Migration Errors
+### Legacy Graph / Migration Errors
 
 ```bash
-# Reset and re-run migrations
-cd apps/api
-uv run alembic downgrade base
-uv run alembic upgrade head
+# Start the legacy profile when you need the older graph and auth stack
+docker compose --profile legacy up -d falkordb postgres
+moon run dev
 ```
 
 ### OpenAI API Errors

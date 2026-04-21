@@ -12,43 +12,35 @@ This guide gets you from zero to a working Sibyl setup in about 5 minutes.
 Make sure you have:
 
 - Python 3.13+ installed
-- Docker (for FalkorDB)
+- Docker (for local SurrealDB)
 - An OpenAI API key
 
-## Step 1: Start the Infrastructure
-
-```bash
-# Start FalkorDB
-docker run -d \
-  --name falkordb \
-  -p 6380:6379 \
-  falkordb/falkordb:latest
-```
-
-## Step 2: Install and Configure
+## Step 1: Install and Configure
 
 ```bash
 # Clone and install
 git clone https://github.com/hyperb1iss/sibyl.git
 cd sibyl
-uv sync
+./setup-dev.sh
 
 # Configure
-cp apps/api/.env.example apps/api/.env
+cp .env.example .env
 ```
 
-Edit `apps/api/.env` and set:
+Edit `.env` and set:
 
 ```bash
 SIBYL_OPENAI_API_KEY=sk-your-openai-key
 SIBYL_JWT_SECRET=any-secret-string-for-development
+SIBYL_STORE=surreal
+SIBYL_COORDINATION_BACKEND=local
 ```
 
-## Step 3: Start the Server
+## Step 2: Start the Server
 
 ```bash
-# Start everything
-moon run dev
+# Start the recommended local-dev stack
+moon run dev-surreal
 
 # Or just the API
 cd apps/api && uv run sibyld serve
@@ -56,7 +48,11 @@ cd apps/api && uv run sibyld serve
 
 The server is now running on `http://localhost:3334`.
 
-## Step 4: Configure the CLI
+`moon run dev-surreal` starts local SurrealDB on port `8000` and keeps jobs plus schedules
+in-process under the API server. If you want Redis-backed coordination later, set
+`SIBYL_COORDINATION_BACKEND=redis` and start Redis explicitly with Docker Compose.
+
+## Step 3: Configure the CLI
 
 ```bash
 # Set the server URL
@@ -66,7 +62,7 @@ sibyl config set server.url http://localhost:3334/api
 sibyl health
 ```
 
-## Step 5: Create Your First Entity
+## Step 4: Create Your First Entity
 
 Let's add some knowledge to the graph:
 
@@ -81,7 +77,7 @@ You should see:
 Added: Python async gotcha (id: episode_abc123)
 ```
 
-## Step 6: Search for Knowledge
+## Step 5: Search for Knowledge
 
 ```bash
 # Search by meaning
@@ -91,7 +87,7 @@ sibyl search "async concurrency"
 The search will find your learning even though you searched for different words - that's semantic
 search in action.
 
-## Step 7: Create a Task
+## Step 6: Create a Task
 
 Tasks require a project, so let's create one:
 
@@ -103,7 +99,7 @@ sibyl project create --name "My First Project" --description "Learning Sibyl"
 sibyl task create --title "Try Sibyl features" --project <project_id>
 ```
 
-## Step 8: Manage Task Lifecycle
+## Step 7: Manage Task Lifecycle
 
 ```bash
 # List your tasks
@@ -119,7 +115,7 @@ sibyl task list --status doing
 sibyl task complete <task_id> --learnings "Sibyl CLI is intuitive!"
 ```
 
-## Step 9: Link a Directory (Optional)
+## Step 8: Link a Directory (Optional)
 
 If you're working on a specific project, link your directory:
 
@@ -134,7 +130,7 @@ sibyl project link proj_abc123
 sibyl task list --status todo  # Shows only tasks for linked project
 ```
 
-## Step 10: Explore the Graph
+## Step 9: Explore the Graph
 
 ```bash
 # List all projects
