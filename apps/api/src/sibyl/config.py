@@ -63,6 +63,10 @@ class Settings(BaseSettings):
         default="legacy",
         description="Active persistence runtime for this process",
     )
+    coordination_backend: Literal["auto", "local", "redis"] = Field(
+        default="auto",
+        description="Coordination backend for jobs, locks, pub/sub, and pending state",
+    )
 
     # Auth configuration
     disable_auth: bool = Field(
@@ -430,6 +434,13 @@ class Settings(BaseSettings):
         """Construct PostgreSQL connection URL for sync operations (Alembic)."""
         password = self.postgres_password.get_secret_value()
         return f"postgresql://{self.postgres_user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+
+    @property
+    def resolved_coordination_backend(self) -> Literal["local", "redis"]:
+        """Resolve the active coordination backend for this runtime."""
+        if self.coordination_backend == "auto":
+            return "redis" if self.store == "legacy" else "local"
+        return self.coordination_backend
 
 
 # Global settings instance

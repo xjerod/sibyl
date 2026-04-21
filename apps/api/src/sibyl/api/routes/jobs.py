@@ -27,25 +27,20 @@ router = APIRouter(
     ],
 )
 
+
 # IMPORTANT: Health endpoint must come before /{job_id} to avoid route matching issues
 @router.get("/health")
 async def jobs_health() -> dict[str, Any]:
     """Check job queue health."""
-    from sibyl.jobs.queue import get_pool
+    from sibyl.coordination import get_coordination_health
 
     try:
-        pool = await get_pool()
-        info = await pool.info()
-        return {
-            "status": "healthy",
-            "redis_version": info.get("redis_version", "unknown"),
-            "connected_clients": info.get("connected_clients", 0),
-            "used_memory_human": info.get("used_memory_human", "unknown"),
-        }
+        return await get_coordination_health()
     except Exception as e:
         log.warning("Job queue health check failed", error=str(e))
         return {
             "status": "unhealthy",
+            "backend": "unknown",
             "error": "Health check failed",
         }
 

@@ -892,6 +892,12 @@ class DevStatusResponse(BaseModel):
     worker_healthy: bool = Field(description="Worker process is running")
     graph_healthy: bool = Field(description="FalkorDB is reachable")
     queue_healthy: bool = Field(description="Job queue is healthy")
+    coordination_backend: str = Field(description="Resolved coordination backend")
+    coordination_status: str = Field(description="Coordination subsystem status")
+    coordination_durable: bool = Field(description="Coordination state survives process restarts")
+    coordination_error: str | None = Field(
+        default=None, description="Coordination error or readiness message"
+    )
 
     # Stats
     uptime_seconds: float = Field(default=0, description="Server uptime")

@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from sibyl.api.routes.admin import DebugQueryRequest, debug_query, health, stats
+from sibyl.api.routes.admin import DebugQueryRequest, debug_query, dev_status, health, stats
 
 
 @pytest.mark.asyncio
@@ -67,3 +67,43 @@ async def test_debug_query_uses_legacy_debug_runner() -> None:
         group_id=str(org.id),
         limit=1,
     )
+
+
+@pytest.mark.asyncio
+async def test_dev_status_reports_coordination_backend() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    mock_get_health = AsyncMock(
+        return_value={
+            "status": "healthy",
+            "graph_connected": True,
+            "uptime_seconds": 42,
+        }
+    )
+    mock_stats = AsyncMock(return_value={"total_entities": 5})
+    mock_coordination = AsyncMock(
+        return_value={
+            "backend": "local",
+            "status": "unavailable",
+            "durable": False,
+            "error": "Local coordination backend is not implemented yet",
+            "queue_healthy": False,
+            "worker_healthy": False,
+            "queue_depth": 0,
+        }
+    )
+    mock_buffer = SimpleNamespace(tail=lambda **_: [])
+
+    with (
+        patch("sibyl_core.tools.core.get_health", mock_get_health),
+        patch("sibyl.api.routes.admin.get_graph_stats_payload", mock_stats),
+        patch("sibyl.api.routes.admin.get_coordination_health", mock_coordination),
+        patch("sibyl_core.logging.LogBuffer.get", return_value=mock_buffer),
+    ):
+        response = await dev_status(org=org)
+
+    assert response.api_healthy is True
+    assert response.graph_healthy is True
+    assert response.coordination_backend == "local"
+    assert response.coordination_status == "unavailable"
+    assert response.coordination_durable is False
+    assert response.coordination_error == "Local coordination backend is not implemented yet"

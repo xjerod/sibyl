@@ -19,6 +19,7 @@ from sibyl.api.schemas import (
     StatsResponse,
 )
 from sibyl.auth.dependencies import get_current_organization, require_org_role
+from sibyl.coordination import get_coordination_health
 from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.graph_runtime import (
     execute_legacy_debug_query,
@@ -347,20 +348,10 @@ async def dev_status(
     except Exception:
         entity_count = 0
 
-    # Check worker/queue health
-    try:
-        from sibyl.jobs.queue import get_pool
-
-        pool = await get_pool()
-        info = await pool.pool.info()
-        queue_healthy = bool(info)
-        # Count pending jobs
-        queue_depth = info.get("pending_jobs", 0) if info else 0
-        worker_healthy = bool(info.get("workers", 0)) if info else False
-    except Exception:
-        queue_healthy = False
-        queue_depth = 0
-        worker_healthy = False
+    coordination = await get_coordination_health()
+    queue_healthy = coordination.get("queue_healthy", False)
+    queue_depth = coordination.get("queue_depth", 0)
+    worker_healthy = coordination.get("worker_healthy", False)
 
     # Get recent error logs
     buffer = LogBuffer.get()
@@ -372,6 +363,10 @@ async def dev_status(
         worker_healthy=worker_healthy,
         graph_healthy=graph_healthy,
         queue_healthy=queue_healthy,
+        coordination_backend=coordination.get("backend", "unknown"),
+        coordination_status=coordination.get("status", "unknown"),
+        coordination_durable=coordination.get("durable", False),
+        coordination_error=coordination.get("error"),
         uptime_seconds=uptime,
         entity_count=entity_count,
         queue_depth=queue_depth,

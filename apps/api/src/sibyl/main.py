@@ -16,6 +16,7 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from sibyl.config import settings
+from sibyl.coordination import uses_redis_coordination
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -63,6 +64,14 @@ def create_combined_app(  # noqa: PLR0915
 
         log = structlog.get_logger()
         legacy_runtime = settings.store == "legacy"
+        coordination_backend = settings.resolved_coordination_backend
+
+        log.info(
+            "coordination_backend_resolved",
+            backend=coordination_backend,
+            configured=settings.coordination_backend,
+            store=settings.store,
+        )
 
         # === Startup Validation ===
         # Check JWT secret when auth is enabled
@@ -130,7 +139,7 @@ def create_combined_app(  # noqa: PLR0915
 
         # Initialize Redis pub/sub for cross-pod WebSocket broadcasts
         pubsub_initialized = False
-        if legacy_runtime:
+        if uses_redis_coordination():
             try:
                 from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
                 from sibyl.api.websocket import enable_pubsub, local_broadcast
@@ -145,11 +154,14 @@ def create_combined_app(  # noqa: PLR0915
                     error=str(e),
                 )
         else:
-            log.info("Surreal store mode enabled; skipping legacy Redis pub/sub startup")
+            log.info(
+                "Redis coordination disabled; skipping Redis pub/sub startup",
+                backend=coordination_backend,
+            )
 
         # Initialize distributed entity locks
         locks_initialized = False
-        if legacy_runtime:
+        if uses_redis_coordination():
             try:
                 from sibyl.locks import init_locks
 
@@ -162,7 +174,10 @@ def create_combined_app(  # noqa: PLR0915
                     error=str(e),
                 )
         else:
-            log.info("Surreal store mode enabled; skipping legacy distributed locks")
+            log.info(
+                "Redis coordination disabled; skipping distributed locks",
+                backend=coordination_backend,
+            )
 
         # Optionally start embedded arq worker (dev mode only)
         worker_task = None
@@ -171,6 +186,8 @@ def create_combined_app(  # noqa: PLR0915
                 from sibyl.jobs.worker import run_worker_async
 
                 worker_task = asyncio.create_task(run_worker_async())
+            elif coordination_backend == "local":
+                log.warning("Embedded local coordination worker is not implemented yet")
             else:
                 log.warning("Embedded worker disabled in surreal mode", store=settings.store)
 

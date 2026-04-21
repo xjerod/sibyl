@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from sibyl.api.routes.jobs import (
     _job_visible_to_org,
     cancel_job,
+    jobs_health,
     list_jobs,
     trigger_consolidation,
     trigger_priority_decay,
@@ -166,6 +167,30 @@ class TestListJobsRoute:
             "crawl:embedded-visible",
         ]
         assert response["total"] == 2
+
+
+class TestJobsHealthRoute:
+    @pytest.mark.asyncio
+    async def test_jobs_health_reports_coordination_backend(self) -> None:
+        with patch(
+            "sibyl.coordination.get_coordination_health",
+            AsyncMock(
+                return_value={
+                    "status": "healthy",
+                    "backend": "redis",
+                    "durable": True,
+                    "queue_healthy": True,
+                    "worker_healthy": True,
+                    "queue_depth": 2,
+                }
+            ),
+        ):
+            response = await jobs_health()
+
+        assert response["status"] == "healthy"
+        assert response["backend"] == "redis"
+        assert response["durable"] is True
+        assert response["queue_depth"] == 2
 
 
 class TestCancelJobRoute:

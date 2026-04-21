@@ -241,6 +241,10 @@ def status(
                 console.print(f"  Worker:   {_health(data.get('worker_healthy', False))}")
                 console.print(f"  Graph:    {_health(data.get('graph_healthy', False))}")
                 console.print(f"  Queue:    {_health(data.get('queue_healthy', False))}")
+                console.print(
+                    f"  Coord:    [{NEON_CYAN}]{data.get('coordination_backend', 'unknown')}[/{NEON_CYAN}]"
+                    f" ({data.get('coordination_status', 'unknown')})"
+                )
                 console.print()
 
                 # Stats
@@ -252,6 +256,12 @@ def status(
                 console.print(f"  Uptime:       [{CORAL}]{uptime_str}[/{CORAL}]")
                 console.print(f"  Entities:     [{CORAL}]{data.get('entity_count', 0):,}[/{CORAL}]")
                 console.print(f"  Queue depth:  [{CORAL}]{data.get('queue_depth', 0)}[/{CORAL}]")
+                console.print(
+                    f"  Durable:      [{CORAL}]{str(data.get('coordination_durable', False)).lower()}[/{CORAL}]"
+                )
+                coordination_error = data.get("coordination_error")
+                if coordination_error:
+                    console.print(f"  Detail:       [{ERROR_RED}]{coordination_error}[/{ERROR_RED}]")
                 console.print()
 
                 # Recent errors

@@ -25,6 +25,8 @@ def test_settings_server_url_default() -> None:
 def test_settings_store_defaults_to_legacy() -> None:
     s = Settings(_env_file=None)
     assert s.store == "legacy"
+    assert s.coordination_backend == "auto"
+    assert s.resolved_coordination_backend == "redis"
 
 
 def test_settings_store_uses_graph_backend_alias(monkeypatch) -> None:
@@ -34,6 +36,12 @@ def test_settings_store_uses_graph_backend_alias(monkeypatch) -> None:
     s = Settings(_env_file=None)
 
     assert s.store == "surreal"
+    assert s.resolved_coordination_backend == "local"
+
+
+def test_settings_coordination_backend_can_override_auto() -> None:
+    s = Settings(_env_file=None, store="surreal", coordination_backend="redis")
+    assert s.resolved_coordination_backend == "redis"
 
 
 def test_settings_resolves_surreal_data_dir_url() -> None:

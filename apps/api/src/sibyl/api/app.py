@@ -45,6 +45,7 @@ from sibyl.api.routes import (
 from sibyl.api.websocket import websocket_handler
 from sibyl.auth.middleware import AuthMiddleware
 from sibyl.config import settings
+from sibyl.coordination import uses_redis_coordination
 
 log = structlog.get_logger()
 
@@ -112,6 +113,7 @@ async def _run_migrations() -> None:
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Run migrations, pre-warm graph client, and start Redis pub/sub on startup."""
     legacy_runtime = settings.store == "legacy"
+    coordination_backend = settings.resolved_coordination_backend
 
     if legacy_runtime:
         await _run_migrations()
@@ -127,7 +129,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     except Exception as e:
         log.warning("Failed to pre-warm graph client", error=str(e))
 
-    if legacy_runtime:
+    if uses_redis_coordination():
         log.info("Initializing Redis pub/sub for WebSocket broadcasts...")
         try:
             from sibyl.api.pubsub import init_pubsub, shutdown_pubsub
@@ -141,11 +143,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
                 "Failed to initialize Redis pub/sub (worker broadcasts may not work)", error=str(e)
             )
     else:
-        log.info("Surreal store mode enabled; skipping legacy Redis pub/sub startup")
+        log.info(
+            "Redis coordination disabled; skipping Redis pub/sub startup",
+            backend=coordination_backend,
+        )
 
     yield
 
-    if legacy_runtime:
+    if uses_redis_coordination():
         try:
             from sibyl.api.pubsub import shutdown_pubsub
             from sibyl.api.websocket import disable_pubsub
