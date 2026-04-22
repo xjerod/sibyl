@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
         """Prevent insecure settings in production."""
+        if self.store == "surreal" and "auth_store" not in self.model_fields_set:
+            object.__setattr__(self, "auth_store", "surreal")
         if self.environment == "production":
             if self.disable_auth:
                 raise ValueError(
@@ -289,6 +291,8 @@ class Settings(BaseSettings):
             }.get(legacy_backend)
             if legacy_store is not None:
                 object.__setattr__(self, "store", legacy_store)
+        if self.store == "surreal" and "auth_store" not in self.model_fields_set:
+            object.__setattr__(self, "auth_store", "surreal")
 
         # Anthropic: check ANTHROPIC_API_KEY if SIBYL_ANTHROPIC_API_KEY not set
         if not self.anthropic_api_key.get_secret_value():

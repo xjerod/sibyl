@@ -23,11 +23,11 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sibyl.auth.api_keys import ApiKeyManager
 from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
 from sibyl.db.connection import get_session
+from sibyl.persistence.auth_runtime import authenticate_legacy_api_key
 
 if TYPE_CHECKING:
     from sibyl.auth.context import AuthContext
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
-async def _resolve_claims_minimal(request: Request, session: AsyncSession) -> dict | None:
+async def _resolve_claims_minimal(request: Request, _session: AsyncSession) -> dict | None:
     """Resolve JWT claims without loading full User/Org objects.
 
     This is a minimal version optimized for RLS setup - we only need
@@ -59,7 +59,7 @@ async def _resolve_claims_minimal(request: Request, session: AsyncSession) -> di
 
     # API key fallback
     if token.startswith("sk_"):
-        auth = await ApiKeyManager(session).authenticate(token)
+        auth = await authenticate_legacy_api_key(token)
         if auth:
             return {
                 "sub": str(auth.user_id),
@@ -122,6 +122,12 @@ async def get_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
             result = await session.execute(select(Item))
             return result.scalars().all()
     """
+    if settings.store == "surreal":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="PostgreSQL RLS sessions are unavailable in surreal mode",
+        )
+
     async with get_session() as session:
         if settings.disable_auth:
             # No RLS in dev mode when auth is disabled
@@ -155,6 +161,12 @@ async def require_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
 
     Raises 401 if no valid auth context is found.
     """
+    if settings.store == "surreal":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="PostgreSQL RLS sessions are unavailable in surreal mode",
+        )
+
     async with get_session() as session:
         if settings.disable_auth:
             yield session
@@ -219,6 +231,8 @@ async def apply_rls_from_auth_context(
 
     if app_settings.disable_auth:
         return
+    if app_settings.store == "surreal":
+        return
 
     user_id = ctx.user.id if ctx.user else None
     org_id = ctx.organization.id if ctx.organization else None
@@ -266,6 +280,11 @@ async def get_auth_session(request: Request) -> AsyncGenerator[AuthSession]:
         HTTPException 500: If RLS context setup fails
     """
     from sibyl.auth.dependencies import build_auth_context
+
+    if settings.store == "surreal":
+        ctx = await build_auth_context(request, None)
+        yield AuthSession(ctx, None)
+        return
 
     async with get_session() as session:
         # Get auth context (raises 401 if not authenticated)

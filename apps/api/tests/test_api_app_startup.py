@@ -23,6 +23,7 @@ async def test_surreal_mode_bootstraps_legacy_postgres_support(
     scheduler = SimpleNamespace(startup=AsyncMock(), shutdown=AsyncMock())
 
     monkeypatch.setattr(api_app_module.settings, "store", "surreal")
+    monkeypatch.setattr(api_app_module.settings, "auth_store", "surreal")
     monkeypatch.setattr(
         api_app_module,
         "bootstrap_legacy_postgres_support",

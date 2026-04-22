@@ -74,6 +74,56 @@ async def test_create_backup_uses_legacy_record_helpers(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
+async def test_create_backup_disables_postgres_in_fully_surreal_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org = _org()
+    user = _user()
+    backup = SimpleNamespace(id=uuid4(), status="pending")
+    queued = SimpleNamespace(id=backup.id, status="pending")
+
+    monkeypatch.setattr(backup_routes.settings, "store", "surreal")
+    monkeypatch.setattr(backup_routes.settings, "auth_store", "surreal")
+    monkeypatch.setattr(backup_routes, "generate_backup_id", lambda _: "backup_fixed")
+    monkeypatch.setattr(
+        backup_routes,
+        "create_backup_record",
+        AsyncMock(return_value=backup),
+    )
+    monkeypatch.setattr(
+        backup_routes,
+        "attach_backup_job_record",
+        AsyncMock(return_value=queued),
+    )
+    monkeypatch.setattr(
+        "sibyl.jobs.queue.enqueue_backup",
+        AsyncMock(return_value="job-123"),
+    )
+
+    await backup_routes.create_backup(
+        request=backup_routes.CreateBackupRequest(include_postgres=True, include_graph=False),
+        org=org,
+        user=user,
+    )
+
+    backup_routes.create_backup_record.assert_awaited_once_with(
+        org_id=org.id,
+        backup_id="backup_fixed",
+        include_postgres=False,
+        include_graph=False,
+        created_by_user_id=user.id,
+    )
+    from sibyl.jobs import queue as jobs_queue
+
+    jobs_queue.enqueue_backup.assert_awaited_once_with(
+        str(org.id),
+        include_postgres=False,
+        include_graph=False,
+        backup_id="backup_fixed",
+    )
+
+
+@pytest.mark.asyncio
 async def test_list_backups_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     backup = SimpleNamespace(
         id=uuid4(),

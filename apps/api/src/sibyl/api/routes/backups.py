@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from sibyl.auth.dependencies import get_current_organization, get_current_user, require_org_admin
 from sibyl.backup_ids import generate_backup_id
+from sibyl.config import settings
 from sibyl.db.models import BackupStatus, Organization, User
 from sibyl.persistence.backups_runtime import (
     attach_backup_job as attach_backup_job_record,
@@ -29,6 +30,10 @@ from sibyl.persistence.backups_runtime import (
 )
 
 log = structlog.get_logger()
+
+
+def _effective_include_postgres(requested: bool) -> bool:
+    return requested and not (settings.store == "surreal" and settings.auth_store == "surreal")
 
 router = APIRouter(
     prefix="/backups",
@@ -198,11 +203,12 @@ async def create_backup(
 
     Returns a job ID that can be used to track progress.
     """
+    include_postgres = _effective_include_postgres(request.include_postgres)
     backup_id = generate_backup_id(str(org.id))
     backup = await create_backup_record(
         org_id=org.id,
         backup_id=backup_id,
-        include_postgres=request.include_postgres,
+        include_postgres=include_postgres,
         include_graph=request.include_graph,
         created_by_user_id=user.id if user else None,
     )
@@ -211,7 +217,7 @@ async def create_backup(
         "backup_requested",
         backup_id=backup_id,
         organization_id=str(org.id),
-        include_postgres=request.include_postgres,
+        include_postgres=include_postgres,
         include_graph=request.include_graph,
     )
 
@@ -219,7 +225,7 @@ async def create_backup(
 
     job_id = await enqueue_backup(
         str(org.id),
-        include_postgres=request.include_postgres,
+        include_postgres=include_postgres,
         include_graph=request.include_graph,
         backup_id=backup_id,
     )

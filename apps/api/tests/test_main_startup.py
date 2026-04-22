@@ -39,6 +39,7 @@ async def test_surreal_mode_bootstraps_legacy_postgres_support(
     scheduler = SimpleNamespace(startup=AsyncMock(), shutdown=AsyncMock())
 
     monkeypatch.setattr(main_module.settings, "store", "surreal")
+    monkeypatch.setattr(main_module.settings, "auth_store", "surreal")
     monkeypatch.setattr("sibyl.api.app.create_api_app", lambda: Starlette())
     monkeypatch.setattr("sibyl.server.create_mcp_server", lambda **_: _FakeMCPServer())
     monkeypatch.setattr(

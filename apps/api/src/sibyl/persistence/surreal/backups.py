@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 
+from sibyl.config import settings as app_settings
 from sibyl.db.models import Backup, BackupSettings, BackupStatus
 from sibyl.persistence.legacy.backups import BackupListResult
 from sibyl.persistence.surreal.content import (
@@ -51,6 +52,14 @@ def _sort_key(value: datetime | None) -> datetime:
     return value or datetime.min.replace(tzinfo=None)
 
 
+def _postgres_backups_supported() -> bool:
+    return not (app_settings.store == "surreal" and app_settings.auth_store == "surreal")
+
+
+def _effective_include_postgres(requested: bool) -> bool:
+    return requested and _postgres_backups_supported()
+
+
 def _backup_settings_from_record(record: dict[str, object]) -> BackupSettings:
     now = _utcnow()
     return BackupSettings(
@@ -62,7 +71,9 @@ def _backup_settings_from_record(record: dict[str, object]) -> BackupSettings:
         enabled=_coerce_bool(record.get("enabled"), default=True),
         schedule=_coerce_str(record.get("schedule"), default="0 2 * * *"),
         retention_days=_coerce_int(record.get("retention_days"), default=30),
-        include_postgres=_coerce_bool(record.get("include_postgres"), default=True),
+        include_postgres=_effective_include_postgres(
+            _coerce_bool(record.get("include_postgres"), default=_postgres_backups_supported())
+        ),
         include_graph=_coerce_bool(record.get("include_graph"), default=True),
         last_backup_at=_coerce_datetime(record.get("last_backup_at")),
         last_backup_id=_coerce_optional_str(record.get("last_backup_id")),
@@ -78,7 +89,7 @@ def _backup_settings_record(settings: BackupSettings) -> dict[str, object]:
         "enabled": settings.enabled,
         "schedule": settings.schedule,
         "retention_days": settings.retention_days,
-        "include_postgres": settings.include_postgres,
+        "include_postgres": _effective_include_postgres(settings.include_postgres),
         "include_graph": settings.include_graph,
         "last_backup_at": settings.last_backup_at,
         "last_backup_id": settings.last_backup_id,
@@ -98,7 +109,9 @@ def _backup_from_record(record: dict[str, object]) -> Backup:
         filename=_coerce_optional_str(record.get("filename")),
         file_path=_coerce_optional_str(record.get("file_path")),
         size_bytes=_coerce_int(record.get("size_bytes")),
-        include_postgres=_coerce_bool(record.get("include_postgres"), default=True),
+        include_postgres=_effective_include_postgres(
+            _coerce_bool(record.get("include_postgres"), default=_postgres_backups_supported())
+        ),
         include_graph=_coerce_bool(record.get("include_graph"), default=True),
         entity_count=_coerce_int(record.get("entity_count")),
         relationship_count=_coerce_int(record.get("relationship_count")),
@@ -123,7 +136,7 @@ def _backup_record(backup: Backup) -> dict[str, object]:
         "filename": backup.filename,
         "file_path": backup.file_path,
         "size_bytes": backup.size_bytes,
-        "include_postgres": backup.include_postgres,
+        "include_postgres": _effective_include_postgres(backup.include_postgres),
         "include_graph": backup.include_graph,
         "entity_count": backup.entity_count,
         "relationship_count": backup.relationship_count,
@@ -197,7 +210,12 @@ async def get_backup_settings(org_id: UUID) -> BackupSettings:
     settings = await _get_backup_settings_for_org(org_id)
     if settings is not None:
         return settings
-    return await _save_backup_settings(BackupSettings(organization_id=org_id))
+    return await _save_backup_settings(
+        BackupSettings(
+            organization_id=org_id,
+            include_postgres=_postgres_backups_supported(),
+        )
+    )
 
 
 async def update_backup_settings(
@@ -217,7 +235,7 @@ async def update_backup_settings(
     if retention_days is not None:
         settings.retention_days = retention_days
     if include_postgres is not None:
-        settings.include_postgres = include_postgres
+        settings.include_postgres = _effective_include_postgres(include_postgres)
     if include_graph is not None:
         settings.include_graph = include_graph
     return await _save_backup_settings(settings)
@@ -238,7 +256,7 @@ async def create_backup_record(
             organization_id=org_id,
             backup_id=backup_id,
             status=BackupStatus.PENDING.value,
-            include_postgres=include_postgres,
+            include_postgres=_effective_include_postgres(include_postgres),
             include_graph=include_graph,
             triggered_by=triggered_by,
             created_by_user_id=created_by_user_id,

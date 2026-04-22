@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+import pytest
+from starlette.requests import Request
+
+from sibyl.auth import dependencies
+
+
+def _make_request(*, user_id: str, org_id: str) -> Request:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/test",
+            "headers": [],
+            "state": {},
+        }
+    )
+    request.state.jwt_claims = {"sub": user_id, "org": org_id}
+    return request
+
+
+@pytest.mark.asyncio
+async def test_build_auth_context_uses_surreal_resolver_without_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    request = _make_request(user_id=str(user_id), org_id=str(org_id))
+    expected_ctx = SimpleNamespace(user=SimpleNamespace(id=user_id), organization=SimpleNamespace(id=org_id))
+
+    @asynccontextmanager
+    async def fail_get_session():
+        raise AssertionError("postgres session should stay off in surreal auth mode")
+        yield
+
+    resolve_surreal_auth_context = AsyncMock(return_value=expected_ctx)
+
+    monkeypatch.setattr(dependencies.settings, "auth_store", "surreal")
+    monkeypatch.setattr(dependencies, "get_session", fail_get_session)
+    monkeypatch.setattr(
+        dependencies,
+        "resolve_surreal_auth_context",
+        resolve_surreal_auth_context,
+    )
+
+    result = await dependencies.build_auth_context(request)
+
+    assert result is expected_ctx
+    resolve_surreal_auth_context.assert_awaited_once_with({"sub": str(user_id), "org": str(org_id)})
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_uses_surreal_lookup_without_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    request = _make_request(user_id=str(user_id), org_id=str(org_id))
+    expected_user = SimpleNamespace(id=user_id, email="nova@example.com")
+
+    @asynccontextmanager
+    async def fail_get_session():
+        raise AssertionError("postgres session should stay off in surreal auth mode")
+        yield
+
+    get_legacy_user_by_id = AsyncMock(return_value=expected_user)
+
+    monkeypatch.setattr(dependencies.settings, "auth_store", "surreal")
+    monkeypatch.setattr(dependencies, "get_session", fail_get_session)
+    monkeypatch.setattr(dependencies, "get_legacy_user_by_id", get_legacy_user_by_id)
+
+    result = await dependencies.get_current_user(request)
+
+    assert result is expected_user
+    get_legacy_user_by_id.assert_awaited_once_with(user_id)

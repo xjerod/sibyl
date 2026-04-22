@@ -37,7 +37,7 @@ def test_settings_store_uses_graph_backend_alias(monkeypatch) -> None:
     s = Settings(_env_file=None)
 
     assert s.store == "surreal"
-    assert s.auth_store == "postgres"
+    assert s.auth_store == "surreal"
     assert s.resolved_coordination_backend == "local"
 
 
@@ -47,6 +47,16 @@ def test_settings_auth_store_can_use_surreal(monkeypatch) -> None:
     s = Settings(_env_file=None)
 
     assert s.auth_store == "surreal"
+
+
+def test_settings_surreal_store_keeps_explicit_postgres_auth(monkeypatch) -> None:
+    monkeypatch.setenv("SIBYL_STORE", "surreal")
+    monkeypatch.setenv("SIBYL_AUTH_STORE", "postgres")
+
+    s = Settings(_env_file=None)
+
+    assert s.store == "surreal"
+    assert s.auth_store == "postgres"
 
 
 def test_settings_coordination_backend_can_override_auto() -> None:

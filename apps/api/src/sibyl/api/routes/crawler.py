@@ -36,6 +36,7 @@ from sibyl.api.schemas import (
 )
 from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_organization, require_org_role
+from sibyl.config import settings
 from sibyl.crawler.service import SourceAlreadyExistsError
 from sibyl.db import (
     CrawledDocument,
@@ -173,7 +174,10 @@ async def get_stats(
 @router.get("/health", response_model=CrawlHealthResponse)
 async def get_health() -> CrawlHealthResponse:
     """Check crawler system health."""
-    pg_health = await check_postgres_health()
+    if settings.store == "surreal" and settings.auth_store == "surreal":
+        pg_health = {"status": "disabled", "postgres_version": None, "pgvector_version": None}
+    else:
+        pg_health = await check_postgres_health()
 
     # Check Crawl4AI availability
     crawl4ai_available = False
@@ -185,11 +189,11 @@ async def get_health() -> CrawlHealthResponse:
         pass
 
     return CrawlHealthResponse(
-        postgres_healthy=pg_health["status"] == "healthy",
+        postgres_healthy=pg_health["status"] in {"healthy", "disabled"},
         postgres_version=pg_health.get("postgres_version"),
         pgvector_version=pg_health.get("pgvector_version"),
         crawl4ai_available=crawl4ai_available,
-        error=pg_health.get("error"),
+        error=None if pg_health["status"] == "disabled" else pg_health.get("error"),
     )
 
 

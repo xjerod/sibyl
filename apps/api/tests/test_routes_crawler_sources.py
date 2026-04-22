@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -12,7 +13,8 @@ import pytest
 from fastapi import HTTPException
 
 from sibyl.api.event_types import WSEvent
-from sibyl.api.routes.crawler import create_source, list_sources
+from sibyl.api.routes import crawler as crawler_module
+from sibyl.api.routes.crawler import create_source, get_health, list_sources
 from sibyl.api.schemas import CrawlSourceCreate
 from sibyl.crawler.service import SourceAlreadyExistsError
 from sibyl.db import CrawlStatus, SourceType
@@ -38,6 +40,26 @@ def _make_source() -> SimpleNamespace:
 
 
 class TestCrawlSourceRoutes:
+    @pytest.mark.asyncio
+    async def test_get_health_skips_postgres_probe_in_fully_surreal_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        check_postgres_health = AsyncMock(side_effect=AssertionError("postgres probe should stay off"))
+
+        monkeypatch.setattr(crawler_module.settings, "store", "surreal")
+        monkeypatch.setattr(crawler_module.settings, "auth_store", "surreal")
+        monkeypatch.setattr(crawler_module, "check_postgres_health", check_postgres_health)
+        monkeypatch.setitem(sys.modules, "crawl4ai", SimpleNamespace(AsyncWebCrawler=object))
+
+        response = await get_health()
+
+        check_postgres_health.assert_not_awaited()
+        assert response.postgres_healthy is True
+        assert response.postgres_version is None
+        assert response.pgvector_version is None
+        assert response.error is None
+        assert response.crawl4ai_available is True
+
     @pytest.mark.asyncio
     async def test_create_source_delegates_to_service_and_broadcasts(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000999"))

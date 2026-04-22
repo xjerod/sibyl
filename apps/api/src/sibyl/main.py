@@ -90,7 +90,7 @@ def create_combined_app(  # noqa: PLR0915
                 hint="Set SIBYL_JWT_SECRET for authenticated access",
             )
 
-        if settings.store == "surreal":
+        if settings.store == "surreal" and settings.auth_store != "surreal":
             log.info(
                 "Surreal store mode enabled; bootstrapping remaining PostgreSQL-backed services"
             )

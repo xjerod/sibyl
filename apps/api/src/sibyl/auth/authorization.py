@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context
+from sibyl.config import settings
 from sibyl.db.connection import get_session_dependency
 from sibyl.db.models import (
     OrganizationRole,
@@ -33,6 +34,10 @@ from sibyl.db.models import (
     TeamProject,
 )
 from sibyl.db.sync import get_graph_projects
+from sibyl.persistence.auth_runtime import (
+    list_legacy_accessible_project_graph_ids,
+    verify_legacy_entity_project_access,
+)
 
 log = structlog.get_logger()
 
@@ -217,6 +222,9 @@ async def list_accessible_project_graph_ids(
         periods where no Postgres projects exist yet, this falls back to the
         org's graph project IDs instead of skipping filtering entirely.
     """
+    if settings.auth_store == "surreal":
+        return await list_legacy_accessible_project_graph_ids(ctx) or set()
+
     if ctx.organization is None:
         return set()
 
@@ -453,7 +461,7 @@ def require_project_admin(project_id_param: str = "project_id", use_graph_id: bo
 
 
 async def verify_entity_project_access(
-    session: AsyncSession,
+    session: AsyncSession | None,
     ctx: AuthContext,
     entity_project_id: str | None,
     *,
@@ -476,6 +484,13 @@ async def verify_entity_project_access(
     Raises:
         ProjectAuthorizationError: If user lacks required access
     """
+    if settings.auth_store == "surreal":
+        return await verify_legacy_entity_project_access(
+            ctx=ctx,
+            entity_project_id=entity_project_id,
+            required_role=required_role,
+        )
+
     if ctx.organization is None:
         raise ProjectAuthorizationError(
             project_id=entity_project_id or "unknown",

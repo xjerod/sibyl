@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         resolve_legacy_accessible_project_graph_ids,
         resolve_legacy_request_claims,
         resolve_legacy_request_user,
+        resolve_surreal_auth_context,
         revoke_legacy_access_session,
         revoke_legacy_api_key_for_user,
         revoke_legacy_refresh_session_record,
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
 _BACKEND_MODULES = {
     "postgres": "sibyl.persistence.legacy.auth",
-    "surreal": "sibyl.persistence.surreal.auth",
+    "surreal": "sibyl.persistence.surreal.auth_runtime",
 }
 
 _BACKEND_NAME_OVERRIDES = {
@@ -58,6 +59,7 @@ _BACKEND_NAME_OVERRIDES = {
         "LegacyAuthContextResolver": "SurrealAuthContextResolver",
         "LegacyOrganizationMembershipRepository": "SurrealOrganizationMembershipRepository",
         "LegacyOrganizationRepository": "SurrealOrganizationRepository",
+        "LegacySessionRepository": "SurrealSessionRepository",
         "LegacyUserRepository": "SurrealUserRepository",
     },
 }
@@ -90,6 +92,7 @@ __all__ = [
     "login_legacy_github_identity",
     "login_legacy_local_user",
     "resolve_legacy_accessible_project_graph_ids",
+    "resolve_surreal_auth_context",
     "resolve_legacy_request_claims",
     "resolve_legacy_request_user",
     "revoke_legacy_access_session",

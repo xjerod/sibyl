@@ -36,6 +36,10 @@ async def load_legacy_postgres_api_keys() -> None:
 
 
 async def bootstrap_legacy_postgres_support() -> bool:
+    if settings.store == "surreal" and settings.auth_store == "surreal":
+        log.info("PostgreSQL bootstrap disabled in fully surreal mode", store=settings.store)
+        return False
+
     try:
         await check_legacy_postgres_connection()
     except Exception as exc:

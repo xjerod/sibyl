@@ -82,6 +82,57 @@ async def test_run_scheduled_backups_uses_runtime_helpers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_scheduled_backups_disables_postgres_in_fully_surreal_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    settings = SimpleNamespace(
+        organization_id=org_id,
+        include_postgres=True,
+        include_graph=False,
+    )
+    backup = SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr(backup_jobs.settings, "store", "surreal")
+    monkeypatch.setattr(backup_jobs.settings, "auth_store", "surreal")
+
+    with (
+        patch(
+            "sibyl.jobs.backup.list_enabled_backup_settings",
+            AsyncMock(return_value=[settings]),
+        ),
+        patch(
+            "sibyl.jobs.backup.create_backup_record",
+            AsyncMock(return_value=backup),
+        ) as create_record,
+        patch(
+            "sibyl.jobs.backup.attach_backup_job",
+            AsyncMock(),
+        ),
+        patch(
+            "sibyl.jobs.queue.enqueue_backup",
+            AsyncMock(return_value="job-123"),
+        ) as enqueue_backup,
+    ):
+        await backup_jobs.run_scheduled_backups({})
+
+    create_record.assert_awaited_once_with(
+        org_id=org_id,
+        backup_id=create_record.await_args.kwargs["backup_id"],
+        include_postgres=False,
+        include_graph=False,
+        created_by_user_id=None,
+        triggered_by="scheduled",
+    )
+    enqueue_backup.assert_awaited_once_with(
+        str(org_id),
+        include_postgres=False,
+        include_graph=False,
+        backup_id=enqueue_backup.await_args.kwargs["backup_id"],
+    )
+
+
+@pytest.mark.asyncio
 async def test_run_scheduled_backups_removes_orphan_record_when_queue_fails() -> None:
     org_id = uuid4()
     settings = SimpleNamespace(

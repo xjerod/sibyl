@@ -6,6 +6,10 @@ from sibyl.persistence import auth_runtime
 from sibyl.persistence.auth_common import InvalidAuthClaimsError, UserNotFoundError
 from sibyl.persistence.legacy.auth import LegacyAuthContextResolver
 from sibyl.persistence.surreal.auth import SurrealAuthContextResolver
+from sibyl.persistence.surreal.auth_runtime import (
+    SurrealSessionRepository,
+    resolve_surreal_auth_context,
+)
 
 
 def test_auth_runtime_uses_shared_error_types(
@@ -24,13 +28,15 @@ def test_auth_runtime_maps_resolver_name_for_surreal(
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "surreal")
 
     assert auth_runtime.LegacyAuthContextResolver is SurrealAuthContextResolver
+    assert auth_runtime.LegacySessionRepository is SurrealSessionRepository
+    assert auth_runtime.resolve_surreal_auth_context is resolve_surreal_auth_context
 
 
-@pytest.mark.asyncio
-async def test_auth_runtime_guards_missing_surreal_exports(
+def test_auth_runtime_maps_auth_exports_for_surreal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "surreal")
 
-    with pytest.raises(NotImplementedError, match="SIBYL_AUTH_STORE='surreal'"):
-        await auth_runtime.authenticate_legacy_api_key("sk_test_placeholder")
+    assert auth_runtime.authenticate_legacy_api_key.__module__ == (
+        "sibyl.persistence.surreal.auth_runtime"
+    )

@@ -45,7 +45,7 @@ def test_up_defaults_to_surreal_local_without_redis(tmp_path: Path, monkeypatch)
 
     up_cmd.up()
 
-    run_compose.assert_called_once_with(["up", "-d", "surrealdb", "postgres"], tmp_path)
+    run_compose.assert_called_once_with(["up", "-d", "surrealdb"], tmp_path)
     env = start_foreground.call_args.args[2]
     assert env["SIBYL_STORE"] == "surreal"
     assert up_cmd._resolve_coordination_backend(env) == "local"
@@ -63,7 +63,7 @@ def test_up_starts_redis_when_surreal_coordination_backend_is_redis(
     up_cmd.up()
 
     run_compose.assert_called_once_with(
-        ["up", "-d", "surrealdb", "postgres", "redis"],
+        ["up", "-d", "surrealdb", "redis"],
         tmp_path,
     )
     env = start_foreground.call_args.args[2]

@@ -68,6 +68,10 @@ class BackupResult:
     error: str | None = None
 
 
+def _effective_include_postgres(requested: bool) -> bool:
+    return requested and not (settings.store == "surreal" and settings.auth_store == "surreal")
+
+
 def _get_pg_env() -> dict[str, str]:
     """Get environment variables for pg_dump commands."""
     import os
@@ -205,6 +209,7 @@ async def run_backup(  # noqa: PLR0915
     start_time = time.time()
     started_at = datetime.now(UTC)
     backup_id = backup_id or generate_backup_id(organization_id)
+    include_postgres = _effective_include_postgres(include_postgres)
 
     # Update DB to mark as in progress
     await _update_backup_db(backup_id, status="in_progress", started_at=started_at)
@@ -616,12 +621,13 @@ async def run_scheduled_backups(
             org_id = str(org_settings.organization_id)
             backup_id = generate_backup_id(org_id)
             backup = None
+            include_postgres = _effective_include_postgres(org_settings.include_postgres)
 
             try:
                 backup = await create_backup_record(
                     org_id=org_settings.organization_id,
                     backup_id=backup_id,
-                    include_postgres=org_settings.include_postgres,
+                    include_postgres=include_postgres,
                     include_graph=org_settings.include_graph,
                     created_by_user_id=None,
                     triggered_by="scheduled",
@@ -631,7 +637,7 @@ async def run_scheduled_backups(
 
                 job_id = await enqueue_backup(
                     org_id,
-                    include_postgres=org_settings.include_postgres,
+                    include_postgres=include_postgres,
                     include_graph=org_settings.include_graph,
                     backup_id=backup_id,
                 )
