@@ -103,7 +103,6 @@ def serve(
 def _serve_with_reload(host: str, port: int) -> None:
     """Start server with hot reload using uvicorn."""
     import os
-    import signal
     import subprocess
     import sys
 
@@ -141,24 +140,21 @@ def _serve_with_reload(host: str, port: int) -> None:
             "warning",
         ],
         env=env,
-        start_new_session=True,
     )
 
-    def kill_process_group() -> None:
-        """Kill uvicorn and ALL its children via process group."""
+    def stop_process() -> None:
         try:
-            pgid = os.getpgid(process.pid)
-            os.killpg(pgid, signal.SIGTERM)
+            process.terminate()
             process.wait(timeout=3)
         except (ProcessLookupError, OSError, subprocess.TimeoutExpired):
             with contextlib.suppress(ProcessLookupError, OSError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                process.kill()
 
     try:
         process.wait()
     except KeyboardInterrupt:
         console.print(f"\n[{NEON_CYAN}]Shutting down...[/{NEON_CYAN}]")
-        kill_process_group()
+        stop_process()
 
 
 @app.command()

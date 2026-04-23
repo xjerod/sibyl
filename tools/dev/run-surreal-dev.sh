@@ -43,18 +43,13 @@ resolve_coordination_backend() {
 launch_command() {
   local command="${1:-}"
   local pid=""
+  local quoted_repo_root=""
 
-  python3 -c '
-import os
-import sys
-
-repo_root, command = sys.argv[1], sys.argv[2]
-os.chdir(repo_root)
-os.setsid()
-os.execvp("bash", ["bash", "-lc", f"exec {command}"])
-' "$repo_root" "$command" &
+  printf -v quoted_repo_root "%q" "$repo_root"
+  bash -c "cd $quoted_repo_root && exec $command" &
   pid="$!"
   child_pids+=("$pid")
+  disown "$pid" 2>/dev/null || true
   mkdir -p "$(dirname "$pid_file")"
   printf '%s\t%s\n' "$pid" "$command" >> "$pid_file"
 }
@@ -115,6 +110,7 @@ cleanup() {
     printf '\n🛑 Stopping dev processes...\n'
 
     local -a shutdown_targets=()
+    local -a wait_targets=("${child_pids[@]}")
 
     for pid in "${child_pids[@]}"; do
       while IFS= read -r child; do
@@ -158,6 +154,10 @@ cleanup() {
 
       sleep 0.2
     done
+
+    for pid in "${wait_targets[@]}"; do
+      wait "$pid" 2>/dev/null || true
+    done
   fi
 
   rm -f "$pid_file"
@@ -174,17 +174,27 @@ main() {
     fi
   fi
   export SIBYL_COORDINATION_BACKEND="${SIBYL_COORDINATION_BACKEND:-auto}"
+  export SIBYL_SERVER_HOST="${SIBYL_SERVER_HOST:-127.0.0.1}"
+  export SIBYL_SERVER_PORT="${SIBYL_SERVER_PORT:-3334}"
+  export SIBYL_BACKEND_URL="${SIBYL_BACKEND_URL:-http://127.0.0.1:3334}"
+  export SIBYL_API_URL="${SIBYL_API_URL:-http://127.0.0.1:3334/api}"
 
+  local api_reload_dir=""
+  local default_api_command=""
   local surreal_url="${SIBYL_SURREAL_URL:-}"
   local coordination_backend=""
   local surreal_volume_dir=""
   local uses_surreal=false
   local uses_postgres=false
   local services=()
-  local api_command="${SIBYL_DEV_API_COMMAND:-uv run --directory apps/api sibyld serve --reload}"
   local web_command="${SIBYL_DEV_WEB_COMMAND:-moon run web:dev}"
   local worker_command="${SIBYL_DEV_WORKER_COMMAND:-uv run --directory apps/api arq sibyl.jobs.worker.WorkerSettings --watch src}"
-  local commands=("$api_command" "$web_command")
+  local commands=()
+
+  printf -v api_reload_dir "%q" "$repo_root/apps/api/src"
+  default_api_command="uv run --directory apps/api python -m uvicorn sibyl.main:create_dev_app --factory --host ${SIBYL_SERVER_HOST} --port ${SIBYL_SERVER_PORT} --reload --reload-dir $api_reload_dir --timeout-graceful-shutdown 5 --log-level warning"
+  local api_command="${SIBYL_DEV_API_COMMAND:-$default_api_command}"
+  commands=("$api_command" "$web_command")
 
   coordination_backend="$(resolve_coordination_backend)"
 
@@ -279,6 +289,16 @@ main() {
   fi
   if [[ "$coordination_backend" == "redis" ]]; then
     echo "🛠️  Redis: ${SIBYL_REDIS_HOST}:${SIBYL_REDIS_PORT}"
+  fi
+
+  if [[ -z "${SIBYL_DEV_API_COMMAND:-}" ]]; then
+    echo "Starting Sibyl in dev mode..."
+    echo "Hot reload enabled - watching for changes"
+    echo "API: http://${SIBYL_SERVER_HOST}:${SIBYL_SERVER_PORT}/api"
+    echo "MCP: http://${SIBYL_SERVER_HOST}:${SIBYL_SERVER_PORT}/mcp"
+    echo "Docs: http://${SIBYL_SERVER_HOST}:${SIBYL_SERVER_PORT}/api/docs"
+    echo "Debug stacks: kill -USR1 <api-child-pid>"
+    echo
   fi
 
   if ((${#services[@]} > 0)); then

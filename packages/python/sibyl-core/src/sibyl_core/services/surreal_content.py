@@ -516,15 +516,25 @@ def tokenize(text: str) -> set[str]:
     return {match.group(0).lower() for match in _TOKEN_PATTERN.finditer(text)}
 
 
-def lexical_score(query_text: str, *fields: str | None) -> float:
-    query_tokens = tokenize(query_text)
+def tokenize_fields(*fields: str | None) -> set[str]:
+    tokens: set[str] = set()
+    for value in fields:
+        if value:
+            tokens.update(match.group(0).lower() for match in _TOKEN_PATTERN.finditer(value))
+    return tokens
+
+
+def lexical_score_from_tokens(query_tokens: set[str], *field_token_sets: set[str]) -> float:
     if not query_tokens:
         return 0.0
-    haystack = " ".join(field for field in fields if field)
-    tokens = tokenize(haystack)
-    if not tokens:
-        return 0.0
-    return len(query_tokens & tokens) / len(query_tokens)
+    matched: set[str] = set()
+    for tokens in field_token_sets:
+        matched.update(query_tokens & tokens)
+    return len(matched) / len(query_tokens)
+
+
+def lexical_score(query_text: str, *fields: str | None) -> float:
+    return lexical_score_from_tokens(tokenize(query_text), tokenize_fields(*fields))
 
 
 __all__ = [
@@ -534,10 +544,13 @@ __all__ = [
     "build_surreal_content_client",
     "get_or_create_source",
     "lexical_score",
+    "lexical_score_from_tokens",
     "list_source_ids_for_org",
     "list_unlinked_document_chunks",
     "load_search_scope",
     "set_source_job_state",
     "source_exists",
     "surreal_content_client",
+    "tokenize",
+    "tokenize_fields",
 ]

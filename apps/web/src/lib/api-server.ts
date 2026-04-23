@@ -22,7 +22,7 @@ import type {
  * In development, we need the full URL since rewrites don't apply server-side.
  * In production, this should be the internal service URL.
  */
-const API_BASE = serverOnly('SIBYL_API_URL', 'http://localhost:3334/api');
+const API_BASE = serverOnly('SIBYL_API_URL', 'http://127.0.0.1:3334/api');
 const DEFAULT_SERVER_FETCH_TIMEOUT_MS = 5000;
 
 function resolveServerFetchTimeoutMs(): number {

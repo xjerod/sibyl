@@ -5,7 +5,7 @@ import type { NextConfig } from 'next';
 
 // Backend URL for development rewrites (when not using Kong/ingress)
 // In production with Kong, these rewrites are bypassed - Kong routes /api/* to backend
-const BACKEND_URL = process.env.SIBYL_BACKEND_URL || 'http://localhost:3334';
+const BACKEND_URL = process.env.SIBYL_BACKEND_URL || 'http://127.0.0.1:3334';
 
 // Read version from root VERSION file
 function getVersion(): string {

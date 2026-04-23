@@ -9,7 +9,12 @@ import structlog
 
 from sibyl_core.config import settings
 from sibyl_core.retrieval.dedup import cosine_similarity
-from sibyl_core.services.surreal_content import lexical_score, load_search_scope
+from sibyl_core.services.surreal_content import (
+    lexical_score_from_tokens,
+    load_search_scope,
+    tokenize,
+    tokenize_fields,
+)
 from sibyl_core.tools.responses import SearchResult
 
 log = structlog.get_logger()
@@ -163,6 +168,8 @@ async def search_documents(
             source_id=source_id,
             source_name=source_name,
         )
+        query_tokens = tokenize(query)
+        document_tokens_by_id: dict[str, set[str]] = {}
 
         if language:
             language_filter = language.lower()
@@ -209,13 +216,12 @@ async def search_documents(
             source = sources_by_id.get(document.source_id)
             if source is None:
                 continue
-            score = lexical_score(
-                query,
-                chunk.content,
-                chunk.context,
-                document.title,
-                document.content,
-            )
+            document_tokens = document_tokens_by_id.get(document.id)
+            if document_tokens is None:
+                document_tokens = tokenize_fields(document.title, document.content)
+                document_tokens_by_id[document.id] = document_tokens
+            chunk_tokens = tokenize_fields(chunk.content, chunk.context)
+            score = lexical_score_from_tokens(query_tokens, chunk_tokens, document_tokens)
             if score <= 0:
                 continue
             lexical_rows_raw.append((chunk, document, source.name, source.id, score))

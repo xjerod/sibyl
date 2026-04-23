@@ -26,6 +26,50 @@ collect_process_targets() {
   collect_descendants "$pid"
 }
 
+process_pgid() {
+  local pid="${1:-}"
+
+  if [[ -z "$pid" ]]; then
+    return 1
+  fi
+
+  ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]'
+}
+
+process_state() {
+  local pid="${1:-}"
+
+  if [[ -z "$pid" ]]; then
+    return 1
+  fi
+
+  ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]'
+}
+
+process_is_zombie() {
+  local pid="${1:-}"
+  local state=""
+
+  if [[ -z "$pid" ]]; then
+    return 1
+  fi
+
+  state="$(process_state "$pid")"
+  [[ "$state" == Z* ]]
+}
+
+process_is_group_leader() {
+  local pid="${1:-}"
+  local pgid=""
+
+  if [[ -z "$pid" ]]; then
+    return 1
+  fi
+
+  pgid="$(process_pgid "$pid")"
+  [[ -n "$pgid" && "$pgid" == "$pid" ]]
+}
+
 process_tree_alive() {
   local pid="${1:-}"
   local child=""
@@ -34,7 +78,11 @@ process_tree_alive() {
     return 1
   fi
 
-  if kill -0 -- "-$pid" 2>/dev/null; then
+  if process_is_zombie "$pid"; then
+    return 1
+  fi
+
+  if process_is_group_leader "$pid" && kill -0 -- "-$pid" 2>/dev/null; then
     return 0
   fi
 
@@ -65,12 +113,16 @@ signal_process_tree() {
     [[ -n "$child" ]] && descendants+=("$child")
   done < <(collect_descendants "$pid")
 
-  kill "-$signal" -- "-$pid" 2>/dev/null || true
+  if process_is_group_leader "$pid"; then
+    kill "-$signal" -- "-$pid" 2>/dev/null || true
+  fi
 
   if ((${#descendants[@]} > 0)); then
     local index=0
     for ((index=${#descendants[@]}-1; index>=0; index--)); do
-      kill "-$signal" -- "-${descendants[index]}" 2>/dev/null || true
+      if process_is_group_leader "${descendants[index]}"; then
+        kill "-$signal" -- "-${descendants[index]}" 2>/dev/null || true
+      fi
       kill "-$signal" "${descendants[index]}" 2>/dev/null || true
     done
   fi

@@ -69,3 +69,64 @@ class TestDocumentSearch:
         assert results[0].metadata["document_id"] == "doc-1"
         assert results[0].source == "Docs"
         assert results[0].content.startswith("[Intro]")
+
+    @pytest.mark.asyncio
+    async def test_search_documents_tokenizes_document_content_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(document_search_service.settings, "store", "surreal")
+
+        source = ContentSource(
+            id="src-1",
+            organization_id="org-1",
+            name="Docs",
+            url="https://docs.example.com",
+        )
+        document = ContentDocument(
+            id="doc-1",
+            source_id="src-1",
+            url="https://docs.example.com/guide",
+            title="Guide",
+            content="rareterm " * 2000,
+            has_code=False,
+        )
+        chunks = [
+            ContentChunk(
+                id=f"chunk-{index}",
+                document_id="doc-1",
+                content=f"chunk {index}",
+                context="details",
+                heading_path=["Guide"],
+            )
+            for index in range(6)
+        ]
+
+        document_content_calls = 0
+        original_tokenize_fields = document_search_service.tokenize_fields
+
+        def tracked_tokenize_fields(*fields: str | None) -> set[str]:
+            nonlocal document_content_calls
+            if document.content in fields:
+                document_content_calls += 1
+            return original_tokenize_fields(*fields)
+
+        monkeypatch.setattr(document_search_service, "tokenize_fields", tracked_tokenize_fields)
+
+        with (
+            patch(
+                "sibyl_core.services.document_search.load_search_scope",
+                AsyncMock(
+                    return_value=(
+                        [source],
+                        {source.id: source},
+                        {document.id: document},
+                        chunks,
+                    )
+                ),
+            ),
+            patch("sibyl.crawler.embedder.embed_text", AsyncMock(return_value=[1.0, 0.0])),
+        ):
+            results = await search_documents("rareterm", organization_id="org-1", limit=5)
+
+        assert len(results) == 1
+        assert document_content_calls == 1

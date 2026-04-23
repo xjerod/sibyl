@@ -470,15 +470,25 @@ def _tokenize(text: str) -> set[str]:
     return {match.group(0).lower() for match in _TOKEN_PATTERN.finditer(text)}
 
 
-def _lexical_score(query_text: str, *fields: str | None) -> float:
-    query_tokens = _tokenize(query_text)
+def _tokenize_fields(*fields: str | None) -> set[str]:
+    tokens: set[str] = set()
+    for field in fields:
+        if field:
+            tokens.update(match.group(0).lower() for match in _TOKEN_PATTERN.finditer(field))
+    return tokens
+
+
+def _lexical_score_from_tokens(query_tokens: set[str], *field_token_sets: set[str]) -> float:
     if not query_tokens:
         return 0.0
-    haystack = " ".join(field for field in fields if field)
-    tokens = _tokenize(haystack)
-    if not tokens:
-        return 0.0
-    return len(query_tokens & tokens) / len(query_tokens)
+    matched: set[str] = set()
+    for tokens in field_token_sets:
+        matched.update(query_tokens & tokens)
+    return len(matched) / len(query_tokens)
+
+
+def _lexical_score(query_text: str, *fields: str | None) -> float:
+    return _lexical_score_from_tokens(_tokenize(query_text), _tokenize_fields(*fields))
 
 
 def _rrf_score(rank: int, *, k: float = 60.0) -> float:
@@ -1437,6 +1447,8 @@ async def hybrid_search_chunks(
     lexical_rows: list[tuple[DocumentChunk, float]] = []
     similarity_by_chunk_id: dict[str, float] = {}
     lexical_by_chunk_id: dict[str, float] = {}
+    query_tokens = _tokenize(query_text)
+    document_tokens_by_id: dict[str, set[str]] = {}
 
     for chunk in chunks:
         document = documents_by_id.get(str(chunk.document_id))
@@ -1450,7 +1462,13 @@ async def hybrid_search_chunks(
                 similarity_by_chunk_id[str(chunk.id)] = similarity
                 vector_rows.append((chunk, similarity))
 
-        lexical = _lexical_score(query_text, chunk.content, chunk.context, document.title, document.content)
+        document_id = str(document.id)
+        document_tokens = document_tokens_by_id.get(document_id)
+        if document_tokens is None:
+            document_tokens = _tokenize_fields(document.title, document.content)
+            document_tokens_by_id[document_id] = document_tokens
+        chunk_tokens = _tokenize_fields(chunk.content, chunk.context)
+        lexical = _lexical_score_from_tokens(query_tokens, chunk_tokens, document_tokens)
         if lexical > 0:
             lexical_by_chunk_id[str(chunk.id)] = lexical
             lexical_rows.append((chunk, lexical))
