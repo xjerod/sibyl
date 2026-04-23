@@ -114,7 +114,7 @@ def _warn_if_database_dump_payload_skipped(*, archive: object, restore_database_
     archive_files = getattr(archive, "files", {})
     if POSTGRES_FILENAME not in archive_files:
         return
-    warn("Archive includes postgres.sql, but database dump restore is disabled")
+    warn("Archive includes the database dump sidecar (postgres.sql), but database dump restore is disabled")
     info("Pass --restore-database-dump when you want the database dump restored before graph import")
 
 
@@ -615,7 +615,7 @@ def import_archive(
         typer.Option(
             "--restore-database-dump",
             "--restore-postgres",
-            help="Restore postgres.sql before graph import",
+            help="Restore the database dump sidecar (postgres.sql) before graph import",
         ),
     ] = False,
     restore_graph: Annotated[
@@ -639,7 +639,7 @@ def import_archive(
     effective_org_id = _resolve_org_id(org_id, archive.manifest.organization_id) if restore_graph else ""
 
     if restore_database_dump and POSTGRES_FILENAME not in archive.files:
-        error("Archive does not contain postgres.sql")
+        error("Archive does not contain the database dump sidecar (postgres.sql)")
         raise typer.Exit(code=1)
 
     if restore_graph and GRAPH_FILENAME not in archive.files:
@@ -732,7 +732,7 @@ def rehearse_archive(
         typer.Option(
             "--restore-database-dump",
             "--restore-postgres",
-            help="Restore postgres.sql before graph import",
+            help="Restore the database dump sidecar (postgres.sql) before graph import",
         ),
     ] = False,
     restore_auth: Annotated[
@@ -780,7 +780,7 @@ def rehearse_archive(
     effective_org_id = _resolve_org_id(org_id, archive.manifest.organization_id)
 
     if restore_database_dump and POSTGRES_FILENAME not in archive.files:
-        error("Archive does not contain postgres.sql")
+        error("Archive does not contain the database dump sidecar (postgres.sql)")
         raise typer.Exit(code=1)
     if GRAPH_FILENAME not in archive.files:
         error("Archive does not contain graph.json")
@@ -879,7 +879,7 @@ def cutover_archive(
         typer.Option(
             "--restore-database-dump",
             "--restore-postgres",
-            help="Restore postgres.sql before graph import",
+            help="Restore the database dump sidecar (postgres.sql) before graph import",
         ),
     ] = False,
     restore_auth: Annotated[
@@ -954,7 +954,7 @@ def cutover_archive(
     effective_org_id = _resolve_org_id(org_id, archive.manifest.organization_id)
 
     if restore_database_dump and POSTGRES_FILENAME not in archive.files:
-        error("Archive does not contain postgres.sql")
+        error("Archive does not contain the database dump sidecar (postgres.sql)")
         raise typer.Exit(code=1)
     if GRAPH_FILENAME not in archive.files:
         error("Archive does not contain graph.json")

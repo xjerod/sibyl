@@ -443,7 +443,8 @@ def test_migrate_import_warns_when_postgres_payload_is_skipped(tmp_path: Path) -
         result = runner.invoke(migrate_cli.app, ["import", str(archive_path), "--yes"])
 
     assert result.exit_code == 0
-    assert "database dump restore is disabled" in result.output
+    assert "database dump sidecar" in result.output
+    assert "restore is disabled" in result.output
 
 
 def test_migrate_import_warns_when_auth_payload_is_skipped_in_postgres_mode(tmp_path: Path) -> None:
