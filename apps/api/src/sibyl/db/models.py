@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 
 from pgvector.sqlalchemy import Vector
 from pydantic import field_validator
-from sqlalchemy import ARRAY, Column, DateTime, Enum, Index, String, Text, text
+from sqlalchemy import ARRAY, Boolean, Column, DateTime, Enum, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -1230,8 +1230,9 @@ class BackupSettings(TimestampMixin, table=True):
     )
 
     # Backup options
-    include_postgres: bool = Field(
+    include_database_dump: bool = Field(
         default=True,
+        sa_column=Column("include_postgres", Boolean, nullable=False, server_default=text("true")),
         description="Include a relational database dump sidecar in backups when supported",
     )
     include_graph: bool = Field(default=True, description="Include knowledge graph in backups")
@@ -1243,12 +1244,12 @@ class BackupSettings(TimestampMixin, table=True):
     )
 
     @property
-    def include_database_dump(self) -> bool:
-        return self.include_postgres
+    def include_postgres(self) -> bool:
+        return self.include_database_dump
 
-    @include_database_dump.setter
-    def include_database_dump(self, value: bool) -> None:
-        self.include_postgres = value
+    @include_postgres.setter
+    def include_postgres(self, value: bool) -> None:
+        self.include_database_dump = value
 
     def __repr__(self) -> str:
         return f"<BackupSettings org={self.organization_id} enabled={self.enabled}>"
@@ -1301,8 +1302,9 @@ class Backup(TimestampMixin, table=True):
     size_bytes: int = Field(default=0, ge=0, description="Archive size in bytes")
 
     # Backup contents
-    include_postgres: bool = Field(
+    include_database_dump: bool = Field(
         default=True,
+        sa_column=Column("include_postgres", Boolean, nullable=False, server_default=text("true")),
         description="Includes a relational database dump sidecar when supported",
     )
     include_graph: bool = Field(default=True, description="Includes knowledge graph")
@@ -1324,12 +1326,12 @@ class Backup(TimestampMixin, table=True):
     )
 
     @property
-    def include_database_dump(self) -> bool:
-        return self.include_postgres
+    def include_postgres(self) -> bool:
+        return self.include_database_dump
 
-    @include_database_dump.setter
-    def include_database_dump(self, value: bool) -> None:
-        self.include_postgres = value
+    @include_postgres.setter
+    def include_postgres(self, value: bool) -> None:
+        self.include_database_dump = value
 
     def __repr__(self) -> str:
         return f"<Backup {self.backup_id} status={self.status}>"

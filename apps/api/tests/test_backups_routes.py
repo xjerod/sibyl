@@ -35,7 +35,7 @@ async def test_get_backup_settings_uses_runtime_metadata(monkeypatch: pytest.Mon
         enabled=True,
         schedule="0 2 * * *",
         retention_days=30,
-        include_postgres=True,
+        include_database_dump=True,
         include_graph=False,
         last_backup_at=None,
         last_backup_id=None,

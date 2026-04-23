@@ -80,15 +80,17 @@ def _effective_include_database_dump(
 
 
 def _record_include_database_dump(record: dict[str, object]) -> bool:
+    database_dump_value = record.get("include_database_dump")
+    legacy_database_dump_value = record.get("include_postgres")
     requested_database_dump = resolve_requested_database_dump(
         include_database_dump=(
-            _coerce_bool(record.get("include_database_dump"))
-            if "include_database_dump" in record
+            _coerce_bool(database_dump_value)
+            if database_dump_value is not None
             else None
         ),
         include_postgres=(
-            _coerce_bool(record.get("include_postgres"), default=_database_dump_supported())
-            if "include_postgres" in record
+            _coerce_bool(legacy_database_dump_value, default=_database_dump_supported())
+            if legacy_database_dump_value is not None
             else None
         ),
     )
@@ -107,7 +109,7 @@ def _backup_settings_from_record(record: dict[str, object]) -> BackupSettings:
         enabled=_coerce_bool(record.get("enabled"), default=True),
         schedule=_coerce_str(record.get("schedule"), default="0 2 * * *"),
         retention_days=_coerce_int(record.get("retention_days"), default=30),
-        include_postgres=include_database_dump,
+        include_database_dump=include_database_dump,
         include_graph=_coerce_bool(record.get("include_graph"), default=True),
         last_backup_at=_coerce_datetime(record.get("last_backup_at")),
         last_backup_id=_coerce_optional_str(record.get("last_backup_id")),
@@ -117,13 +119,15 @@ def _backup_settings_from_record(record: dict[str, object]) -> BackupSettings:
 
 
 def _backup_settings_record(settings: BackupSettings) -> dict[str, object]:
+    include_database_dump = _effective_include_database_dump(settings.include_database_dump)
     return {
         "uuid": str(settings.id),
         "organization_id": str(settings.organization_id),
         "enabled": settings.enabled,
         "schedule": settings.schedule,
         "retention_days": settings.retention_days,
-        "include_postgres": _effective_include_database_dump(settings.include_postgres),
+        "include_database_dump": include_database_dump,
+        "include_postgres": include_database_dump,
         "include_graph": settings.include_graph,
         "last_backup_at": settings.last_backup_at,
         "last_backup_id": settings.last_backup_id,
@@ -144,7 +148,7 @@ def _backup_from_record(record: dict[str, object]) -> Backup:
         filename=_coerce_optional_str(record.get("filename")),
         file_path=_coerce_optional_str(record.get("file_path")),
         size_bytes=_coerce_int(record.get("size_bytes")),
-        include_postgres=include_database_dump,
+        include_database_dump=include_database_dump,
         include_graph=_coerce_bool(record.get("include_graph"), default=True),
         entity_count=_coerce_int(record.get("entity_count")),
         relationship_count=_coerce_int(record.get("relationship_count")),
@@ -160,6 +164,7 @@ def _backup_from_record(record: dict[str, object]) -> Backup:
 
 
 def _backup_record(backup: Backup) -> dict[str, object]:
+    include_database_dump = _effective_include_database_dump(backup.include_database_dump)
     return {
         "uuid": str(backup.id),
         "organization_id": str(backup.organization_id),
@@ -169,7 +174,8 @@ def _backup_record(backup: Backup) -> dict[str, object]:
         "filename": backup.filename,
         "file_path": backup.file_path,
         "size_bytes": backup.size_bytes,
-        "include_postgres": _effective_include_database_dump(backup.include_postgres),
+        "include_database_dump": include_database_dump,
+        "include_postgres": include_database_dump,
         "include_graph": backup.include_graph,
         "entity_count": backup.entity_count,
         "relationship_count": backup.relationship_count,
@@ -254,7 +260,7 @@ async def get_backup_settings(org_id: UUID) -> BackupSettings:
     return await _save_backup_settings(
         BackupSettings(
             organization_id=org_id,
-            include_postgres=_database_dump_supported(),
+            include_database_dump=_database_dump_supported(),
         )
     )
 
@@ -276,7 +282,7 @@ async def update_backup_settings(
     if retention_days is not None:
         settings.retention_days = retention_days
     if include_database_dump is not None:
-        settings.include_postgres = _effective_include_database_dump(include_database_dump)
+        settings.include_database_dump = _effective_include_database_dump(include_database_dump)
     if include_graph is not None:
         settings.include_graph = include_graph
     return await _save_backup_settings(settings)
@@ -297,7 +303,7 @@ async def create_backup_record(
             organization_id=org_id,
             backup_id=backup_id,
             status=BackupStatus.PENDING.value,
-            include_postgres=_effective_include_database_dump(include_database_dump),
+            include_database_dump=_effective_include_database_dump(include_database_dump),
             include_graph=include_graph,
             triggered_by=triggered_by,
             created_by_user_id=created_by_user_id,

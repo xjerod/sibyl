@@ -575,6 +575,18 @@ async def test_surreal_backup_helpers_round_trip(
         listed = await list_backups(org_id, limit=10, offset=0)
         fetched = await get_backup(org_id, "backup_fixed")
         retention = await get_backup_retention(org_id, None)
+        setting_rows = _normalize_records(
+            await surreal_content_client.execute_query(
+                "SELECT * FROM backup_settings WHERE organization_id = $organization_id LIMIT 1;",
+                organization_id=str(org_id),
+            )
+        )
+        backup_rows = _normalize_records(
+            await surreal_content_client.execute_query(
+                "SELECT * FROM backups WHERE backup_id = $backup_id LIMIT 1;",
+                backup_id="backup_fixed",
+            )
+        )
         deleted = await delete_backup_record(org_id, "backup_fixed")
 
     assert isinstance(settings, BackupSettings)
@@ -593,4 +605,8 @@ async def test_surreal_backup_helpers_round_trip(
     assert listed.backups[0].backup_id == "backup_fixed"
     assert fetched.backup_id == "backup_fixed"
     assert retention == 14
+    assert setting_rows[0]["include_database_dump"] is False
+    assert setting_rows[0]["include_postgres"] is False
+    assert backup_rows[0]["include_database_dump"] is False
+    assert backup_rows[0]["include_postgres"] is False
     assert deleted.backup_id == "backup_fixed"

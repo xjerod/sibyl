@@ -82,7 +82,7 @@ async def update_backup_settings(
         if retention_days is not None:
             settings.retention_days = retention_days
         if include_database_dump is not None:
-            settings.include_postgres = include_database_dump
+            settings.include_database_dump = include_database_dump
         if include_graph is not None:
             settings.include_graph = include_graph
 
@@ -107,7 +107,7 @@ async def create_backup_record(
             organization_id=org_id,
             backup_id=backup_id,
             status=BackupStatus.PENDING.value,
-            include_postgres=include_database_dump,
+            include_database_dump=include_database_dump,
             include_graph=include_graph,
             triggered_by=triggered_by,
             created_by_user_id=created_by_user_id,
