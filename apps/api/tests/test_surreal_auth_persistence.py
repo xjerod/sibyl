@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
+from sibyl.persistence import auth_archive
 from sibyl.persistence.auth_archive import restore_auth_archive_payload
 from sibyl.persistence.surreal.auth import (
     SurrealAuthContextResolver,
@@ -163,6 +164,31 @@ async def test_surreal_org_and_membership_repositories_enforce_owner_invariants(
             organization_id=organization.id,
             user_id=owner.id,
         )
+
+
+@pytest.mark.asyncio
+async def test_auth_archive_export_reads_from_surreal_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    surreal_auth_client: SurrealAuthClient,
+) -> None:
+    repo = SurrealUserRepository.from_client(surreal_auth_client)
+    await repo.create_local_user(
+        email="export@example.com",
+        password="super-secret-password",
+        name="Export Nova",
+    )
+    close = AsyncMock()
+
+    monkeypatch.setattr(auth_archive.config_module.settings, "auth_store", "surreal")
+    monkeypatch.setattr(auth_archive, "build_surreal_auth_client", lambda: surreal_auth_client)
+    monkeypatch.setattr(surreal_auth_client, "close", close)
+
+    payload = await auth_archive.export_auth_archive_payload()
+
+    assert payload["row_counts"]["users"] == 1
+    assert payload["total_rows"] == 1
+    assert payload["tables"]["users"][0]["email"] == "export@example.com"
+    close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

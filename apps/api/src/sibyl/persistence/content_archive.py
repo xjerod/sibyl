@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from sibyl import config as config_module
 from sibyl.db.connection import get_session
+from sibyl.persistence.surreal.content import _normalize_records
 from sibyl_core.backends.surreal import SurrealContentClient, bootstrap_content_schema
 
 CONTENT_ARCHIVE_VERSION = "1.0"
@@ -88,6 +89,10 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
 
 CONTENT_ARCHIVE_TABLES = tuple(spec.name for spec in _CONTENT_ARCHIVE_TABLE_SPECS)
 _CONTENT_ARCHIVE_TABLES_BY_NAME = {spec.name: spec for spec in _CONTENT_ARCHIVE_TABLE_SPECS}
+_SELECT_SURREAL_TABLE_ROWS = {
+    spec.name: f"SELECT * FROM {spec.name};"  # noqa: S608 - table names are fixed constants
+    for spec in _CONTENT_ARCHIVE_TABLE_SPECS
+}
 
 
 @dataclass(frozen=True)
@@ -185,9 +190,20 @@ def _query_error(result: object) -> str | None:
     return None
 
 
-async def export_content_archive_payload() -> dict[str, object]:
-    """Export content/operations tables from PostgreSQL into a JSON-safe payload."""
+def _sort_content_rows(
+    spec: ContentArchiveTableSpec,
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    def _key(row: dict[str, object]) -> str:
+        value = row.get(spec.target_identity_field) or row.get(spec.source_identity_field)
+        if value is not None:
+            return str(value)
+        return json.dumps(row, sort_keys=True, default=str)
 
+    return sorted(rows, key=_key)
+
+
+async def _export_postgres_content_archive_payload() -> dict[str, object]:
     tables: dict[str, list[dict[str, object]]] = {}
     row_counts: dict[str, int] = {}
 
@@ -208,6 +224,46 @@ async def export_content_archive_payload() -> dict[str, object]:
         "row_counts": row_counts,
         "total_rows": sum(row_counts.values()),
     }
+
+
+async def _export_surreal_content_archive_payload() -> dict[str, object]:
+    tables: dict[str, list[dict[str, object]]] = {}
+    row_counts: dict[str, int] = {}
+    client = build_surreal_content_client()
+
+    try:
+        for spec in _CONTENT_ARCHIVE_TABLE_SPECS:
+            result = await client.execute_query(_SELECT_SURREAL_TABLE_ROWS[spec.name])
+            error = _query_error(result)
+            if error is not None:
+                raise RuntimeError(error)
+            rows = _sort_content_rows(
+                spec,
+                [
+                    {str(key): _serialize_value(value) for key, value in row.items()}
+                    for row in _normalize_records(result)
+                ],
+            )
+            tables[spec.name] = rows
+            row_counts[spec.name] = len(rows)
+    finally:
+        await client.close()
+
+    return {
+        "version": CONTENT_ARCHIVE_VERSION,
+        "created_at": datetime.now(UTC).isoformat(),
+        "tables": tables,
+        "row_counts": row_counts,
+        "total_rows": sum(row_counts.values()),
+    }
+
+
+async def export_content_archive_payload() -> dict[str, object]:
+    """Export content/operations tables from the active content backend."""
+
+    if config_module.settings.store == "surreal":
+        return await _export_surreal_content_archive_payload()
+    return await _export_postgres_content_archive_payload()
 
 
 async def restore_content_archive_payload(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -9,8 +10,9 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from sibyl import config as config_module
 from sibyl.db.connection import get_session
-from sibyl.persistence.surreal.auth import build_surreal_auth_client
+from sibyl.persistence.surreal.auth import _normalize_records, build_surreal_auth_client
 from sibyl_core.backends.surreal import bootstrap_auth_schema
 
 AUTH_ARCHIVE_VERSION = "1.0"
@@ -131,6 +133,10 @@ _DELETE_BY_UUID = {
 _CREATE_RECORD = {
     table: queries["create"] for table, queries in _AUTH_ARCHIVE_SQL.items()
 }
+_SELECT_SURREAL_TABLE_ROWS = {
+    table: f"SELECT * FROM {table};"  # noqa: S608 - table names are fixed constants
+    for table in _AUTH_ARCHIVE_SQL
+}
 
 
 @dataclass(frozen=True)
@@ -195,9 +201,17 @@ def _query_error(result: object) -> str | None:
     return None
 
 
-async def export_auth_archive_payload() -> dict[str, object]:
-    """Export auth/RBAC tables from PostgreSQL into a JSON-safe payload."""
+def _sort_auth_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    def _key(row: dict[str, object]) -> str:
+        value = row.get("uuid") or row.get("user_code") or row.get("key") or row.get("backup_id")
+        if value is not None:
+            return str(value)
+        return json.dumps(row, sort_keys=True, default=str)
 
+    return sorted(rows, key=_key)
+
+
+async def _export_postgres_auth_archive_payload() -> dict[str, object]:
     tables: dict[str, list[dict[str, object]]] = {}
     row_counts: dict[str, int] = {}
 
@@ -218,6 +232,42 @@ async def export_auth_archive_payload() -> dict[str, object]:
         "row_counts": row_counts,
         "total_rows": sum(row_counts.values()),
     }
+
+
+async def _export_surreal_auth_archive_payload() -> dict[str, object]:
+    tables: dict[str, list[dict[str, object]]] = {}
+    row_counts: dict[str, int] = {}
+    client = build_surreal_auth_client()
+
+    try:
+        for table in AUTH_ARCHIVE_TABLES:
+            result = await client.execute_query(_SELECT_SURREAL_TABLE_ROWS[table])
+            error = _query_error(result)
+            if error is not None:
+                raise RuntimeError(error)
+            rows = _sort_auth_rows(
+                [{str(key): _serialize_value(value) for key, value in row.items()} for row in _normalize_records(result)]
+            )
+            tables[table] = rows
+            row_counts[table] = len(rows)
+    finally:
+        await client.close()
+
+    return {
+        "version": AUTH_ARCHIVE_VERSION,
+        "created_at": datetime.now(UTC).isoformat(),
+        "tables": tables,
+        "row_counts": row_counts,
+        "total_rows": sum(row_counts.values()),
+    }
+
+
+async def export_auth_archive_payload() -> dict[str, object]:
+    """Export auth/RBAC tables from the active auth backend into a JSON-safe payload."""
+
+    if config_module.settings.auth_store == "surreal":
+        return await _export_surreal_auth_archive_payload()
+    return await _export_postgres_auth_archive_payload()
 
 
 async def restore_auth_archive_payload(

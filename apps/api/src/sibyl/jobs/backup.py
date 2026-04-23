@@ -24,6 +24,7 @@ import structlog
 from sibyl.api.event_types import WSEvent
 from sibyl.backup_ids import generate_backup_id
 from sibyl.config import settings
+from sibyl.persistence.auth_archive import export_auth_archive_payload
 from sibyl.persistence.backups_runtime import (
     attach_backup_job,
     create_backup_record,
@@ -31,6 +32,7 @@ from sibyl.persistence.backups_runtime import (
     list_enabled_backup_settings,
     update_backup_record,
 )
+from sibyl.persistence.content_archive import export_content_archive_payload
 
 log = structlog.get_logger()
 
@@ -70,6 +72,14 @@ class BackupResult:
 
 def _effective_include_postgres(requested: bool) -> bool:
     return requested and not (settings.store == "surreal" and settings.auth_store == "surreal")
+
+
+def _include_surreal_auth_snapshot() -> bool:
+    return settings.auth_store == "surreal"
+
+
+def _include_surreal_content_snapshot() -> bool:
+    return settings.store == "surreal"
 
 
 def _get_pg_env() -> dict[str, str]:
@@ -189,7 +199,9 @@ async def run_backup(  # noqa: PLR0915
     """Create a complete backup archive.
 
     This job creates a timestamped .tar.gz archive containing:
-    - postgres.sql: Full PostgreSQL dump
+    - postgres.sql: Full PostgreSQL dump when PostgreSQL remains active
+    - auth.json: Surreal auth snapshot when auth runs on Surreal
+    - content.json: Surreal content snapshot when content runs on Surreal
     - graph.json: FalkorDB graph export
     - metadata.json: Archive metadata with checksums
 
@@ -210,6 +222,8 @@ async def run_backup(  # noqa: PLR0915
     started_at = datetime.now(UTC)
     backup_id = backup_id or generate_backup_id(organization_id)
     include_postgres = _effective_include_postgres(include_postgres)
+    include_auth_snapshot = _include_surreal_auth_snapshot()
+    include_content_snapshot = _include_surreal_content_snapshot()
 
     # Update DB to mark as in progress
     await _update_backup_db(backup_id, status="in_progress", started_at=started_at)
@@ -219,6 +233,8 @@ async def run_backup(  # noqa: PLR0915
         backup_id=backup_id,
         organization_id=organization_id,
         include_postgres=include_postgres,
+        include_auth_snapshot=include_auth_snapshot,
+        include_content_snapshot=include_content_snapshot,
         include_graph=include_graph,
     )
 
@@ -237,16 +253,48 @@ async def run_backup(  # noqa: PLR0915
         with tempfile.TemporaryDirectory(prefix="sibyl_backup_") as tmpdir:
             tmp_path = Path(tmpdir)
             pg_file = tmp_path / "postgres.sql"
+            auth_file = tmp_path / "auth.json"
+            content_file = tmp_path / "content.json"
             graph_file = tmp_path / "graph.json"
             metadata_file = tmp_path / "metadata.json"
 
             pg_size = 0
+            auth_size = 0
+            content_size = 0
             graph_size = 0
             entity_count = 0
             relationship_count = 0
             file_checksums: dict[str, str] = {}
 
-            # Step 1: PostgreSQL backup
+            # Step 1: Surreal auth backup
+            if include_auth_snapshot:
+                log.info("backup_auth_snapshot_start", backup_id=backup_id)
+                auth_payload = await export_auth_archive_payload()
+                auth_file.write_text(
+                    json.dumps(auth_payload, indent=2, default=str),
+                    encoding="utf-8",
+                )
+                auth_size = auth_file.stat().st_size
+                file_checksums["auth.json"] = _sha256_file(auth_file)
+                log.info("backup_auth_snapshot_complete", backup_id=backup_id, size_bytes=auth_size)
+
+            # Step 2: Surreal content backup
+            if include_content_snapshot:
+                log.info("backup_content_snapshot_start", backup_id=backup_id)
+                content_payload = await export_content_archive_payload()
+                content_file.write_text(
+                    json.dumps(content_payload, indent=2, default=str),
+                    encoding="utf-8",
+                )
+                content_size = content_file.stat().st_size
+                file_checksums["content.json"] = _sha256_file(content_file)
+                log.info(
+                    "backup_content_snapshot_complete",
+                    backup_id=backup_id,
+                    size_bytes=content_size,
+                )
+
+            # Step 3: PostgreSQL backup
             if include_postgres:
                 log.info("backup_pg_start", backup_id=backup_id)
                 try:
@@ -283,7 +331,7 @@ async def run_backup(  # noqa: PLR0915
                     log.warning("backup_pg_timeout", error=str(e))
                     raise RuntimeError("pg_dump timed out after 10 minutes") from e
 
-            # Step 2: Graph backup
+            # Step 4: Graph backup
             if include_graph:
                 log.info("backup_graph_start", backup_id=backup_id, organization_id=organization_id)
                 try:
@@ -320,7 +368,7 @@ async def run_backup(  # noqa: PLR0915
                     log.exception("backup_graph_failed", backup_id=backup_id, error=str(e))
                     raise
 
-            # Step 3: Create metadata
+            # Step 5: Create metadata
             metadata = BackupMetadata(
                 version=BACKUP_VERSION,
                 created_at=datetime.now(UTC).isoformat(),
@@ -336,7 +384,7 @@ async def run_backup(  # noqa: PLR0915
                 encoding="utf-8",
             )
 
-            # Step 4: Create tar.gz archive
+            # Step 6: Create tar.gz archive
             archive_name = f"sibyl_{backup_id}.tar.gz"
             archive_path = backup_dir / archive_name
 
@@ -344,6 +392,10 @@ async def run_backup(  # noqa: PLR0915
 
             with tarfile.open(archive_path, "w:gz", compresslevel=6) as tar:
                 tar.add(metadata_file, arcname="metadata.json")
+                if include_auth_snapshot and auth_file.exists():
+                    tar.add(auth_file, arcname="auth.json")
+                if include_content_snapshot and content_file.exists():
+                    tar.add(content_file, arcname="content.json")
                 if include_postgres and pg_file.exists():
                     tar.add(pg_file, arcname="postgres.sql")
                 if include_graph and graph_file.exists():

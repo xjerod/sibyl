@@ -16,6 +16,7 @@ from sibyl.db.models import (
     SourceType,
     SystemSetting,
 )
+from sibyl.persistence import content_archive
 from sibyl.persistence.content_archive import restore_content_archive_payload
 from sibyl.persistence.surreal.backups import (
     attach_backup_job,
@@ -495,6 +496,38 @@ async def test_surreal_system_setting_helpers_round_trip(
     assert [setting.key for setting in listed] == ["openai_api_key"]
     assert deleted is True
     assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_content_archive_export_reads_from_surreal_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    surreal_content_client: SurrealContentClient,
+) -> None:
+    await surreal_content_client.execute_query(
+        "CREATE system_settings CONTENT $record;",
+        record={
+            "key": "exported_setting",
+            "value": "present",
+            "is_secret": False,
+            "description": "export me",
+        },
+    )
+    close = AsyncMock()
+
+    monkeypatch.setattr(content_archive.config_module.settings, "store", "surreal")
+    monkeypatch.setattr(
+        content_archive,
+        "build_surreal_content_client",
+        lambda: surreal_content_client,
+    )
+    monkeypatch.setattr(surreal_content_client, "close", close)
+
+    payload = await content_archive.export_content_archive_payload()
+
+    assert payload["row_counts"]["system_settings"] == 1
+    assert payload["total_rows"] == 1
+    assert payload["tables"]["system_settings"][0]["key"] == "exported_setting"
+    close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
