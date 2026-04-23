@@ -26,7 +26,7 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     monkeypatch.setattr(api_app_module.settings, "auth_store", "surreal")
     monkeypatch.setattr(
         api_app_module,
-        "bootstrap_legacy_postgres_support",
+        "_bootstrap_legacy_postgres_support",
         bootstrap_legacy_postgres_support,
     )
     monkeypatch.setattr("sibyl.api.pubsub.init_pubsub", init_pubsub)

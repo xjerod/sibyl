@@ -44,7 +44,7 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     monkeypatch.setattr("sibyl.server.create_mcp_server", lambda **_: _FakeMCPServer())
     monkeypatch.setattr(
         main_module,
-        "bootstrap_legacy_postgres_support",
+        "_bootstrap_legacy_postgres_support",
         bootstrap_legacy_postgres_support,
     )
     monkeypatch.setattr("sibyl.api.pubsub.init_pubsub", init_pubsub)

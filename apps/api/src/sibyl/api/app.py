@@ -45,7 +45,6 @@ from sibyl.api.routes import (
 from sibyl.api.websocket import websocket_handler
 from sibyl.auth.middleware import AuthMiddleware
 from sibyl.config import settings
-from sibyl.legacy_postgres_startup import bootstrap_legacy_postgres_support
 
 log = structlog.get_logger()
 
@@ -109,6 +108,12 @@ async def _run_migrations() -> None:
     await loop.run_in_executor(None, _run_migrations_sync)
 
 
+async def _bootstrap_legacy_postgres_support() -> bool:
+    from sibyl.legacy_postgres_startup import bootstrap_legacy_postgres_support
+
+    return await bootstrap_legacy_postgres_support()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
     """Run migrations, pre-warm graph client, and start coordination backends."""
@@ -119,7 +124,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
         log.info("Surreal store mode enabled; bootstrapping remaining PostgreSQL-backed services")
 
     if not fully_surreal:
-        await bootstrap_legacy_postgres_support()
+        await _bootstrap_legacy_postgres_support()
 
     log.info("Pre-warming graph client connection...")
     try:

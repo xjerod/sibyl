@@ -17,7 +17,6 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from sibyl.config import settings
-from sibyl.legacy_postgres_startup import bootstrap_legacy_postgres_support
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -40,6 +39,12 @@ def _enable_dev_signal_diagnostics() -> None:
 
     with contextlib.suppress(OSError, RuntimeError, ValueError):
         faulthandler.register(sigusr1, all_threads=True)
+
+
+async def _bootstrap_legacy_postgres_support() -> bool:
+    from sibyl.legacy_postgres_startup import bootstrap_legacy_postgres_support
+
+    return await bootstrap_legacy_postgres_support()
 
 
 def create_combined_app(  # noqa: PLR0915
@@ -118,7 +123,7 @@ def create_combined_app(  # noqa: PLR0915
             )
 
         if not fully_surreal:
-            await bootstrap_legacy_postgres_support()
+            await _bootstrap_legacy_postgres_support()
 
         try:
             from sibyl_core.graph.client import get_graph_client
