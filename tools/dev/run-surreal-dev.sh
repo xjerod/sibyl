@@ -166,11 +166,20 @@ cleanup() {
 
 main() {
   export SIBYL_STORE="${SIBYL_STORE:-surreal}"
+  if [[ -z "${SIBYL_AUTH_STORE:-}" ]]; then
+    if [[ "$SIBYL_STORE" == "surreal" ]]; then
+      export SIBYL_AUTH_STORE="surreal"
+    else
+      export SIBYL_AUTH_STORE="postgres"
+    fi
+  fi
   export SIBYL_COORDINATION_BACKEND="${SIBYL_COORDINATION_BACKEND:-auto}"
 
   local surreal_url="${SIBYL_SURREAL_URL:-}"
   local coordination_backend=""
   local surreal_volume_dir=""
+  local uses_surreal=false
+  local uses_postgres=false
   local services=()
   local api_command="${SIBYL_DEV_API_COMMAND:-uv run --directory apps/api sibyld serve --reload}"
   local web_command="${SIBYL_DEV_WEB_COMMAND:-moon run web:dev}"
@@ -179,14 +188,23 @@ main() {
 
   coordination_backend="$(resolve_coordination_backend)"
 
+  if [[ "$SIBYL_STORE" == "surreal" || "$SIBYL_AUTH_STORE" == "surreal" ]]; then
+    uses_surreal=true
+  fi
+  if [[ "$SIBYL_STORE" == "legacy" || "$SIBYL_AUTH_STORE" == "postgres" ]]; then
+    uses_postgres=true
+  fi
+
   trap 'cleanup 130' INT TERM
   trap 'cleanup $?' EXIT
 
   rm -f "$pid_file"
 
   if [[ "$SIBYL_STORE" == "legacy" ]]; then
-    services+=(falkordb postgres)
-  elif is_local_service "$surreal_url"; then
+    services+=(falkordb)
+  fi
+
+  if [[ "$uses_surreal" == true ]] && is_local_service "$surreal_url"; then
     if [[ -n "${SIBYL_SURREAL_DATA_DIR:-}" ]]; then
       echo "⚠️  Ignoring SIBYL_SURREAL_DATA_DIR for server mode; use SURREAL_DATA_DIR instead"
       unset SIBYL_SURREAL_DATA_DIR
@@ -202,6 +220,10 @@ main() {
   else
     unset SIBYL_SURREAL_DATA_DIR
     unset SURREAL_DATA_DIR
+  fi
+
+  if [[ "$uses_postgres" == true ]]; then
+    services+=(postgres)
   fi
 
   if [[ "$coordination_backend" == "redis" ]]; then
@@ -231,6 +253,7 @@ main() {
 
   if [[ "${1:-}" == "--print-env" ]]; then
     printf 'SIBYL_STORE=%s\n' "$SIBYL_STORE"
+    printf 'SIBYL_AUTH_STORE=%s\n' "$SIBYL_AUTH_STORE"
     printf 'SIBYL_COORDINATION_BACKEND=%s\n' "$coordination_backend"
     if [[ -n "${SIBYL_SURREAL_URL:-}" ]]; then
       printf 'SIBYL_SURREAL_URL=%s\n' "$SIBYL_SURREAL_URL"
@@ -246,6 +269,7 @@ main() {
   fi
 
   echo "🔮 Store: $SIBYL_STORE"
+  echo "🔮 Auth store: $SIBYL_AUTH_STORE"
   if [[ -n "${SIBYL_SURREAL_URL:-}" ]]; then
     echo "🔮 Surreal URL: $SIBYL_SURREAL_URL"
   fi
