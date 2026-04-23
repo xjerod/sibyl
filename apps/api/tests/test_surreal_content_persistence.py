@@ -549,14 +549,14 @@ async def test_surreal_backup_helpers_round_trip(
             enabled=True,
             schedule="0 3 * * *",
             retention_days=14,
-            include_postgres=False,
+            include_database_dump=False,
             include_graph=True,
         )
         enabled = await list_enabled_backup_settings()
         created = await create_backup_record(
             org_id=org_id,
             backup_id="backup_fixed",
-            include_postgres=False,
+            include_database_dump=False,
             include_graph=True,
             created_by_user_id=None,
             triggered_by="manual",
@@ -580,9 +580,11 @@ async def test_surreal_backup_helpers_round_trip(
     assert isinstance(settings, BackupSettings)
     assert updated_settings.schedule == "0 3 * * *"
     assert updated_settings.retention_days == 14
+    assert updated_settings.include_database_dump is False
     assert updated_settings.include_postgres is False
     assert [item.organization_id for item in enabled] == [org_id]
     assert isinstance(created, Backup)
+    assert created.include_database_dump is False
     assert attached.job_id == "job-123"
     assert completed is not None
     assert completed.status == "completed"

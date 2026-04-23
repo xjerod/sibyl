@@ -132,7 +132,7 @@ async def test_create_backup_disables_postgres_in_fully_surreal_mode(
     backup_routes.create_backup_record.assert_awaited_once_with(
         org_id=org.id,
         backup_id="backup_fixed",
-        include_postgres=False,
+        include_database_dump=False,
         include_graph=False,
         created_by_user_id=user.id,
     )
@@ -140,7 +140,7 @@ async def test_create_backup_disables_postgres_in_fully_surreal_mode(
 
     jobs_queue.enqueue_backup.assert_awaited_once_with(
         str(org.id),
-        include_postgres=False,
+        include_database_dump=False,
         include_graph=False,
         backup_id="backup_fixed",
     )

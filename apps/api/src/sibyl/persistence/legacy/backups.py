@@ -12,7 +12,11 @@ from sqlmodel import col
 
 from sibyl.db.connection import get_session
 from sibyl.db.models import Backup, BackupSettings, BackupStatus
-from sibyl.persistence.backups_common import BackupListResult, LegacyBackupList
+from sibyl.persistence.backups_common import (
+    BackupListResult,
+    LegacyBackupList,
+    resolve_requested_database_dump,
+)
 
 
 def _utcnow() -> datetime:
@@ -64,6 +68,7 @@ async def update_backup_settings(
     enabled: bool | None = None,
     schedule: str | None = None,
     retention_days: int | None = None,
+    include_database_dump: bool | None = None,
     include_postgres: bool | None = None,
     include_graph: bool | None = None,
 ) -> BackupSettings:
@@ -77,8 +82,12 @@ async def update_backup_settings(
             settings.schedule = schedule
         if retention_days is not None:
             settings.retention_days = retention_days
-        if include_postgres is not None:
-            settings.include_postgres = include_postgres
+        requested_database_dump = resolve_requested_database_dump(
+            include_database_dump=include_database_dump,
+            include_postgres=include_postgres,
+        )
+        if requested_database_dump is not None:
+            settings.include_postgres = requested_database_dump
         if include_graph is not None:
             settings.include_graph = include_graph
 
@@ -92,18 +101,23 @@ async def create_backup_record(
     *,
     org_id: UUID,
     backup_id: str,
-    include_postgres: bool,
+    include_database_dump: bool | None = None,
+    include_postgres: bool | None = None,
     include_graph: bool,
     created_by_user_id: UUID | None,
     triggered_by: str = "manual",
 ) -> Backup:
     """Create a pending backup record for an organization."""
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=include_database_dump,
+        include_postgres=include_postgres,
+    )
     async with get_session() as session:
         backup = Backup(
             organization_id=org_id,
             backup_id=backup_id,
             status=BackupStatus.PENDING.value,
-            include_postgres=include_postgres,
+            include_postgres=True if requested_database_dump is None else requested_database_dump,
             include_graph=include_graph,
             triggered_by=triggered_by,
             created_by_user_id=created_by_user_id,
@@ -262,6 +276,7 @@ async def update_legacy_backup_settings(
     enabled: bool | None = None,
     schedule: str | None = None,
     retention_days: int | None = None,
+    include_database_dump: bool | None = None,
     include_postgres: bool | None = None,
     include_graph: bool | None = None,
 ) -> BackupSettings:
@@ -270,6 +285,7 @@ async def update_legacy_backup_settings(
         enabled=enabled,
         schedule=schedule,
         retention_days=retention_days,
+        include_database_dump=include_database_dump,
         include_postgres=include_postgres,
         include_graph=include_graph,
     )
@@ -279,13 +295,15 @@ async def create_legacy_backup_record(
     *,
     org_id: UUID,
     backup_id: str,
-    include_postgres: bool,
+    include_database_dump: bool | None = None,
+    include_postgres: bool | None = None,
     include_graph: bool,
     created_by_user_id: UUID | None,
 ) -> Backup:
     return await create_backup_record(
         org_id=org_id,
         backup_id=backup_id,
+        include_database_dump=include_database_dump,
         include_postgres=include_postgres,
         include_graph=include_graph,
         created_by_user_id=created_by_user_id,

@@ -1230,7 +1230,10 @@ class BackupSettings(TimestampMixin, table=True):
     )
 
     # Backup options
-    include_postgres: bool = Field(default=True, description="Include PostgreSQL in backups")
+    include_postgres: bool = Field(
+        default=True,
+        description="Include a relational database dump sidecar in backups when supported",
+    )
     include_graph: bool = Field(default=True, description="Include knowledge graph in backups")
 
     # Last backup info (denormalized for quick access)
@@ -1238,6 +1241,14 @@ class BackupSettings(TimestampMixin, table=True):
     last_backup_id: str | None = Field(
         default=None, max_length=64, description="ID of last completed backup"
     )
+
+    @property
+    def include_database_dump(self) -> bool:
+        return self.include_postgres
+
+    @include_database_dump.setter
+    def include_database_dump(self, value: bool) -> None:
+        self.include_postgres = value
 
     def __repr__(self) -> str:
         return f"<BackupSettings org={self.organization_id} enabled={self.enabled}>"
@@ -1290,7 +1301,10 @@ class Backup(TimestampMixin, table=True):
     size_bytes: int = Field(default=0, ge=0, description="Archive size in bytes")
 
     # Backup contents
-    include_postgres: bool = Field(default=True, description="Includes PostgreSQL dump")
+    include_postgres: bool = Field(
+        default=True,
+        description="Includes a relational database dump sidecar when supported",
+    )
     include_graph: bool = Field(default=True, description="Includes knowledge graph")
     entity_count: int = Field(default=0, ge=0, description="Number of graph entities")
     relationship_count: int = Field(default=0, ge=0, description="Number of graph relationships")
@@ -1308,6 +1322,14 @@ class Backup(TimestampMixin, table=True):
     created_by_user_id: UUID | None = Field(
         default=None, foreign_key="users.id", description="User who triggered manual backup"
     )
+
+    @property
+    def include_database_dump(self) -> bool:
+        return self.include_postgres
+
+    @include_database_dump.setter
+    def include_database_dump(self, value: bool) -> None:
+        self.include_postgres = value
 
     def __repr__(self) -> str:
         return f"<Backup {self.backup_id} status={self.status}>"

@@ -26,7 +26,10 @@ from sibyl.api.event_types import WSEvent
 from sibyl.backup_ids import generate_backup_id
 from sibyl.config import settings
 from sibyl.persistence.auth_archive import export_auth_archive_payload
-from sibyl.persistence.backups_common import resolve_backup_runtime_options
+from sibyl.persistence.backups_common import (
+    resolve_backup_runtime_options,
+    resolve_requested_database_dump,
+)
 from sibyl.persistence.backups_runtime import (
     attach_backup_job,
     create_backup_record,
@@ -72,12 +75,20 @@ class BackupResult:
     error: str | None = None
 
 
-def _effective_include_postgres(requested: bool) -> bool:
+def _effective_include_database_dump(
+    requested: bool | None = None,
+    *,
+    include_postgres: bool | None = None,
+) -> bool:
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=requested,
+        include_postgres=include_postgres,
+    )
     return resolve_backup_runtime_options(
         store=settings.store,
         auth_store=settings.auth_store,
-        include_postgres=requested,
-    ).include_postgres
+        include_database_dump=requested_database_dump,
+    ).include_database_dump
 
 
 def _include_surreal_auth_snapshot() -> bool:
@@ -204,14 +215,15 @@ async def run_backup(  # noqa: PLR0915
     ctx: dict[str, Any],  # noqa: ARG001
     organization_id: str,
     *,
-    include_postgres: bool = True,
+    include_database_dump: bool | None = None,
+    include_postgres: bool | None = None,
     include_graph: bool = True,
     backup_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a complete backup archive.
 
     This job creates a timestamped .tar.gz archive containing:
-    - postgres.sql: Full PostgreSQL dump when PostgreSQL remains active
+    - postgres.sql: Database dump sidecar when the relational runtime remains active
     - auth.json: Surreal auth snapshot when auth runs on Surreal
     - content.json: Surreal content snapshot when content runs on Surreal
     - graph.json: FalkorDB graph export
@@ -220,7 +232,8 @@ async def run_backup(  # noqa: PLR0915
     Args:
         ctx: arq context
         organization_id: Organization UUID to backup
-        include_postgres: Include legacy PostgreSQL dump when supported
+        include_database_dump: Include a database dump sidecar when supported
+        include_postgres: Legacy alias for include_database_dump
         include_graph: Include graph export (default: True)
         backup_id: Pre-generated backup ID (optional, for API-triggered backups)
 
@@ -233,7 +246,10 @@ async def run_backup(  # noqa: PLR0915
     start_time = time.time()
     started_at = datetime.now(UTC)
     backup_id = backup_id or generate_backup_id(organization_id)
-    include_postgres = _effective_include_postgres(include_postgres)
+    include_database_dump = _effective_include_database_dump(
+        include_database_dump,
+        include_postgres=include_postgres,
+    )
     include_auth_snapshot = _include_surreal_auth_snapshot()
     include_content_snapshot = _include_surreal_content_snapshot()
 
@@ -244,7 +260,7 @@ async def run_backup(  # noqa: PLR0915
         "backup_started",
         backup_id=backup_id,
         organization_id=organization_id,
-        include_postgres=include_postgres,
+        include_database_dump=include_database_dump,
         include_auth_snapshot=include_auth_snapshot,
         include_content_snapshot=include_content_snapshot,
         include_graph=include_graph,
@@ -264,13 +280,13 @@ async def run_backup(  # noqa: PLR0915
         # Work in a temp directory
         with tempfile.TemporaryDirectory(prefix="sibyl_backup_") as tmpdir:
             tmp_path = Path(tmpdir)
-            pg_file = tmp_path / "postgres.sql"
+            database_dump_file = tmp_path / "postgres.sql"
             auth_file = tmp_path / "auth.json"
             content_file = tmp_path / "content.json"
             graph_file = tmp_path / "graph.json"
             metadata_file = tmp_path / "metadata.json"
 
-            pg_size = 0
+            database_dump_size = 0
             auth_size = 0
             content_size = 0
             graph_size = 0
@@ -306,9 +322,9 @@ async def run_backup(  # noqa: PLR0915
                     size_bytes=content_size,
                 )
 
-            # Step 3: PostgreSQL backup
-            if include_postgres:
-                log.info("backup_pg_start", backup_id=backup_id)
+            # Step 3: Database dump backup
+            if include_database_dump:
+                log.info("backup_database_dump_start", backup_id=backup_id)
                 try:
                     cmd = [
                         _find_pg_tool("pg_dump"),
@@ -330,17 +346,21 @@ async def run_backup(  # noqa: PLR0915
                     if result.returncode != 0:
                         raise RuntimeError(f"pg_dump failed: {result.stderr}")
 
-                    pg_file.write_text(result.stdout, encoding="utf-8")
-                    pg_size = pg_file.stat().st_size
-                    file_checksums["postgres.sql"] = _sha256_file(pg_file)
+                    database_dump_file.write_text(result.stdout, encoding="utf-8")
+                    database_dump_size = database_dump_file.stat().st_size
+                    file_checksums["postgres.sql"] = _sha256_file(database_dump_file)
 
-                    log.info("backup_pg_complete", backup_id=backup_id, size_bytes=pg_size)
+                    log.info(
+                        "backup_database_dump_complete",
+                        backup_id=backup_id,
+                        size_bytes=database_dump_size,
+                    )
 
                 except FileNotFoundError as e:
-                    log.warning("backup_pg_not_found", error=str(e))
+                    log.warning("backup_database_dump_not_found", error=str(e))
                     raise RuntimeError("pg_dump not found. Install PostgreSQL client tools.") from e
                 except subprocess.TimeoutExpired as e:
-                    log.warning("backup_pg_timeout", error=str(e))
+                    log.warning("backup_database_dump_timeout", error=str(e))
                     raise RuntimeError("pg_dump timed out after 10 minutes") from e
 
             # Step 4: Graph backup
@@ -408,8 +428,8 @@ async def run_backup(  # noqa: PLR0915
                     tar.add(auth_file, arcname="auth.json")
                 if include_content_snapshot and content_file.exists():
                     tar.add(content_file, arcname="content.json")
-                if include_postgres and pg_file.exists():
-                    tar.add(pg_file, arcname="postgres.sql")
+                if include_database_dump and database_dump_file.exists():
+                    tar.add(database_dump_file, arcname="postgres.sql")
                 if include_graph and graph_file.exists():
                     tar.add(graph_file, arcname="graph.json")
 
@@ -443,7 +463,8 @@ async def run_backup(  # noqa: PLR0915
                 "backup_id": backup_id,
                 "archive_path": str(archive_path),
                 "archive_size_bytes": archive_size,
-                "pg_size_bytes": pg_size,
+                "database_dump_size_bytes": database_dump_size,
+                "pg_size_bytes": database_dump_size,
                 "graph_size_bytes": graph_size,
                 "entity_count": entity_count,
                 "relationship_count": relationship_count,
@@ -685,13 +706,18 @@ async def run_scheduled_backups(
             org_id = str(org_settings.organization_id)
             backup_id = generate_backup_id(org_id)
             backup = None
-            include_postgres = _effective_include_postgres(org_settings.include_postgres)
+            include_database_dump = _effective_include_database_dump(
+                resolve_requested_database_dump(
+                    include_database_dump=getattr(org_settings, "include_database_dump", None),
+                    include_postgres=getattr(org_settings, "include_postgres", None),
+                )
+            )
 
             try:
                 backup = await create_backup_record(
                     org_id=org_settings.organization_id,
                     backup_id=backup_id,
-                    include_postgres=include_postgres,
+                    include_database_dump=include_database_dump,
                     include_graph=org_settings.include_graph,
                     created_by_user_id=None,
                     triggered_by="scheduled",
@@ -701,7 +727,7 @@ async def run_scheduled_backups(
 
                 job_id = await enqueue_backup(
                     org_id,
-                    include_postgres=include_postgres,
+                    include_database_dump=include_database_dump,
                     include_graph=org_settings.include_graph,
                     backup_id=backup_id,
                 )

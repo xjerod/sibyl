@@ -127,14 +127,14 @@ async def test_run_scheduled_backups_disables_postgres_in_fully_surreal_mode(
     create_record.assert_awaited_once_with(
         org_id=org_id,
         backup_id=create_record.await_args.kwargs["backup_id"],
-        include_postgres=False,
+        include_database_dump=False,
         include_graph=False,
         created_by_user_id=None,
         triggered_by="scheduled",
     )
     enqueue_backup.assert_awaited_once_with(
         str(org_id),
-        include_postgres=False,
+        include_database_dump=False,
         include_graph=False,
         backup_id=enqueue_backup.await_args.kwargs["backup_id"],
     )
@@ -230,6 +230,8 @@ async def test_run_backup_in_fully_surreal_mode_includes_runtime_snapshots(
 
     assert result["success"] is True
     assert result["backup_id"] == "backup_fixed"
+    assert result["database_dump_size_bytes"] == 0
+    assert result["pg_size_bytes"] == 0
     export_auth.assert_awaited_once_with()
     export_content.assert_awaited_once_with()
     create_graph_backup.assert_awaited_once_with(organization_id=org_id)

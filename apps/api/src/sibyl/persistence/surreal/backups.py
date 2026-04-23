@@ -9,7 +9,11 @@ from fastapi import HTTPException
 
 from sibyl.config import settings as app_settings
 from sibyl.db.models import Backup, BackupSettings, BackupStatus
-from sibyl.persistence.backups_common import BackupListResult, resolve_backup_runtime_options
+from sibyl.persistence.backups_common import (
+    BackupListResult,
+    resolve_backup_runtime_options,
+    resolve_requested_database_dump,
+)
 from sibyl.persistence.surreal.content import (
     _coerce_bool,
     _coerce_datetime,
@@ -52,23 +56,48 @@ def _sort_key(value: datetime | None) -> datetime:
     return value or datetime.min.replace(tzinfo=None)
 
 
-def _postgres_backups_supported() -> bool:
+def _database_dump_supported() -> bool:
     return resolve_backup_runtime_options(
         store=app_settings.store,
         auth_store=app_settings.auth_store,
-    ).postgres_dump_supported
+    ).database_dump_supported
 
 
-def _effective_include_postgres(requested: bool | None) -> bool:
+def _effective_include_database_dump(
+    requested: bool | None = None,
+    *,
+    include_postgres: bool | None = None,
+) -> bool:
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=requested,
+        include_postgres=include_postgres,
+    )
     return resolve_backup_runtime_options(
         store=app_settings.store,
         auth_store=app_settings.auth_store,
-        include_postgres=requested,
-    ).include_postgres
+        include_database_dump=requested_database_dump,
+    ).include_database_dump
+
+
+def _record_include_database_dump(record: dict[str, object]) -> bool:
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=(
+            _coerce_bool(record.get("include_database_dump"))
+            if "include_database_dump" in record
+            else None
+        ),
+        include_postgres=(
+            _coerce_bool(record.get("include_postgres"), default=_database_dump_supported())
+            if "include_postgres" in record
+            else None
+        ),
+    )
+    return _effective_include_database_dump(requested_database_dump)
 
 
 def _backup_settings_from_record(record: dict[str, object]) -> BackupSettings:
     now = _utcnow()
+    include_database_dump = _record_include_database_dump(record)
     return BackupSettings(
         id=_coerce_uuid(record.get("uuid"), field_name="backup_settings.uuid"),
         organization_id=_coerce_uuid(
@@ -78,9 +107,7 @@ def _backup_settings_from_record(record: dict[str, object]) -> BackupSettings:
         enabled=_coerce_bool(record.get("enabled"), default=True),
         schedule=_coerce_str(record.get("schedule"), default="0 2 * * *"),
         retention_days=_coerce_int(record.get("retention_days"), default=30),
-        include_postgres=_effective_include_postgres(
-            _coerce_bool(record.get("include_postgres"), default=_postgres_backups_supported())
-        ),
+        include_postgres=include_database_dump,
         include_graph=_coerce_bool(record.get("include_graph"), default=True),
         last_backup_at=_coerce_datetime(record.get("last_backup_at")),
         last_backup_id=_coerce_optional_str(record.get("last_backup_id")),
@@ -96,7 +123,7 @@ def _backup_settings_record(settings: BackupSettings) -> dict[str, object]:
         "enabled": settings.enabled,
         "schedule": settings.schedule,
         "retention_days": settings.retention_days,
-        "include_postgres": _effective_include_postgres(settings.include_postgres),
+        "include_postgres": _effective_include_database_dump(settings.include_postgres),
         "include_graph": settings.include_graph,
         "last_backup_at": settings.last_backup_at,
         "last_backup_id": settings.last_backup_id,
@@ -107,6 +134,7 @@ def _backup_settings_record(settings: BackupSettings) -> dict[str, object]:
 
 def _backup_from_record(record: dict[str, object]) -> Backup:
     now = _utcnow()
+    include_database_dump = _record_include_database_dump(record)
     return Backup(
         id=_coerce_uuid(record.get("uuid"), field_name="backups.uuid"),
         organization_id=_coerce_uuid(record.get("organization_id"), field_name="backups.organization_id"),
@@ -116,9 +144,7 @@ def _backup_from_record(record: dict[str, object]) -> Backup:
         filename=_coerce_optional_str(record.get("filename")),
         file_path=_coerce_optional_str(record.get("file_path")),
         size_bytes=_coerce_int(record.get("size_bytes")),
-        include_postgres=_effective_include_postgres(
-            _coerce_bool(record.get("include_postgres"), default=_postgres_backups_supported())
-        ),
+        include_postgres=include_database_dump,
         include_graph=_coerce_bool(record.get("include_graph"), default=True),
         entity_count=_coerce_int(record.get("entity_count")),
         relationship_count=_coerce_int(record.get("relationship_count")),
@@ -143,7 +169,7 @@ def _backup_record(backup: Backup) -> dict[str, object]:
         "filename": backup.filename,
         "file_path": backup.file_path,
         "size_bytes": backup.size_bytes,
-        "include_postgres": _effective_include_postgres(backup.include_postgres),
+        "include_postgres": _effective_include_database_dump(backup.include_postgres),
         "include_graph": backup.include_graph,
         "entity_count": backup.entity_count,
         "relationship_count": backup.relationship_count,
@@ -180,7 +206,11 @@ async def _save_backup_settings(settings: BackupSettings) -> BackupSettings:
     if not rows:
         msg = f"Failed to write backup settings for {settings.organization_id}"
         raise RuntimeError(msg)
-    return _backup_settings_from_record(rows[0])
+    persisted = await _get_backup_settings_for_org(settings.organization_id)
+    if persisted is None:
+        msg = f"Failed to reload backup settings for {settings.organization_id}"
+        raise RuntimeError(msg)
+    return persisted
 
 
 async def _get_backup_by_record_id(record_id: UUID) -> Backup | None:
@@ -210,7 +240,11 @@ async def _save_backup(backup: Backup) -> Backup:
     if not rows:
         msg = f"Failed to write backup record {backup.backup_id}"
         raise RuntimeError(msg)
-    return _backup_from_record(rows[0])
+    persisted = await _get_backup_by_backup_id(backup.backup_id)
+    if persisted is None:
+        msg = f"Failed to reload backup record {backup.backup_id}"
+        raise RuntimeError(msg)
+    return persisted
 
 
 async def get_backup_settings(org_id: UUID) -> BackupSettings:
@@ -220,7 +254,7 @@ async def get_backup_settings(org_id: UUID) -> BackupSettings:
     return await _save_backup_settings(
         BackupSettings(
             organization_id=org_id,
-            include_postgres=_postgres_backups_supported(),
+            include_postgres=_database_dump_supported(),
         )
     )
 
@@ -231,6 +265,7 @@ async def update_backup_settings(
     enabled: bool | None = None,
     schedule: str | None = None,
     retention_days: int | None = None,
+    include_database_dump: bool | None = None,
     include_postgres: bool | None = None,
     include_graph: bool | None = None,
 ) -> BackupSettings:
@@ -241,8 +276,12 @@ async def update_backup_settings(
         settings.schedule = schedule
     if retention_days is not None:
         settings.retention_days = retention_days
-    if include_postgres is not None:
-        settings.include_postgres = _effective_include_postgres(include_postgres)
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=include_database_dump,
+        include_postgres=include_postgres,
+    )
+    if requested_database_dump is not None:
+        settings.include_postgres = _effective_include_database_dump(requested_database_dump)
     if include_graph is not None:
         settings.include_graph = include_graph
     return await _save_backup_settings(settings)
@@ -252,18 +291,23 @@ async def create_backup_record(
     *,
     org_id: UUID,
     backup_id: str,
-    include_postgres: bool,
+    include_database_dump: bool | None = None,
+    include_postgres: bool | None = None,
     include_graph: bool,
     created_by_user_id: UUID | None,
     triggered_by: str = "manual",
 ) -> Backup:
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=include_database_dump,
+        include_postgres=include_postgres,
+    )
     return await _save_backup(
         Backup(
             id=uuid4(),
             organization_id=org_id,
             backup_id=backup_id,
             status=BackupStatus.PENDING.value,
-            include_postgres=_effective_include_postgres(include_postgres),
+            include_postgres=_effective_include_database_dump(requested_database_dump),
             include_graph=include_graph,
             triggered_by=triggered_by,
             created_by_user_id=created_by_user_id,

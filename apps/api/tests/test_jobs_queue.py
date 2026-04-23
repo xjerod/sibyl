@@ -219,6 +219,22 @@ async def test_enqueue_backup_generates_backup_id_when_missing(
 
 
 @pytest.mark.asyncio
+async def test_enqueue_backup_uses_database_dump_kwarg_when_requested() -> None:
+    pool = RecordingEnqueuePool()
+    broker = make_broker(pool)
+
+    job_id = await broker.enqueue_backup(
+        "org-123",
+        include_database_dump=False,
+        backup_id="backup_a",
+    )
+
+    assert job_id == "backup:backup_a"
+    assert pool.calls[0][2]["include_database_dump"] is False
+    assert "include_postgres" not in pool.calls[0][2]
+
+
+@pytest.mark.asyncio
 async def test_enqueue_crawl_includes_org_metadata_when_provided() -> None:
     pool = RecordingEnqueuePool()
     broker = make_broker(pool)

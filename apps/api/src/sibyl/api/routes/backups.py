@@ -18,7 +18,11 @@ from sibyl.auth.dependencies import get_current_organization, get_current_user, 
 from sibyl.backup_ids import generate_backup_id
 from sibyl.config import settings
 from sibyl.db.models import BackupStatus, Organization, User
-from sibyl.persistence.backups_common import BackupRuntimeOptions, resolve_backup_runtime_options
+from sibyl.persistence.backups_common import (
+    BackupRuntimeOptions,
+    resolve_backup_runtime_options,
+    resolve_requested_database_dump,
+)
 from sibyl.persistence.backups_runtime import (
     attach_backup_job as attach_backup_job_record,
     create_backup_record,
@@ -41,14 +45,17 @@ def _backup_runtime_options(
     return resolve_backup_runtime_options(
         store=settings.store,
         auth_store=settings.auth_store,
-        include_postgres=include_database_dump,
+        include_database_dump=include_database_dump,
         include_graph=include_graph,
     )
 
 
 def _backup_settings_response(settings) -> "BackupSettingsResponse":
     options = _backup_runtime_options(
-        include_database_dump=settings.include_postgres,
+        include_database_dump=resolve_requested_database_dump(
+            include_database_dump=getattr(settings, "include_database_dump", None),
+            include_postgres=getattr(settings, "include_postgres", None),
+        ),
         include_graph=settings.include_graph,
     )
     return BackupSettingsResponse(
@@ -190,7 +197,7 @@ async def update_backup_settings(
         enabled=request.enabled,
         schedule=request.schedule,
         retention_days=request.retention_days,
-        include_postgres=request.include_database_dump,
+        include_database_dump=request.include_database_dump,
         include_graph=request.include_graph,
     )
 
@@ -235,7 +242,7 @@ async def create_backup(
     backup = await create_backup_record(
         org_id=org.id,
         backup_id=backup_id,
-        include_postgres=options.include_postgres,
+        include_database_dump=options.include_database_dump,
         include_graph=options.include_graph,
         created_by_user_id=user.id if user else None,
     )
@@ -244,7 +251,7 @@ async def create_backup(
         "backup_requested",
         backup_id=backup_id,
         organization_id=str(org.id),
-        include_postgres=options.include_postgres,
+        include_database_dump=options.include_database_dump,
         include_graph=options.include_graph,
         archive_contents=list(options.archive_contents),
     )
@@ -253,7 +260,7 @@ async def create_backup(
 
     job_id = await enqueue_backup(
         str(org.id),
-        include_postgres=options.include_postgres,
+        include_database_dump=options.include_database_dump,
         include_graph=options.include_graph,
         backup_id=backup_id,
     )

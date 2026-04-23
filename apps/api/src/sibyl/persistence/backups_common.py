@@ -31,15 +31,30 @@ class BackupRuntimeOptions:
         return self.postgres_dump_supported
 
 
+def resolve_requested_database_dump(
+    *,
+    include_database_dump: bool | None = None,
+    include_postgres: bool | None = None,
+) -> bool | None:
+    if include_database_dump is not None:
+        return include_database_dump
+    return include_postgres
+
+
 def resolve_backup_runtime_options(
     *,
     store: str,
     auth_store: str,
+    include_database_dump: bool | None = None,
     include_postgres: bool | None = None,
     include_graph: bool = True,
 ) -> BackupRuntimeOptions:
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=include_database_dump,
+        include_postgres=include_postgres,
+    )
     postgres_dump_supported = not (store == "surreal" and auth_store == "surreal")
-    include_postgres = (True if include_postgres is None else include_postgres) and (
+    include_postgres = (True if requested_database_dump is None else requested_database_dump) and (
         postgres_dump_supported
     )
     include_auth_snapshot = auth_store == "surreal"
