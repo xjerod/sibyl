@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -5,14 +6,13 @@ from uuid import uuid4
 import pytest
 
 from sibyl.api.routes import users as users_routes
-from sibyl.auth.sessions import SessionManager
 from sibyl.db.models import UserSession
 
 
 @pytest.mark.asyncio
 async def test_list_sessions_marks_current_from_sibyl_access_token_cookie() -> None:
     token = "access-token-value"
-    current_hash = SessionManager.hash_token(token)
+    current_hash = hashlib.sha256(token.encode()).hexdigest()
 
     session_row = UserSession(
         id=uuid4(),
@@ -32,7 +32,11 @@ async def test_list_sessions_marks_current_from_sibyl_access_token_cookie() -> N
     auth.ctx.user.id = session_row.user_id
     auth.session = AsyncMock()
 
-    with patch.object(SessionManager, "list_user_sessions", AsyncMock(return_value=[session_row])):
+    with patch.object(
+        users_routes,
+        "list_legacy_user_sessions",
+        AsyncMock(return_value=[session_row]),
+    ):
         rows = await users_routes.list_sessions(request=request, auth=auth)
 
     assert len(rows) == 1

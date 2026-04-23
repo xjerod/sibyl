@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
+
+import pytest
+
+from sibyl.api.routes.entities import create_entity, delete_entity, update_entity
+from sibyl.api.schemas import EntityCreate, EntityUpdate
+from sibyl.db.models import ProjectRole
+from sibyl_core.models.entities import EntityType
+
+
+def _request() -> MagicMock:
+    request = MagicMock()
+    request.headers = {}
+    request.cookies = {}
+    request.client = SimpleNamespace(host="127.0.0.1")
+    return request
+
+
+def _org() -> SimpleNamespace:
+    return SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+
+
+def _ctx() -> SimpleNamespace:
+    return SimpleNamespace(user=SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222")))
+
+
+def _project_entity(*, name: str, description: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="project_new",
+        entity_type=EntityType.PROJECT,
+        name=name,
+        description=description,
+        content=description,
+        category=None,
+        languages=[],
+        tags=[],
+        metadata={},
+        source_file=None,
+        created_at=None,
+        updated_at=None,
+    )
+
+
+@asynccontextmanager
+async def _locked_entity(*_args, **_kwargs):
+    yield "lock-token"
+
+
+@pytest.mark.asyncio
+async def test_create_project_routes_through_runtime_project_record() -> None:
+    org = _org()
+    ctx = _ctx()
+    entity = EntityCreate(
+        name="Surreal Native",
+        description="cut postgres loose",
+        entity_type=EntityType.PROJECT,
+    )
+    add_result = SimpleNamespace(success=True, id="project_new", message="ok")
+    runtime = SimpleNamespace(
+        entity_manager=SimpleNamespace(
+            get=AsyncMock(return_value=_project_entity(name=entity.name, description=entity.description))
+        )
+    )
+
+    with (
+        patch("sibyl_core.tools.core.add", AsyncMock(return_value=add_result)),
+        patch("sibyl.api.routes.entities.get_legacy_entity_runtime", AsyncMock(return_value=runtime)),
+        patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
+        patch("sibyl.api.routes.entities.create_legacy_project_record", AsyncMock()) as create_project,
+        patch("sibyl.api.routes.entities.log_legacy_audit_event", AsyncMock()) as audit_log,
+    ):
+        response = await create_entity(
+            request=_request(),
+            entity=entity,
+            org=org,
+            ctx=ctx,
+            content_session=None,
+            sync=False,
+        )
+
+    assert response.id == "project_new"
+    create_project.assert_awaited_once_with(
+        organization_id=org.id,
+        owner_user_id=ctx.user.id,
+        graph_project_id="project_new",
+        name="Surreal Native",
+        description="cut postgres loose",
+    )
+    audit_log.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_project_routes_through_runtime_project_record() -> None:
+    org = _org()
+    ctx = _ctx()
+    existing = _project_entity(name="Old name", description="old")
+    updated = _project_entity(name="New name", description="new")
+    runtime = SimpleNamespace(
+        entity_manager=SimpleNamespace(
+            get=AsyncMock(return_value=existing),
+            update=AsyncMock(return_value=updated),
+        )
+    )
+
+    with (
+        patch("sibyl.locks.entity_lock", _locked_entity),
+        patch("sibyl.api.routes.entities.get_legacy_entity_runtime", AsyncMock(return_value=runtime)),
+        patch("sibyl.api.routes.entities.verify_entity_project_access", AsyncMock()) as verify_access,
+        patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
+        patch("sibyl.api.routes.entities.update_legacy_project_record", AsyncMock()) as update_project,
+        patch("sibyl.api.routes.entities.log_legacy_audit_event", AsyncMock()) as audit_log,
+    ):
+        response = await update_entity(
+            entity_id="project_new",
+            update=EntityUpdate(name="New name", description="new"),
+            request=_request(),
+            org=org,
+            ctx=ctx,
+            content_session=None,
+        )
+
+    assert response.name == "New name"
+    verify_access.assert_awaited_once_with(
+        None,
+        ctx,
+        None,
+        required_role=ProjectRole.CONTRIBUTOR,
+    )
+    update_project.assert_awaited_once_with(
+        organization_id=org.id,
+        graph_project_id="project_new",
+        name="New name",
+        description="new",
+    )
+    audit_log.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_project_routes_through_runtime_project_record() -> None:
+    org = _org()
+    ctx = _ctx()
+    existing = _project_entity(name="Delete me", description="gone")
+    runtime = SimpleNamespace(
+        entity_manager=SimpleNamespace(
+            get=AsyncMock(return_value=existing),
+            delete=AsyncMock(return_value=True),
+        )
+    )
+
+    with (
+        patch("sibyl.locks.entity_lock", _locked_entity),
+        patch("sibyl.api.routes.entities.get_legacy_entity_runtime", AsyncMock(return_value=runtime)),
+        patch("sibyl.api.routes.entities.verify_entity_project_access", AsyncMock()) as verify_access,
+        patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
+        patch("sibyl.api.routes.entities.delete_legacy_project_record", AsyncMock()) as delete_project,
+        patch("sibyl.api.routes.entities.log_legacy_audit_event", AsyncMock()) as audit_log,
+    ):
+        await delete_entity(
+            entity_id="project_new",
+            request=_request(),
+            org=org,
+            ctx=ctx,
+            content_session=None,
+        )
+
+    verify_access.assert_awaited_once_with(
+        None,
+        ctx,
+        None,
+        required_role=ProjectRole.MAINTAINER,
+    )
+    delete_project.assert_awaited_once_with(
+        organization_id=org.id,
+        graph_project_id="project_new",
+    )
+    audit_log.assert_awaited_once()

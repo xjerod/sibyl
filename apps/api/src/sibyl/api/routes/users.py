@@ -11,15 +11,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 
 from sibyl.auth.http import select_access_token
-from sibyl.auth.passwords import hash_password, verify_password
 from sibyl.auth.rls import AuthSession, get_auth_session
-from sibyl.auth.sessions import SessionManager
-from sibyl.db.models import User
-from sibyl.persistence.operations_runtime import (
+from sibyl.persistence.auth_runtime import (
     confirm_legacy_password_reset,
+    get_legacy_user_by_id,
     list_legacy_oauth_connections,
+    list_legacy_user_sessions,
+    patch_legacy_auth_user,
     remove_legacy_oauth_connection,
     request_legacy_password_reset,
+    revoke_all_legacy_user_sessions,
+    revoke_legacy_user_session,
+    update_legacy_auth_user,
 )
 
 log = structlog.get_logger()
@@ -120,7 +123,7 @@ async def get_profile(
     auth: AuthSession = Depends(get_auth_session),
 ) -> UserProfileResponse:
     """Get current user's profile."""
-    user = await auth.session.get(User, auth.ctx.user.id)
+    user = await get_legacy_user_by_id(auth.ctx.user.id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -142,16 +145,13 @@ async def update_profile(
     auth: AuthSession = Depends(get_auth_session),
 ) -> UserProfileResponse:
     """Update current user's profile."""
-    user = await auth.session.get(User, auth.ctx.user.id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     update_data = data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(user, field, value)
-
-    await auth.session.commit()
-    await auth.session.refresh(user)
+    user = await patch_legacy_auth_user(
+        user_id=auth.ctx.user.id,
+        updates=update_data,
+        organization_id=auth.ctx.organization.id if auth.ctx.organization else None,
+        request=None,
+    )
 
     log.info("profile_updated", user_id=str(user.id), fields=list(update_data.keys()))
 
@@ -177,7 +177,7 @@ async def get_preferences(
     auth: AuthSession = Depends(get_auth_session),
 ) -> PreferencesResponse:
     """Get current user's preferences."""
-    user = await auth.session.get(User, auth.ctx.user.id)
+    user = await get_legacy_user_by_id(auth.ctx.user.id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -190,16 +190,18 @@ async def update_preferences(
     auth: AuthSession = Depends(get_auth_session),
 ) -> PreferencesResponse:
     """Update current user's preferences (merge)."""
-    user = await auth.session.get(User, auth.ctx.user.id)
+    user = await get_legacy_user_by_id(auth.ctx.user.id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     current = user.preferences or {}
     current.update(data.preferences)
-    user.preferences = current
-
-    await auth.session.commit()
-    await auth.session.refresh(user)
+    user = await patch_legacy_auth_user(
+        user_id=auth.ctx.user.id,
+        updates={"preferences": current},
+        organization_id=auth.ctx.organization.id if auth.ctx.organization else None,
+        request=None,
+    )
 
     log.info("preferences_updated", user_id=str(user.id))
 
@@ -217,30 +219,16 @@ async def change_password(
     auth: AuthSession = Depends(get_auth_session),
 ) -> None:
     """Change current user's password."""
-    user = await auth.session.get(User, auth.ctx.user.id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    if not user.password_hash or not user.password_salt:
-        raise HTTPException(
-            status_code=400,
-            detail="No password set. Use OAuth or set a password first.",
-        )
-
-    if not verify_password(
-        data.current_password,
-        salt_hex=user.password_salt,
-        hash_hex=user.password_hash,
-        iterations=user.password_iterations or 310_000,
-    ):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-    pw = hash_password(data.new_password)
-    user.password_salt = pw.salt_hex
-    user.password_hash = pw.hash_hex
-    user.password_iterations = pw.iterations
-
-    await auth.session.commit()
+    user = await update_legacy_auth_user(
+        user_id=auth.ctx.user.id,
+        email=None,
+        name=None,
+        avatar_url=None,
+        current_password=data.current_password,
+        new_password=data.new_password,
+        organization_id=auth.ctx.organization.id if auth.ctx.organization else None,
+        request=None,
+    )
     log.info("password_changed", user_id=str(user.id))
 
 
@@ -273,8 +261,7 @@ async def list_sessions(
     auth: AuthSession = Depends(get_auth_session),
 ) -> list[SessionResponse]:
     """List current user's active sessions."""
-    manager = SessionManager(auth.session)
-    sessions = await manager.list_user_sessions(auth.ctx.user.id)
+    sessions = await list_legacy_user_sessions(user_id=auth.ctx.user.id)
 
     current_token_hash = None
     token = select_access_token(
@@ -316,9 +303,9 @@ async def revoke_all_sessions(
 
         current_token_hash = hashlib.sha256(token.encode()).hexdigest()
 
-    manager = SessionManager(auth.session)
-    count = await manager.revoke_all_sessions(
-        auth.ctx.user.id, exclude_token_hash=current_token_hash
+    count = await revoke_all_legacy_user_sessions(
+        user_id=auth.ctx.user.id,
+        exclude_token_hash=current_token_hash,
     )
     log.info("sessions_revoked", user_id=str(auth.ctx.user.id), count=count)
 
@@ -329,8 +316,10 @@ async def revoke_session(
     auth: AuthSession = Depends(get_auth_session),
 ) -> None:
     """Revoke a specific session."""
-    manager = SessionManager(auth.session)
-    revoked = await manager.revoke_session(session_id, auth.ctx.user.id)
+    revoked = await revoke_legacy_user_session(
+        session_id=session_id,
+        user_id=auth.ctx.user.id,
+    )
     if not revoked:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -345,7 +334,7 @@ async def list_connections(
     auth: AuthSession = Depends(get_auth_session),
 ) -> list[OAuthConnectionResponse]:
     """List OAuth connections for current user."""
-    connections = await list_legacy_oauth_connections(auth.session, auth.ctx.user.id)
+    connections = await list_legacy_oauth_connections(user_id=auth.ctx.user.id)
 
     return [
         OAuthConnectionResponse(
@@ -366,7 +355,6 @@ async def remove_connection(
 ) -> None:
     """Remove an OAuth connection."""
     connection = await remove_legacy_oauth_connection(
-        auth.session,
         user_id=auth.ctx.user.id,
         connection_id=connection_id,
     )

@@ -26,7 +26,6 @@ from sibyl.api.schemas import (
     RelatedEntitySummary,
 )
 from sibyl.api.websocket import broadcast_event
-from sibyl.auth.audit import AuditLogger
 from sibyl.auth.authorization import ProjectRole, verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import (
@@ -34,9 +33,13 @@ from sibyl.auth.dependencies import (
     get_current_organization,
     require_org_role,
 )
-from sibyl.db import get_session_dependency
 from sibyl.db.models import Organization, OrganizationRole, RawCapture
-from sibyl.db.project_sync import sync_project_create, sync_project_delete, sync_project_update
+from sibyl.persistence.auth_runtime import (
+    create_legacy_project_record,
+    delete_legacy_project_record,
+    log_legacy_audit_event,
+    update_legacy_project_record,
+)
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
     get_content_read_session_dependency,
@@ -819,7 +822,7 @@ async def create_entity(
     entity: EntityCreate,
     org: Organization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
-    session: Any = Depends(get_session_dependency),
+    content_session: Any = Depends(get_content_read_session_dependency),
     sync: bool = Query(
         default=False,
         description="Wait for entity creation to complete (slower but entity is immediately available)",
@@ -878,7 +881,7 @@ async def create_entity(
 
         if request_metadata.get("capture_mode") == "quick":
             await _archive_raw_capture(
-                session,
+                content_session,
                 organization_id=org.id,
                 user_id=ctx.user.id if ctx.user else None,
                 entity_id=result.id,
@@ -942,18 +945,14 @@ async def create_entity(
         )
 
         if created.entity_type == EntityType.PROJECT:
-            # Sync to Postgres for RBAC enforcement
-            await sync_project_create(
-                session,
+            await create_legacy_project_record(
                 organization_id=org.id,
                 owner_user_id=ctx.user.id,
                 graph_project_id=created.id,
                 name=created.name,
                 description=created.description,
             )
-            await session.commit()
-
-            await AuditLogger(session).log(
+            await log_legacy_audit_event(
                 action="project.create",
                 user_id=ctx.user.id,
                 organization_id=org.id,
@@ -988,7 +987,7 @@ async def update_entity(
     request: Request,
     org: Organization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
-    session: Any = Depends(get_session_dependency),
+    content_session: Any = Depends(get_content_read_session_dependency),
 ) -> EntityResponse:
     """Update an existing entity."""
     from sibyl.locks import LockAcquisitionError, entity_lock
@@ -1014,7 +1013,7 @@ async def update_entity(
             # Verify project access for entities with project_id
             project_id = existing.metadata.get("project_id") if existing.metadata else None
             await verify_entity_project_access(
-                session, ctx, project_id, required_role=ProjectRole.CONTRIBUTOR
+                content_session, ctx, project_id, required_role=ProjectRole.CONTRIBUTOR
             )
 
             # Build update dict with only provided fields
@@ -1067,17 +1066,13 @@ async def update_entity(
             )
 
             if existing.entity_type == EntityType.PROJECT:
-                # Sync to Postgres for RBAC enforcement
-                await sync_project_update(
-                    session,
+                await update_legacy_project_record(
                     organization_id=org.id,
                     graph_project_id=existing.id,
                     name=response.name,
                     description=response.description,
                 )
-                await session.commit()
-
-                await AuditLogger(session).log(
+                await log_legacy_audit_event(
                     action="project.update",
                     user_id=ctx.user.id,
                     organization_id=org.id,
@@ -1116,7 +1111,7 @@ async def delete_entity(
     request: Request,
     org: Organization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
-    session: Any = Depends(get_session_dependency),
+    content_session: Any = Depends(get_content_read_session_dependency),
 ) -> None:
     """Delete an entity."""
     from sibyl.locks import LockAcquisitionError, entity_lock
@@ -1142,11 +1137,11 @@ async def delete_entity(
             # Verify project access for entities with project_id (maintainer required to delete)
             project_id = existing.metadata.get("project_id") if existing.metadata else None
             await verify_entity_project_access(
-                session, ctx, project_id, required_role=ProjectRole.MAINTAINER
+                content_session, ctx, project_id, required_role=ProjectRole.MAINTAINER
             )
 
             if existing.entity_type == EntityType.PROJECT:
-                await AuditLogger(session).log(
+                await log_legacy_audit_event(
                     action="project.delete",
                     user_id=ctx.user.id,
                     organization_id=org.id,
@@ -1159,14 +1154,11 @@ async def delete_entity(
             if not success:
                 raise HTTPException(status_code=500, detail="Delete failed")
 
-            # Sync delete to Postgres (cascades project_members)
             if existing.entity_type == EntityType.PROJECT:
-                await sync_project_delete(
-                    session,
+                await delete_legacy_project_record(
                     organization_id=org.id,
                     graph_project_id=existing.id,
                 )
-                await session.commit()
 
             # Broadcast deletion event (scoped to org)
             await broadcast_event(

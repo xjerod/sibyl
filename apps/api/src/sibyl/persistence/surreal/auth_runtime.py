@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -22,8 +23,9 @@ from sibyl.auth.api_keys import (
 )
 from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import JwtError, create_access_token, create_refresh_token, verify_access_token
-from sibyl.auth.passwords import verify_password
+from sibyl.auth.passwords import hash_password, verify_password
 from sibyl.db.models import ProjectRole, ProjectVisibility
+from sibyl.email import PasswordResetEmail, get_email_client
 from sibyl.persistence.surreal.auth import (
     SurrealAuthContextResolver,
     SurrealOrganizationMembershipRepository,
@@ -67,15 +69,32 @@ _DEVICE_DATETIME_FIELDS = {
     "consumed_at",
     "last_polled_at",
 }
+_PASSWORD_RESET_DATETIME_FIELDS = {"created_at", "expires_at", "used_at", "revoked_at"}
+_LOGIN_HISTORY_DATETIME_FIELDS = {"created_at"}
+_OAUTH_DATETIME_FIELDS = {
+    "created_at",
+    "updated_at",
+    "token_expires_at",
+    "connected_at",
+    "disconnected_at",
+    "last_used_at",
+}
 _DELETE_QUERY_BY_TABLE = {
     "api_keys": "DELETE FROM api_keys WHERE uuid = $uuid;",
     "device_authorization_requests": "DELETE FROM device_authorization_requests WHERE uuid = $uuid;",
+    "oauth_connections": "DELETE FROM oauth_connections WHERE uuid = $uuid;",
+    "password_reset_tokens": "DELETE FROM password_reset_tokens WHERE uuid = $uuid;",
+    "projects": "DELETE FROM projects WHERE uuid = $uuid;",
     "user_sessions": "DELETE FROM user_sessions WHERE uuid = $uuid;",
     "users": "DELETE FROM users WHERE uuid = $uuid;",
 }
 _CREATE_QUERY_BY_TABLE = {
     "api_keys": "CREATE api_keys CONTENT $record;",
     "device_authorization_requests": "CREATE device_authorization_requests CONTENT $record;",
+    "login_history": "CREATE login_history CONTENT $record;",
+    "oauth_connections": "CREATE oauth_connections CONTENT $record;",
+    "password_reset_tokens": "CREATE password_reset_tokens CONTENT $record;",
+    "projects": "CREATE projects CONTENT $record;",
     "user_sessions": "CREATE user_sessions CONTENT $record;",
     "users": "CREATE users CONTENT $record;",
 }
@@ -254,6 +273,22 @@ def _device_request_namespace(record: dict[str, Any] | None) -> SimpleNamespace 
         record,
         uuid_fields={"uuid", "user_id", "organization_id"},
         datetime_fields=_DEVICE_DATETIME_FIELDS,
+    )
+
+
+def _oauth_connection_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+    return _ns(
+        record,
+        uuid_fields={"uuid", "user_id"},
+        datetime_fields=_OAUTH_DATETIME_FIELDS,
+    )
+
+
+def _password_reset_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+    return _ns(
+        record,
+        uuid_fields={"uuid", "user_id"},
+        datetime_fields=_PASSWORD_RESET_DATETIME_FIELDS,
     )
 
 
@@ -607,6 +642,42 @@ async def _list_user_org_records(client: Any, *, user_id: UUID) -> list[dict[str
         )
     )
     return organizations
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _generate_reset_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+async def _log_login_history(
+    client: Any,
+    *,
+    user_id: UUID | None,
+    event_type: str,
+    success: bool,
+    failure_reason: str | None = None,
+    email_attempted: str | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> None:
+    record = {
+        "uuid": str(uuid4()),
+        "user_id": _uuid_str(user_id),
+        "event_type": event_type,
+        "auth_method": "password_reset",
+        "success": success,
+        "failure_reason": failure_reason,
+        "ip_address": ip_address,
+        "user_agent": user_agent,
+        "device_info": None,
+        "email_attempted": email_attempted,
+        "session_id": None,
+        "created_at": _utcnow(),
+    }
+    await client.execute_query("CREATE login_history CONTENT $record;", record=record)
 
 
 async def _issue_auth_session(
@@ -1396,6 +1467,156 @@ async def log_legacy_audit_event(
         )
 
 
+async def _generate_unique_project_slug(
+    repo: _SurrealRepository,
+    *,
+    organization_id: UUID,
+    name: str,
+    exclude_uuid: UUID | None = None,
+) -> str:
+    import re
+
+    base_slug = re.sub(r"[^a-z0-9\\s-]", "", name.lower())
+    base_slug = re.sub(r"[\s_]+", "-", base_slug)
+    base_slug = re.sub(r"-+", "-", base_slug).strip("-")[:64] or "project"
+    slug = base_slug
+    suffix = 1
+
+    while suffix <= 100:
+        existing = await repo.select_one(
+            "SELECT * FROM projects WHERE organization_id = $organization_id AND slug = $slug LIMIT 1;",
+            organization_id=str(organization_id),
+            slug=slug,
+        )
+        existing_uuid = _coerce_optional_uuid(existing.get("uuid")) if existing else None
+        if existing is None or existing_uuid == exclude_uuid:
+            return slug
+        suffix += 1
+        slug = f"{base_slug}-{suffix}"
+
+    return f"{base_slug[:55]}-{secrets.token_hex(4)}"
+
+
+async def create_legacy_project_record(
+    *,
+    organization_id: UUID,
+    owner_user_id: UUID,
+    graph_project_id: str,
+    name: str,
+    description: str | None = None,
+) -> dict[str, Any]:
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        existing = await repo.select_one(
+            "SELECT * FROM projects "
+            "WHERE organization_id = $organization_id AND graph_project_id = $graph_project_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            graph_project_id=graph_project_id,
+        )
+        if existing is not None:
+            return existing
+
+        now = _utcnow()
+        record = {
+            "uuid": str(uuid4()),
+            "organization_id": str(organization_id),
+            "owner_user_id": str(owner_user_id),
+            "name": name,
+            "slug": await _generate_unique_project_slug(
+                repo,
+                organization_id=organization_id,
+                name=name,
+            ),
+            "description": description[:2000] if description else None,
+            "graph_project_id": graph_project_id,
+            "visibility": ProjectVisibility.ORG.value,
+            "default_role": ProjectRole.VIEWER.value,
+            "settings": {},
+            "created_at": now,
+            "updated_at": now,
+        }
+        return await repo.replace_record(
+            "projects",
+            uuid=_coerce_uuid(record["uuid"], field_name="projects.uuid"),
+            record=record,
+        )
+
+
+async def update_legacy_project_record(
+    *,
+    organization_id: UUID,
+    graph_project_id: str,
+    name: str | None = None,
+    description: str | None = None,
+) -> bool:
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        existing = await repo.select_one(
+            "SELECT * FROM projects "
+            "WHERE organization_id = $organization_id AND graph_project_id = $graph_project_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            graph_project_id=graph_project_id,
+        )
+        if existing is None:
+            return False
+
+        updated = dict(existing)
+        project_uuid = _coerce_uuid(existing.get("uuid"), field_name="projects.uuid")
+        if name is not None and name != existing.get("name"):
+            updated["name"] = name
+            updated["slug"] = await _generate_unique_project_slug(
+                repo,
+                organization_id=organization_id,
+                name=name,
+                exclude_uuid=project_uuid,
+            )
+        if description is not None:
+            updated["description"] = description[:2000] if description else None
+        updated["updated_at"] = _utcnow()
+        await repo.replace_record("projects", uuid=project_uuid, record=updated)
+        return True
+
+
+async def delete_legacy_project_record(
+    *,
+    organization_id: UUID,
+    graph_project_id: str,
+) -> bool:
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        existing = await repo.select_one(
+            "SELECT * FROM projects "
+            "WHERE organization_id = $organization_id AND graph_project_id = $graph_project_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            graph_project_id=graph_project_id,
+        )
+        if existing is None:
+            return False
+
+        project_uuid = str(existing["uuid"])
+        await client.execute_query(
+            "DELETE FROM api_key_project_scopes WHERE project_id = $project_id;",
+            project_id=project_uuid,
+        )
+        await client.execute_query(
+            "DELETE FROM team_projects WHERE project_id = $project_id;",
+            project_id=project_uuid,
+        )
+        await client.execute_query(
+            "DELETE FROM project_members WHERE project_id = $project_id;",
+            project_id=project_uuid,
+        )
+        await client.execute_query(
+            "DELETE FROM projects WHERE uuid = $uuid AND organization_id = $organization_id;",
+            uuid=project_uuid,
+            organization_id=str(organization_id),
+        )
+        return True
+
+
 async def list_legacy_api_keys_for_user(*, organization_id: UUID, user_id: UUID):
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
@@ -1565,8 +1786,314 @@ async def update_legacy_auth_user(
                 organization_id=organization_id,
                 request=request,
                 details={},
-            )
+        )
         return _auth_user_namespace(written)
+
+
+async def patch_legacy_auth_user(
+    *,
+    user_id: UUID,
+    updates: dict[str, Any],
+    organization_id: UUID | None,
+    request,
+):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        users = SurrealUserRepository.from_client(client)
+        user = await repo.select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id))
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        updated = dict(user)
+        changes: list[str] = []
+
+        if "email" in updates:
+            email = updates["email"]
+            normalized_email = str(email).strip().lower() if email is not None else ""
+            if not normalized_email:
+                raise HTTPException(status_code=400, detail="Email is required")
+            existing = await users.get_by_email(normalized_email)
+            if existing is not None and existing.id != user_id:
+                raise HTTPException(status_code=400, detail="Email is already in use")
+            updated["email"] = normalized_email
+            changes.append("email")
+        if "name" in updates:
+            name = str(updates["name"] or "").strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Name is required")
+            updated["name"] = name
+            changes.append("name")
+        if "avatar_url" in updates:
+            avatar_url = updates["avatar_url"]
+            updated["avatar_url"] = str(avatar_url).strip() or None if avatar_url is not None else None
+            changes.append("avatar_url")
+        if "bio" in updates:
+            bio = updates["bio"]
+            updated["bio"] = str(bio).strip() or None if bio is not None else None
+            changes.append("bio")
+        if "timezone" in updates:
+            timezone = updates["timezone"]
+            updated["timezone"] = str(timezone).strip() or "UTC" if timezone is not None else "UTC"
+            changes.append("timezone")
+        if "preferences" in updates:
+            preferences = updates["preferences"]
+            if not isinstance(preferences, dict):
+                raise HTTPException(status_code=400, detail="Preferences must be an object")
+            updated["preferences"] = dict(preferences)
+            changes.append("preferences")
+        if not changes:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        updated["updated_at"] = _utcnow()
+        written = await repo.replace_record("users", uuid=user_id, record=updated)
+        await _log_audit_event(
+            client,
+            action="user.update_profile",
+            user_id=user_id,
+            organization_id=organization_id,
+            request=request,
+            details={"fields": changes},
+        )
+        return _auth_user_namespace(written)
+
+
+async def list_legacy_user_sessions(
+    *,
+    user_id: UUID,
+    include_expired: bool = False,
+) -> list[SimpleNamespace]:
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        rows = await repo.select_many(
+            "SELECT * FROM user_sessions WHERE user_id = $user_id ORDER BY last_active_at DESC;",
+            user_id=str(user_id),
+        )
+        sessions: list[SimpleNamespace] = []
+        for row in rows:
+            if row.get("revoked_at") is not None:
+                continue
+            if not include_expired:
+                expires_at = _coerce_datetime(row.get("expires_at"))
+                if expires_at is None or expires_at <= _utcnow():
+                    continue
+            session = _session_namespace(row)
+            if session is not None:
+                sessions.append(session)
+        return sessions
+
+
+async def revoke_all_legacy_user_sessions(
+    *,
+    user_id: UUID,
+    exclude_token_hash: str | None = None,
+) -> int:
+    async with _auth_client_scope() as client:
+        sessions = SurrealSessionRepository.from_client(client)
+        return await sessions.revoke_all_sessions(user_id, exclude_token_hash=exclude_token_hash)
+
+
+async def revoke_legacy_user_session(
+    *,
+    user_id: UUID,
+    session_id: UUID,
+) -> bool:
+    async with _auth_client_scope() as client:
+        sessions = SurrealSessionRepository.from_client(client)
+        return await sessions.revoke_session(session_id, user_id)
+
+
+async def request_legacy_password_reset(email: str) -> None:
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return
+
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        user = await repo.select_one(
+            "SELECT * FROM users WHERE email = $email LIMIT 1;",
+            email=normalized_email,
+        )
+        if user is None:
+            await _log_login_history(
+                client,
+                user_id=None,
+                event_type="password_reset_request",
+                success=False,
+                failure_reason="user_not_found",
+                email_attempted=normalized_email,
+            )
+            return
+
+        now = _utcnow()
+        rate_limit_cutoff = now - timedelta(minutes=2)
+        existing_tokens = await repo.select_many(
+            "SELECT * FROM password_reset_tokens WHERE user_id = $user_id ORDER BY created_at DESC;",
+            user_id=str(user["uuid"]),
+        )
+        for token_record in existing_tokens:
+            created_at = _coerce_datetime(token_record.get("created_at"))
+            if (
+                created_at is not None
+                and created_at > rate_limit_cutoff
+                and token_record.get("revoked_at") is None
+            ):
+                await _log_login_history(
+                    client,
+                    user_id=_coerce_uuid(user.get("uuid"), field_name="user.uuid"),
+                    event_type="password_reset_request",
+                    success=False,
+                    failure_reason="rate_limited",
+                    email_attempted=normalized_email,
+                )
+                return
+        for token_record in existing_tokens:
+            token_row = _password_reset_namespace(token_record)
+            if token_row is None or token_row.used_at is not None or token_row.revoked_at is not None:
+                continue
+            updated_token = {**token_record, "revoked_at": now}
+            await repo.replace_record(
+                "password_reset_tokens",
+                uuid=token_row.id,
+                record=updated_token,
+            )
+
+        raw_token = _generate_reset_token()
+        expires_at = now + timedelta(minutes=60)
+        token_record = {
+            "uuid": str(uuid4()),
+            "user_id": str(user["uuid"]),
+            "token_hash": _hash_reset_token(raw_token),
+            "expires_at": expires_at,
+            "used_at": None,
+            "revoked_at": None,
+            "ip_address": None,
+            "user_agent": None,
+            "created_at": now,
+        }
+        await client.execute_query("CREATE password_reset_tokens CONTENT $record;", record=token_record)
+
+        from sibyl.config import settings as app_settings
+
+        reset_url = (
+            f"{app_settings.frontend_url.rstrip('/')}/reset-password?token={raw_token}"
+        )
+        template = PasswordResetEmail(
+            reset_url=reset_url,
+            user_name=str(user.get("name") or "") or None,
+            expires_in_minutes=60,
+        )
+        await get_email_client().send_template(template, to=str(user.get("email") or normalized_email))
+        await _log_login_history(
+            client,
+            user_id=_coerce_uuid(user.get("uuid"), field_name="user.uuid"),
+            event_type="password_reset_request",
+            success=True,
+            email_attempted=normalized_email,
+        )
+
+
+async def confirm_legacy_password_reset(token: str, new_password: str) -> None:
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        token_record = await repo.select_one(
+            "SELECT * FROM password_reset_tokens WHERE token_hash = $token_hash LIMIT 1;",
+            token_hash=_hash_reset_token(token),
+        )
+        reset_token = _password_reset_namespace(token_record)
+        if reset_token is None:
+            await _log_login_history(
+                client,
+                user_id=None,
+                event_type="password_reset_confirm",
+                success=False,
+                failure_reason="token_not_found",
+            )
+            raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+        now = _utcnow()
+        if reset_token.used_at is not None:
+            raise HTTPException(status_code=400, detail="This reset link has already been used")
+        if reset_token.revoked_at is not None:
+            raise HTTPException(status_code=400, detail="This reset link has been revoked")
+        if reset_token.expires_at is None or reset_token.expires_at < now:
+            raise HTTPException(status_code=400, detail="This reset link has expired")
+
+        user = await repo.select_one(
+            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;",
+            uuid=str(reset_token.user_id),
+        )
+        if user is None:
+            raise HTTPException(status_code=400, detail="User not found")
+
+        password_state = hash_password(new_password)
+        updated_user = {
+            **user,
+            "password_salt": password_state.salt_hex,
+            "password_hash": password_state.hash_hex,
+            "password_iterations": password_state.iterations,
+            "updated_at": now,
+        }
+        await repo.replace_record("users", uuid=reset_token.user_id, record=updated_user)
+
+        updated_token = {**token_record, "used_at": now}
+        await repo.replace_record(
+            "password_reset_tokens",
+            uuid=reset_token.id,
+            record=updated_token,
+        )
+        await _log_login_history(
+            client,
+            user_id=reset_token.user_id,
+            event_type="password_reset_confirm",
+            success=True,
+        )
+
+
+async def list_legacy_oauth_connections(*, user_id: UUID) -> list[SimpleNamespace]:
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        rows = await repo.select_many(
+            "SELECT * FROM oauth_connections WHERE user_id = $user_id ORDER BY created_at ASC;",
+            user_id=str(user_id),
+        )
+        return [row for record in rows if (row := _oauth_connection_namespace(record)) is not None]
+
+
+async def remove_legacy_oauth_connection(
+    *,
+    user_id: UUID,
+    connection_id: UUID,
+):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        record = await repo.select_one(
+            "SELECT * FROM oauth_connections WHERE uuid = $uuid AND user_id = $user_id LIMIT 1;",
+            uuid=str(connection_id),
+            user_id=str(user_id),
+        )
+        connection = _oauth_connection_namespace(record)
+        if connection is None:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        user = await repo.select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id))
+        remaining_connections = await repo.select_many(
+            "SELECT * FROM oauth_connections WHERE user_id = $user_id ORDER BY created_at ASC;",
+            user_id=str(user_id),
+        )
+        has_other_connections = any(str(row.get("uuid")) != str(connection_id) for row in remaining_connections)
+        has_password = bool(user and user.get("password_hash"))
+        if not has_other_connections and not has_password:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot remove last login method. Set a password first.",
+            )
+
+        await client.execute_query(
+            "DELETE FROM oauth_connections WHERE uuid = $uuid;",
+            uuid=str(connection_id),
+        )
+        return connection
 
 
 async def has_legacy_owner_membership(*, org_id: str, user_id: str | None) -> bool:
@@ -1748,7 +2275,11 @@ async def verify_legacy_entity_project_access(
         return effective_role
 
 
-async def _effective_project_role(repo: _SurrealRepository, ctx, project: dict[str, Any]) -> ProjectRole | None:
+async def _effective_project_role(
+    repo: _SurrealRepository,
+    ctx,
+    project: dict[str, Any],
+) -> ProjectRole | None:
     if _role_value(ctx.org_role) in _ORG_ADMIN_ROLE_VALUES:
         return ProjectRole.OWNER
     if _coerce_optional_uuid(project.get("owner_user_id")) == ctx.user.id:
@@ -1808,7 +2339,9 @@ __all__ = [
     "authenticate_legacy_local_user",
     "build_surreal_auth_client",
     "create_legacy_api_key_for_user",
+    "create_legacy_project_record",
     "create_legacy_session_record",
+    "delete_legacy_project_record",
     "deny_legacy_device_authorization",
     "ensure_legacy_personal_organization",
     "exchange_legacy_device_code",
@@ -1817,6 +2350,8 @@ __all__ = [
     "has_legacy_owner_membership",
     "list_legacy_accessible_project_graph_ids",
     "list_legacy_api_keys_for_user",
+    "list_legacy_oauth_connections",
+    "list_legacy_user_sessions",
     "list_legacy_user_organizations",
     "load_legacy_refresh_session_record",
     "log_legacy_audit_event",
@@ -1829,11 +2364,18 @@ __all__ = [
     "resolve_surreal_auth_context",
     "revoke_legacy_access_session",
     "revoke_legacy_api_key_for_user",
+    "revoke_legacy_user_session",
+    "revoke_all_legacy_user_sessions",
     "revoke_legacy_refresh_session_record",
     "rotate_legacy_refresh_exchange",
     "rotate_legacy_refresh_session_record",
     "signup_legacy_local_user",
     "start_legacy_device_authorization",
+    "patch_legacy_auth_user",
+    "request_legacy_password_reset",
+    "confirm_legacy_password_reset",
+    "remove_legacy_oauth_connection",
     "update_legacy_auth_user",
+    "update_legacy_project_record",
     "verify_legacy_entity_project_access",
 ]

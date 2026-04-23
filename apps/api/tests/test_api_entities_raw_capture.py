@@ -19,6 +19,8 @@ def _request() -> MagicMock:
 def _session() -> MagicMock:
     session = MagicMock()
     session.add = MagicMock()
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
     session.commit = AsyncMock()
     return session
 
@@ -49,7 +51,7 @@ async def test_quick_capture_creates_raw_archive_record() -> None:
     add_result.id = "episode_new"
     add_result.message = "ok"
 
-    session = _session()
+    content_session = _session()
 
     with (
         patch("sibyl_core.tools.core.add", AsyncMock(return_value=add_result)),
@@ -60,15 +62,14 @@ async def test_quick_capture_creates_raw_archive_record() -> None:
             entity=entity,
             org=org,
             ctx=ctx,
-            session=session,
+            content_session=content_session,
             sync=False,
         )
 
     assert resp.id == "episode_new"
-    session.add.assert_called_once()
-    session.commit.assert_awaited_once()
+    content_session.add.assert_called_once()
 
-    archive = session.add.call_args.args[0]
+    archive = content_session.add.call_args.args[0]
     assert isinstance(archive, RawCapture)
     assert archive.organization_id == org.id
     assert archive.entity_id == "episode_new"
@@ -106,7 +107,7 @@ async def test_regular_entity_create_does_not_archive_raw_capture() -> None:
     add_result.id = "episode_normal"
     add_result.message = "ok"
 
-    session = _session()
+    content_session = _session()
 
     with (
         patch("sibyl_core.tools.core.add", AsyncMock(return_value=add_result)),
@@ -117,10 +118,9 @@ async def test_regular_entity_create_does_not_archive_raw_capture() -> None:
             entity=entity,
             org=org,
             ctx=ctx,
-            session=session,
+            content_session=content_session,
             sync=False,
         )
 
     assert resp.id == "episode_normal"
-    session.add.assert_not_called()
-    session.commit.assert_not_awaited()
+    content_session.add.assert_not_called()

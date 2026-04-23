@@ -17,7 +17,7 @@ async def test_entities_create_passes_task_fields_to_add() -> None:
     request.headers = {}
     request.cookies = {}
 
-    session = AsyncMock()
+    content_session = AsyncMock()
     ctx = MagicMock()
 
     entity = EntityCreate(
@@ -49,7 +49,7 @@ async def test_entities_create_passes_task_fields_to_add() -> None:
             entity=entity,
             org=org,
             ctx=ctx,
-            session=session,
+            content_session=content_session,
             sync=False,
         )
 
