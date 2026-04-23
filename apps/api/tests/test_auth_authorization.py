@@ -550,7 +550,7 @@ class TestRequireProjectRole:
         monkeypatch.setattr(authorization_module.settings, "auth_store", "surreal")
         monkeypatch.setattr(
             authorization_module,
-            "_resolve_surreal_project_by_graph_id",
+            "get_legacy_project_record_by_graph_id",
             resolve_project,
         )
         monkeypatch.setattr(
@@ -567,7 +567,10 @@ class TestRequireProjectRole:
         result = await dep(request=request, ctx=ctx)
 
         assert result is project
-        resolve_project.assert_awaited_once_with(ctx.organization.id, "project_abc123")
+        resolve_project.assert_awaited_once_with(
+            organization_id=ctx.organization.id,
+            graph_project_id="project_abc123",
+        )
         verify_access.assert_awaited_once_with(
             ctx=ctx,
             entity_project_id="project_abc123",

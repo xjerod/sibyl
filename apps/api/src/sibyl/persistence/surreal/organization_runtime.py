@@ -19,18 +19,14 @@ from sibyl.auth.jwt import create_access_token, create_refresh_token
 from sibyl.auth.organizations import slugify
 from sibyl.db.models import OrganizationRole, ProjectRole, User
 from sibyl.persistence.auth_runtime import log_legacy_audit_event
-from sibyl.persistence.legacy.org_invitations import (
+from sibyl.persistence.legacy.graph import ensure_graph_indexes as ensure_legacy_graph_indexes
+from sibyl.persistence.organization_common import (
     LegacyInvitationAcceptance,
     LegacyInvitationRecord,
-)
-from sibyl.persistence.legacy.org_members import LegacyOrgMemberChange
-from sibyl.persistence.legacy.orgs import (
     LegacyOrgAuthResult,
+    LegacyOrgMemberChange,
     LegacyOrgRoleResult,
     LegacyOrgSummary,
-    ensure_graph_indexes as ensure_legacy_graph_indexes,
-)
-from sibyl.persistence.legacy.project_members import (
     LegacyProjectMemberChange,
     LegacyProjectMembersResult,
     can_manage_legacy_project_members,
@@ -258,6 +254,13 @@ async def list_legacy_orgs(*, user_id: UUID) -> list[LegacyOrgSummary]:
             )
         summaries.sort(key=lambda item: item.slug)
         return summaries
+
+
+async def list_legacy_org_ids() -> list[str]:
+    async with _auth_client_scope() as client:
+        orgs = SurrealOrganizationRepository.from_client(client)
+        organizations = await orgs.list_all(limit=100_000)
+        return [str(org.id) for org in organizations]
 
 
 async def create_legacy_org(

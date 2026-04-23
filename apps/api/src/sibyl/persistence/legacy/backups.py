@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -13,15 +12,7 @@ from sqlmodel import col
 
 from sibyl.db.connection import get_session
 from sibyl.db.models import Backup, BackupSettings, BackupStatus
-
-
-@dataclass(frozen=True, slots=True)
-class BackupListResult:
-    backups: list[Backup]
-    total: int
-
-
-LegacyBackupList = BackupListResult
+from sibyl.persistence.backups_common import BackupListResult, LegacyBackupList
 
 
 def _utcnow() -> datetime:

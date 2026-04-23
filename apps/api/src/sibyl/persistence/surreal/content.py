@@ -19,8 +19,7 @@ from sibyl.db.models import (
     RawCapture,
     SourceType,
 )
-from sibyl.persistence.legacy.crawler import LegacyCrawlStats
-from sibyl.persistence.legacy.entities import LegacyDocumentEntityRecord
+from sibyl.persistence.content_common import LegacyCrawlStats, LegacyDocumentEntityRecord
 from sibyl_core.backends.surreal import SurrealContentClient
 from sibyl_core.retrieval.dedup import cosine_similarity
 from sibyl_core.services.link_graph_status import LinkGraphSourceStatusData, LinkGraphStatusData

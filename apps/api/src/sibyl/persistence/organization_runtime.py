@@ -6,7 +6,9 @@ from importlib import import_module
 from typing import Any
 
 from sibyl.config import settings
-from sibyl.db.models import ProjectRole
+from sibyl.persistence.organization_common import (
+    can_manage_legacy_project_members as _can_manage_legacy_project_members,
+)
 
 _RUNTIME_EXPORTS = [
     "accept_legacy_org_invitation",
@@ -17,6 +19,7 @@ _RUNTIME_EXPORTS = [
     "delete_legacy_org",
     "delete_legacy_org_invitation",
     "get_legacy_org",
+    "list_legacy_org_ids",
     "list_legacy_org_invitations",
     "list_legacy_org_members",
     "list_legacy_orgs",
@@ -51,6 +54,7 @@ _BACKEND_EXPORTS: dict[str, dict[str, tuple[str, str]]] = {
             "delete_legacy_org_invitation",
         ),
         "get_legacy_org": ("sibyl.persistence.legacy.orgs", "get_legacy_org"),
+        "list_legacy_org_ids": ("sibyl.persistence.legacy.orgs", "list_legacy_org_ids"),
         "list_legacy_org_invitations": (
             "sibyl.persistence.legacy.org_invitations",
             "list_legacy_org_invitations",
@@ -90,23 +94,12 @@ _BACKEND_EXPORTS: dict[str, dict[str, tuple[str, str]]] = {
 
 __all__ = list(_RUNTIME_EXPORTS)
 __all__.insert(0, "can_manage_legacy_project_members")
+can_manage_legacy_project_members = _can_manage_legacy_project_members
 
 
 def _resolve_backend_export(name: str) -> Any:
     module_path, attr_name = _BACKEND_EXPORTS[settings.auth_store][name]
     return getattr(import_module(module_path), attr_name)
-
-
-def can_manage_legacy_project_members(
-    role: ProjectRole | None,
-    project: Any,
-    user: Any,
-) -> bool:
-    """Return whether the actor can manage project members."""
-    if project.owner_user_id == user.id:
-        return True
-    return role in {ProjectRole.OWNER, ProjectRole.MAINTAINER}
-
 
 def _make_runtime_proxy(name: str) -> Any:
     async def _proxy(*args: object, **kwargs: object) -> object:

@@ -246,15 +246,16 @@ async def apply_rls_from_auth_context(
 
 
 class AuthSession:
-    """Container for authenticated session with RLS context.
+    """Container for authenticated context plus an optional database session.
 
-    Provides both AuthContext and a database session with RLS variables set.
-    Use as a single dependency instead of separate auth + session dependencies.
+    In PostgreSQL mode, ``session`` carries an RLS-configured ``AsyncSession``.
+    In surreal mode, request-time authorization stays on graph-backed adapters,
+    so ``session`` is ``None``.
     """
 
     __slots__ = ("ctx", "session")
 
-    def __init__(self, ctx: AuthContext, session: AsyncSession) -> None:
+    def __init__(self, ctx: AuthContext, session: AsyncSession | None) -> None:
         self.ctx = ctx
         self.session = session
 

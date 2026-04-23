@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -21,6 +20,11 @@ from sibyl.auth.sessions import SessionManager
 from sibyl.db.connection import get_session
 from sibyl.db.models import Organization, OrganizationMember, OrganizationRole
 from sibyl.persistence.legacy.graph import ensure_graph_indexes as _service_ensure_graph_indexes
+from sibyl.persistence.organization_common import (
+    LegacyOrgAuthResult,
+    LegacyOrgRoleResult,
+    LegacyOrgSummary,
+)
 
 log = structlog.get_logger()
 
@@ -31,33 +35,6 @@ async def ensure_legacy_graph_indexes(group_id: str) -> None:
 
 async def ensure_graph_indexes(group_id: str) -> None:
     await ensure_legacy_graph_indexes(group_id)
-
-
-@dataclass
-class LegacyOrgSummary:
-    id: UUID
-    slug: str
-    name: str
-    is_personal: bool = False
-    role: OrganizationRole | None = None
-
-
-@dataclass
-class LegacyOrgAuthResult:
-    id: UUID
-    slug: str
-    name: str
-    access_token: str
-    refresh_token: str
-    refresh_expires: datetime
-
-
-@dataclass
-class LegacyOrgRoleResult:
-    id: UUID
-    slug: str
-    name: str
-    role: OrganizationRole
 
 
 async def _rotate_or_create_org_session(
@@ -144,6 +121,12 @@ async def list_legacy_orgs(*, user_id: UUID) -> list[LegacyOrgSummary]:
             )
             for org, role in result.all()
         ]
+
+
+async def list_legacy_org_ids() -> list[str]:
+    async with get_session() as session:
+        result = await session.execute(select(Organization.id).order_by(col(Organization.created_at).asc()))
+        return [str(org_id) for org_id in result.scalars().all()]
 
 
 async def create_legacy_org(

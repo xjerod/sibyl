@@ -1501,6 +1501,20 @@ async def _generate_unique_project_slug(
     return f"{base_slug[:55]}-{secrets.token_hex(4)}"
 
 
+def _project_record_namespace(record: dict[str, Any]) -> SimpleNamespace:
+    owner_user_id = _coerce_optional_uuid(record.get("owner_user_id"))
+    return SimpleNamespace(
+        id=_coerce_uuid(record.get("uuid"), field_name="projects.uuid"),
+        organization_id=_coerce_uuid(record.get("organization_id"), field_name="projects.organization_id"),
+        graph_project_id=str(record.get("graph_project_id") or ""),
+        name=record.get("name"),
+        description=record.get("description"),
+        visibility=ProjectVisibility(str(record.get("visibility") or ProjectVisibility.ORG.value)),
+        default_role=ProjectRole(str(record.get("default_role") or ProjectRole.VIEWER.value)),
+        owner_user_id=owner_user_id,
+    )
+
+
 async def create_legacy_project_record(
     *,
     organization_id: UUID,
@@ -1619,6 +1633,44 @@ async def delete_legacy_project_record(
             organization_id=str(organization_id),
         )
         return True
+
+
+async def get_legacy_project_record_by_graph_id(
+    *,
+    organization_id: UUID,
+    graph_project_id: str,
+):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        record = await repo.select_one(
+            "SELECT * FROM projects "
+            "WHERE organization_id = $organization_id AND graph_project_id = $graph_project_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            graph_project_id=graph_project_id,
+        )
+        if record is None:
+            raise HTTPException(status_code=404, detail=f"Project not found: {graph_project_id}")
+        return _project_record_namespace(record)
+
+
+async def get_legacy_project_record_by_id(
+    *,
+    organization_id: UUID,
+    project_id: UUID,
+):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        record = await repo.select_one(
+            "SELECT * FROM projects "
+            "WHERE organization_id = $organization_id AND uuid = $project_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            project_id=str(project_id),
+        )
+        if record is None:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        return _project_record_namespace(record)
 
 
 async def list_legacy_api_keys_for_user(*, organization_id: UUID, user_id: UUID):
@@ -2350,6 +2402,8 @@ __all__ = [
     "ensure_legacy_personal_organization",
     "exchange_legacy_device_code",
     "get_legacy_device_request_by_user_code",
+    "get_legacy_project_record_by_graph_id",
+    "get_legacy_project_record_by_id",
     "get_legacy_user_by_id",
     "has_legacy_owner_membership",
     "list_legacy_accessible_project_graph_ids",

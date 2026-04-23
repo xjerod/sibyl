@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -13,31 +12,11 @@ from starlette.requests import Request
 from sibyl.auth.audit import AuditLogger
 from sibyl.db.connection import get_session
 from sibyl.db.models import Project, ProjectMember, ProjectRole, User
-
-
-@dataclass
-class LegacyProjectMembersResult:
-    members: list[dict[str, object]]
-    can_manage: bool
-
-
-@dataclass
-class LegacyProjectMemberChange:
-    org_id: UUID
-    project_db_id: UUID
-    user_id: UUID
-    role: ProjectRole | None = None
-
-
-def can_manage_legacy_project_members(
-    role: ProjectRole | None,
-    project: Project,
-    user: User,
-) -> bool:
-    """Return whether the actor can manage project members."""
-    if project.owner_user_id == user.id:
-        return True
-    return role in {ProjectRole.OWNER, ProjectRole.MAINTAINER}
+from sibyl.persistence.organization_common import (
+    LegacyProjectMemberChange,
+    LegacyProjectMembersResult,
+    can_manage_legacy_project_members,
+)
 
 
 async def _resolve_legacy_project(

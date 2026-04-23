@@ -90,3 +90,50 @@ async def test_auth_runtime_dispatches_oauth_listing_to_postgres_helper(
 
     assert result is expected
     dispatched.assert_awaited_once_with(user_id=user_id)
+
+
+@pytest.mark.asyncio
+async def test_auth_runtime_dispatches_project_lookup_by_graph_id_to_surreal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid4()
+    expected = object()
+    dispatched = AsyncMock(return_value=expected)
+
+    monkeypatch.setattr(auth_runtime.settings, "auth_store", "surreal")
+    monkeypatch.setattr(surreal_auth_runtime, "get_legacy_project_record_by_graph_id", dispatched)
+
+    result = await auth_runtime.get_legacy_project_record_by_graph_id(
+        organization_id=organization_id,
+        graph_project_id="project_abc123",
+    )
+
+    assert result is expected
+    dispatched.assert_awaited_once_with(
+        organization_id=organization_id,
+        graph_project_id="project_abc123",
+    )
+
+
+@pytest.mark.asyncio
+async def test_auth_runtime_dispatches_project_lookup_by_id_to_postgres_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid4()
+    project_id = uuid4()
+    expected = object()
+    dispatched = AsyncMock(return_value=expected)
+
+    monkeypatch.setattr(auth_runtime.settings, "auth_store", "postgres")
+    monkeypatch.setattr(legacy_auth_runtime, "get_legacy_project_record_by_id", dispatched)
+
+    result = await auth_runtime.get_legacy_project_record_by_id(
+        organization_id=organization_id,
+        project_id=project_id,
+    )
+
+    assert result is expected
+    dispatched.assert_awaited_once_with(
+        organization_id=organization_id,
+        project_id=project_id,
+    )

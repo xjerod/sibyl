@@ -11,7 +11,13 @@ from sibyl.auth.audit import AuditLogger
 from sibyl.auth.sessions import SessionManager
 from sibyl.auth.users import UserManager
 from sibyl.db.connection import get_session
-from sibyl.db.project_sync import sync_project_create, sync_project_delete, sync_project_update
+from sibyl.db.models import Project
+from sibyl.db.project_sync import (
+    get_postgres_project_by_graph_id,
+    sync_project_create,
+    sync_project_delete,
+    sync_project_update,
+)
 from sibyl.persistence.legacy.users import (
     confirm_legacy_password_reset as legacy_confirm_password_reset,
     list_legacy_oauth_connections as legacy_list_oauth_connections,
@@ -126,6 +132,34 @@ async def delete_legacy_project_record(
             organization_id=organization_id,
             graph_project_id=graph_project_id,
         )
+
+
+async def get_legacy_project_record_by_graph_id(
+    *,
+    organization_id: UUID,
+    graph_project_id: str,
+):
+    async with get_session() as session:
+        project = await get_postgres_project_by_graph_id(
+            session,
+            organization_id=organization_id,
+            graph_project_id=graph_project_id,
+        )
+        if project is None:
+            raise HTTPException(status_code=404, detail=f"Project not found: {graph_project_id}")
+        return project
+
+
+async def get_legacy_project_record_by_id(
+    *,
+    organization_id: UUID,
+    project_id: UUID,
+):
+    async with get_session() as session:
+        project = await session.get(Project, project_id)
+        if project is None or project.organization_id != organization_id:
+            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+        return project
 
 
 async def list_legacy_user_sessions(

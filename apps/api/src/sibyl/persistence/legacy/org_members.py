@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -14,13 +13,7 @@ from sibyl.auth.memberships import OrganizationMembershipManager
 from sibyl.auth.organizations import OrganizationManager
 from sibyl.db.connection import get_session
 from sibyl.db.models import OrganizationMember, OrganizationRole, User
-
-
-@dataclass
-class LegacyOrgMemberChange:
-    org_id: UUID
-    user_id: UUID
-    role: OrganizationRole | None = None
+from sibyl.persistence.organization_common import LegacyOrgMemberChange
 
 
 async def _get_org_and_member(

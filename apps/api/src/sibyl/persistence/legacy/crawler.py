@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -11,16 +10,8 @@ from sqlmodel import col
 
 from sibyl.db import CrawledDocument, CrawlSource, CrawlStatus, DocumentChunk
 from sibyl.db.models import SourceType
+from sibyl.persistence.content_common import LegacyCrawlStats
 from sibyl_core.services.link_graph_status import get_link_graph_status_data
-
-
-@dataclass(frozen=True)
-class LegacyCrawlStats:
-    total_sources: int
-    total_documents: int
-    total_chunks: int
-    chunks_with_embeddings: int
-    sources_by_status: dict[str, int]
 
 
 async def get_org_crawl_source(

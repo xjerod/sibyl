@@ -12,7 +12,6 @@ Inheritance rules:
 """
 
 from collections.abc import Callable
-from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -36,6 +35,8 @@ from sibyl.db.models import (
 )
 from sibyl.db.sync import get_graph_projects
 from sibyl.persistence.auth_runtime import (
+    get_legacy_project_record_by_graph_id,
+    get_legacy_project_record_by_id,
     list_legacy_accessible_project_graph_ids,
     verify_legacy_entity_project_access,
 )
@@ -140,93 +141,6 @@ async def get_project_by_id(
         )
 
     return project
-
-
-def _normalize_surreal_records(result: Any) -> list[dict[str, Any]]:
-    if result is None:
-        return []
-    if isinstance(result, dict):
-        result = [result]
-    if not isinstance(result, list):
-        return []
-
-    records: list[dict[str, Any]] = []
-    for item in result:
-        if isinstance(item, list):
-            nested_items = item
-        else:
-            nested_items = [item]
-        for nested in nested_items:
-            if not isinstance(nested, dict):
-                continue
-            record = dict(nested)
-            record.pop("id", None)
-            records.append(record)
-    return records
-
-
-def _project_from_surreal_record(record: dict[str, Any]) -> Any:
-    owner_user_id = record.get("owner_user_id")
-    return SimpleNamespace(
-        id=UUID(str(record["uuid"])),
-        organization_id=UUID(str(record["organization_id"])),
-        graph_project_id=str(record.get("graph_project_id") or ""),
-        name=record.get("name"),
-        description=record.get("description"),
-        visibility=ProjectVisibility(str(record.get("visibility") or ProjectVisibility.ORG.value)),
-        default_role=ProjectRole(str(record.get("default_role") or ProjectRole.VIEWER.value)),
-        owner_user_id=UUID(str(owner_user_id)) if owner_user_id else None,
-    )
-
-
-async def _resolve_surreal_project_by_graph_id(org_id: UUID, graph_project_id: str) -> Any:
-    from sibyl.persistence.surreal.auth import build_surreal_auth_client
-
-    client = build_surreal_auth_client()
-    try:
-        records = _normalize_surreal_records(
-            await client.execute_query(
-                "SELECT * FROM projects "
-                "WHERE organization_id = $organization_id AND graph_project_id = $graph_project_id "
-                "LIMIT 1;",
-                organization_id=str(org_id),
-                graph_project_id=graph_project_id,
-            )
-        )
-    finally:
-        await client.close()
-
-    if not records:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project not found: {graph_project_id}",
-        )
-    return _project_from_surreal_record(records[0])
-
-
-async def _resolve_surreal_project_by_id(org_id: UUID, project_id: UUID) -> Any:
-    from sibyl.persistence.surreal.auth import build_surreal_auth_client
-
-    client = build_surreal_auth_client()
-    try:
-        records = _normalize_surreal_records(
-            await client.execute_query(
-                "SELECT * FROM projects "
-                "WHERE organization_id = $organization_id AND uuid = $project_id "
-                "LIMIT 1;",
-                organization_id=str(org_id),
-                project_id=str(project_id),
-            )
-        )
-    finally:
-        await client.close()
-
-    if not records:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project not found: {project_id}",
-        )
-    return _project_from_surreal_record(records[0])
 
 
 # =============================================================================
@@ -466,8 +380,9 @@ def require_project_role(
 
         if settings.auth_store == "surreal":
             if use_graph_id:
-                project = await _resolve_surreal_project_by_graph_id(
-                    ctx.organization.id, project_id_value
+                project = await get_legacy_project_record_by_graph_id(
+                    organization_id=ctx.organization.id,
+                    graph_project_id=project_id_value,
                 )
             else:
                 try:
@@ -477,7 +392,10 @@ def require_project_role(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Invalid project ID format: {project_id_value}",
                     ) from e
-                project = await _resolve_surreal_project_by_id(ctx.organization.id, project_uuid)
+                project = await get_legacy_project_record_by_id(
+                    organization_id=ctx.organization.id,
+                    project_id=project_uuid,
+                )
 
             graph_project_id = str(project.graph_project_id or "").strip()
             if not graph_project_id:

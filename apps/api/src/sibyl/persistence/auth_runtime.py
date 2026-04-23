@@ -84,6 +84,8 @@ __all__ = [
     "ensure_legacy_personal_organization",
     "exchange_legacy_device_code",
     "get_legacy_device_request_by_user_code",
+    "get_legacy_project_record_by_graph_id",
+    "get_legacy_project_record_by_id",
     "get_legacy_user_by_id",
     "has_legacy_owner_membership",
     "list_legacy_accessible_project_graph_ids",
@@ -253,6 +255,30 @@ async def delete_legacy_project_record(
         "delete_legacy_project_record",
         organization_id=organization_id,
         graph_project_id=graph_project_id,
+    )
+
+
+async def get_legacy_project_record_by_graph_id(
+    *,
+    organization_id: UUID,
+    graph_project_id: str,
+) -> Any:
+    return await _call_runtime_helper(
+        "get_legacy_project_record_by_graph_id",
+        organization_id=organization_id,
+        graph_project_id=graph_project_id,
+    )
+
+
+async def get_legacy_project_record_by_id(
+    *,
+    organization_id: UUID,
+    project_id: UUID,
+) -> Any:
+    return await _call_runtime_helper(
+        "get_legacy_project_record_by_id",
+        organization_id=organization_id,
+        project_id=project_id,
     )
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -19,25 +18,10 @@ from sibyl.auth.organizations import OrganizationManager
 from sibyl.auth.sessions import SessionManager
 from sibyl.db.connection import get_session
 from sibyl.db.models import OrganizationRole, User
-
-
-@dataclass
-class LegacyInvitationRecord:
-    id: UUID
-    email: str
-    role: OrganizationRole
-    created_at: datetime | None = None
-    expires_at: datetime | None = None
-    accept_url: str | None = None
-
-
-@dataclass
-class LegacyInvitationAcceptance:
-    access_token: str
-    refresh_token: str
-    refresh_expires: datetime
-    organization_id: UUID
-    invitation_id: UUID
+from sibyl.persistence.organization_common import (
+    LegacyInvitationAcceptance,
+    LegacyInvitationRecord,
+)
 
 
 async def _require_org_admin(*, slug: str, user_id: UUID) -> UUID:

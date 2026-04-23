@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -11,16 +10,7 @@ from sqlmodel import col, select
 
 from sibyl.db import CrawledDocument, CrawlSource, DocumentChunk
 from sibyl.db.models import ChunkType, RawCapture
-
-
-@dataclass(frozen=True)
-class LegacyDocumentEntityRecord:
-    """Resolved document-backed entity payload for entity routes."""
-
-    chunk: Any
-    document: Any
-    source: Any
-    content: str
+from sibyl.persistence.content_common import LegacyDocumentEntityRecord
 
 
 async def list_legacy_raw_captures(

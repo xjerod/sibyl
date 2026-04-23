@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from starlette.requests import Request
 
-from sibyl.auth import dependencies
+from sibyl.auth import dependencies, rls
 
 
 def _make_request(*, user_id: str, org_id: str) -> Request:
@@ -79,3 +79,38 @@ async def test_get_current_user_uses_surreal_lookup_without_postgres(
 
     assert result is expected_user
     get_legacy_user_by_id.assert_awaited_once_with(user_id)
+
+
+@pytest.mark.asyncio
+async def test_get_auth_session_uses_surreal_context_without_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    request = _make_request(user_id=str(user_id), org_id=str(org_id))
+    expected_ctx = SimpleNamespace(
+        user=SimpleNamespace(id=user_id),
+        organization=SimpleNamespace(id=org_id),
+    )
+
+    @asynccontextmanager
+    async def fail_get_session():
+        raise AssertionError("postgres session should stay off in surreal auth mode")
+        yield
+
+    build_auth_context = AsyncMock(return_value=expected_ctx)
+
+    monkeypatch.setattr(rls.settings, "store", "surreal")
+    monkeypatch.setattr(dependencies.settings, "auth_store", "surreal")
+    monkeypatch.setattr(rls, "get_session", fail_get_session)
+    monkeypatch.setattr(dependencies, "build_auth_context", build_auth_context)
+
+    generator = rls.get_auth_session(request)
+    auth_session = await anext(generator)
+
+    assert auth_session.ctx is expected_ctx
+    assert auth_session.session is None
+    build_auth_context.assert_awaited_once_with(request, None)
+
+    with pytest.raises(StopAsyncIteration):
+        await anext(generator)

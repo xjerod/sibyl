@@ -45,6 +45,26 @@ async def test_organization_runtime_dispatches_org_reads_to_surreal(
 
 
 @pytest.mark.asyncio
+async def test_organization_runtime_dispatches_org_id_reads_to_surreal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = ["org-1", "org-2"]
+    dispatched = AsyncMock(return_value=expected)
+
+    monkeypatch.setattr(organization_runtime.settings, "auth_store", "surreal")
+    monkeypatch.setattr(
+        surreal_organization_runtime,
+        "list_legacy_org_ids",
+        dispatched,
+    )
+
+    result = await organization_runtime.list_legacy_org_ids()
+
+    assert result == expected
+    dispatched.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_organization_runtime_dispatches_org_delete_to_surreal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -173,6 +193,38 @@ async def test_surreal_list_legacy_orgs_materializes_roles(
     assert [org.slug for org in result] == ["alpha", "zeta"]
     assert result[0].role == OrganizationRole.OWNER
     assert result[1].role == OrganizationRole.VIEWER
+
+
+@pytest.mark.asyncio
+async def test_surreal_list_legacy_org_ids_uses_repository_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organizations = [
+        SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111")),
+        SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222")),
+    ]
+
+    class FakeClient:
+        async def close(self) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_scope():
+        yield FakeClient()
+
+    org_repo = SimpleNamespace(list_all=AsyncMock(return_value=organizations))
+
+    monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
+    monkeypatch.setattr(
+        surreal_organization_runtime.SurrealOrganizationRepository,
+        "from_client",
+        lambda _client: org_repo,
+    )
+
+    result = await surreal_organization_runtime.list_legacy_org_ids()
+
+    org_repo.list_all.assert_awaited_once_with(limit=100_000)
+    assert result == [str(org.id) for org in organizations]
 
 
 @pytest.mark.asyncio

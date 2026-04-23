@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from sibyl.config import settings as app_settings
 from sibyl.db.models import Backup, BackupSettings, BackupStatus
-from sibyl.persistence.legacy.backups import BackupListResult
+from sibyl.persistence.backups_common import BackupListResult
 from sibyl.persistence.surreal.content import (
     _coerce_bool,
     _coerce_datetime,
