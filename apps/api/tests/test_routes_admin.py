@@ -34,7 +34,7 @@ async def test_health_passes_org_context_to_core_health() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stats_uses_legacy_graph_stats_payload() -> None:
+async def test_stats_uses_graph_stats_payload() -> None:
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     mock_get_stats = AsyncMock(
         return_value={
@@ -43,7 +43,7 @@ async def test_stats_uses_legacy_graph_stats_payload() -> None:
         }
     )
 
-    with patch("sibyl.api.routes.admin.get_legacy_graph_stats_payload", mock_get_stats):
+    with patch("sibyl.api.routes.admin.get_graph_stats_payload", mock_get_stats):
         response = await stats(org=org)
 
     assert response.total_entities == 5
@@ -52,12 +52,12 @@ async def test_stats_uses_legacy_graph_stats_payload() -> None:
 
 
 @pytest.mark.asyncio
-async def test_debug_query_uses_legacy_debug_runner() -> None:
+async def test_debug_query_uses_debug_runner() -> None:
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     request = DebugQueryRequest(cypher="MATCH (n) RETURN n LIMIT 1", params={"limit": 1})
     mock_execute = AsyncMock(return_value=[{"value": ("node",)}])
 
-    with patch("sibyl.api.routes.admin.execute_legacy_debug_query", mock_execute):
+    with patch("sibyl.api.routes.admin.execute_debug_query", mock_execute):
         response = await debug_query(request=request, org=org)
 
     assert response.rows == [{"value": ("node",)}]

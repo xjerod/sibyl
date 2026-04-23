@@ -28,8 +28,8 @@ from sibyl.persistence.content_runtime import (
     save_crawl_source_record,
 )
 from sibyl.persistence.graph_runtime import (
-    execute_legacy_debug_query,
-    get_graph_stats_payload as _service_get_graph_stats_payload,
+    execute_debug_query,
+    get_graph_stats_payload,
 )
 
 log = structlog.get_logger()
@@ -43,14 +43,6 @@ router = APIRouter(
 # Role sets for different permission levels
 _READ_ROLES = (OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MEMBER)
 _ADMIN_ROLES = (OrganizationRole.OWNER, OrganizationRole.ADMIN)
-
-
-async def get_legacy_graph_stats_payload(group_id: str) -> dict[str, object]:
-    return await _service_get_graph_stats_payload(group_id)
-
-
-async def get_graph_stats_payload(group_id: str) -> dict[str, object]:
-    return await get_legacy_graph_stats_payload(group_id)
 
 
 @router.get(
@@ -290,7 +282,7 @@ async def debug_query(
         )
 
     try:
-        rows = await execute_legacy_debug_query(
+        rows = await execute_debug_query(
             request.cypher,
             group_id=str(org.id),
             **request.params,
