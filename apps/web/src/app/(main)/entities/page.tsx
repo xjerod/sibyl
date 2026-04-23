@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 
 import { EntitiesSkeleton } from '@/components/suspense-boundary';
-import type { EntitySortField, SortOrder } from '@/lib/api';
+import type { EntityListResponse, EntitySortField, SortOrder, StatsResponse } from '@/lib/api';
 import { fetchEntities, fetchStats } from '@/lib/api-server';
 import { EntitiesContent } from './entities-content';
 
@@ -40,6 +40,17 @@ export default async function EntitiesPage({ searchParams }: PageProps) {
   const sortOrder: SortOrder = VALID_SORT_ORDERS.includes(params.sort_order as SortOrder)
     ? (params.sort_order as SortOrder)
     : 'desc';
+  const fallbackEntities: EntityListResponse = {
+    entities: [],
+    total: 0,
+    page,
+    page_size: limit,
+    has_more: false,
+  };
+  const fallbackStats: StatsResponse = {
+    entity_counts: {},
+    total_entities: 0,
+  };
 
   // Server-side parallel fetch
   const [entities, stats] = await Promise.all([
@@ -51,8 +62,8 @@ export default async function EntitiesPage({ searchParams }: PageProps) {
       page_size: limit,
       sort_by: sortBy,
       sort_order: sortOrder,
-    }),
-    fetchStats(),
+    }).catch(() => fallbackEntities),
+    fetchStats().catch(() => fallbackStats),
   ]);
 
   return (
