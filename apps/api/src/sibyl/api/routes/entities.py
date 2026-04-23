@@ -37,7 +37,7 @@ from sibyl.db.models import Organization, OrganizationRole, RawCapture
 from sibyl.persistence.auth_runtime import (
     create_project_record,
     delete_project_record,
-    log_legacy_audit_event,
+    log_audit_event,
     update_project_record,
 )
 from sibyl.persistence.content_runtime import (
@@ -952,7 +952,7 @@ async def create_entity(
                 name=created.name,
                 description=created.description,
             )
-            await log_legacy_audit_event(
+            await log_audit_event(
                 action="project.create",
                 user_id=ctx.user.id,
                 organization_id=org.id,
@@ -1072,7 +1072,7 @@ async def update_entity(
                     name=response.name,
                     description=response.description,
                 )
-                await log_legacy_audit_event(
+                await log_audit_event(
                     action="project.update",
                     user_id=ctx.user.id,
                     organization_id=org.id,
@@ -1141,7 +1141,7 @@ async def delete_entity(
             )
 
             if existing.entity_type == EntityType.PROJECT:
-                await log_legacy_audit_event(
+                await log_audit_event(
                     action="project.delete",
                     user_id=ctx.user.id,
                     organization_id=org.id,

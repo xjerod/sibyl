@@ -72,7 +72,7 @@ async def test_create_project_routes_through_runtime_project_record() -> None:
         patch("sibyl.api.routes.entities.get_legacy_entity_runtime", AsyncMock(return_value=runtime)),
         patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
         patch("sibyl.api.routes.entities.create_project_record", AsyncMock()) as create_project,
-        patch("sibyl.api.routes.entities.log_legacy_audit_event", AsyncMock()) as audit_log,
+        patch("sibyl.api.routes.entities.log_audit_event", AsyncMock()) as audit_log,
     ):
         response = await create_entity(
             request=_request(),
@@ -113,7 +113,7 @@ async def test_update_project_routes_through_runtime_project_record() -> None:
         patch("sibyl.api.routes.entities.verify_entity_project_access", AsyncMock()) as verify_access,
         patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
         patch("sibyl.api.routes.entities.update_project_record", AsyncMock()) as update_project,
-        patch("sibyl.api.routes.entities.log_legacy_audit_event", AsyncMock()) as audit_log,
+        patch("sibyl.api.routes.entities.log_audit_event", AsyncMock()) as audit_log,
     ):
         response = await update_entity(
             entity_id="project_new",
@@ -158,7 +158,7 @@ async def test_delete_project_routes_through_runtime_project_record() -> None:
         patch("sibyl.api.routes.entities.verify_entity_project_access", AsyncMock()) as verify_access,
         patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
         patch("sibyl.api.routes.entities.delete_project_record", AsyncMock()) as delete_project,
-        patch("sibyl.api.routes.entities.log_legacy_audit_event", AsyncMock()) as audit_log,
+        patch("sibyl.api.routes.entities.log_audit_event", AsyncMock()) as audit_log,
     ):
         await delete_entity(
             entity_id="project_new",
