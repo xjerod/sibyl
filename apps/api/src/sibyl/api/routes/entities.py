@@ -1,7 +1,7 @@
 """Entity CRUD endpoints.
 
 Full create, read, update, delete operations for all entity types.
-Transparently handles both graph entities (FalkorDB) and document chunks (Postgres).
+Transparently handles both graph entities (FalkorDB) and relational document chunks.
 """
 
 from datetime import UTC, datetime
@@ -667,7 +667,7 @@ async def get_entity(
 
     Transparently handles both:
     - Graph entities (stored in FalkorDB)
-    - Document chunks (stored in Postgres via crawler)
+    - Document chunks (stored in the content runtime via crawler)
 
     Always includes up to 5 related entities from the knowledge graph.
     """

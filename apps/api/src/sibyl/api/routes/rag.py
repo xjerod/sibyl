@@ -97,7 +97,7 @@ async def rag_search(
 ) -> RAGSearchResponse:
     """Semantic search over document chunks.
 
-    Uses pgvector for similarity search with optional source filtering.
+    Uses the active content search runtime for similarity search with optional source filtering.
     Supports returning chunks or grouping by page.
     Results are scoped to the user's organization.
     """
@@ -459,8 +459,8 @@ async def hybrid_search(
     """Hybrid search combining vector similarity and full-text search.
 
     Uses RRF (Reciprocal Rank Fusion) to combine results from:
-    - Vector similarity (pgvector cosine distance)
-    - Full-text search (PostgreSQL tsvector)
+    - Vector similarity
+    - Keyword search
 
     Results are scoped to the user's organization.
     """

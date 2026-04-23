@@ -49,7 +49,7 @@ async def search(
     """Unified semantic search across knowledge graph AND documentation.
 
     Searches both Sibyl's knowledge graph (patterns, rules, episodes, tasks)
-    and crawled documentation (via pgvector). Results are merged and ranked
+    and crawled documentation (via the active content search runtime). Results are merged and ranked
     by relevance score.
 
     Results are filtered to only include entities from projects the user

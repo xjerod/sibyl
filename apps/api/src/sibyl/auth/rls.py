@@ -1,6 +1,6 @@
 """Row-Level Security (RLS) session variable management.
 
-Sets PostgreSQL session variables (app.user_id, app.org_id) so RLS policies
+Sets relational session variables (app.user_id, app.org_id) so RLS policies
 can filter rows based on the authenticated user's context.
 
 Usage:
@@ -48,7 +48,7 @@ async def set_rls_context(
 ) -> None:
     """Set RLS session variables on a database connection.
 
-    PostgreSQL RLS policies can access these via:
+    Relational RLS policies can access these via:
         current_setting('app.user_id', true)
         current_setting('app.org_id', true)
 
@@ -96,7 +96,7 @@ async def get_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
     if settings.store == "surreal":
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="PostgreSQL RLS sessions are unavailable in surreal mode",
+            detail="Relational RLS sessions are unavailable in surreal mode",
         )
 
     async with get_session() as session:
@@ -135,7 +135,7 @@ async def require_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
     if settings.store == "surreal":
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="PostgreSQL RLS sessions are unavailable in surreal mode",
+            detail="Relational RLS sessions are unavailable in surreal mode",
         )
 
     async with get_session() as session:
@@ -219,7 +219,7 @@ async def apply_rls_from_auth_context(
 class AuthSession:
     """Container for authenticated context plus an optional database session.
 
-    In PostgreSQL mode, ``session`` carries an RLS-configured ``AsyncSession``.
+    In relational mode, ``session`` carries an RLS-configured ``AsyncSession``.
     In surreal mode, request-time authorization stays on graph-backed adapters,
     so ``session`` is ``None``.
     """
