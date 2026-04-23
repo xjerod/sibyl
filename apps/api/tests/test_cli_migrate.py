@@ -126,7 +126,7 @@ def _write_full_archive(
     }
     file_metadata: dict[str, dict[str, object]] = {
         GRAPH_FILENAME: {"kind": "graph", "entity_count": 1, "relationship_count": 0},
-        POSTGRES_FILENAME: {"kind": "postgres"},
+        POSTGRES_FILENAME: {"kind": "database_dump"},
     }
     if include_auth:
         auth_payload = _auth_payload()

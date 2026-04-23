@@ -114,7 +114,7 @@ def test_archive_round_trip_preserves_manifest_and_payloads(tmp_path: Path) -> N
             AUTH_FILENAME: {"kind": "auth", "table_count": 2, "total_rows": 1},
             CONTENT_FILENAME: {"kind": "content", "table_count": 7, "total_rows": 3},
             GRAPH_FILENAME: {"kind": "graph", "entity_count": 2, "relationship_count": 1},
-            POSTGRES_FILENAME: {"kind": "postgres"},
+            POSTGRES_FILENAME: {"kind": "database_dump"},
         },
     )
     archive_path = tmp_path / "migration.tar.gz"

@@ -188,7 +188,7 @@ def _legacy_manifest_from_files(files: dict[str, bytes]) -> ArchiveManifest:
             size_bytes=len(payload),
             kind="graph"
             if name == GRAPH_FILENAME
-            else "postgres"
+            else "database_dump"
             if name == POSTGRES_FILENAME
             else "other",
         )
@@ -248,7 +248,7 @@ def _legacy_manifest_from_backup_payloads(
         files,
         canonical_name=POSTGRES_FILENAME,
         patterns=("*_pg.sql", "*pg_backup.sql"),
-        kind="postgres",
+        kind="database dump",
     )
 
     if graph_match is None and postgres_match is None:
@@ -270,7 +270,7 @@ def _legacy_manifest_from_backup_payloads(
         original_path, payload = postgres_match
         normalized_files[POSTGRES_FILENAME] = payload
         file_metadata[POSTGRES_FILENAME] = {
-            "kind": "postgres",
+            "kind": "database_dump",
             "original_path": original_path,
         }
 

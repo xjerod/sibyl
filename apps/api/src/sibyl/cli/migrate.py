@@ -521,7 +521,7 @@ def export_archive(
     if include_database_dump:
         info("Exporting database dump sidecar...")
         files[POSTGRES_FILENAME] = _run_pg_dump()
-        file_metadata[POSTGRES_FILENAME] = {"kind": "postgres"}
+        file_metadata[POSTGRES_FILENAME] = {"kind": "database_dump"}
 
     if include_graph:
         info(f"Exporting graph runtime from {settings.store} store...")
