@@ -15,7 +15,7 @@ from sibyl.auth.dependencies import require_org_role
 from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
 from sibyl.db.models import OrganizationRole
-from sibyl.persistence.auth_runtime import has_legacy_owner_membership
+from sibyl.persistence.auth_runtime import has_owner_membership
 from sibyl_core.logging import LogBuffer
 
 log = structlog.get_logger()
@@ -97,7 +97,7 @@ async def _validate_owner_token(token: str | None) -> bool:
     if not user_id or not org_id:
         return False
 
-    return await has_legacy_owner_membership(org_id=org_id, user_id=user_id)
+    return await has_owner_membership(org_id=org_id, user_id=user_id)
 
 
 @router.websocket("/stream")

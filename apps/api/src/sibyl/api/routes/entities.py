@@ -35,10 +35,10 @@ from sibyl.auth.dependencies import (
 )
 from sibyl.db.models import Organization, OrganizationRole, RawCapture
 from sibyl.persistence.auth_runtime import (
-    create_legacy_project_record,
-    delete_legacy_project_record,
+    create_project_record,
+    delete_project_record,
     log_legacy_audit_event,
-    update_legacy_project_record,
+    update_project_record,
 )
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
@@ -945,7 +945,7 @@ async def create_entity(
         )
 
         if created.entity_type == EntityType.PROJECT:
-            await create_legacy_project_record(
+            await create_project_record(
                 organization_id=org.id,
                 owner_user_id=ctx.user.id,
                 graph_project_id=created.id,
@@ -1066,7 +1066,7 @@ async def update_entity(
             )
 
             if existing.entity_type == EntityType.PROJECT:
-                await update_legacy_project_record(
+                await update_project_record(
                     organization_id=org.id,
                     graph_project_id=existing.id,
                     name=response.name,
@@ -1155,7 +1155,7 @@ async def delete_entity(
                 raise HTTPException(status_code=500, detail="Delete failed")
 
             if existing.entity_type == EntityType.PROJECT:
-                await delete_legacy_project_record(
+                await delete_project_record(
                     organization_id=org.id,
                     graph_project_id=existing.id,
                 )

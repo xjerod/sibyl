@@ -34,7 +34,7 @@ class TestValidateOwnerToken:
         token = create_access_token(user_id=user_id, organization_id=org_id)
 
         with patch(
-            "sibyl.api.routes.logs.has_legacy_owner_membership",
+            "sibyl.api.routes.logs.has_owner_membership",
             AsyncMock(return_value=True),
         ) as has_owner:
             assert await _validate_owner_token(token) is True
@@ -55,7 +55,7 @@ class TestValidateOwnerToken:
         token = create_access_token(user_id=user_id, organization_id=org_id)
 
         with patch(
-            "sibyl.api.routes.logs.has_legacy_owner_membership",
+            "sibyl.api.routes.logs.has_owner_membership",
             AsyncMock(return_value=False),
         ) as has_owner:
             assert await _validate_owner_token(token) is False

@@ -48,7 +48,7 @@ async def test_verify_epic_access_uses_knowledge_read_adapter() -> None:
 
     with (
         patch("sibyl.api.routes.epics.get_legacy_knowledge_read_adapter", AsyncMock(return_value=service)),
-        patch("sibyl.api.routes.epics.verify_legacy_entity_project_access", authorize),
+        patch("sibyl.api.routes.epics.verify_entity_project_access", authorize),
     ):
         result = await _verify_epic_access("epic-1", org, ctx)
 

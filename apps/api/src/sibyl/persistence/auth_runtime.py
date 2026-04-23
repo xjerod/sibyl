@@ -487,6 +487,49 @@ async def get_project_record_by_graph_id(
     )
 
 
+async def create_project_record(
+    *,
+    organization_id: UUID,
+    owner_user_id: UUID,
+    graph_project_id: str,
+    name: str,
+    description: str | None = None,
+) -> Any:
+    return await create_legacy_project_record(
+        organization_id=organization_id,
+        owner_user_id=owner_user_id,
+        graph_project_id=graph_project_id,
+        name=name,
+        description=description,
+    )
+
+
+async def update_project_record(
+    *,
+    organization_id: UUID,
+    graph_project_id: str,
+    name: str | None = None,
+    description: str | None = None,
+) -> bool:
+    return await update_legacy_project_record(
+        organization_id=organization_id,
+        graph_project_id=graph_project_id,
+        name=name,
+        description=description,
+    )
+
+
+async def delete_project_record(
+    *,
+    organization_id: UUID,
+    graph_project_id: str,
+) -> bool:
+    return await delete_legacy_project_record(
+        organization_id=organization_id,
+        graph_project_id=graph_project_id,
+    )
+
+
 async def get_project_record_by_id(
     *,
     organization_id: UUID,
@@ -502,6 +545,21 @@ async def list_accessible_project_graph_ids(ctx: Any) -> set[str] | None:
     return await list_legacy_accessible_project_graph_ids(ctx)
 
 
+async def resolve_accessible_project_graph_ids(
+    *,
+    user_id: str,
+    org_id: str,
+    scopes: Any | None = None,
+    api_key_project_ids: Any | None = None,
+) -> set[str] | None:
+    return await resolve_legacy_accessible_project_graph_ids(
+        user_id=user_id,
+        org_id=org_id,
+        scopes=scopes,
+        api_key_project_ids=api_key_project_ids,
+    )
+
+
 async def verify_entity_project_access(
     *,
     ctx: Any,
@@ -513,6 +571,10 @@ async def verify_entity_project_access(
         entity_project_id=entity_project_id,
         required_role=required_role,
     )
+
+
+async def has_owner_membership(*, org_id: str, user_id: str | None) -> bool:
+    return await _call_backend_export("has_legacy_owner_membership", org_id=org_id, user_id=user_id)
 
 
 async def list_user_sessions(

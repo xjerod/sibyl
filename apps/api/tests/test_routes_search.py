@@ -53,7 +53,7 @@ class TestSearchRoute:
 
         with (
             patch(
-                "sibyl.api.routes.search.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1"]),
             ) as list_projects,
             patch("sibyl_core.tools.core.search", AsyncMock(return_value=result)) as core_search,
@@ -76,7 +76,7 @@ class TestSearchRoute:
 
         with (
             patch(
-                "sibyl.api.routes.search.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1"]),
             ),
             pytest.raises(ProjectAccessDeniedError) as exc,
@@ -109,7 +109,7 @@ class TestExploreRoute:
 
         with (
             patch(
-                "sibyl.api.routes.search.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1", "proj_2"]),
             ) as list_projects,
             patch("sibyl_core.tools.core.explore", AsyncMock(return_value=result)) as core_explore,
@@ -132,7 +132,7 @@ class TestExploreRoute:
 
         with (
             patch(
-                "sibyl.api.routes.search.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1"]),
             ),
             pytest.raises(ProjectAccessDeniedError) as exc,

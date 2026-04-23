@@ -27,7 +27,7 @@ async def test_accessible_projects_intersects_with_api_key_scope() -> None:
     )
     resolve_projects = AsyncMock(return_value={"project-b"})
 
-    with patch("sibyl.server.resolve_legacy_accessible_project_graph_ids", resolve_projects):
+    with patch("sibyl.server.resolve_accessible_project_graph_ids", resolve_projects):
         result = await _get_accessible_projects(ctx)
 
     assert result == {"project-b"}
@@ -43,7 +43,7 @@ async def test_accessible_projects_intersects_with_api_key_scope() -> None:
 async def test_accessible_projects_returns_empty_when_user_disappears() -> None:
     ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["api:read"])
     with patch(
-        "sibyl.server.resolve_legacy_accessible_project_graph_ids",
+        "sibyl.server.resolve_accessible_project_graph_ids",
         AsyncMock(return_value=set()),
     ):
         result = await _get_accessible_projects(ctx)
@@ -63,7 +63,7 @@ async def test_get_mcp_context_uses_legacy_api_key_auth() -> None:
 
     with (
         patch("sibyl.server.get_access_token", return_value=SimpleNamespace(token=raw)),
-        patch("sibyl.server.authenticate_legacy_api_key", AsyncMock(return_value=auth)) as authenticate,
+        patch("sibyl.server.authenticate_api_key", AsyncMock(return_value=auth)) as authenticate,
     ):
         result = await _get_mcp_context()
 
@@ -81,7 +81,7 @@ async def test_require_owner_mcp_context_uses_legacy_owner_check() -> None:
     ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()))
 
     with patch(
-        "sibyl.server.has_legacy_owner_membership",
+        "sibyl.server.has_owner_membership",
         AsyncMock(return_value=True),
     ) as has_owner:
         await _require_owner_mcp_context(ctx)
@@ -95,7 +95,7 @@ async def test_require_owner_mcp_context_rejects_non_owner() -> None:
 
     with (
         patch(
-            "sibyl.server.has_legacy_owner_membership",
+            "sibyl.server.has_owner_membership",
             AsyncMock(return_value=False),
         ),
         pytest.raises(ValueError, match="OWNER role required for log access"),

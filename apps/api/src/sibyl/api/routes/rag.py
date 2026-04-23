@@ -36,7 +36,7 @@ from sibyl.auth.dependencies import get_auth_context, require_org_role
 from sibyl.auth.errors import NoOrgContextError
 from sibyl.crawler.embedder import embed_text
 from sibyl.db.models import OrganizationRole
-from sibyl.persistence.auth_runtime import list_legacy_accessible_project_graph_ids
+from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
     get_crawled_document_for_org,
@@ -693,7 +693,7 @@ async def get_document_related_entities(
 
         doc_title = doc.title
 
-    accessible_projects = await list_legacy_accessible_project_graph_ids(auth)
+    accessible_projects = await list_accessible_project_graph_ids(auth)
 
     # Search the knowledge graph using document title as query
     entities: list[DocumentRelatedEntity] = []

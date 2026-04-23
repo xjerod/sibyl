@@ -16,7 +16,7 @@ from sibyl.auth.authorization import ProjectRole
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
-from sibyl.persistence.auth_runtime import verify_legacy_entity_project_access
+from sibyl.persistence.auth_runtime import verify_entity_project_access
 from sibyl.persistence.graph_runtime import (
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
     update_graph_entity as _service_update_graph_entity,
@@ -129,7 +129,7 @@ async def _verify_epic_access(
 
     # Extract project_id from entity metadata
     project_id = epic.metadata.get("project_id") if epic.metadata else None
-    await verify_legacy_entity_project_access(
+    await verify_entity_project_access(
         ctx=ctx,
         entity_project_id=project_id,
         required_role=required_role,

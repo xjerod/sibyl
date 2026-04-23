@@ -17,7 +17,6 @@ from sibyl.auth.authorization import (
     require_project_read,
     require_project_role,
     require_project_write,
-    verify_entity_project_access,
 )
 from sibyl.db.models import (
     OrganizationRole,
@@ -326,7 +325,7 @@ class TestListAccessibleProjectGraphIds:
 
         monkeypatch.setattr(
             authorization_module,
-            "list_legacy_accessible_project_graph_ids",
+            "list_runtime_accessible_project_graph_ids",
             helper,
         )
 
@@ -580,12 +579,12 @@ class TestRequireProjectRole:
 
         monkeypatch.setattr(
             authorization_module,
-            "get_legacy_project_record_by_graph_id",
+            "get_project_record_by_graph_id",
             resolve_project,
         )
         monkeypatch.setattr(
             authorization_module,
-            "verify_legacy_entity_project_access",
+            "verify_runtime_entity_project_access",
             verify_access,
         )
         result = await dep(request=request, ctx=ctx)
@@ -646,7 +645,7 @@ class TestVerifyEntityProjectAccess:
 
         mock_session = AsyncMock()
 
-        result = await verify_entity_project_access(
+        result = await legacy_auth_runtime._verify_entity_project_access(
             mock_session, ctx, entity_project_id=None, required_role=ProjectRole.VIEWER
         )
 
@@ -665,7 +664,7 @@ class TestVerifyEntityProjectAccess:
         mock_session = AsyncMock()
 
         with pytest.raises(ProjectAuthorizationError) as exc_info:
-            await verify_entity_project_access(
+            await legacy_auth_runtime._verify_entity_project_access(
                 mock_session, ctx, entity_project_id=None, required_role=ProjectRole.CONTRIBUTOR
             )
 
@@ -684,7 +683,7 @@ class TestVerifyEntityProjectAccess:
 
         mock_session = AsyncMock()
 
-        result = await verify_entity_project_access(
+        result = await legacy_auth_runtime._verify_entity_project_access(
             mock_session, ctx, entity_project_id=None, required_role=ProjectRole.MAINTAINER
         )
 

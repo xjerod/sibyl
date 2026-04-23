@@ -514,7 +514,7 @@ class TestDocumentRelatedEntities:
                 AsyncMock(return_value=sample_document),
             ),
             patch(
-                "sibyl.api.routes.rag.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.rag.list_accessible_project_graph_ids",
                 AsyncMock(return_value={"proj-1"}),
             ),
             patch(

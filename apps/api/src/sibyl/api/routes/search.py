@@ -23,7 +23,7 @@ from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl.db.models import Organization, OrganizationRole
-from sibyl.persistence.auth_runtime import list_legacy_accessible_project_graph_ids
+from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
 
 log = structlog.get_logger()
 _READ_ROLES = (
@@ -66,7 +66,7 @@ async def search(
         group_id = str(org.id)
 
         # Get accessible project IDs for filtering
-        accessible_projects = await list_legacy_accessible_project_graph_ids(ctx)
+        accessible_projects = await list_accessible_project_graph_ids(ctx)
 
         # If user specified a project, validate they have access
         project_filter = request.project
@@ -127,7 +127,7 @@ async def explore(
         group_id = str(org.id)
 
         # Get accessible project IDs for filtering
-        accessible_projects = await list_legacy_accessible_project_graph_ids(ctx)
+        accessible_projects = await list_accessible_project_graph_ids(ctx)
 
         project_ids = request.project_ids or ([request.project] if request.project else None)
 

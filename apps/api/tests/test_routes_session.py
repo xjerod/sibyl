@@ -54,7 +54,7 @@ class TestSessionBundleRoute:
 
         with (
             patch(
-                "sibyl.api.routes.session.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.session.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1", "proj_2"]),
             ),
             patch(
@@ -96,7 +96,7 @@ class TestSessionBundleRoute:
 
         with (
             patch(
-                "sibyl.api.routes.session.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.session.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1"]),
             ),
             pytest.raises(ProjectAccessDeniedError) as exc,
@@ -122,7 +122,7 @@ class TestSessionBundleRoute:
 
         with (
             patch(
-                "sibyl.api.routes.session.list_legacy_accessible_project_graph_ids",
+                "sibyl.api.routes.session.list_accessible_project_graph_ids",
                 AsyncMock(return_value=["proj_1"]),
             ),
             patch(

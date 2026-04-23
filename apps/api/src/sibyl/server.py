@@ -14,9 +14,9 @@ from mcp.server.fastmcp import FastMCP
 
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import (
-    authenticate_legacy_api_key,
-    has_legacy_owner_membership,
-    resolve_legacy_accessible_project_graph_ids,
+    authenticate_api_key,
+    has_owner_membership,
+    resolve_accessible_project_graph_ids,
 )
 
 log = structlog.get_logger()
@@ -49,7 +49,7 @@ async def _get_mcp_context() -> McpContext | None:
 
     # API Key authentication
     if raw.startswith("sk_"):
-        auth = await authenticate_legacy_api_key(raw)
+        auth = await authenticate_api_key(raw)
         if auth:
             # Convert project UUIDs to graph IDs (strings)
             project_ids = (
@@ -124,7 +124,7 @@ async def _get_accessible_projects(ctx: McpContext) -> set[str] | None:
             return set(ctx.api_key_project_ids)
         return None
 
-    return await resolve_legacy_accessible_project_graph_ids(
+    return await resolve_accessible_project_graph_ids(
         user_id=ctx.user_id,
         org_id=ctx.org_id,
         scopes=ctx.scopes,
@@ -149,7 +149,7 @@ async def _require_org_id() -> str:
 
 async def _require_owner_mcp_context(ctx: McpContext) -> None:
     """Require OWNER membership for the current MCP context."""
-    if not await has_legacy_owner_membership(org_id=ctx.org_id, user_id=ctx.user_id):
+    if not await has_owner_membership(org_id=ctx.org_id, user_id=ctx.user_id):
         raise ValueError("OWNER role required for log access")
 
 
