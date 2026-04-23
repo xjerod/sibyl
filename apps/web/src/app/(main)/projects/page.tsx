@@ -12,7 +12,12 @@ export const metadata: Metadata = {
 
 export default async function ProjectsPage() {
   const [projects, projectSummaries] = await Promise.all([
-    fetchProjects(),
+    fetchProjects().catch(() => ({
+      mode: 'list',
+      entities: [],
+      total: 0,
+      filters: {},
+    })),
     fetchProjectSummaries().catch(() => undefined),
   ]);
 

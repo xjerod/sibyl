@@ -23,6 +23,15 @@ import type {
  * In production, this should be the internal service URL.
  */
 const API_BASE = serverOnly('SIBYL_API_URL', 'http://localhost:3334/api');
+const DEFAULT_SERVER_FETCH_TIMEOUT_MS = 5000;
+
+function resolveServerFetchTimeoutMs(): number {
+  const raw = serverOnly('SIBYL_SERVER_FETCH_TIMEOUT_MS', String(DEFAULT_SERVER_FETCH_TIMEOUT_MS));
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SERVER_FETCH_TIMEOUT_MS;
+}
+
+const SERVER_FETCH_TIMEOUT_MS = resolveServerFetchTimeoutMs();
 
 /**
  * Default fetch options for server-side requests.
@@ -32,6 +41,14 @@ const DEFAULT_OPTIONS: RequestInit = {
     'Content-Type': 'application/json',
   },
 };
+
+function withServerFetchTimeout(signal?: AbortSignal | null): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS);
+  if (!signal) {
+    return timeoutSignal;
+  }
+  return AbortSignal.any([signal, timeoutSignal]);
+}
 
 // =============================================================================
 // Core Fetch Utility
@@ -44,16 +61,28 @@ async function serverFetch<T>(
   const url = `${API_BASE}${endpoint}`;
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.toString();
+  let response: Response;
 
-  const response = await fetch(url, {
-    ...DEFAULT_OPTIONS,
-    ...options,
-    headers: {
-      ...DEFAULT_OPTIONS.headers,
-      ...options?.headers,
-      ...(cookieHeader ? { cookie: cookieHeader } : {}),
-    },
-  });
+  try {
+    response = await fetch(url, {
+      ...DEFAULT_OPTIONS,
+      ...options,
+      headers: {
+        ...DEFAULT_OPTIONS.headers,
+        ...options?.headers,
+        ...(cookieHeader ? { cookie: cookieHeader } : {}),
+      },
+      signal: withServerFetchTimeout(options?.signal),
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+        throw new Error(`API request timed out after ${SERVER_FETCH_TIMEOUT_MS}ms: ${endpoint}`);
+      }
+      throw new Error(`API request failed for ${endpoint}: ${error.message}`);
+    }
+    throw error;
+  }
 
   // Don't attempt server-side token refresh. The backend rotates refresh tokens,
   // and new cookies can't be propagated back to the browser from server components.
