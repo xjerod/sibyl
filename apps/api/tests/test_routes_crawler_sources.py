@@ -41,24 +41,29 @@ def _make_source() -> SimpleNamespace:
 
 class TestCrawlSourceRoutes:
     @pytest.mark.asyncio
-    async def test_get_health_skips_postgres_probe_in_fully_surreal_mode(
+    async def test_get_health_skips_relational_probe_in_fully_surreal_mode(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        check_postgres_health = AsyncMock(
-            side_effect=AssertionError("postgres probe should stay off")
+        check_relational_backend_health = AsyncMock(
+            side_effect=AssertionError("relational probe should stay off")
         )
 
         monkeypatch.setattr(crawler_module.settings, "store", "surreal")
         monkeypatch.setattr(crawler_module.settings, "auth_store", "surreal")
-        monkeypatch.setattr(crawler_module, "_check_postgres_health", check_postgres_health)
+        monkeypatch.setattr(
+            crawler_module,
+            "_check_relational_backend_health",
+            check_relational_backend_health,
+        )
         monkeypatch.setitem(sys.modules, "crawl4ai", SimpleNamespace(AsyncWebCrawler=object))
 
         response = await get_health()
 
-        check_postgres_health.assert_not_awaited()
-        assert response.postgres_healthy is True
-        assert response.postgres_version is None
-        assert response.pgvector_version is None
+        check_relational_backend_health.assert_not_awaited()
+        assert response.relational_backend_enabled is False
+        assert response.relational_backend_healthy is True
+        assert response.relational_backend_version is None
+        assert response.vector_extension_version is None
         assert response.error is None
         assert response.crawl4ai_available is True
 

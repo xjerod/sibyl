@@ -574,9 +574,10 @@ class CrawlStatsResponse(BaseModel):
 class CrawlHealthResponse(BaseModel):
     """Crawler health status."""
 
-    postgres_healthy: bool
-    postgres_version: str | None = None
-    pgvector_version: str | None = None
+    relational_backend_enabled: bool
+    relational_backend_healthy: bool
+    relational_backend_version: str | None = None
+    vector_extension_version: str | None = None
     crawl4ai_available: bool
     error: str | None = None
 

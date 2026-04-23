@@ -70,7 +70,7 @@ from sibyl.persistence.content_runtime import (
 log = structlog.get_logger()
 
 
-async def _check_postgres_health() -> dict[str, Any]:
+async def _check_relational_backend_health() -> dict[str, Any]:
     from sibyl.db.connection import check_postgres_health
 
     return await check_postgres_health()
@@ -181,10 +181,14 @@ async def get_stats(
 @router.get("/health", response_model=CrawlHealthResponse)
 async def get_health() -> CrawlHealthResponse:
     """Check crawler system health."""
-    if settings.store == "surreal" and settings.auth_store == "surreal":
+    relational_backend_enabled = not (
+        settings.store == "surreal" and settings.auth_store == "surreal"
+    )
+
+    if not relational_backend_enabled:
         pg_health = {"status": "disabled", "postgres_version": None, "pgvector_version": None}
     else:
-        pg_health = await _check_postgres_health()
+        pg_health = await _check_relational_backend_health()
 
     # Check Crawl4AI availability
     crawl4ai_available = False
@@ -196,9 +200,10 @@ async def get_health() -> CrawlHealthResponse:
         pass
 
     return CrawlHealthResponse(
-        postgres_healthy=pg_health["status"] in {"healthy", "disabled"},
-        postgres_version=pg_health.get("postgres_version"),
-        pgvector_version=pg_health.get("pgvector_version"),
+        relational_backend_enabled=relational_backend_enabled,
+        relational_backend_healthy=pg_health["status"] in {"healthy", "disabled"},
+        relational_backend_version=pg_health.get("postgres_version"),
+        vector_extension_version=pg_health.get("pgvector_version"),
         crawl4ai_available=crawl4ai_available,
         error=None if pg_health["status"] == "disabled" else pg_health.get("error"),
     )
