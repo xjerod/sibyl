@@ -254,11 +254,27 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
             key="openai_api_key",
         )
     )
+    backup_setting_rows = _normalize_records(
+        await surreal_content_client.execute_query(
+            "SELECT * FROM backup_settings WHERE organization_id = $organization_id LIMIT 1;",
+            organization_id="org-123",
+        )
+    )
+    backup_rows = _normalize_records(
+        await surreal_content_client.execute_query(
+            "SELECT * FROM backups WHERE backup_id = $backup_id LIMIT 1;",
+            backup_id="backup_123",
+        )
+    )
 
     assert chunk_rows[0]["document_id"] == str(document_id)
     assert chunk_rows[0]["embedding"] == [0.1] * 1536
     assert capture_rows[0]["metadata"] == {"source": "manual"}
     assert setting_rows[0]["is_secret"] is True
+    assert backup_setting_rows[0]["include_database_dump"] is True
+    assert backup_setting_rows[0]["include_postgres"] is True
+    assert backup_rows[0]["include_database_dump"] is True
+    assert backup_rows[0]["include_postgres"] is True
 
 
 @pytest.mark.asyncio
@@ -503,6 +519,7 @@ async def test_content_archive_export_reads_from_surreal_backend(
     monkeypatch: pytest.MonkeyPatch,
     surreal_content_client: SurrealContentClient,
 ) -> None:
+    org_id = str(uuid4())
     await surreal_content_client.execute_query(
         "CREATE system_settings CONTENT $record;",
         record={
@@ -510,6 +527,30 @@ async def test_content_archive_export_reads_from_surreal_backend(
             "value": "present",
             "is_secret": False,
             "description": "export me",
+        },
+    )
+    await surreal_content_client.execute_query(
+        "CREATE backup_settings CONTENT $record;",
+        record={
+            "uuid": str(uuid4()),
+            "organization_id": org_id,
+            "enabled": True,
+            "schedule": "0 2 * * *",
+            "retention_days": 14,
+            "include_postgres": False,
+            "include_graph": True,
+        },
+    )
+    await surreal_content_client.execute_query(
+        "CREATE backups CONTENT $record;",
+        record={
+            "uuid": str(uuid4()),
+            "organization_id": org_id,
+            "backup_id": "backup_export",
+            "status": "completed",
+            "size_bytes": 128,
+            "include_postgres": False,
+            "include_graph": True,
         },
     )
     close = AsyncMock()
@@ -525,8 +566,14 @@ async def test_content_archive_export_reads_from_surreal_backend(
     payload = await content_archive.export_content_archive_payload()
 
     assert payload["row_counts"]["system_settings"] == 1
-    assert payload["total_rows"] == 1
+    assert payload["row_counts"]["backup_settings"] == 1
+    assert payload["row_counts"]["backups"] == 1
+    assert payload["total_rows"] == 3
     assert payload["tables"]["system_settings"][0]["key"] == "exported_setting"
+    assert payload["tables"]["backup_settings"][0]["include_database_dump"] is False
+    assert "include_postgres" not in payload["tables"]["backup_settings"][0]
+    assert payload["tables"]["backups"][0]["include_database_dump"] is False
+    assert "include_postgres" not in payload["tables"]["backups"][0]
     close.assert_awaited_once()
 
 

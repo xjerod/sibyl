@@ -93,6 +93,7 @@ _SELECT_SURREAL_TABLE_ROWS = {
     spec.name: f"SELECT * FROM {spec.name};"  # noqa: S608 - table names are fixed constants
     for spec in _CONTENT_ARCHIVE_TABLE_SPECS
 }
+_BACKUP_ARCHIVE_TABLES = frozenset({"backup_settings", "backups"})
 
 
 @dataclass(frozen=True)
@@ -203,6 +204,62 @@ def _sort_content_rows(
     return sorted(rows, key=_key)
 
 
+def _coerce_archive_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off", ""}:
+            return False
+    return None
+
+
+def _resolve_archive_database_dump_value(row: dict[str, object]) -> bool | None:
+    include_database_dump = _coerce_archive_bool(row.get("include_database_dump"))
+    if include_database_dump is not None:
+        return include_database_dump
+    return _coerce_archive_bool(row.get("include_postgres"))
+
+
+def _normalize_content_archive_export_row(
+    spec: ContentArchiveTableSpec,
+    row: dict[str, object],
+) -> dict[str, object]:
+    normalized = dict(row)
+    if spec.name not in _BACKUP_ARCHIVE_TABLES:
+        return normalized
+
+    include_database_dump = _resolve_archive_database_dump_value(normalized)
+    if include_database_dump is None:
+        return normalized
+
+    normalized["include_database_dump"] = include_database_dump
+    normalized.pop("include_postgres", None)
+    return normalized
+
+
+def _normalize_content_archive_restore_row(
+    spec: ContentArchiveTableSpec,
+    row: dict[str, object],
+) -> dict[str, object]:
+    normalized = dict(row)
+    if spec.name not in _BACKUP_ARCHIVE_TABLES:
+        return normalized
+
+    include_database_dump = _resolve_archive_database_dump_value(normalized)
+    if include_database_dump is None:
+        normalized.pop("include_database_dump", None)
+        return normalized
+
+    normalized["include_database_dump"] = include_database_dump
+    normalized["include_postgres"] = include_database_dump
+    return normalized
+
+
 async def _export_postgres_content_archive_payload() -> dict[str, object]:
     tables: dict[str, list[dict[str, object]]] = {}
     row_counts: dict[str, int] = {}
@@ -211,7 +268,10 @@ async def _export_postgres_content_archive_payload() -> dict[str, object]:
         for spec in _CONTENT_ARCHIVE_TABLE_SPECS:
             result = await session.execute(text(spec.select_sql))
             rows = [
-                {str(key): _serialize_value(value) for key, value in dict(row).items()}
+                _normalize_content_archive_export_row(
+                    spec,
+                    {str(key): _serialize_value(value) for key, value in dict(row).items()},
+                )
                 for row in result.mappings().all()
             ]
             tables[spec.name] = rows
@@ -240,7 +300,10 @@ async def _export_surreal_content_archive_payload() -> dict[str, object]:
             rows = _sort_content_rows(
                 spec,
                 [
-                    {str(key): _serialize_value(value) for key, value in row.items()}
+                    _normalize_content_archive_export_row(
+                        spec,
+                        {str(key): _serialize_value(value) for key, value in row.items()},
+                    )
                     for row in _normalize_records(result)
                 ],
             )
@@ -301,7 +364,10 @@ async def restore_content_archive_payload(
                 if not isinstance(row, dict):
                     errors.append(f"{spec.name} row payload must be an object")
                     continue
-                normalized_row = {str(key): value for key, value in row.items()}
+                normalized_row = _normalize_content_archive_restore_row(
+                    spec,
+                    {str(key): value for key, value in row.items()},
+                )
                 identity = str(
                     normalized_row.get(spec.source_identity_field)
                     or normalized_row.get(spec.target_identity_field)
