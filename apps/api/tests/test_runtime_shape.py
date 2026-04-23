@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from sibyl.runtime_shape import (
     default_auth_store,
     fully_surreal_runtime,
+    requires_object_relational_support,
+    requires_object_surreal_support,
     requires_relational_support,
     requires_surreal_support,
     resolve_coordination_backend,
@@ -34,6 +36,8 @@ def test_runtime_shape_object_helpers_fall_back_to_store_defaults() -> None:
     runtime = SimpleNamespace(store="legacy", coordination_backend="auto")
 
     assert resolve_object_auth_store(runtime, default_store="surreal") == "postgres"
+    assert requires_object_surreal_support(runtime, default_store="surreal") is False
+    assert requires_object_relational_support(runtime, default_store="surreal") is True
     assert uses_object_relational_auth(runtime, default_store="surreal") is True
     assert resolve_object_coordination_backend(runtime, default_store="surreal") == "redis"
 
@@ -47,5 +51,7 @@ def test_runtime_shape_object_helpers_prefer_resolved_fields() -> None:
     )
 
     assert resolve_object_auth_store(runtime) == "surreal"
+    assert requires_object_surreal_support(runtime) is True
+    assert requires_object_relational_support(runtime) is True
     assert uses_object_relational_auth(runtime) is False
     assert resolve_object_coordination_backend(runtime) == "local"

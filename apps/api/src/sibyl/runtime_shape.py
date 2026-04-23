@@ -68,6 +68,26 @@ def uses_object_relational_auth(
     )
 
 
+def requires_object_surreal_support(
+    value: object,
+    *,
+    default_store: RuntimeStore = "surreal",
+) -> bool:
+    store = resolve_object_store(value, default=default_store)
+    auth_store = resolve_object_auth_store(value, default_store=default_store)
+    return requires_surreal_support(store=store, auth_store=auth_store)
+
+
+def requires_object_relational_support(
+    value: object,
+    *,
+    default_store: RuntimeStore = "surreal",
+) -> bool:
+    store = resolve_object_store(value, default=default_store)
+    auth_store = resolve_object_auth_store(value, default_store=default_store)
+    return requires_relational_support(store=store, auth_store=auth_store)
+
+
 def resolve_object_coordination_backend(
     value: object,
     *,

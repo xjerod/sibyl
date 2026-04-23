@@ -31,7 +31,12 @@ from sibyl.cli.export import app as export_app
 from sibyl.cli.generate import app as generate_app
 from sibyl.cli.migrate import app as migrate_app
 from sibyl.cli.up_cmd import down, status as up_status, up
-from sibyl.runtime_shape import resolve_object_coordination_backend, uses_object_relational_auth
+from sibyl.runtime_shape import (
+    requires_object_relational_support,
+    requires_object_surreal_support,
+    resolve_object_coordination_backend,
+    resolve_object_store,
+)
 
 # Main app
 app = typer.Typer(
@@ -274,7 +279,15 @@ def _check_surreal_services(settings: Any) -> bool:
     else:
         info(f"SurrealDB configured via {surreal_url}")
 
-    if uses_object_relational_auth(settings):
+    return _check_relational_sidecar_services(settings) and all_good
+
+
+def _check_relational_sidecar_services(settings: Any) -> bool:
+    from sibyl.cli.common import error, success
+
+    all_good = True
+
+    if requires_object_relational_support(settings, default_store=resolve_object_store(settings, default="surreal")):
         if _tcp_service_running(settings.postgres_host, settings.postgres_port):
             success(f"PostgreSQL running on {settings.postgres_host}:{settings.postgres_port}")
         else:
@@ -295,7 +308,7 @@ def _check_surreal_services(settings: Any) -> bool:
     return all_good
 
 
-def _check_legacy_services(settings: Any) -> bool:
+def _check_falkordb_services(settings: Any) -> bool:
     from sibyl.cli.common import error, success
 
     if _tcp_service_running(settings.falkordb_host, settings.falkordb_port):
@@ -305,6 +318,26 @@ def _check_legacy_services(settings: Any) -> bool:
     error(f"FalkorDB not running on {settings.falkordb_host}:{settings.falkordb_port}")
     console.print(f"  [{NEON_CYAN}]Start with: docker compose up -d[/{NEON_CYAN}]")
     return False
+
+
+def _check_runtime_services(settings: Any) -> bool:
+    store = resolve_object_store(settings, default="legacy")
+    all_good = True
+
+    if store == "legacy":
+        all_good = _check_falkordb_services(settings) and all_good
+
+    if requires_object_surreal_support(settings, default_store=store):
+        all_good = _check_surreal_services(settings) and all_good
+    elif requires_object_relational_support(settings, default_store=store) or (
+        resolve_object_coordination_backend(settings, default_store=store) == "redis"
+    ):
+        all_good = _check_relational_sidecar_services(settings) and all_good
+
+    return all_good
+
+
+_check_legacy_services = _check_falkordb_services
 
 
 @app.command()
@@ -317,11 +350,7 @@ def setup() -> None:
     all_good = _check_env_file()
     all_good = _check_openai_api_key_configured(settings) and all_good
     all_good = _check_docker_available() and all_good
-    all_good = (
-        _check_surreal_services(settings)
-        if settings.store == "surreal"
-        else _check_legacy_services(settings)
-    ) and all_good
+    all_good = _check_runtime_services(settings) and all_good
 
     # Summary
     console.print()

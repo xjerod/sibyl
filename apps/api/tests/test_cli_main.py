@@ -125,3 +125,47 @@ def test_setup_surreal_services_checks_redis_when_configured(monkeypatch) -> Non
 
     assert cli_main._check_surreal_services(runtime_settings) is True
     assert checked == [("127.0.0.1", 8000), ("127.0.0.1", 6381)]
+
+
+def test_setup_runtime_services_checks_legacy_graph_and_relational_sidecars(monkeypatch) -> None:
+    check_falkordb = MagicMock(return_value=True)
+    check_surreal = MagicMock(return_value=True)
+    check_relational = MagicMock(return_value=True)
+
+    monkeypatch.setattr(cli_main, "_check_falkordb_services", check_falkordb)
+    monkeypatch.setattr(cli_main, "_check_surreal_services", check_surreal)
+    monkeypatch.setattr(cli_main, "_check_relational_sidecar_services", check_relational)
+
+    runtime_settings = SimpleNamespace(
+        store="legacy",
+        auth_store="postgres",
+        coordination_backend="auto",
+    )
+
+    assert cli_main._check_runtime_services(runtime_settings) is True
+    check_falkordb.assert_called_once_with(runtime_settings)
+    check_relational.assert_called_once_with(runtime_settings)
+    check_surreal.assert_not_called()
+
+
+def test_setup_runtime_services_checks_falkordb_and_surreal_stack_for_mixed_legacy_mode(
+    monkeypatch,
+) -> None:
+    check_falkordb = MagicMock(return_value=True)
+    check_surreal = MagicMock(return_value=True)
+    check_relational = MagicMock(return_value=True)
+
+    monkeypatch.setattr(cli_main, "_check_falkordb_services", check_falkordb)
+    monkeypatch.setattr(cli_main, "_check_surreal_services", check_surreal)
+    monkeypatch.setattr(cli_main, "_check_relational_sidecar_services", check_relational)
+
+    runtime_settings = SimpleNamespace(
+        store="legacy",
+        auth_store="surreal",
+        coordination_backend="auto",
+    )
+
+    assert cli_main._check_runtime_services(runtime_settings) is True
+    check_falkordb.assert_called_once_with(runtime_settings)
+    check_surreal.assert_called_once_with(runtime_settings)
+    check_relational.assert_not_called()
