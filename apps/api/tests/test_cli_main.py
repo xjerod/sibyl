@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+from importlib import import_module
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
@@ -9,6 +11,7 @@ from sibyl.cli.main import app
 from sibyl.config import settings
 
 runner = CliRunner()
+cli_main = import_module("sibyl.cli.main")
 
 
 def test_worker_command_exits_cleanly_in_local_mode(monkeypatch) -> None:
@@ -53,3 +56,72 @@ def test_serve_with_reload_enables_dev_diagnostics(monkeypatch) -> None:
     assert "--factory" in args
     assert "--timeout-graceful-shutdown" in args
     assert args[args.index("--reload-dir") + 1].endswith("apps/api/src")
+
+
+def test_setup_surreal_services_skips_redis_for_local_coordination(monkeypatch) -> None:
+    checked: list[tuple[str, int]] = []
+
+    def tcp_service_running(host: str, port: int) -> bool:
+        checked.append((host, port))
+        return True
+
+    monkeypatch.setattr(cli_main, "_tcp_service_running", tcp_service_running)
+
+    runtime_settings = SimpleNamespace(
+        resolved_surreal_url="ws://127.0.0.1:8000/rpc",
+        auth_store="surreal",
+        resolved_coordination_backend="local",
+        postgres_host="127.0.0.1",
+        postgres_port=5433,
+        redis_host="127.0.0.1",
+        redis_port=6381,
+    )
+
+    assert cli_main._check_surreal_services(runtime_settings) is True
+    assert checked == [("127.0.0.1", 8000)]
+
+
+def test_setup_surreal_services_checks_postgres_for_mixed_auth(monkeypatch) -> None:
+    checked: list[tuple[str, int]] = []
+
+    def tcp_service_running(host: str, port: int) -> bool:
+        checked.append((host, port))
+        return True
+
+    monkeypatch.setattr(cli_main, "_tcp_service_running", tcp_service_running)
+
+    runtime_settings = SimpleNamespace(
+        resolved_surreal_url="ws://127.0.0.1:8000/rpc",
+        auth_store="postgres",
+        resolved_coordination_backend="local",
+        postgres_host="127.0.0.1",
+        postgres_port=5433,
+        redis_host="127.0.0.1",
+        redis_port=6381,
+    )
+
+    assert cli_main._check_surreal_services(runtime_settings) is True
+    assert checked == [("127.0.0.1", 8000), ("127.0.0.1", 5433)]
+
+
+def test_setup_surreal_services_checks_redis_when_configured(monkeypatch) -> None:
+    checked: list[tuple[str, int]] = []
+
+    def tcp_service_running(host: str, port: int) -> bool:
+        checked.append((host, port))
+        return True
+
+    monkeypatch.setattr(cli_main, "_tcp_service_running", tcp_service_running)
+
+    runtime_settings = SimpleNamespace(
+        resolved_surreal_url="ws://127.0.0.1:8000/rpc",
+        auth_store="surreal",
+        resolved_coordination_backend="redis",
+        postgres_host="127.0.0.1",
+        postgres_port=5433,
+        redis_host="127.0.0.1",
+        redis_port=6381,
+    )
+
+    assert cli_main._check_surreal_services(runtime_settings) is True
+    assert checked == [("127.0.0.1", 8000), ("127.0.0.1", 6381)]

@@ -277,14 +277,23 @@ def _check_surreal_services(settings: Any) -> bool:
     else:
         info(f"SurrealDB configured via {surreal_url}")
 
-    redis_host = settings.redis_host or "127.0.0.1"
-    redis_port = settings.redis_port or 6381
-    if _tcp_service_running(redis_host, redis_port):
-        success(f"Redis/Valkey running on {redis_host}:{redis_port}")
-    else:
-        error(f"Redis/Valkey not running on {redis_host}:{redis_port}")
-        console.print(f"  [{NEON_CYAN}]Start with: docker compose up -d[/{NEON_CYAN}]")
-        all_good = False
+    if getattr(settings, "auth_store", "surreal") == "postgres":
+        if _tcp_service_running(settings.postgres_host, settings.postgres_port):
+            success(f"PostgreSQL running on {settings.postgres_host}:{settings.postgres_port}")
+        else:
+            error(f"PostgreSQL not running on {settings.postgres_host}:{settings.postgres_port}")
+            console.print(f"  [{NEON_CYAN}]Start with: docker compose up -d[/{NEON_CYAN}]")
+            all_good = False
+
+    if getattr(settings, "resolved_coordination_backend", "local") == "redis":
+        redis_host = settings.redis_host or "127.0.0.1"
+        redis_port = settings.redis_port or 6381
+        if _tcp_service_running(redis_host, redis_port):
+            success(f"Redis/Valkey running on {redis_host}:{redis_port}")
+        else:
+            error(f"Redis/Valkey not running on {redis_host}:{redis_port}")
+            console.print(f"  [{NEON_CYAN}]Start with: docker compose up -d[/{NEON_CYAN}]")
+            all_good = False
 
     return all_good
 
