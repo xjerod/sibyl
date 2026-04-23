@@ -15,24 +15,31 @@ Usage:
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
 from fastapi import HTTPException, Request, status
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
-from sibyl.db.connection import get_session
 from sibyl.persistence.auth_runtime import authenticate_legacy_api_key
 
 if TYPE_CHECKING:
     from sibyl.auth.context import AuthContext
 
 log = structlog.get_logger()
+
+
+@asynccontextmanager
+async def get_session() -> AsyncGenerator[AsyncSession]:
+    from sibyl.db.connection import get_session as _get_session
+
+    async with _get_session() as session:
+        yield session
 
 
 async def _resolve_claims_minimal(request: Request, _session: AsyncSession) -> dict | None:
@@ -94,6 +101,8 @@ async def set_rls_context(
         user_id: Current user's UUID
         org_id: Current organization's UUID
     """
+    from sqlalchemy import text
+
     # Use set_config() for transaction-scoped variables (3rd param = true)
     # This works with bind parameters unlike SET LOCAL
     await session.execute(

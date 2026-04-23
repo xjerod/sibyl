@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.auth.context import AuthContext
 from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
-from sibyl.db.connection import get_session
-from sibyl.db.models import OrganizationRole, User
+from sibyl.db.models import OrganizationRole
 from sibyl.persistence.auth_runtime import (
     InvalidAuthClaimsError,
     LegacyAuthContextResolver,
@@ -24,6 +22,13 @@ from sibyl.persistence.auth_runtime import (
     get_legacy_user_by_id,
     resolve_surreal_auth_context,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from sibyl.db.models import User
 
 _logger = logging.getLogger(__name__)
 
@@ -43,6 +48,14 @@ if settings.disable_auth:
         "This should only be used for local development. Environment: %s",
         settings.environment,
     )
+
+
+@asynccontextmanager
+async def get_session() -> AsyncGenerator[AsyncSession]:
+    from sibyl.db.connection import get_session as _get_session
+
+    async with _get_session() as session:
+        yield session
 
 
 def _is_rest_request(request: Request) -> bool:
@@ -117,6 +130,8 @@ async def get_current_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from e
 
         if settings.auth_store == "postgres":
+            from sibyl.db.models import User
+
             user = await session.get(User, user_id)
         else:
             user = await get_legacy_user_by_id(user_id)

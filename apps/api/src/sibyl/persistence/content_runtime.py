@@ -7,7 +7,6 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 from sibyl.config import settings
-from sibyl.db.connection import get_session
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -85,6 +84,14 @@ def _resolve_backend_export(name: str) -> Any:
             return getattr(module, export_name)
     msg = f"{name} is not implemented for SIBYL_STORE={backend!r}"
     raise AttributeError(msg)
+
+
+@asynccontextmanager
+async def get_session() -> AsyncGenerator[AsyncSession]:
+    from sibyl.db.connection import get_session as _get_session
+
+    async with _get_session() as session:
+        yield session
 
 
 @asynccontextmanager

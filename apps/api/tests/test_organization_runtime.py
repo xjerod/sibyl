@@ -278,7 +278,7 @@ async def test_surreal_create_legacy_org_rotates_current_session(
     )
     monkeypatch.setattr(
         surreal_organization_runtime,
-        "ensure_legacy_graph_indexes",
+        "ensure_graph_indexes",
         ensure_indexes,
     )
     monkeypatch.setattr(

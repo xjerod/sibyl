@@ -11,27 +11,23 @@ Inheritance rules:
 - Org member/viewer: access determined by project visibility + explicit grants
 """
 
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 from uuid import UUID
 
 import structlog
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context
 from sibyl.config import settings
-from sibyl.db.connection import get_session
 from sibyl.db.models import (
     OrganizationRole,
     Project,
-    ProjectMember,
     ProjectRole,
     ProjectVisibility,
-    TeamMember,
-    TeamProject,
 )
 from sibyl.db.sync import get_graph_projects
 from sibyl.persistence.auth_runtime import (
@@ -42,6 +38,14 @@ from sibyl.persistence.auth_runtime import (
 )
 
 log = structlog.get_logger()
+
+
+@asynccontextmanager
+async def get_session() -> AsyncGenerator[AsyncSession]:
+    from sibyl.db.connection import get_session as _get_session
+
+    async with _get_session() as session:
+        yield session
 
 
 # =============================================================================
@@ -91,6 +95,10 @@ async def resolve_project_by_graph_id(
     Raises:
         HTTPException 404: Project not found in this org
     """
+    from sqlalchemy import select
+
+    from sibyl.db.models import Project
+
     result = await session.execute(
         select(Project).where(
             Project.organization_id == org_id,
@@ -126,6 +134,10 @@ async def get_project_by_id(
     Raises:
         HTTPException 404: Project not found in this org
     """
+    from sqlalchemy import select
+
+    from sibyl.db.models import Project
+
     result = await session.execute(
         select(Project).where(
             Project.organization_id == org_id,
@@ -169,6 +181,10 @@ async def get_effective_project_role(
     Returns:
         The effective ProjectRole, or None if no access
     """
+    from sqlalchemy import select
+
+    from sibyl.db.models import ProjectMember, TeamMember, TeamProject
+
     user_id = ctx.user.id
     org_role = ctx.org_role
 
@@ -224,6 +240,10 @@ async def list_accessible_project_graph_ids(
         periods where no Postgres projects exist yet, this falls back to the
         org's graph project IDs instead of skipping filtering entirely.
     """
+    from sqlalchemy import select
+
+    from sibyl.db.models import Project, ProjectMember, TeamMember, TeamProject
+
     if settings.auth_store == "surreal":
         return await list_legacy_accessible_project_graph_ids(ctx) or set()
 

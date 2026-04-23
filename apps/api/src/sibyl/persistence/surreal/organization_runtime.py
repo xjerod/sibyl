@@ -19,7 +19,7 @@ from sibyl.auth.jwt import create_access_token, create_refresh_token
 from sibyl.auth.organizations import slugify
 from sibyl.db.models import OrganizationRole, ProjectRole, User
 from sibyl.persistence.auth_runtime import log_legacy_audit_event
-from sibyl.persistence.legacy.graph import ensure_graph_indexes as ensure_legacy_graph_indexes
+from sibyl.persistence.graph_runtime import ensure_graph_indexes
 from sibyl.persistence.organization_common import (
     LegacyInvitationAcceptance,
     LegacyInvitationRecord,
@@ -285,7 +285,7 @@ async def create_legacy_org(
             role=OrganizationRole.OWNER,
         )
         try:
-            await ensure_legacy_graph_indexes(str(organization.id))
+            await ensure_graph_indexes(str(organization.id))
         except Exception as exc:
             log.debug(
                 "Graph index setup deferred",

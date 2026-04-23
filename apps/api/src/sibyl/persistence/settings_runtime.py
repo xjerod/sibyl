@@ -7,7 +7,6 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 from sibyl.config import settings
-from sibyl.db.connection import get_session
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -32,6 +31,14 @@ __all__ = list(_RUNTIME_EXPORTS)
 
 def _backend_module() -> Any:
     return import_module(_BACKEND_MODULES[settings.store])
+
+
+@asynccontextmanager
+async def get_session() -> AsyncGenerator[AsyncSession]:
+    from sibyl.db.connection import get_session as _get_session
+
+    async with _get_session() as session:
+        yield session
 
 
 @asynccontextmanager
