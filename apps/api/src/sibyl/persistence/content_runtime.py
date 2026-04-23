@@ -68,7 +68,14 @@ _RUNTIME_EXPORTS = [
     "search_rag_chunks",
 ]
 
+_NEUTRAL_EXPORTS = [
+    "get_raw_capture",
+    "list_raw_captures",
+    "resolve_document_entity",
+]
+
 __all__ = list(_RUNTIME_EXPORTS)
+__all__.extend(_NEUTRAL_EXPORTS)
 
 
 def _active_backend_name() -> str:
@@ -122,6 +129,23 @@ def _make_runtime_proxy(name: str) -> Any:
 for _export_name in _RUNTIME_EXPORTS:
     if _export_name not in globals():
         globals()[_export_name] = _make_runtime_proxy(_export_name)
+
+
+async def _call_runtime_export(name: str, *args: object, **kwargs: object) -> Any:
+    export = _resolve_backend_export(name)
+    return await export(*args, **kwargs)
+
+
+async def get_raw_capture(*args: object, **kwargs: object) -> Any:
+    return await _call_runtime_export("get_legacy_raw_capture", *args, **kwargs)
+
+
+async def list_raw_captures(*args: object, **kwargs: object) -> Any:
+    return await _call_runtime_export("list_legacy_raw_captures", *args, **kwargs)
+
+
+async def resolve_document_entity(*args: object, **kwargs: object) -> Any:
+    return await _call_runtime_export("resolve_legacy_document_entity", *args, **kwargs)
 
 
 def __getattr__(name: str) -> Any:

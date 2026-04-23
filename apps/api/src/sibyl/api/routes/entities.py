@@ -34,6 +34,7 @@ from sibyl.auth.dependencies import (
     require_org_role,
 )
 from sibyl.db.models import Organization, OrganizationRole, RawCapture
+from sibyl.persistence import content_runtime
 from sibyl.persistence.auth_runtime import (
     create_project_record,
     delete_project_record,
@@ -43,9 +44,6 @@ from sibyl.persistence.auth_runtime import (
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
     get_content_read_session_dependency,
-    get_legacy_raw_capture,
-    list_legacy_raw_captures,
-    resolve_legacy_document_entity,
     save_raw_capture_record,
 )
 from sibyl.persistence.graph_runtime import (
@@ -399,7 +397,7 @@ async def list_raw_captures(
 ) -> RawCaptureListResponse:
     """List archived raw quick captures for the current organization."""
     try:
-        captures, has_more = await list_legacy_raw_captures(
+        captures, has_more = await content_runtime.list_raw_captures(
             session,
             organization_id=org.id,
             entity_type=entity_type,
@@ -430,7 +428,7 @@ async def get_raw_capture(
 ) -> RawCaptureResponse:
     """Get a single archived raw quick capture."""
     try:
-        capture = await get_legacy_raw_capture(
+        capture = await content_runtime.get_raw_capture(
             session,
             organization_id=org.id,
             capture_id=capture_id,
@@ -461,7 +459,7 @@ async def update_raw_capture_review_state(
 ) -> RawCaptureResponse:
     """Update review-state metadata for a raw capture."""
     try:
-        capture = await get_legacy_raw_capture(
+        capture = await content_runtime.get_raw_capture(
             session,
             organization_id=org.id,
             capture_id=capture_id,
@@ -754,7 +752,7 @@ async def get_entity(
         log.debug("Entity not in graph, checking document chunks", entity_id=entity_id)
 
         async with get_content_read_session() as session:
-            record = await resolve_legacy_document_entity(
+            record = await content_runtime.resolve_document_entity(
                 session,
                 organization_id=org.id,
                 entity_id=entity_id,

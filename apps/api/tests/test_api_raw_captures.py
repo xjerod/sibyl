@@ -141,7 +141,7 @@ async def test_update_raw_capture_review_state_updates_metadata() -> None:
     session = MagicMock()
 
     with patch(
-        "sibyl.api.routes.entities.get_legacy_raw_capture",
+        "sibyl.api.routes.entities.content_runtime.get_raw_capture",
         AsyncMock(return_value=capture),
     ), patch(
         "sibyl.api.routes.entities.save_raw_capture_record",
