@@ -4,9 +4,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+source "$repo_root/tools/dev/process-tree.sh"
 
 child_pids=()
 cleanup_started=0
+pid_file="$repo_root/.moon/cache/dev/processes.pid"
 
 resolve_surreal_volume_dir() {
   local surreal_volume_dir="${SURREAL_DATA_DIR:-.moon/cache/surreal-dev}"
@@ -24,7 +26,7 @@ is_local_service() {
 }
 
 resolve_coordination_backend() {
-  local configured="${SIBYL_COORDINATION_BACKEND:-local}"
+  local configured="${SIBYL_COORDINATION_BACKEND:-auto}"
 
   if [[ "$configured" == "auto" ]]; then
     if [[ "${SIBYL_STORE:-legacy}" == "legacy" ]]; then
@@ -38,86 +40,9 @@ resolve_coordination_backend() {
   printf '%s\n' "$configured"
 }
 
-process_tree_alive() {
-  local pid="${1:-}"
-  local child=""
-
-  if [[ -z "$pid" ]]; then
-    return 1
-  fi
-
-  if kill -0 -- "-$pid" 2>/dev/null; then
-    return 0
-  fi
-
-  if kill -0 "$pid" 2>/dev/null; then
-    return 0
-  fi
-
-  while IFS= read -r child; do
-    if [[ -n "$child" ]] && kill -0 "$child" 2>/dev/null; then
-      return 0
-    fi
-  done < <(collect_descendants "$pid")
-
-  return 1
-}
-
-collect_descendants() {
-  local pid="${1:-}"
-  local child=""
-
-  if [[ -z "$pid" ]]; then
-    return 0
-  fi
-
-  while IFS= read -r child; do
-    [[ -z "$child" ]] && continue
-    printf '%s\n' "$child"
-    collect_descendants "$child"
-  done < <(pgrep -P "$pid" || true)
-}
-
-collect_process_targets() {
-  local pid="${1:-}"
-
-  if [[ -z "$pid" ]]; then
-    return 0
-  fi
-
-  printf '%s\n' "$pid"
-  collect_descendants "$pid"
-}
-
-signal_process_tree() {
-  local signal="${1:-TERM}"
-  local pid="${2:-}"
-  local -a descendants=()
-  local child=""
-
-  if [[ -z "$pid" ]]; then
-    return
-  fi
-
-  while IFS= read -r child; do
-    [[ -n "$child" ]] && descendants+=("$child")
-  done < <(collect_descendants "$pid")
-
-  kill "-$signal" -- "-$pid" 2>/dev/null || true
-
-  if ((${#descendants[@]} > 0)); then
-    local index=0
-    for ((index=${#descendants[@]}-1; index>=0; index--)); do
-      kill "-$signal" -- "-${descendants[index]}" 2>/dev/null || true
-      kill "-$signal" "${descendants[index]}" 2>/dev/null || true
-    done
-  fi
-
-  kill "-$signal" "$pid" 2>/dev/null || true
-}
-
 launch_command() {
   local command="${1:-}"
+  local pid=""
 
   python3 -c '
 import os
@@ -128,7 +53,10 @@ os.chdir(repo_root)
 os.setsid()
 os.execvp("bash", ["bash", "-lc", f"exec {command}"])
 ' "$repo_root" "$command" &
-  child_pids+=("$!")
+  pid="$!"
+  child_pids+=("$pid")
+  mkdir -p "$(dirname "$pid_file")"
+  printf '%s\t%s\n' "$pid" "$command" >> "$pid_file"
 }
 
 wait_for_commands() {
@@ -232,12 +160,13 @@ cleanup() {
     done
   fi
 
+  rm -f "$pid_file"
   exit "$exit_code"
 }
 
 main() {
   export SIBYL_STORE="${SIBYL_STORE:-surreal}"
-  export SIBYL_COORDINATION_BACKEND="${SIBYL_COORDINATION_BACKEND:-local}"
+  export SIBYL_COORDINATION_BACKEND="${SIBYL_COORDINATION_BACKEND:-auto}"
 
   local surreal_url="${SIBYL_SURREAL_URL:-}"
   local coordination_backend=""
@@ -253,7 +182,11 @@ main() {
   trap 'cleanup 130' INT TERM
   trap 'cleanup $?' EXIT
 
-  if is_local_service "$surreal_url"; then
+  rm -f "$pid_file"
+
+  if [[ "$SIBYL_STORE" == "legacy" ]]; then
+    services+=(falkordb postgres)
+  elif is_local_service "$surreal_url"; then
     if [[ -n "${SIBYL_SURREAL_DATA_DIR:-}" ]]; then
       echo "⚠️  Ignoring SIBYL_SURREAL_DATA_DIR for server mode; use SURREAL_DATA_DIR instead"
       unset SIBYL_SURREAL_DATA_DIR
@@ -274,7 +207,11 @@ main() {
   if [[ "$coordination_backend" == "redis" ]]; then
     local redis_host="${SIBYL_REDIS_HOST:-}"
 
-    if is_local_service "$redis_host"; then
+    if [[ "$SIBYL_STORE" == "legacy" ]]; then
+      export SIBYL_REDIS_HOST="${redis_host:-127.0.0.1}"
+      export SIBYL_REDIS_PORT="${SIBYL_REDIS_PORT:-6380}"
+      export SIBYL_REDIS_PASSWORD="${SIBYL_REDIS_PASSWORD:-conventions}"
+    elif is_local_service "$redis_host"; then
       export SIBYL_REDIS_HOST="127.0.0.1"
       export SIBYL_REDIS_PORT="${SIBYL_REDIS_PORT:-6381}"
       export SIBYL_REDIS_PASSWORD="${SIBYL_REDIS_PASSWORD:-}"
@@ -295,7 +232,9 @@ main() {
   if [[ "${1:-}" == "--print-env" ]]; then
     printf 'SIBYL_STORE=%s\n' "$SIBYL_STORE"
     printf 'SIBYL_COORDINATION_BACKEND=%s\n' "$coordination_backend"
-    printf 'SIBYL_SURREAL_URL=%s\n' "$SIBYL_SURREAL_URL"
+    if [[ -n "${SIBYL_SURREAL_URL:-}" ]]; then
+      printf 'SIBYL_SURREAL_URL=%s\n' "$SIBYL_SURREAL_URL"
+    fi
     if [[ -n "${SURREAL_DATA_DIR:-}" ]]; then
       printf 'SURREAL_DATA_DIR=%s\n' "$SURREAL_DATA_DIR"
     fi
@@ -306,7 +245,10 @@ main() {
     return 0
   fi
 
-  echo "🔮 Surreal URL: $SIBYL_SURREAL_URL"
+  echo "🔮 Store: $SIBYL_STORE"
+  if [[ -n "${SIBYL_SURREAL_URL:-}" ]]; then
+    echo "🔮 Surreal URL: $SIBYL_SURREAL_URL"
+  fi
   echo "🪄 Coordination: $coordination_backend"
   if [[ -n "${SURREAL_DATA_DIR:-}" ]]; then
     echo "💎 Surreal data dir: $SURREAL_DATA_DIR"

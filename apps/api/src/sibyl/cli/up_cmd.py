@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -122,7 +123,14 @@ def _apply_surreal_dev_defaults(env: dict[str, str]) -> None:
 
 def _load_runtime_env(project_root: Path) -> dict[str, str]:
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
+    python_paths = [
+        str(project_root / "apps" / "api" / "src"),
+        str(project_root / "packages" / "python" / "sibyl-core" / "src"),
+    ]
+    existing_pythonpath = env.get("PYTHONPATH")
+    if existing_pythonpath:
+        python_paths.append(existing_pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(python_paths)
 
     env_file = project_root / ".env"
     if env_file.exists():
@@ -230,6 +238,9 @@ def up(
 
 def _start_server_foreground(project_root: Path, with_worker: bool, env: dict[str, str]) -> None:
     """Start server in foreground (blocking)."""
+    api_root = project_root / "apps" / "api"
+    reload_root = api_root / "src"
+
     console.print(f"\n[{SUCCESS_GREEN}]Starting API server...[/{SUCCESS_GREEN}]")
     console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
@@ -237,28 +248,44 @@ def _start_server_foreground(project_root: Path, with_worker: bool, env: dict[st
         sys.executable,
         "-m",
         "uvicorn",
-        "sibyl.main:app",
+        "sibyl.main:create_dev_app",
+        "--factory",
         "--host",
         "0.0.0.0",  # noqa: S104 - intentional for local dev
         "--port",
         "3334",
         "--reload",
+        "--reload-dir",
+        str(reload_root),
+        "--timeout-graceful-shutdown",
+        "5",
     ]
 
     _configure_requested_worker_mode(env, with_worker=with_worker)
+    env.setdefault("PYTHONFAULTHANDLER", "1")
+    env.setdefault("SIBYL_DEV_DIAGNOSTICS", "1")
 
     try:
         process = subprocess.Popen(  # noqa: S603
             cmd,
-            cwd=project_root,
+            cwd=api_root,
             env=env,
+            start_new_session=True,
         )
 
-        # Handle Ctrl+C gracefully
+        def stop_process() -> None:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError, OSError):
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                process.wait(timeout=5)
+
         def signal_handler(_sig: int, _frame: object) -> None:
             console.print(f"\n[{NEON_CYAN}]Stopping server...[/{NEON_CYAN}]")
-            process.terminate()
-            process.wait(timeout=10)
+            stop_process()
             console.print(f"[{SUCCESS_GREEN}]Server stopped.[/{SUCCESS_GREEN}]")
             sys.exit(0)
 
@@ -268,7 +295,7 @@ def _start_server_foreground(project_root: Path, with_worker: bool, env: dict[st
         process.wait()
 
     except KeyboardInterrupt:
-        pass
+        stop_process()
 
 
 def _start_server_detached(_project_root: Path, _with_worker: bool) -> None:

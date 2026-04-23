@@ -9,14 +9,11 @@ tasks:
   # Development
   # ==========================================================================
   dev:
-    script: |
-      docker compose up -d falkordb postgres && sleep 1 && npx concurrently --raw --kill-others-on-fail \
-        "uv run --directory apps/api sibyld serve --reload" \
-        "uv run --directory apps/api arq sibyl.jobs.worker.WorkerSettings --watch src" \
-        "moon run web:dev"
+    command: bash tools/dev/run-surreal-dev.sh
     env:
       FORCE_COLOR: "1"
       SIBYL_STORE: "legacy"
+      SIBYL_COORDINATION_BACKEND: "auto"
     preset: server
     options:
       persistent: true
@@ -27,17 +24,16 @@ tasks:
       FORCE_COLOR: "1"
       SIBYL_STORE: "surreal"
       SIBYL_COORDINATION_BACKEND: "local"
-    preset: utility
+    preset: server
+    options:
+      persistent: true
 
   dev-legacy:
-    script: |
-      docker compose up -d falkordb postgres && sleep 1 && npx concurrently --raw --kill-others-on-fail \
-        "uv run --directory apps/api sibyld serve --reload" \
-        "uv run --directory apps/api arq sibyl.jobs.worker.WorkerSettings --watch src" \
-        "moon run web:dev"
+    command: bash tools/dev/run-surreal-dev.sh
     env:
       FORCE_COLOR: "1"
       SIBYL_STORE: "legacy"
+      SIBYL_COORDINATION_BACKEND: "auto"
     preset: server
     options:
       persistent: true
@@ -76,12 +72,7 @@ tasks:
       persistent: true
 
   stop:
-    script: |
-      echo "🛑 Stopping Sibyl services..."
-      pkill -f "sibyl-serve" 2>/dev/null || true
-      pkill -f "next dev" 2>/dev/null || true
-      docker compose down
-      echo "✓ All services stopped"
+    command: bash tools/dev/stop-dev.sh
     preset: server
 
   # ==========================================================================

@@ -46,5 +46,10 @@ def test_serve_with_reload_enables_dev_diagnostics(monkeypatch) -> None:
 
     kwargs = popen.call_args.kwargs
     env = kwargs["env"]
+    args = popen.call_args.args[0]
     assert env["PYTHONFAULTHANDLER"] == "1"
     assert env["SIBYL_DEV_DIAGNOSTICS"] == "1"
+    assert "sibyl.main:create_dev_app" in args
+    assert "--factory" in args
+    assert "--timeout-graceful-shutdown" in args
+    assert args[args.index("--reload-dir") + 1].endswith("apps/api/src")

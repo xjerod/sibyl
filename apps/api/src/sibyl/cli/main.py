@@ -107,6 +107,9 @@ def _serve_with_reload(host: str, port: int) -> None:
     import subprocess
     import sys
 
+    package_root = Path(__file__).resolve().parents[1]
+    reload_root = package_root.parent if package_root.parent.name == "src" else package_root
+
     console.print(f"[{ELECTRIC_PURPLE}]Starting Sibyl in dev mode...[/{ELECTRIC_PURPLE}]")
     console.print(f"[{NEON_CYAN}]Hot reload enabled - watching for changes[/{NEON_CYAN}]")
     console.print(f"[dim]API: http://{host}:{port}/api[/dim]")
@@ -131,7 +134,9 @@ def _serve_with_reload(host: str, port: int) -> None:
             str(port),
             "--reload",
             "--reload-dir",
-            "src",
+            str(reload_root),
+            "--timeout-graceful-shutdown",
+            "5",
             "--log-level",
             "warning",
         ],
