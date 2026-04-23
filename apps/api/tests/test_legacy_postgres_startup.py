@@ -18,28 +18,28 @@ async def test_bootstrap_legacy_postgres_support_runs_all_steps(
 
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "check_legacy_postgres_connection",
+        "check_relational_sidecar_connection",
         check_connection,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "run_legacy_postgres_migrations",
+        "run_relational_sidecar_migrations",
         run_migrations,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "recover_legacy_postgres_sources",
+        "recover_relational_sidecar_sources",
         recover_sources,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "load_legacy_postgres_api_keys",
+        "load_relational_sidecar_api_keys",
         load_api_keys,
     )
     monkeypatch.setattr(legacy_postgres_startup.settings, "store", "legacy")
     monkeypatch.setattr(legacy_postgres_startup.settings, "auth_store", "postgres")
 
-    assert await legacy_postgres_startup.bootstrap_legacy_postgres_support() is True
+    assert await legacy_postgres_startup.bootstrap_relational_sidecar_support() is True
 
     check_connection.assert_awaited_once()
     run_migrations.assert_awaited_once()
@@ -58,28 +58,28 @@ async def test_bootstrap_legacy_postgres_support_stops_when_postgres_is_unavaila
 
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "check_legacy_postgres_connection",
+        "check_relational_sidecar_connection",
         check_connection,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "run_legacy_postgres_migrations",
+        "run_relational_sidecar_migrations",
         run_migrations,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "recover_legacy_postgres_sources",
+        "recover_relational_sidecar_sources",
         recover_sources,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "load_legacy_postgres_api_keys",
+        "load_relational_sidecar_api_keys",
         load_api_keys,
     )
     monkeypatch.setattr(legacy_postgres_startup.settings, "store", "legacy")
     monkeypatch.setattr(legacy_postgres_startup.settings, "auth_store", "postgres")
 
-    assert await legacy_postgres_startup.bootstrap_legacy_postgres_support() is False
+    assert await legacy_postgres_startup.bootstrap_relational_sidecar_support() is False
 
     check_connection.assert_awaited_once()
     run_migrations.assert_not_awaited()
@@ -98,28 +98,28 @@ async def test_bootstrap_legacy_postgres_support_is_disabled_in_fully_surreal_mo
 
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "check_legacy_postgres_connection",
+        "check_relational_sidecar_connection",
         check_connection,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "run_legacy_postgres_migrations",
+        "run_relational_sidecar_migrations",
         run_migrations,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "recover_legacy_postgres_sources",
+        "recover_relational_sidecar_sources",
         recover_sources,
     )
     monkeypatch.setattr(
         legacy_postgres_startup,
-        "load_legacy_postgres_api_keys",
+        "load_relational_sidecar_api_keys",
         load_api_keys,
     )
     monkeypatch.setattr(legacy_postgres_startup.settings, "store", "surreal")
     monkeypatch.setattr(legacy_postgres_startup.settings, "auth_store", "surreal")
 
-    assert await legacy_postgres_startup.bootstrap_legacy_postgres_support() is False
+    assert await legacy_postgres_startup.bootstrap_relational_sidecar_support() is False
 
     check_connection.assert_not_awaited()
     run_migrations.assert_not_awaited()

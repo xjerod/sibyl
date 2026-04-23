@@ -28,7 +28,7 @@ class _FakeMCPServer:
 async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bootstrap_legacy_postgres_support = AsyncMock(return_value=True)
+    bootstrap_relational_sidecar_support = AsyncMock(return_value=True)
     init_pubsub = AsyncMock()
     shutdown_pubsub = AsyncMock()
     init_locks = AsyncMock()
@@ -44,8 +44,8 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     monkeypatch.setattr("sibyl.server.create_mcp_server", lambda **_: _FakeMCPServer())
     monkeypatch.setattr(
         main_module,
-        "_bootstrap_legacy_postgres_support",
-        bootstrap_legacy_postgres_support,
+        "_bootstrap_relational_sidecar_support",
+        bootstrap_relational_sidecar_support,
     )
     monkeypatch.setattr("sibyl.api.pubsub.init_pubsub", init_pubsub)
     monkeypatch.setattr("sibyl.api.pubsub.shutdown_pubsub", shutdown_pubsub)
@@ -65,7 +65,7 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     async with app.router.lifespan_context(app):
         pass
 
-    bootstrap_legacy_postgres_support.assert_not_awaited()
+    bootstrap_relational_sidecar_support.assert_not_awaited()
     init_pubsub.assert_awaited_once()
     init_locks.assert_awaited_once()
     shutdown_pubsub.assert_awaited_once()

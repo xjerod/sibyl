@@ -108,10 +108,10 @@ async def _run_migrations() -> None:
     await loop.run_in_executor(None, _run_migrations_sync)
 
 
-async def _bootstrap_legacy_postgres_support() -> bool:
-    from sibyl.legacy_postgres_startup import bootstrap_legacy_postgres_support
+async def _bootstrap_relational_sidecar_support() -> bool:
+    from sibyl.legacy_postgres_startup import bootstrap_relational_sidecar_support
 
-    return await bootstrap_legacy_postgres_support()
+    return await bootstrap_relational_sidecar_support()
 
 
 @asynccontextmanager
@@ -123,7 +123,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
         log.info("Surreal store mode enabled; bootstrapping remaining relational sidecar services")
 
     if settings.requires_relational_support:
-        await _bootstrap_legacy_postgres_support()
+        await _bootstrap_relational_sidecar_support()
 
     log.info("Pre-warming graph client connection...")
     try:

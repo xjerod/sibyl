@@ -10,38 +10,38 @@ from sibyl.config import settings
 log = structlog.get_logger()
 
 
-async def check_legacy_postgres_connection() -> None:
+async def check_relational_sidecar_connection() -> None:
     from sibyl.db.connection import get_session
 
     async with get_session() as session:
         await session.execute(text("SELECT 1"))
 
 
-async def run_legacy_postgres_migrations() -> None:
+async def run_relational_sidecar_migrations() -> None:
     from sibyl.db.migrations import run_migrations
 
     await run_migrations()
 
 
-async def recover_legacy_postgres_sources() -> None:
+async def recover_relational_sidecar_sources() -> None:
     from sibyl.api.routes.admin import recover_stuck_sources
 
     await recover_stuck_sources()
 
 
-async def load_legacy_postgres_api_keys() -> None:
+async def load_relational_sidecar_api_keys() -> None:
     from sibyl.services.settings import load_api_keys_from_db
 
     await load_api_keys_from_db()
 
 
-async def bootstrap_legacy_postgres_support() -> bool:
+async def bootstrap_relational_sidecar_support() -> bool:
     if not settings.requires_relational_support:
         log.info("Relational sidecar bootstrap disabled in fully surreal mode", store=settings.store)
         return False
 
     try:
-        await check_legacy_postgres_connection()
+        await check_relational_sidecar_connection()
     except Exception as exc:
         log.warning("Relational sidecar unavailable at startup", error=str(exc), store=settings.store)
         return False
@@ -49,22 +49,31 @@ async def bootstrap_legacy_postgres_support() -> bool:
     log.info("Relational sidecar connected", host=settings.postgres_host, store=settings.store)
 
     try:
-        await run_legacy_postgres_migrations()
+        await run_relational_sidecar_migrations()
     except Exception:
         log.exception("Database migration failed")
         raise
 
     try:
-        await recover_legacy_postgres_sources()
+        await recover_relational_sidecar_sources()
     except Exception as exc:
         log.warning("Source recovery failed", error=str(exc), store=settings.store)
 
     try:
-        await load_legacy_postgres_api_keys()
+        await load_relational_sidecar_api_keys()
     except Exception as exc:
         log.warning("API key preload failed", error=str(exc), store=settings.store)
 
     return True
 
 
-__all__ = ["bootstrap_legacy_postgres_support"]
+check_legacy_postgres_connection = check_relational_sidecar_connection
+run_legacy_postgres_migrations = run_relational_sidecar_migrations
+recover_legacy_postgres_sources = recover_relational_sidecar_sources
+load_legacy_postgres_api_keys = load_relational_sidecar_api_keys
+bootstrap_legacy_postgres_support = bootstrap_relational_sidecar_support
+
+__all__ = [
+    "bootstrap_relational_sidecar_support",
+    "bootstrap_legacy_postgres_support",
+]

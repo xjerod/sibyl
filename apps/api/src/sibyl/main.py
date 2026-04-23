@@ -41,10 +41,10 @@ def _enable_dev_signal_diagnostics() -> None:
         faulthandler.register(sigusr1, all_threads=True)
 
 
-async def _bootstrap_legacy_postgres_support() -> bool:
-    from sibyl.legacy_postgres_startup import bootstrap_legacy_postgres_support
+async def _bootstrap_relational_sidecar_support() -> bool:
+    from sibyl.legacy_postgres_startup import bootstrap_relational_sidecar_support
 
-    return await bootstrap_legacy_postgres_support()
+    return await bootstrap_relational_sidecar_support()
 
 
 def create_combined_app(  # noqa: PLR0915
@@ -121,7 +121,7 @@ def create_combined_app(  # noqa: PLR0915
             )
 
         if settings.requires_relational_support:
-            await _bootstrap_legacy_postgres_support()
+            await _bootstrap_relational_sidecar_support()
 
         try:
             from sibyl_core.graph.client import get_graph_client
