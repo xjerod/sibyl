@@ -93,10 +93,10 @@ async def get_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
             result = await session.execute(select(Item))
             return result.scalars().all()
     """
-    if settings.store == "surreal":
+    if not settings.requires_relational_support:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Relational RLS sessions are unavailable in surreal mode",
+            detail="Relational RLS sessions are unavailable in fully surreal mode",
         )
 
     async with get_session() as session:
@@ -132,10 +132,10 @@ async def require_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
 
     Raises 401 if no valid auth context is found.
     """
-    if settings.store == "surreal":
+    if not settings.requires_relational_support:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Relational RLS sessions are unavailable in surreal mode",
+            detail="Relational RLS sessions are unavailable in fully surreal mode",
         )
 
     async with get_session() as session:
@@ -202,7 +202,7 @@ async def apply_rls_from_auth_context(
 
     if app_settings.disable_auth:
         return
-    if app_settings.store == "surreal":
+    if not app_settings.requires_relational_support:
         return
 
     user_id = ctx.user.id if ctx.user else None
@@ -253,7 +253,7 @@ async def get_auth_session(request: Request) -> AsyncGenerator[AuthSession]:
     """
     from sibyl.auth.dependencies import build_auth_context
 
-    if settings.store == "surreal":
+    if not settings.requires_relational_support:
         ctx = await build_auth_context(request, None)
         yield AuthSession(ctx, None)
         return

@@ -1,7 +1,7 @@
 """Tests for RLS session variable management."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -118,6 +118,7 @@ class TestGetRlsSession:
             patch("sibyl.auth.rls.settings") as mock_settings,
         ):
             mock_settings.disable_auth = False
+            mock_settings.requires_relational_support = True
 
             async def session_context():
                 yield mock_session
@@ -139,6 +140,7 @@ class TestGetRlsSession:
             patch("sibyl.auth.rls.settings") as mock_settings,
         ):
             mock_settings.disable_auth = True
+            mock_settings.requires_relational_support = True
 
             mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_get_session.return_value.__aexit__ = AsyncMock()
@@ -149,6 +151,36 @@ class TestGetRlsSession:
 
             # No SET LOCAL calls should be made
             assert mock_session.execute.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_allows_mixed_surreal_runtime_with_relational_auth(self) -> None:
+        from contextlib import asynccontextmanager
+
+        request = MagicMock()
+        claims = {"sub": str(uuid4()), "org": str(uuid4())}
+        mock_session = AsyncMock()
+
+        @asynccontextmanager
+        async def mock_get_session():
+            yield mock_session
+
+        with (
+            patch("sibyl.auth.rls.get_session", mock_get_session),
+            patch("sibyl.auth.rls.settings") as mock_settings,
+            patch("sibyl.auth.rls.resolve_request_claims", new_callable=AsyncMock) as mock_resolve,
+            patch("sibyl.auth.rls.set_rls_context", new_callable=AsyncMock) as mock_set_context,
+        ):
+            mock_settings.disable_auth = False
+            mock_settings.requires_relational_support = True
+            mock_resolve.return_value = claims
+
+            async for session in get_rls_session(request):
+                assert session == mock_session
+
+            mock_set_context.assert_awaited_once()
+            assert mock_set_context.await_args.args[0] == mock_session
+            assert mock_set_context.await_args.kwargs["user_id"] == UUID(claims["sub"])
+            assert mock_set_context.await_args.kwargs["org_id"] == UUID(claims["org"])
 
 
 class TestRequireRlsSession:
@@ -178,6 +210,7 @@ class TestRequireRlsSession:
             ) as mock_resolve,
         ):
             mock_settings.disable_auth = False
+            mock_settings.requires_relational_support = True
             mock_resolve.return_value = None  # No claims found
 
             with pytest.raises(HTTPException) as exc_info:  # noqa: PT012
@@ -206,6 +239,7 @@ class TestRequireRlsSession:
             ) as mock_resolve,
         ):
             mock_settings.disable_auth = False
+            mock_settings.requires_relational_support = True
             mock_resolve.return_value = {"org": str(uuid4())}  # No sub
 
             with pytest.raises(HTTPException) as exc_info:  # noqa: PT012
@@ -226,9 +260,24 @@ class TestRequireRlsSession:
             patch("sibyl.auth.rls.settings") as mock_settings,
         ):
             mock_settings.disable_auth = True
+            mock_settings.requires_relational_support = True
 
             mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_get_session.return_value.__aexit__ = AsyncMock()
 
             async for session in require_rls_session(request):
                 assert session == mock_session
+
+    @pytest.mark.asyncio
+    async def test_raises_501_in_fully_surreal_mode(self) -> None:
+        request = MagicMock()
+
+        with patch("sibyl.auth.rls.settings") as mock_settings:
+            mock_settings.requires_relational_support = False
+
+            with pytest.raises(HTTPException) as exc_info:  # noqa: PT012
+                gen = require_rls_session(request)
+                await gen.__anext__()
+
+            assert exc_info.value.status_code == 501
+            assert "fully surreal mode" in exc_info.value.detail
