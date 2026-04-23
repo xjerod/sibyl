@@ -27,7 +27,7 @@ def _request() -> Request:
 
 
 @pytest.mark.asyncio
-async def test_list_orgs_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_orgs_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     list_orgs = AsyncMock(
         return_value=[
@@ -41,7 +41,7 @@ async def test_list_orgs_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> 
         ]
     )
 
-    monkeypatch.setattr(org_routes, "list_legacy_orgs", list_orgs)
+    monkeypatch.setattr(org_routes.organization_runtime, "list_orgs", list_orgs)
 
     payload = await org_routes.list_orgs(user=user)
 
@@ -50,7 +50,7 @@ async def test_list_orgs_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_create_org_uses_legacy_helper_and_sets_cookies(
+async def test_create_org_uses_runtime_helper_and_sets_cookies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = _request()
@@ -68,7 +68,7 @@ async def test_create_org_uses_legacy_helper_and_sets_cookies(
     )
     set_auth_cookies = MagicMock()
 
-    monkeypatch.setattr(org_routes, "create_legacy_org", create_org)
+    monkeypatch.setattr(org_routes.organization_runtime, "create_org", create_org)
     monkeypatch.setattr(org_routes, "_set_auth_cookies", set_auth_cookies)
 
     payload = await org_routes.create_org(
@@ -90,7 +90,7 @@ async def test_create_org_uses_legacy_helper_and_sets_cookies(
 
 
 @pytest.mark.asyncio
-async def test_get_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_org_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = SimpleNamespace(user=SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111")))
     get_org = AsyncMock(
         return_value=LegacyOrgRoleResult(
@@ -101,7 +101,7 @@ async def test_get_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> No
         )
     )
 
-    monkeypatch.setattr(org_routes, "get_legacy_org", get_org)
+    monkeypatch.setattr(org_routes.organization_runtime, "get_org", get_org)
 
     payload = await org_routes.get_org(slug="electric-coven", ctx=ctx)
 
@@ -110,7 +110,7 @@ async def test_get_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_update_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_update_org_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     request = _request()
     ctx = SimpleNamespace(user=SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111")))
     update_org = AsyncMock(
@@ -121,7 +121,7 @@ async def test_update_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) ->
         )
     )
 
-    monkeypatch.setattr(org_routes, "update_legacy_org", update_org)
+    monkeypatch.setattr(org_routes.organization_runtime, "update_org", update_org)
 
     payload = await org_routes.update_org(
         request=request,
@@ -141,12 +141,12 @@ async def test_update_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
-async def test_delete_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_delete_org_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     request = _request()
     ctx = SimpleNamespace(user=SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111")))
     delete_org = AsyncMock()
 
-    monkeypatch.setattr(org_routes, "delete_legacy_org", delete_org)
+    monkeypatch.setattr(org_routes.organization_runtime, "delete_org", delete_org)
 
     response = await org_routes.delete_org(request=request, slug="electric-coven", ctx=ctx)
 
@@ -159,7 +159,7 @@ async def test_delete_org_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
-async def test_switch_org_uses_legacy_helper_and_sets_cookies(
+async def test_switch_org_uses_runtime_helper_and_sets_cookies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = _request()
@@ -177,7 +177,7 @@ async def test_switch_org_uses_legacy_helper_and_sets_cookies(
     )
     set_auth_cookies = MagicMock()
 
-    monkeypatch.setattr(org_routes, "switch_legacy_org", switch_org)
+    monkeypatch.setattr(org_routes.organization_runtime, "switch_org", switch_org)
     monkeypatch.setattr(org_routes, "_set_auth_cookies", set_auth_cookies)
 
     payload = await org_routes.switch_org(

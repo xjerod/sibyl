@@ -30,7 +30,7 @@ def _request() -> Request:
 
 
 @pytest.mark.asyncio
-async def test_list_invitations_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_invitations_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     list_invitations = AsyncMock(
         return_value=[
@@ -44,7 +44,11 @@ async def test_list_invitations_uses_legacy_helper(monkeypatch: pytest.MonkeyPat
         ]
     )
 
-    monkeypatch.setattr(invitation_routes, "list_legacy_org_invitations", list_invitations)
+    monkeypatch.setattr(
+        invitation_routes.organization_runtime,
+        "list_org_invitations",
+        list_invitations,
+    )
 
     payload = await invitation_routes.list_invitations(slug="electric-coven", user=user)
 
@@ -53,7 +57,7 @@ async def test_list_invitations_uses_legacy_helper(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
-async def test_create_invitation_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_create_invitation_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     request = _request()
     user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     create_invitation = AsyncMock(
@@ -66,7 +70,11 @@ async def test_create_invitation_uses_legacy_helper(monkeypatch: pytest.MonkeyPa
         )
     )
 
-    monkeypatch.setattr(invitation_routes, "create_legacy_org_invitation", create_invitation)
+    monkeypatch.setattr(
+        invitation_routes.organization_runtime,
+        "create_org_invitation",
+        create_invitation,
+    )
 
     payload = await invitation_routes.create_invitation(
         request=request,
@@ -91,13 +99,17 @@ async def test_create_invitation_uses_legacy_helper(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
-async def test_delete_invitation_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_delete_invitation_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     request = _request()
     user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     invitation_id = UUID("00000000-0000-0000-0000-000000000222")
     delete_invitation = AsyncMock()
 
-    monkeypatch.setattr(invitation_routes, "delete_legacy_org_invitation", delete_invitation)
+    monkeypatch.setattr(
+        invitation_routes.organization_runtime,
+        "delete_org_invitation",
+        delete_invitation,
+    )
 
     payload = await invitation_routes.delete_invitation(
         request=request,
@@ -131,7 +143,11 @@ async def test_accept_invitation_sets_auth_cookies(monkeypatch: pytest.MonkeyPat
     )
     set_auth_cookies = MagicMock()
 
-    monkeypatch.setattr(invitation_routes, "accept_legacy_org_invitation", accept_invitation)
+    monkeypatch.setattr(
+        invitation_routes.organization_runtime,
+        "accept_org_invitation",
+        accept_invitation,
+    )
     monkeypatch.setattr(invitation_routes, "_set_auth_cookies", set_auth_cookies)
 
     payload = await invitation_routes.accept_invitation(

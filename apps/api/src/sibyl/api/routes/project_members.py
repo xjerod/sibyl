@@ -10,13 +10,7 @@ from pydantic import BaseModel, Field
 from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_org_role, get_current_organization, get_current_user
 from sibyl.db.models import Organization, Project, ProjectRole, User
-from sibyl.persistence.organization_runtime import (
-    add_legacy_project_member,
-    can_manage_legacy_project_members,
-    list_legacy_project_members,
-    remove_legacy_project_member,
-    update_legacy_project_member_role,
-)
+from sibyl.persistence import organization_runtime
 
 router = APIRouter(prefix="/projects/{project_id}/members", tags=["project-members"])
 
@@ -31,7 +25,7 @@ class MemberRoleUpdateRequest(BaseModel):
 
 
 def _can_manage_members(role: ProjectRole | None, project: Project, user: User) -> bool:
-    return can_manage_legacy_project_members(role, project, user)
+    return organization_runtime.can_manage_project_members(role, project, user)
 
 
 @router.get("")
@@ -41,7 +35,7 @@ async def list_members(
     org: Organization = Depends(get_current_organization),
     _org_role=Depends(get_current_org_role),
 ):
-    result = await list_legacy_project_members(
+    result = await organization_runtime.list_project_members(
         project_id=project_id,
         actor=user,
         org_id=org.id,
@@ -59,7 +53,7 @@ async def add_member(
     org: Organization = Depends(get_current_organization),
     _org_role=Depends(get_current_org_role),
 ):
-    membership = await add_legacy_project_member(
+    membership = await organization_runtime.add_project_member(
         request=request,
         project_id=project_id,
         actor=user,
@@ -94,7 +88,7 @@ async def update_member_role(
     org: Organization = Depends(get_current_organization),
     _org_role=Depends(get_current_org_role),
 ):
-    membership = await update_legacy_project_member_role(
+    membership = await organization_runtime.update_project_member_role(
         request=request,
         project_id=project_id,
         actor=user,
@@ -128,7 +122,7 @@ async def remove_member(
     org: Organization = Depends(get_current_organization),
     _org_role=Depends(get_current_org_role),
 ):
-    await remove_legacy_project_member(
+    await organization_runtime.remove_project_member(
         request=request,
         project_id=project_id,
         actor=user,

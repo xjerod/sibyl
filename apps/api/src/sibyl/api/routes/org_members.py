@@ -10,12 +10,7 @@ from pydantic import BaseModel, Field
 from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_user
 from sibyl.db.models import OrganizationRole, User
-from sibyl.persistence.organization_runtime import (
-    add_legacy_org_member,
-    list_legacy_org_members,
-    remove_legacy_org_member,
-    update_legacy_org_member_role,
-)
+from sibyl.persistence import organization_runtime
 
 router = APIRouter(prefix="/orgs/{slug}/members", tags=["org-members"])
 
@@ -34,7 +29,7 @@ async def list_members(
     slug: str,
     user: User = Depends(get_current_user),
 ):
-    return {"members": await list_legacy_org_members(slug=slug, actor_id=user.id)}
+    return {"members": await organization_runtime.list_org_members(slug=slug, actor_id=user.id)}
 
 
 @router.post("")
@@ -45,7 +40,7 @@ async def add_member(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
 ):
-    membership = await add_legacy_org_member(
+    membership = await organization_runtime.add_org_member(
         slug=slug,
         actor_id=user.id,
         target_user_id=body.user_id,
@@ -76,7 +71,7 @@ async def update_member_role(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
 ):
-    membership = await update_legacy_org_member_role(
+    membership = await organization_runtime.update_org_member_role(
         slug=slug,
         actor_id=user.id,
         target_user_id=user_id,
@@ -106,7 +101,7 @@ async def remove_member(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
 ):
-    membership = await remove_legacy_org_member(
+    membership = await organization_runtime.remove_org_member(
         slug=slug,
         actor_id=user.id,
         target_user_id=user_id,

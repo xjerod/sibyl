@@ -26,7 +26,7 @@ def _request(*, authorization: str | None = "Bearer current-token") -> SimpleNam
 
 
 @pytest.mark.asyncio
-async def test_organization_runtime_dispatches_org_reads_to_surreal(
+async def test_organization_runtime_dispatches_neutral_org_reads_to_surreal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = object()
@@ -39,13 +39,13 @@ async def test_organization_runtime_dispatches_org_reads_to_surreal(
         dispatched,
     )
 
-    result = await organization_runtime.list_legacy_orgs(user_id=uuid4())
+    result = await organization_runtime.list_orgs(user_id=uuid4())
     assert result is expected
     dispatched.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_organization_runtime_dispatches_org_id_reads_to_surreal(
+async def test_organization_runtime_dispatches_neutral_org_id_reads_to_surreal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = ["org-1", "org-2"]
@@ -58,14 +58,14 @@ async def test_organization_runtime_dispatches_org_id_reads_to_surreal(
         dispatched,
     )
 
-    result = await organization_runtime.list_legacy_org_ids()
+    result = await organization_runtime.list_org_ids()
 
     assert result == expected
     dispatched.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
-async def test_organization_runtime_dispatches_org_delete_to_surreal(
+async def test_organization_runtime_dispatches_neutral_org_delete_to_surreal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dispatched = AsyncMock()
@@ -80,7 +80,7 @@ async def test_organization_runtime_dispatches_org_delete_to_surreal(
     request = _request()
     user_id = uuid4()
 
-    await organization_runtime.delete_legacy_org(
+    await organization_runtime.delete_org(
         request=request,
         slug="electric-coven",
         user_id=user_id,
@@ -94,7 +94,7 @@ async def test_organization_runtime_dispatches_org_delete_to_surreal(
 
 
 @pytest.mark.asyncio
-async def test_organization_runtime_dispatches_project_member_reads_to_surreal(
+async def test_organization_runtime_dispatches_neutral_project_member_reads_to_surreal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = object()
@@ -109,7 +109,7 @@ async def test_organization_runtime_dispatches_project_member_reads_to_surreal(
         dispatched,
     )
 
-    result = await organization_runtime.list_legacy_project_members(
+    result = await organization_runtime.list_project_members(
         project_id="project_123",
         actor=actor,
         org_id=org_id,

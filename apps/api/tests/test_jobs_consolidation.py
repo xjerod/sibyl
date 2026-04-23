@@ -308,7 +308,7 @@ async def test_list_organization_ids_uses_runtime_helper(
     from sibyl.persistence import organization_runtime
 
     dispatched = AsyncMock(return_value=["org-1", "org-2"])
-    monkeypatch.setattr(organization_runtime, "list_legacy_org_ids", dispatched)
+    monkeypatch.setattr(organization_runtime, "list_org_ids", dispatched)
 
     result = await consolidation_module._list_organization_ids()
 

@@ -60,7 +60,7 @@ class TestCanManageMembers:
 
 
 @pytest.mark.asyncio
-async def test_list_members_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_members_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222"))
     list_members = AsyncMock(
@@ -70,7 +70,11 @@ async def test_list_members_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) 
         )
     )
 
-    monkeypatch.setattr(project_member_routes, "list_legacy_project_members", list_members)
+    monkeypatch.setattr(
+        project_member_routes.organization_runtime,
+        "list_project_members",
+        list_members,
+    )
 
     payload = await project_member_routes.list_members(project_id="project_123", user=user, org=org)
 
@@ -79,7 +83,7 @@ async def test_list_members_uses_legacy_helper(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-async def test_add_member_uses_legacy_helper_and_broadcasts(
+async def test_add_member_uses_runtime_helper_and_broadcasts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = MagicMock()
@@ -97,7 +101,11 @@ async def test_add_member_uses_legacy_helper_and_broadcasts(
     )
     broadcast = AsyncMock()
 
-    monkeypatch.setattr(project_member_routes, "add_legacy_project_member", add_member)
+    monkeypatch.setattr(
+        project_member_routes.organization_runtime,
+        "add_project_member",
+        add_member,
+    )
     monkeypatch.setattr(project_member_routes, "broadcast_event", broadcast)
 
     payload = await project_member_routes.add_member(
@@ -129,7 +137,7 @@ async def test_add_member_uses_legacy_helper_and_broadcasts(
 
 
 @pytest.mark.asyncio
-async def test_update_member_role_uses_legacy_helper_and_broadcasts(
+async def test_update_member_role_uses_runtime_helper_and_broadcasts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = MagicMock()
@@ -147,7 +155,11 @@ async def test_update_member_role_uses_legacy_helper_and_broadcasts(
     )
     broadcast = AsyncMock()
 
-    monkeypatch.setattr(project_member_routes, "update_legacy_project_member_role", update_member)
+    monkeypatch.setattr(
+        project_member_routes.organization_runtime,
+        "update_project_member_role",
+        update_member,
+    )
     monkeypatch.setattr(project_member_routes, "broadcast_event", broadcast)
 
     payload = await project_member_routes.update_member_role(
@@ -177,7 +189,7 @@ async def test_update_member_role_uses_legacy_helper_and_broadcasts(
 
 
 @pytest.mark.asyncio
-async def test_remove_member_uses_legacy_helper_and_broadcasts(
+async def test_remove_member_uses_runtime_helper_and_broadcasts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = MagicMock()
@@ -194,7 +206,11 @@ async def test_remove_member_uses_legacy_helper_and_broadcasts(
     )
     broadcast = AsyncMock()
 
-    monkeypatch.setattr(project_member_routes, "remove_legacy_project_member", remove_member)
+    monkeypatch.setattr(
+        project_member_routes.organization_runtime,
+        "remove_project_member",
+        remove_member,
+    )
     monkeypatch.setattr(project_member_routes, "broadcast_event", broadcast)
 
     payload = await project_member_routes.remove_member(

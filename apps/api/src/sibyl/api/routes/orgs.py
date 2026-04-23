@@ -11,14 +11,7 @@ from sibyl import config as config_module
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_user
 from sibyl.db.models import User
-from sibyl.persistence.organization_runtime import (
-    create_legacy_org,
-    delete_legacy_org,
-    get_legacy_org,
-    list_legacy_orgs,
-    switch_legacy_org,
-    update_legacy_org,
-)
+from sibyl.persistence import organization_runtime
 
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 
@@ -82,7 +75,7 @@ def _set_auth_cookies(
 async def list_orgs(
     user: User = Depends(get_current_user),
 ):
-    orgs = await list_legacy_orgs(user_id=user.id)
+    orgs = await organization_runtime.list_orgs(user_id=user.id)
     return {
         "orgs": [
             {
@@ -104,7 +97,7 @@ async def create_org(
     response: Response,
     user: User = Depends(get_current_user),
 ):
-    created = await create_legacy_org(
+    created = await organization_runtime.create_org(
         request=request,
         user_id=user.id,
         name=body.name,
@@ -131,7 +124,7 @@ async def get_org(
     slug: str,
     ctx: AuthContext = Depends(get_auth_context),
 ):
-    org = await get_legacy_org(slug=slug, user_id=ctx.user.id)
+    org = await organization_runtime.get_org(slug=slug, user_id=ctx.user.id)
     return {
         "organization": {"id": str(org.id), "slug": org.slug, "name": org.name},
         "role": org.role.value,
@@ -145,7 +138,7 @@ async def update_org(
     body: OrganizationUpdateRequest,
     ctx: AuthContext = Depends(get_auth_context),
 ):
-    updated = await update_legacy_org(
+    updated = await organization_runtime.update_org(
         request=request,
         slug=slug,
         user_id=ctx.user.id,
@@ -161,7 +154,7 @@ async def delete_org(
     slug: str,
     ctx: AuthContext = Depends(get_auth_context),
 ):
-    await delete_legacy_org(request=request, slug=slug, user_id=ctx.user.id)
+    await organization_runtime.delete_org(request=request, slug=slug, user_id=ctx.user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -172,7 +165,7 @@ async def switch_org(
     response: Response,
     user: User = Depends(get_current_user),
 ):
-    switched = await switch_legacy_org(request=request, slug=slug, user_id=user.id)
+    switched = await organization_runtime.switch_org(request=request, slug=slug, user_id=user.id)
     _set_auth_cookies(
         response,
         access_token=switched.access_token,

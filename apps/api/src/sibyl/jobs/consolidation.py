@@ -18,9 +18,9 @@ log = structlog.get_logger()
 
 
 async def _list_organization_ids() -> list[str]:
-    from sibyl.persistence.organization_runtime import list_legacy_org_ids
+    from sibyl.persistence.organization_runtime import list_org_ids
 
-    return await list_legacy_org_ids()
+    return await list_org_ids()
 
 
 async def consolidate_org(
