@@ -1,4 +1,4 @@
-from sibyl.auth.invitations import generate_invite_token
+from sibyl.auth.primitives import generate_invite_token
 
 
 def test_generate_invite_token() -> None:

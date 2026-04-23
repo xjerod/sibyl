@@ -32,19 +32,19 @@ async def test_api_key_rest_denies_without_api_scopes() -> None:
     request = _make_request(method="GET", path="/api/me", token="sk_live_test")
     session = object()
 
-    with patch("sibyl.auth.dependencies.ApiKeyManager") as manager_cls:
-        manager = manager_cls.return_value
-        manager.authenticate = AsyncMock(
+    with patch(
+        "sibyl.auth.dependencies.authenticate_legacy_api_key",
+        AsyncMock(
             return_value=ApiKeyAuth(
                 api_key_id="00000000-0000-0000-0000-000000000000",
                 user_id="00000000-0000-0000-0000-000000000001",
                 organization_id="00000000-0000-0000-0000-000000000002",
                 scopes=["mcp"],
             )
-        )
-
+        ),
+    ):
         with pytest.raises(HTTPException) as exc:
-            await resolve_claims(request, session=session)
+            await resolve_claims(request, _session=session)
         assert exc.value.status_code == 403
 
 
@@ -53,18 +53,18 @@ async def test_api_key_rest_allows_api_read_for_get() -> None:
     request = _make_request(method="GET", path="/api/me", token="sk_live_test")
     session = object()
 
-    with patch("sibyl.auth.dependencies.ApiKeyManager") as manager_cls:
-        manager = manager_cls.return_value
-        manager.authenticate = AsyncMock(
+    with patch(
+        "sibyl.auth.dependencies.authenticate_legacy_api_key",
+        AsyncMock(
             return_value=ApiKeyAuth(
                 api_key_id="00000000-0000-0000-0000-000000000000",
                 user_id="00000000-0000-0000-0000-000000000001",
                 organization_id="00000000-0000-0000-0000-000000000002",
                 scopes=["api:read"],
             )
-        )
-
-        claims = await resolve_claims(request, session=session)
+        ),
+    ):
+        claims = await resolve_claims(request, _session=session)
         assert claims is not None
         assert claims["typ"] == "api_key"
         assert "api:read" in claims["scopes"]
@@ -75,19 +75,19 @@ async def test_api_key_rest_denies_write_without_api_write() -> None:
     request = _make_request(method="POST", path="/api/me", token="sk_live_test")
     session = object()
 
-    with patch("sibyl.auth.dependencies.ApiKeyManager") as manager_cls:
-        manager = manager_cls.return_value
-        manager.authenticate = AsyncMock(
+    with patch(
+        "sibyl.auth.dependencies.authenticate_legacy_api_key",
+        AsyncMock(
             return_value=ApiKeyAuth(
                 api_key_id="00000000-0000-0000-0000-000000000000",
                 user_id="00000000-0000-0000-0000-000000000001",
                 organization_id="00000000-0000-0000-0000-000000000002",
                 scopes=["api:read"],
             )
-        )
-
+        ),
+    ):
         with pytest.raises(HTTPException) as exc:
-            await resolve_claims(request, session=session)
+            await resolve_claims(request, _session=session)
         assert exc.value.status_code == 403
 
 
@@ -96,18 +96,18 @@ async def test_api_key_rest_allows_write_with_api_write() -> None:
     request = _make_request(method="POST", path="/api/me", token="sk_live_test")
     session = object()
 
-    with patch("sibyl.auth.dependencies.ApiKeyManager") as manager_cls:
-        manager = manager_cls.return_value
-        manager.authenticate = AsyncMock(
+    with patch(
+        "sibyl.auth.dependencies.authenticate_legacy_api_key",
+        AsyncMock(
             return_value=ApiKeyAuth(
                 api_key_id="00000000-0000-0000-0000-000000000000",
                 user_id="00000000-0000-0000-0000-000000000001",
                 organization_id="00000000-0000-0000-0000-000000000002",
                 scopes=["api:write"],
             )
-        )
-
-        claims = await resolve_claims(request, session=session)
+        ),
+    ):
+        claims = await resolve_claims(request, _session=session)
         assert claims is not None
         assert claims["typ"] == "api_key"
         assert "api:write" in claims["scopes"]

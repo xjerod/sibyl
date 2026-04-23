@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from sibyl.auth.device_authorization import DeviceTokenError
+from sibyl.auth.primitives import DeviceTokenError
 from sibyl.persistence.surreal import auth_runtime as surreal_auth_runtime
 
 

@@ -1,4 +1,4 @@
-from sibyl.auth.organizations import slugify
+from sibyl.auth.primitives import slugify
 
 
 def test_slugify() -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Self
 
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from sibyl.auth.memberships import OrganizationMembershipManager
+from sibyl.auth.primitives import generate_invite_token
 from sibyl.db.models import OrganizationInvitation, OrganizationRole, User
 
 if TYPE_CHECKING:
@@ -29,11 +29,6 @@ def _desc(column: ColumnElement) -> ColumnElement:
 
 class InvitationError(ValueError):
     """Invitation error."""
-
-
-def generate_invite_token() -> str:
-    return secrets.token_urlsafe(48)
-
 
 def utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)

@@ -2,25 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Any, Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from sibyl.auth.primitives import slugify
 from sibyl.db.models import Organization, User
 
 if TYPE_CHECKING:
     from uuid import UUID
-
-_SLUG_SAFE = re.compile(r"[^a-z0-9]+")
-
-
-def slugify(name: str) -> str:
-    slug = name.strip().lower()
-    slug = _SLUG_SAFE.sub("-", slug).strip("-")
-    return slug or "org"
-
 
 class OrganizationManager:
     """CRUD helpers for `Organization`."""

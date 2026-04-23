@@ -7,8 +7,8 @@ from typing import Any, Self
 from uuid import UUID, uuid4
 
 from sibyl import config as config_module
-from sibyl.auth.organizations import slugify
 from sibyl.auth.passwords import PasswordError, hash_password, verify_password
+from sibyl.auth.primitives import slugify
 from sibyl.persistence.auth_common import RepositoryAuthContextResolver
 from sibyl_core.auth import (
     AuthMembership,

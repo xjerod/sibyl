@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 
 from sibyl import config as config_module
-from sibyl.auth.api_keys import (
+from sibyl.auth.api_key_common import (
     ApiKeyAuth,
     api_key_prefix,
     generate_api_key,
@@ -24,6 +24,7 @@ from sibyl.auth.api_keys import (
 from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import JwtError, create_access_token, create_refresh_token, verify_access_token
 from sibyl.auth.passwords import hash_password, verify_password
+from sibyl.auth.primitives import DeviceTokenError
 from sibyl.db.models import ProjectRole, ProjectVisibility
 from sibyl.email import PasswordResetEmail, get_email_client
 from sibyl.persistence.surreal.auth import (
@@ -1154,29 +1155,19 @@ async def exchange_legacy_device_code(*, device_code: str) -> dict[str, object]:
         )
         request_row = _device_request_namespace(record)
         if request_row is None:
-            from sibyl.auth.device_authorization import DeviceTokenError
-
             raise DeviceTokenError("invalid_grant", "Invalid device_code")
         now = _utcnow()
         if request_row.expires_at <= now:
-            from sibyl.auth.device_authorization import DeviceTokenError
-
             raise DeviceTokenError("expired_token", "Device code expired")
         if request_row.status == "denied":
-            from sibyl.auth.device_authorization import DeviceTokenError
-
             raise DeviceTokenError("access_denied", "User denied the request")
         if request_row.status == "consumed":
-            from sibyl.auth.device_authorization import DeviceTokenError
-
             raise DeviceTokenError("invalid_grant", "Device code already used")
         if request_row.status != "approved":
             interval = int(request_row.poll_interval_seconds or 5)
             if request_row.last_polled_at is not None:
                 delta = (now - request_row.last_polled_at).total_seconds()
                 if delta < interval:
-                    from sibyl.auth.device_authorization import DeviceTokenError
-
                     raise DeviceTokenError("slow_down", "Polling too frequently")
             updated = {
                 **record,
@@ -1188,13 +1179,9 @@ async def exchange_legacy_device_code(*, device_code: str) -> dict[str, object]:
                 uuid=request_row.id,
                 record=updated,
             )
-            from sibyl.auth.device_authorization import DeviceTokenError
-
             raise DeviceTokenError("authorization_pending", "Authorization pending")
 
         if request_row.user_id is None:
-            from sibyl.auth.device_authorization import DeviceTokenError
-
             raise DeviceTokenError("server_error", "Approved request missing user_id")
         access_token = create_access_token(
             user_id=request_row.user_id,

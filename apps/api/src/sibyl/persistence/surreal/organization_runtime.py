@@ -14,9 +14,8 @@ from starlette.requests import Request
 
 from sibyl import config as config_module
 from sibyl.auth.http import select_access_token
-from sibyl.auth.invitations import generate_invite_token
 from sibyl.auth.jwt import create_access_token, create_refresh_token
-from sibyl.auth.organizations import slugify
+from sibyl.auth.primitives import generate_invite_token, slugify
 from sibyl.db.models import OrganizationRole, ProjectRole, User
 from sibyl.persistence.auth_runtime import log_legacy_audit_event
 from sibyl.persistence.graph_runtime import ensure_graph_indexes

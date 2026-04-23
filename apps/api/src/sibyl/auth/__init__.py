@@ -20,7 +20,8 @@ if TYPE_CHECKING:
     from sibyl.auth.dependencies import get_auth_context, require_org_admin
     from sibyl.auth.memberships import OrganizationMembershipManager
     from sibyl.auth.organizations import OrganizationManager
-    from sibyl.auth.users import GitHubUserIdentity, UserManager
+    from sibyl.auth.users import UserManager
+    from sibyl_core.auth import GitHubUserIdentity
 
 __all__ = [
     # Context
@@ -65,13 +66,13 @@ def __getattr__(name: str) -> Any:
         from sibyl.auth.organizations import OrganizationManager
 
         return OrganizationManager
-    if name in {"GitHubUserIdentity", "UserManager"}:
-        from sibyl.auth.users import GitHubUserIdentity, UserManager
+    if name == "GitHubUserIdentity":
+        from sibyl_core.auth import GitHubUserIdentity
 
-        exports = {
-            "GitHubUserIdentity": GitHubUserIdentity,
-            "UserManager": UserManager,
-        }
-        return exports[name]
+        return GitHubUserIdentity
+    if name == "UserManager":
+        from sibyl.auth.users import UserManager
+
+        return UserManager
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)

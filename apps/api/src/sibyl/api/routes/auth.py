@@ -18,14 +18,10 @@ from sibyl.auth.dependencies import (
     get_auth_context,
     require_org_admin,
 )
-from sibyl.auth.device_authorization import (
-    DeviceTokenError,
-    normalize_user_code,
-)
 from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import JwtError, verify_refresh_token
 from sibyl.auth.oauth_state import OAuthStateError, issue_state, verify_state
-from sibyl.auth.users import GitHubUserIdentity
+from sibyl.auth.primitives import DeviceTokenError, normalize_user_code
 from sibyl.db.models import User
 from sibyl.persistence.auth_runtime import (
     approve_legacy_device_authorization,
@@ -48,6 +44,7 @@ from sibyl.persistence.auth_runtime import (
     start_legacy_device_authorization,
     update_legacy_auth_user,
 )
+from sibyl_core.auth import GitHubUserIdentity
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
