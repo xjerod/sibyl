@@ -39,9 +39,9 @@ async def test_get_entity_uses_knowledge_service_for_graph_entities() -> None:
     )
 
     with patch(
-        "sibyl.api.routes.entities.get_legacy_entity_runtime",
+        "sibyl.api.routes.entities.get_entity_graph_runtime",
         AsyncMock(),
-    ) as get_legacy_entity_runtime:
+    ) as get_entity_graph_runtime:
         response = await get_entity("task-1", org=org, service=service)
 
     assert response.id == "task-1"
@@ -50,7 +50,7 @@ async def test_get_entity_uses_knowledge_service_for_graph_entities() -> None:
     assert response.related[0].id == "project-1"
     assert response.related[0].relationship == "BELONGS_TO"
     service.get_entity_bundle.assert_awaited_once_with("task-1")
-    get_legacy_entity_runtime.assert_not_awaited()
+    get_entity_graph_runtime.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_get_entity_keeps_project_summary_enrichment() -> None:
     runtime = SimpleNamespace(entity_manager=manager, relationship_manager=MagicMock())
 
     with patch(
-        "sibyl.api.routes.entities.get_legacy_entity_runtime",
+        "sibyl.api.routes.entities.get_entity_graph_runtime",
         AsyncMock(return_value=runtime),
     ):
         response = await get_entity("project-1", org=org, service=service)
@@ -110,9 +110,9 @@ async def test_get_entity_graph_mode_skips_bundle_loading() -> None:
     service.get_entity.return_value = task
 
     with patch(
-        "sibyl.api.routes.entities.get_legacy_entity_runtime",
+        "sibyl.api.routes.entities.get_entity_graph_runtime",
         AsyncMock(),
-    ) as get_legacy_entity_runtime:
+    ) as get_entity_graph_runtime:
         response = await get_entity(
             "task-1",
             org=org,
@@ -126,7 +126,7 @@ async def test_get_entity_graph_mode_skips_bundle_loading() -> None:
     assert response.related is None
     service.get_entity.assert_awaited_once_with("task-1")
     service.get_entity_bundle.assert_not_awaited()
-    get_legacy_entity_runtime.assert_not_awaited()
+    get_entity_graph_runtime.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -175,7 +175,7 @@ async def test_get_entity_preserves_preloaded_project_related_context() -> None:
     runtime = SimpleNamespace(entity_manager=manager, relationship_manager=MagicMock())
 
     with patch(
-        "sibyl.api.routes.entities.get_legacy_entity_runtime",
+        "sibyl.api.routes.entities.get_entity_graph_runtime",
         AsyncMock(return_value=runtime),
     ):
         response = await get_entity("project-1", org=org, service=service)

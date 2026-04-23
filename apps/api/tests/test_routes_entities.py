@@ -56,7 +56,7 @@ class TestListEntitiesRoute:
         runtime = SimpleNamespace(entity_manager=manager)
 
         with patch(
-            "sibyl.api.routes.entities.get_legacy_entity_runtime",
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
             AsyncMock(return_value=runtime),
         ):
             response = await list_entities(
@@ -111,7 +111,7 @@ class TestListEntitiesRoute:
         runtime = SimpleNamespace(entity_manager=manager)
 
         with patch(
-            "sibyl.api.routes.entities.get_legacy_entity_runtime",
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
             AsyncMock(return_value=runtime),
         ):
             response = await list_entities(
@@ -185,7 +185,7 @@ class TestListEntitiesRoute:
         with (
             patch.object(entities_routes, "LIST_BY_TYPE_PAGE_SIZE", 2),
             patch(
-                "sibyl.api.routes.entities.get_legacy_entity_runtime",
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
                 AsyncMock(return_value=runtime),
             ),
         ):
@@ -232,7 +232,7 @@ class TestListEntitiesRoute:
         with (
             patch.object(entities_routes, "LIST_ALL_PAGE_SIZE", 2),
             patch(
-                "sibyl.api.routes.entities.get_legacy_entity_runtime",
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
                 AsyncMock(return_value=runtime),
             ),
         ):
