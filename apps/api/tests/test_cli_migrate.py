@@ -241,6 +241,78 @@ def test_migrate_export_writes_graph_and_postgres_archive(tmp_path: Path) -> Non
     assert GRAPH_FILENAME in loaded.files
 
 
+def test_migrate_export_suppresses_postgres_dump_in_fully_surreal_mode(
+    tmp_path: Path,
+) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    graph_payload = {
+        "version": "2.0",
+        "created_at": "2026-04-19T20:00:00+00:00",
+        "organization_id": "org-123",
+        "entity_count": 1,
+        "relationship_count": 0,
+        "entities": [{"id": "entity-1"}],
+        "relationships": [],
+    }
+
+    with (
+        patch.object(migrate_cli.settings, "store", "surreal"),
+        patch.object(migrate_cli.settings, "auth_store", "surreal"),
+        patch(
+            "sibyl.cli.migrate._load_graph_export",
+            return_value=(graph_payload, json.dumps(graph_payload).encode("utf-8")),
+        ),
+        patch(
+            "sibyl.cli.migrate._load_auth_export",
+            return_value=(_auth_payload(), json.dumps(_auth_payload()).encode("utf-8")),
+        ),
+        patch("sibyl.cli.migrate._run_pg_dump", side_effect=AssertionError("pg_dump disabled")),
+    ):
+        result = runner.invoke(
+            migrate_cli.app,
+            [
+                "export",
+                "--org-id",
+                "org-123",
+                "--output",
+                str(archive_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    loaded = load_archive(archive_path)
+    assert POSTGRES_FILENAME not in loaded.files
+    assert AUTH_FILENAME in loaded.files
+    assert GRAPH_FILENAME in loaded.files
+
+
+def test_migrate_export_errors_when_only_unsupported_postgres_payload_selected(
+    tmp_path: Path,
+) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+
+    with (
+        patch.object(migrate_cli.settings, "store", "surreal"),
+        patch.object(migrate_cli.settings, "auth_store", "surreal"),
+        patch("sibyl.cli.migrate._run_pg_dump", side_effect=AssertionError("pg_dump disabled")),
+    ):
+        result = runner.invoke(
+            migrate_cli.app,
+            [
+                "export",
+                "--output",
+                str(archive_path),
+                "--skip-graph",
+                "--skip-auth",
+                "--skip-content",
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert "Select at least one supported payload" in result.output
+    assert not archive_path.exists()
+
+
 def test_migrate_export_writes_content_archive_when_requested(tmp_path: Path) -> None:
     archive_path = tmp_path / "migration.tar.gz"
     graph_payload = {

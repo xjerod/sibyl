@@ -20,6 +20,7 @@ from sibyl.cli.db import (
 )
 from sibyl.config import settings
 from sibyl.persistence.auth_archive import export_auth_archive_payload, restore_auth_archive_payload
+from sibyl.persistence.backups_common import resolve_backup_runtime_options
 from sibyl.persistence.content_archive import (
     export_content_archive_payload,
     restore_content_archive_payload,
@@ -489,9 +490,18 @@ def export_archive(
     ] = False,
 ) -> None:
     """Export a manifest-driven migration archive from the active store."""
+    runtime_options = resolve_backup_runtime_options(
+        store=settings.store,
+        auth_store=settings.auth_store,
+        include_postgres=include_postgres,
+        include_graph=include_graph,
+    )
+    include_postgres = runtime_options.include_postgres
+    include_graph = runtime_options.include_graph
+
     if not include_postgres and not include_graph and not include_auth and not include_content:
         error(
-            "Select at least one payload: "
+            "Select at least one supported payload: "
             "--include-postgres, --include-graph, --include-auth, or --include-content"
         )
         raise typer.Exit(code=1)
@@ -543,7 +553,7 @@ def export_archive(
         )
 
     if include_auth:
-        info("Exporting auth/RBAC snapshot from PostgreSQL...")
+        info(f"Exporting auth/RBAC snapshot from {settings.auth_store} auth runtime...")
         if auth_export is None:
             auth_export = _load_auth_export()
         auth_payload, auth_bytes = auth_export
@@ -558,7 +568,7 @@ def export_archive(
         archive_metadata["auth_total_rows"] = int(auth_payload.get("total_rows", 0))
 
     if include_content:
-        info("Exporting content/operations snapshot from PostgreSQL...")
+        info(f"Exporting content/operations snapshot from {settings.store} content runtime...")
         if content_export is None:
             content_export = _load_content_export()
         content_payload, content_bytes = content_export
