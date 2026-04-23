@@ -14,7 +14,7 @@ from collections import Counter
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sibyl.db import CrawledDocument
+    from sibyl.db.models import CrawledDocument
 
 # =============================================================================
 # Technology Detection

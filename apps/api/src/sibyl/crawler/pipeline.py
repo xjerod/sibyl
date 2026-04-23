@@ -26,7 +26,7 @@ from sibyl.crawler.embedder import EmbeddingService
 from sibyl.crawler.graph_integration import GraphIntegrationService
 from sibyl.crawler.local import LocalFileCrawler
 from sibyl.crawler.service import CrawlerService
-from sibyl.db import (
+from sibyl.db.models import (
     CrawledDocument,
     CrawlSource,
     DocumentChunk,

@@ -27,8 +27,7 @@ from sibyl.api.event_types import WSEvent
 from sibyl.api.websocket import broadcast_event
 from sibyl.crawler.discovery import DiscoveryResult, DiscoveryService
 from sibyl.crawler.llms_parser import LLMsSection, parse_llms_full
-from sibyl.db import CrawledDocument, CrawlSource, CrawlStatus, SourceType
-from sibyl.db.models import utcnow_naive
+from sibyl.db.models import CrawledDocument, CrawlSource, CrawlStatus, SourceType, utcnow_naive
 from sibyl.persistence.content_runtime import (
     create_crawl_source_record,
     get_content_read_session,

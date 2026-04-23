@@ -38,14 +38,15 @@ from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.config import settings
 from sibyl.crawler.service import SourceAlreadyExistsError
-from sibyl.db import (
+from sibyl.db.models import (
     CrawledDocument,
     CrawlSource,
     CrawlStatus,
+    Organization,
+    OrganizationRole,
     SourceType,
-    check_postgres_health,
+    utcnow_naive,
 )
-from sibyl.db.models import Organization, OrganizationRole, utcnow_naive
 from sibyl.persistence.content_runtime import (
     count_remaining_unlinked_chunks,
     create_crawl_source_record,
@@ -67,6 +68,12 @@ from sibyl.persistence.content_runtime import (
 )
 
 log = structlog.get_logger()
+
+
+async def _check_postgres_health() -> dict[str, Any]:
+    from sibyl.db.connection import check_postgres_health
+
+    return await check_postgres_health()
 
 
 async def _get_org_source(session: Any, source_id: str, org: Organization) -> CrawlSource:
@@ -177,7 +184,7 @@ async def get_health() -> CrawlHealthResponse:
     if settings.store == "surreal" and settings.auth_store == "surreal":
         pg_health = {"status": "disabled", "postgres_version": None, "pgvector_version": None}
     else:
-        pg_health = await check_postgres_health()
+        pg_health = await _check_postgres_health()
 
     # Check Crawl4AI availability
     crawl4ai_available = False

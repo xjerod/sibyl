@@ -24,7 +24,7 @@ from sibyl.config import settings
 from sibyl.db.models import ChunkType
 
 if TYPE_CHECKING:
-    from sibyl.db import CrawledDocument
+    from sibyl.db.models import CrawledDocument
 
 log = structlog.get_logger()
 

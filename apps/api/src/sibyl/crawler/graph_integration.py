@@ -24,7 +24,7 @@ from uuid import uuid4
 
 import structlog
 
-from sibyl.db import DocumentChunk
+from sibyl.db.models import DocumentChunk
 from sibyl.persistence.content_runtime import get_content_read_session, save_document_chunks
 from sibyl.services.settings import get_settings_service
 from sibyl_core.graph.client import GraphClient

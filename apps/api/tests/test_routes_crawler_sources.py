@@ -44,11 +44,13 @@ class TestCrawlSourceRoutes:
     async def test_get_health_skips_postgres_probe_in_fully_surreal_mode(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        check_postgres_health = AsyncMock(side_effect=AssertionError("postgres probe should stay off"))
+        check_postgres_health = AsyncMock(
+            side_effect=AssertionError("postgres probe should stay off")
+        )
 
         monkeypatch.setattr(crawler_module.settings, "store", "surreal")
         monkeypatch.setattr(crawler_module.settings, "auth_store", "surreal")
-        monkeypatch.setattr(crawler_module, "check_postgres_health", check_postgres_health)
+        monkeypatch.setattr(crawler_module, "_check_postgres_health", check_postgres_health)
         monkeypatch.setitem(sys.modules, "crawl4ai", SimpleNamespace(AsyncWebCrawler=object))
 
         response = await get_health()

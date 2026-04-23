@@ -9,8 +9,7 @@ from uuid import UUID
 import structlog
 
 from sibyl.api.event_types import WSEvent
-from sibyl.db import CrawlStatus
-from sibyl.db.models import utcnow_naive
+from sibyl.db.models import CrawlStatus, utcnow_naive
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
     get_crawl_source_by_id,
