@@ -127,8 +127,7 @@ class QueueBroker(Protocol):
         self,
         organization_id: str,
         *,
-        include_database_dump: bool | None = None,
-        include_postgres: bool | None = None,
+        include_database_dump: bool = True,
         include_graph: bool = True,
         backup_id: str | None = None,
     ) -> str: ...

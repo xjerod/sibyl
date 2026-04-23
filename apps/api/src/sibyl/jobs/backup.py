@@ -2,7 +2,7 @@
 
 Creates timestamped, compressed backup archives containing:
 - SurrealDB auth and content snapshots when those runtimes are active
-- PostgreSQL dump while legacy PostgreSQL remains active
+- Database dump sidecar while a relational runtime remains active
 - Graph export when requested
 - Metadata JSON (checksums, counts, version info)
 """
@@ -707,10 +707,9 @@ async def run_scheduled_backups(
             backup_id = generate_backup_id(org_id)
             backup = None
             include_database_dump = _effective_include_database_dump(
-                resolve_requested_database_dump(
-                    include_database_dump=getattr(org_settings, "include_database_dump", None),
-                    include_postgres=getattr(org_settings, "include_postgres", None),
-                )
+                getattr(org_settings, "include_database_dump", None)
+                if hasattr(org_settings, "include_database_dump")
+                else getattr(org_settings, "include_postgres", None)
             )
 
             try:

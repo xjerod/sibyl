@@ -69,7 +69,6 @@ async def update_backup_settings(
     schedule: str | None = None,
     retention_days: int | None = None,
     include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
     include_graph: bool | None = None,
 ) -> BackupSettings:
     """Persist backup setting changes for an organization."""
@@ -82,12 +81,8 @@ async def update_backup_settings(
             settings.schedule = schedule
         if retention_days is not None:
             settings.retention_days = retention_days
-        requested_database_dump = resolve_requested_database_dump(
-            include_database_dump=include_database_dump,
-            include_postgres=include_postgres,
-        )
-        if requested_database_dump is not None:
-            settings.include_postgres = requested_database_dump
+        if include_database_dump is not None:
+            settings.include_postgres = include_database_dump
         if include_graph is not None:
             settings.include_graph = include_graph
 
@@ -101,23 +96,18 @@ async def create_backup_record(
     *,
     org_id: UUID,
     backup_id: str,
-    include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
+    include_database_dump: bool = True,
     include_graph: bool,
     created_by_user_id: UUID | None,
     triggered_by: str = "manual",
 ) -> Backup:
     """Create a pending backup record for an organization."""
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=include_database_dump,
-        include_postgres=include_postgres,
-    )
     async with get_session() as session:
         backup = Backup(
             organization_id=org_id,
             backup_id=backup_id,
             status=BackupStatus.PENDING.value,
-            include_postgres=True if requested_database_dump is None else requested_database_dump,
+            include_postgres=include_database_dump,
             include_graph=include_graph,
             triggered_by=triggered_by,
             created_by_user_id=created_by_user_id,
@@ -280,13 +270,16 @@ async def update_legacy_backup_settings(
     include_postgres: bool | None = None,
     include_graph: bool | None = None,
 ) -> BackupSettings:
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=include_database_dump,
+        include_postgres=include_postgres,
+    )
     return await update_backup_settings(
         org_id,
         enabled=enabled,
         schedule=schedule,
         retention_days=retention_days,
-        include_database_dump=include_database_dump,
-        include_postgres=include_postgres,
+        include_database_dump=requested_database_dump,
         include_graph=include_graph,
     )
 
@@ -300,11 +293,14 @@ async def create_legacy_backup_record(
     include_graph: bool,
     created_by_user_id: UUID | None,
 ) -> Backup:
+    requested_database_dump = resolve_requested_database_dump(
+        include_database_dump=include_database_dump,
+        include_postgres=include_postgres,
+    )
     return await create_backup_record(
         org_id=org_id,
         backup_id=backup_id,
-        include_database_dump=include_database_dump,
-        include_postgres=include_postgres,
+        include_database_dump=True if requested_database_dump is None else requested_database_dump,
         include_graph=include_graph,
         created_by_user_id=created_by_user_id,
         triggered_by="manual",

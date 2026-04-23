@@ -21,7 +21,6 @@ from sibyl.coordination.broker import (
     JobStatus,
 )
 from sibyl.jobs.worker import WorkerSettings
-from sibyl.persistence.backups_common import resolve_requested_database_dump
 
 log = structlog.get_logger()
 
@@ -352,23 +351,16 @@ class LocalQueueBroker:
         self,
         organization_id: str,
         *,
-        include_database_dump: bool | None = None,
-        include_postgres: bool | None = None,
+        include_database_dump: bool = True,
         include_graph: bool = True,
         backup_id: str | None = None,
     ) -> str:
         resolved_backup_id = backup_id or generate_backup_id(organization_id)
-        requested_database_dump = resolve_requested_database_dump(
-            include_database_dump=include_database_dump,
-            include_postgres=include_postgres,
-        )
         result = await self._enqueue_unique(
             "run_backup",
             organization_id,
             job_id=f"backup:{resolved_backup_id}",
-            include_database_dump=(
-                True if requested_database_dump is None else requested_database_dump
-            ),
+            include_database_dump=include_database_dump,
             include_graph=include_graph,
             backup_id=resolved_backup_id,
         )

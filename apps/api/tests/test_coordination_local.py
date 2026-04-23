@@ -171,8 +171,7 @@ async def test_local_queue_broker_executes_local_jobs_and_reports_health() -> No
         ctx: dict[str, object],
         organization_id: str,
         *,
-        include_database_dump: bool | None = None,
-        include_postgres: bool | None = None,
+        include_database_dump: bool = True,
         include_graph: bool = True,
         backup_id: str | None = None,
     ) -> dict[str, object]:
@@ -182,7 +181,6 @@ async def test_local_queue_broker_executes_local_jobs_and_reports_health() -> No
                 (organization_id,),
                 {
                     "include_database_dump": include_database_dump,
-                    "include_postgres": include_postgres,
                     "include_graph": include_graph,
                     "backup_id": backup_id,
                     "ctx_has_start_time": "start_time" in ctx,

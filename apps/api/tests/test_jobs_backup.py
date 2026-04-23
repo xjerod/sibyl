@@ -52,7 +52,7 @@ async def test_run_scheduled_backups_uses_runtime_helpers() -> None:
     org_id = uuid4()
     settings = SimpleNamespace(
         organization_id=org_id,
-        include_postgres=True,
+        include_database_dump=True,
         include_graph=False,
     )
     backup = SimpleNamespace(id=uuid4())
@@ -96,7 +96,7 @@ async def test_run_scheduled_backups_disables_postgres_in_fully_surreal_mode(
     org_id = uuid4()
     settings = SimpleNamespace(
         organization_id=org_id,
-        include_postgres=True,
+        include_database_dump=True,
         include_graph=False,
     )
     backup = SimpleNamespace(id=uuid4())
@@ -145,7 +145,7 @@ async def test_run_scheduled_backups_removes_orphan_record_when_queue_fails() ->
     org_id = uuid4()
     settings = SimpleNamespace(
         organization_id=org_id,
-        include_postgres=True,
+        include_database_dump=True,
         include_graph=True,
     )
     backup = SimpleNamespace(id=uuid4())
@@ -223,7 +223,7 @@ async def test_run_backup_in_fully_surreal_mode_includes_runtime_snapshots(
         result = await backup_jobs.run_backup(
             {},
             org_id,
-            include_postgres=True,
+            include_database_dump=True,
             include_graph=True,
             backup_id="backup_fixed",
         )

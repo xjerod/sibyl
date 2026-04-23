@@ -15,7 +15,6 @@ from sibyl.coordination.broker import (
     QueueBroker,
     get_broker,
 )
-from sibyl.persistence.backups_common import resolve_requested_database_dump
 
 __all__ = [
     "JobInfo",
@@ -172,19 +171,14 @@ async def cancel_job(job_id: str) -> bool:
 async def enqueue_backup(
     organization_id: str,
     *,
-    include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
+    include_database_dump: bool = True,
     include_graph: bool = True,
     backup_id: str | None = None,
 ) -> str:
     """Enqueue a backup job."""
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=include_database_dump,
-        include_postgres=include_postgres,
-    )
     return await get_queue().enqueue_backup(
         organization_id,
-        include_database_dump=True if requested_database_dump is None else requested_database_dump,
+        include_database_dump=include_database_dump,
         include_graph=include_graph,
         backup_id=backup_id,
     )

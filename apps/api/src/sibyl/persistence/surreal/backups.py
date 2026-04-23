@@ -266,7 +266,6 @@ async def update_backup_settings(
     schedule: str | None = None,
     retention_days: int | None = None,
     include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
     include_graph: bool | None = None,
 ) -> BackupSettings:
     settings = await get_backup_settings(org_id)
@@ -276,12 +275,8 @@ async def update_backup_settings(
         settings.schedule = schedule
     if retention_days is not None:
         settings.retention_days = retention_days
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=include_database_dump,
-        include_postgres=include_postgres,
-    )
-    if requested_database_dump is not None:
-        settings.include_postgres = _effective_include_database_dump(requested_database_dump)
+    if include_database_dump is not None:
+        settings.include_postgres = _effective_include_database_dump(include_database_dump)
     if include_graph is not None:
         settings.include_graph = include_graph
     return await _save_backup_settings(settings)
@@ -291,23 +286,18 @@ async def create_backup_record(
     *,
     org_id: UUID,
     backup_id: str,
-    include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
+    include_database_dump: bool = True,
     include_graph: bool,
     created_by_user_id: UUID | None,
     triggered_by: str = "manual",
 ) -> Backup:
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=include_database_dump,
-        include_postgres=include_postgres,
-    )
     return await _save_backup(
         Backup(
             id=uuid4(),
             organization_id=org_id,
             backup_id=backup_id,
             status=BackupStatus.PENDING.value,
-            include_postgres=_effective_include_database_dump(requested_database_dump),
+            include_postgres=_effective_include_database_dump(include_database_dump),
             include_graph=include_graph,
             triggered_by=triggered_by,
             created_by_user_id=created_by_user_id,

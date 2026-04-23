@@ -15,20 +15,20 @@ class BackupListResult:
 
 @dataclass(frozen=True, slots=True)
 class BackupRuntimeOptions:
-    include_postgres: bool
+    include_database_dump: bool
     include_graph: bool
     include_auth_snapshot: bool
     include_content_snapshot: bool
-    postgres_dump_supported: bool
+    database_dump_supported: bool
     archive_contents: tuple[str, ...]
 
     @property
-    def include_database_dump(self) -> bool:
-        return self.include_postgres
+    def include_postgres(self) -> bool:
+        return self.include_database_dump
 
     @property
-    def database_dump_supported(self) -> bool:
-        return self.postgres_dump_supported
+    def postgres_dump_supported(self) -> bool:
+        return self.database_dump_supported
 
 
 def resolve_requested_database_dump(
@@ -46,22 +46,17 @@ def resolve_backup_runtime_options(
     store: str,
     auth_store: str,
     include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
     include_graph: bool = True,
 ) -> BackupRuntimeOptions:
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=include_database_dump,
-        include_postgres=include_postgres,
-    )
-    postgres_dump_supported = not (store == "surreal" and auth_store == "surreal")
-    include_postgres = (True if requested_database_dump is None else requested_database_dump) and (
-        postgres_dump_supported
+    database_dump_supported = not (store == "surreal" and auth_store == "surreal")
+    include_database_dump = (True if include_database_dump is None else include_database_dump) and (
+        database_dump_supported
     )
     include_auth_snapshot = auth_store == "surreal"
     include_content_snapshot = store == "surreal"
 
     contents: list[str] = []
-    if include_postgres:
+    if include_database_dump:
         contents.append("postgres.sql")
     if include_auth_snapshot:
         contents.append("auth.json")
@@ -72,11 +67,11 @@ def resolve_backup_runtime_options(
     contents.append("metadata.json")
 
     return BackupRuntimeOptions(
-        include_postgres=include_postgres,
+        include_database_dump=include_database_dump,
         include_graph=include_graph,
         include_auth_snapshot=include_auth_snapshot,
         include_content_snapshot=include_content_snapshot,
-        postgres_dump_supported=postgres_dump_supported,
+        database_dump_supported=database_dump_supported,
         archive_contents=tuple(contents),
     )
 

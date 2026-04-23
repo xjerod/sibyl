@@ -22,7 +22,6 @@ from sibyl.coordination.broker import (
     JobInfo,
     JobStatus,
 )
-from sibyl.persistence.backups_common import resolve_requested_database_dump
 
 log = structlog.get_logger()
 
@@ -402,24 +401,18 @@ class RedisQueueBroker:
         self,
         organization_id: str,
         *,
-        include_database_dump: bool | None = None,
-        include_postgres: bool | None = None,
+        include_database_dump: bool = True,
         include_graph: bool = True,
         backup_id: str | None = None,
     ) -> str:
         """Enqueue a backup job."""
         resolved_backup_id = backup_id or generate_backup_id(organization_id)
         job_id = f"backup:{resolved_backup_id}"
-        requested_database_dump = resolve_requested_database_dump(
-            include_database_dump=include_database_dump,
-            include_postgres=include_postgres,
-        )
-        resolved_database_dump = True if requested_database_dump is None else requested_database_dump
         result = await self._enqueue_unique(
             "run_backup",
             organization_id,
             job_id=job_id,
-            include_database_dump=resolved_database_dump,
+            include_database_dump=include_database_dump,
             include_graph=include_graph,
             backup_id=resolved_backup_id,
         )
@@ -432,7 +425,7 @@ class RedisQueueBroker:
             "Enqueued backup job",
             job_id=result.job_id,
             organization_id=organization_id,
-            include_database_dump=resolved_database_dump,
+            include_database_dump=include_database_dump,
             include_graph=include_graph,
             backup_id=backup_id,
         )
