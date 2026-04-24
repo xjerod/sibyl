@@ -7,7 +7,7 @@ from typing import Any
 
 from sibyl.config import settings
 from sibyl.persistence.organization_common import (
-    can_manage_legacy_project_members as _can_manage_legacy_project_members,
+    can_manage_project_members as _can_manage_project_members,
 )
 
 _NEUTRAL_EXPORT_ALIASES = {
@@ -110,7 +110,7 @@ __all__ = [
 __all__.extend(_NEUTRAL_EXPORT_ALIASES)
 __all__.extend(_LEGACY_EXPORT_ALIASES)
 
-can_manage_project_members = _can_manage_legacy_project_members
+can_manage_project_members = _can_manage_project_members
 can_manage_legacy_project_members = can_manage_project_members
 
 

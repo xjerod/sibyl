@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from sibyl.persistence import content_runtime
+from sibyl.persistence import content_common, content_runtime
 from sibyl.persistence.legacy.crawler import (
     get_crawl_stats_payload as legacy_get_crawl_stats_payload,
 )
@@ -44,6 +44,8 @@ def test_content_runtime_keeps_legacy_aliases_pointed_at_neutral_exports() -> No
     assert content_runtime.get_legacy_raw_capture is content_runtime.get_raw_capture
     assert content_runtime.list_legacy_raw_captures is content_runtime.list_raw_captures
     assert content_runtime.resolve_legacy_document_entity is content_runtime.resolve_document_entity
+    assert content_common.CrawlStats is content_common.LegacyCrawlStats
+    assert content_common.DocumentEntityRecord is content_common.LegacyDocumentEntityRecord
 
 
 @pytest.mark.asyncio

@@ -77,7 +77,17 @@ class LegacyProjectMemberChange:
     role: ProjectRole | None = None
 
 
-def can_manage_legacy_project_members(
+OrgSummary = LegacyOrgSummary
+OrgAuthResult = LegacyOrgAuthResult
+OrgRoleResult = LegacyOrgRoleResult
+OrgMemberChange = LegacyOrgMemberChange
+InvitationRecord = LegacyInvitationRecord
+InvitationAcceptance = LegacyInvitationAcceptance
+ProjectMembersResult = LegacyProjectMembersResult
+ProjectMemberChange = LegacyProjectMemberChange
+
+
+def can_manage_project_members(
     role: ProjectRole | None,
     project: Any,
     user: Any,
@@ -86,3 +96,6 @@ def can_manage_legacy_project_members(
     if project.owner_user_id == user.id:
         return True
     return role in {ProjectRole.OWNER, ProjectRole.MAINTAINER}
+
+
+can_manage_legacy_project_members = can_manage_project_members

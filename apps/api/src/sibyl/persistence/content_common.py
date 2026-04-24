@@ -23,3 +23,7 @@ class LegacyDocumentEntityRecord:
     document: Any
     source: Any
     content: str
+
+
+CrawlStats = LegacyCrawlStats
+DocumentEntityRecord = LegacyDocumentEntityRecord

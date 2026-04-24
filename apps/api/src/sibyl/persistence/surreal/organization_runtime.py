@@ -20,15 +20,15 @@ from sibyl.db.models import OrganizationRole, ProjectRole, User
 from sibyl.persistence.auth_runtime import log_audit_event
 from sibyl.persistence.graph_runtime import ensure_graph_indexes
 from sibyl.persistence.organization_common import (
-    LegacyInvitationAcceptance,
-    LegacyInvitationRecord,
-    LegacyOrgAuthResult,
-    LegacyOrgMemberChange,
-    LegacyOrgRoleResult,
-    LegacyOrgSummary,
-    LegacyProjectMemberChange,
-    LegacyProjectMembersResult,
-    can_manage_legacy_project_members,
+    InvitationAcceptance,
+    InvitationRecord,
+    OrgAuthResult,
+    OrgMemberChange,
+    OrgRoleResult,
+    OrgSummary,
+    ProjectMemberChange,
+    ProjectMembersResult,
+    can_manage_project_members,
 )
 from sibyl.persistence.surreal.auth import (
     SurrealOrganizationMembershipRepository,
@@ -125,8 +125,8 @@ def _coerce_datetime(value: object | None) -> datetime | None:
     return None
 
 
-def _invitation_from_record(record: dict[str, Any], *, include_accept_url: bool = False) -> LegacyInvitationRecord:
-    invitation = LegacyInvitationRecord(
+def _invitation_from_record(record: dict[str, Any], *, include_accept_url: bool = False) -> InvitationRecord:
+    invitation = InvitationRecord(
         id=_coerce_uuid(record.get("uuid"), field_name="organization_invitations.uuid"),
         email=str(record.get("invited_email") or ""),
         role=OrganizationRole(str(record.get("invited_role") or OrganizationRole.MEMBER.value)),
@@ -224,7 +224,7 @@ async def _replace_org_invitation_record(client: Any, *, uuid: UUID, record: dic
     return created[0]
 
 
-async def list_legacy_orgs(*, user_id: UUID) -> list[LegacyOrgSummary]:
+async def list_legacy_orgs(*, user_id: UUID) -> list[OrgSummary]:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -235,7 +235,7 @@ async def list_legacy_orgs(*, user_id: UUID) -> list[LegacyOrgSummary]:
             )
         )
 
-        summaries: list[LegacyOrgSummary] = []
+        summaries: list[OrgSummary] = []
         for record in records:
             org_id = _coerce_uuid(record.get("organization_id"), field_name="organization_id")
             organization = await orgs.get_by_id(org_id)
@@ -243,7 +243,7 @@ async def list_legacy_orgs(*, user_id: UUID) -> list[LegacyOrgSummary]:
                 continue
             membership = await memberships.get_for_user(organization.id, user_id)
             summaries.append(
-                LegacyOrgSummary(
+                OrgSummary(
                     id=organization.id,
                     slug=organization.slug,
                     name=organization.name,
@@ -268,7 +268,7 @@ async def create_legacy_org(
     user_id: UUID,
     name: str,
     slug: str | None = None,
-) -> LegacyOrgAuthResult:
+) -> OrgAuthResult:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -313,7 +313,7 @@ async def create_legacy_org(
             request=request,
             details={"slug": organization.slug, "name": organization.name},
         )
-        return LegacyOrgAuthResult(
+        return OrgAuthResult(
             id=organization.id,
             slug=organization.slug,
             name=organization.name,
@@ -323,7 +323,7 @@ async def create_legacy_org(
         )
 
 
-async def get_legacy_org(*, slug: str, user_id: UUID) -> LegacyOrgRoleResult:
+async def get_legacy_org(*, slug: str, user_id: UUID) -> OrgRoleResult:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -333,7 +333,7 @@ async def get_legacy_org(*, slug: str, user_id: UUID) -> LegacyOrgRoleResult:
         membership = await memberships.get_for_user(organization.id, user_id)
         if membership is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        return LegacyOrgRoleResult(
+        return OrgRoleResult(
             id=organization.id,
             slug=organization.slug,
             name=organization.name,
@@ -346,7 +346,7 @@ async def switch_legacy_org(
     request: Request,
     slug: str,
     user_id: UUID,
-) -> LegacyOrgAuthResult:
+) -> OrgAuthResult:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -378,7 +378,7 @@ async def switch_legacy_org(
             request=request,
             details={"slug": organization.slug, "name": organization.name},
         )
-        return LegacyOrgAuthResult(
+        return OrgAuthResult(
             id=organization.id,
             slug=organization.slug,
             name=organization.name,
@@ -395,7 +395,7 @@ async def update_legacy_org(
     user_id: UUID,
     name: str | None = None,
     new_slug: str | None = None,
-) -> LegacyOrgSummary:
+) -> OrgSummary:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -465,7 +465,7 @@ async def update_legacy_org(
             request=request,
             details={"slug": slug, "new_slug": refreshed.slug, "name": refreshed.name},
         )
-        return LegacyOrgSummary(
+        return OrgSummary(
             id=refreshed.id,
             slug=refreshed.slug,
             name=refreshed.name,
@@ -638,7 +638,7 @@ async def add_legacy_org_member(
     target_user_id: UUID,
     role: OrganizationRole,
     request: Request,
-) -> LegacyOrgMemberChange:
+) -> OrgMemberChange:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -667,7 +667,7 @@ async def add_legacy_org_member(
             request=request,
             details={"target_user_id": str(membership.user_id), "role": membership.role.value},
         )
-        return LegacyOrgMemberChange(
+        return OrgMemberChange(
             org_id=organization.id,
             user_id=membership.user_id,
             role=membership.role,
@@ -681,7 +681,7 @@ async def update_legacy_org_member_role(
     target_user_id: UUID,
     role: OrganizationRole,
     request: Request,
-) -> LegacyOrgMemberChange:
+) -> OrgMemberChange:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -711,7 +711,7 @@ async def update_legacy_org_member_role(
             request=request,
             details={"target_user_id": str(membership.user_id), "role": membership.role.value},
         )
-        return LegacyOrgMemberChange(
+        return OrgMemberChange(
             org_id=organization.id,
             user_id=membership.user_id,
             role=membership.role,
@@ -724,7 +724,7 @@ async def remove_legacy_org_member(
     actor_id: UUID,
     target_user_id: UUID,
     request: Request,
-) -> LegacyOrgMemberChange:
+) -> OrgMemberChange:
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
@@ -756,14 +756,14 @@ async def remove_legacy_org_member(
             request=request,
             details={"target_user_id": str(target_user_id)},
         )
-        return LegacyOrgMemberChange(org_id=organization.id, user_id=target_user_id)
+        return OrgMemberChange(org_id=organization.id, user_id=target_user_id)
 
 
 async def list_legacy_org_invitations(
     *,
     slug: str,
     actor_id: UUID,
-) -> list[LegacyInvitationRecord]:
+) -> list[InvitationRecord]:
     organization, _membership = await _require_org_admin(slug=slug, user_id=actor_id)
     async with _auth_client_scope() as client:
         records = _normalize_records(
@@ -788,7 +788,7 @@ async def create_legacy_org_invitation(
     role: OrganizationRole,
     expires_days: int,
     request: Request,
-) -> LegacyInvitationRecord:
+) -> InvitationRecord:
     organization, _membership = await _require_org_admin(slug=slug, user_id=actor_id)
     async with _auth_client_scope() as client:
         now = _utcnow()
@@ -853,7 +853,7 @@ async def accept_legacy_org_invitation(
     token: str,
     user: User,
     request: Request,
-) -> LegacyInvitationAcceptance:
+) -> InvitationAcceptance:
     async with _auth_client_scope() as client:
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
         orgs = SurrealOrganizationRepository.from_client(client)
@@ -929,7 +929,7 @@ async def accept_legacy_org_invitation(
             request=request,
             details={"invitation_id": str(written["uuid"])},
         )
-        return LegacyInvitationAcceptance(
+        return InvitationAcceptance(
             access_token=access_token,
             refresh_token=refresh_token,
             refresh_expires=refresh_expires,
@@ -1031,7 +1031,7 @@ async def list_legacy_project_members(
     project_id: str,
     actor,
     org_id: UUID,
-) -> LegacyProjectMembersResult:
+) -> ProjectMembersResult:
     async with _auth_client_scope() as client:
         users = SurrealUserRepository.from_client(client)
         project, user_role = await _get_project_and_user_role(
@@ -1089,9 +1089,9 @@ async def list_legacy_project_members(
                 }
             )
 
-        return LegacyProjectMembersResult(
+        return ProjectMembersResult(
             members=rows,
-            can_manage=can_manage_legacy_project_members(user_role, project, actor),
+            can_manage=can_manage_project_members(user_role, project, actor),
         )
 
 
@@ -1103,7 +1103,7 @@ async def add_legacy_project_member(
     org_id: UUID,
     target_user_id: UUID,
     role: ProjectRole,
-) -> LegacyProjectMemberChange:
+) -> ProjectMemberChange:
     async with _auth_client_scope() as client:
         users = SurrealUserRepository.from_client(client)
         project, user_role = await _get_project_and_user_role(
@@ -1112,7 +1112,7 @@ async def add_legacy_project_member(
             user_id=actor.id,
             org_id=org_id,
         )
-        if not can_manage_legacy_project_members(user_role, project, actor):
+        if not can_manage_project_members(user_role, project, actor):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
         if await users.get_by_id(target_user_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -1160,7 +1160,7 @@ async def add_legacy_project_member(
             },
         )
 
-        return LegacyProjectMemberChange(
+        return ProjectMemberChange(
             org_id=org_id,
             project_db_id=project.id,
             user_id=target_user_id,
@@ -1176,7 +1176,7 @@ async def update_legacy_project_member_role(
     org_id: UUID,
     target_user_id: UUID,
     role: ProjectRole,
-) -> LegacyProjectMemberChange:
+) -> ProjectMemberChange:
     async with _auth_client_scope() as client:
         project, user_role = await _get_project_and_user_role(
             client=client,
@@ -1184,7 +1184,7 @@ async def update_legacy_project_member_role(
             user_id=actor.id,
             org_id=org_id,
         )
-        if not can_manage_legacy_project_members(user_role, project, actor):
+        if not can_manage_project_members(user_role, project, actor):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
         if target_user_id == project.owner_user_id:
             raise HTTPException(
@@ -1219,7 +1219,7 @@ async def update_legacy_project_member_role(
             },
         )
 
-        return LegacyProjectMemberChange(
+        return ProjectMemberChange(
             org_id=org_id,
             project_db_id=project.id,
             user_id=target_user_id,
@@ -1234,7 +1234,7 @@ async def remove_legacy_project_member(
     actor,
     org_id: UUID,
     target_user_id: UUID,
-) -> LegacyProjectMemberChange:
+) -> ProjectMemberChange:
     async with _auth_client_scope() as client:
         project, user_role = await _get_project_and_user_role(
             client=client,
@@ -1247,7 +1247,7 @@ async def remove_legacy_project_member(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot remove project owner",
             )
-        if actor.id != target_user_id and not can_manage_legacy_project_members(
+        if actor.id != target_user_id and not can_manage_project_members(
             user_role,
             project,
             actor,
@@ -1271,7 +1271,7 @@ async def remove_legacy_project_member(
             details={"project_id": str(project_id), "target_user_id": str(target_user_id)},
         )
 
-        return LegacyProjectMemberChange(
+        return ProjectMemberChange(
             org_id=org_id,
             project_db_id=project.id,
             user_id=target_user_id,

@@ -19,7 +19,7 @@ from sibyl.db.models import (
     RawCapture,
     SourceType,
 )
-from sibyl.persistence.content_common import LegacyCrawlStats, LegacyDocumentEntityRecord
+from sibyl.persistence.content_common import CrawlStats, DocumentEntityRecord
 from sibyl_core.backends.surreal import SurrealContentClient
 from sibyl_core.retrieval.dedup import cosine_similarity
 from sibyl_core.services.link_graph_status import LinkGraphSourceStatusData, LinkGraphStatusData
@@ -698,7 +698,7 @@ async def get_crawl_stats_payload(
     _session: Any,
     *,
     organization_id: UUID,
-) -> LegacyCrawlStats:
+) -> CrawlStats:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
         documents = await _load_documents_for_source_ids(client, [str(source.id) for source in sources])
@@ -709,7 +709,7 @@ async def get_crawl_stats_payload(
         key = source.crawl_status.value if hasattr(source.crawl_status, "value") else str(source.crawl_status)
         status_counts[key] = status_counts.get(key, 0) + 1
 
-    return LegacyCrawlStats(
+    return CrawlStats(
         total_sources=len(sources),
         total_documents=len(documents),
         total_chunks=len(chunks),
@@ -1120,7 +1120,7 @@ async def resolve_legacy_document_entity(
     *,
     organization_id: UUID,
     entity_id: str,
-) -> LegacyDocumentEntityRecord | None:
+) -> DocumentEntityRecord | None:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
         source_ids = {str(source.id) for source in sources}
@@ -1172,7 +1172,7 @@ async def resolve_legacy_document_entity(
             section_parts.append(following_chunk.content or "")
         content = "\n\n".join(section_parts)
 
-    return LegacyDocumentEntityRecord(
+    return DocumentEntityRecord(
         chunk=chunk,
         document=document,
         source=source,

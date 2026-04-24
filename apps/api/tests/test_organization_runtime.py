@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from sibyl.db.models import OrganizationRole, ProjectRole
-from sibyl.persistence import organization_runtime
+from sibyl.persistence import organization_common, organization_runtime
 from sibyl.persistence.surreal import organization_runtime as surreal_organization_runtime
 
 
@@ -32,6 +32,8 @@ def test_organization_runtime_keeps_legacy_aliases_pointed_at_neutral_exports() 
         organization_runtime.can_manage_legacy_project_members
         is organization_runtime.can_manage_project_members
     )
+    assert organization_common.OrgSummary is organization_common.LegacyOrgSummary
+    assert organization_common.ProjectMembersResult is organization_common.LegacyProjectMembersResult
 
 
 @pytest.mark.asyncio
