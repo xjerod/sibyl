@@ -1276,3 +1276,24 @@ async def remove_legacy_project_member(
             project_db_id=project.id,
             user_id=target_user_id,
         )
+
+
+list_orgs = list_legacy_orgs
+list_org_ids = list_legacy_org_ids
+create_org = create_legacy_org
+get_org = get_legacy_org
+switch_org = switch_legacy_org
+update_org = update_legacy_org
+delete_org = delete_legacy_org
+list_org_members = list_legacy_org_members
+add_org_member = add_legacy_org_member
+update_org_member_role = update_legacy_org_member_role
+remove_org_member = remove_legacy_org_member
+list_org_invitations = list_legacy_org_invitations
+create_org_invitation = create_legacy_org_invitation
+delete_org_invitation = delete_legacy_org_invitation
+accept_org_invitation = accept_legacy_org_invitation
+list_project_members = list_legacy_project_members
+add_project_member = add_legacy_project_member
+update_project_member_role = update_legacy_project_member_role
+remove_project_member = remove_legacy_project_member

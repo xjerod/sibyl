@@ -98,8 +98,8 @@ _BACKEND_EXPORTS: dict[str, dict[str, tuple[str, str]]] = {
         for neutral_name, legacy_name in _NEUTRAL_EXPORT_ALIASES.items()
     },
     "surreal": {
-        neutral_name: ("sibyl.persistence.surreal.organization_runtime", legacy_name)
-        for neutral_name, legacy_name in _NEUTRAL_EXPORT_ALIASES.items()
+        neutral_name: ("sibyl.persistence.surreal.organization_runtime", neutral_name)
+        for neutral_name in _NEUTRAL_EXPORT_ALIASES
     },
 }
 

@@ -24,10 +24,9 @@ _BACKEND_MODULES = {
 
 _BACKEND_NAME_OVERRIDES = {
     "legacy": {
-        "list_crawl_sources_for_org": "list_crawl_sources_for_org",
-    },
-    "surreal": {
-        "list_rag_source_documents_page": "list_rag_source_documents_page",
+        "get_raw_capture": "get_legacy_raw_capture",
+        "list_raw_captures": "list_legacy_raw_captures",
+        "resolve_document_entity": "resolve_legacy_document_entity",
     },
 }
 
@@ -72,11 +71,6 @@ _LEGACY_EXPORT_ALIASES = {
     "resolve_legacy_document_entity": "resolve_document_entity",
 }
 
-_BACKEND_TARGET_ALIASES = {
-    neutral_name: legacy_name
-    for legacy_name, neutral_name in _LEGACY_EXPORT_ALIASES.items()
-}
-
 __all__ = [
     "get_content_read_session",
     "get_content_read_session_dependency",
@@ -91,8 +85,7 @@ def _active_backend_name() -> str:
 
 def _resolve_backend_export(name: str) -> Any:
     backend = _active_backend_name()
-    export_name = _BACKEND_TARGET_ALIASES.get(name, name)
-    export_name = _BACKEND_NAME_OVERRIDES.get(backend, {}).get(export_name, export_name)
+    export_name = _BACKEND_NAME_OVERRIDES.get(backend, {}).get(name, name)
     for module_name in _BACKEND_MODULES[backend]:
         module = import_module(module_name)
         if hasattr(module, export_name):
