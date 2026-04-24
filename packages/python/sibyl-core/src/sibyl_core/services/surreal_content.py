@@ -279,7 +279,9 @@ def _source_record(source: ContentSource) -> dict[str, Any]:
     }
 
 
-async def _select_many(client: SurrealContentClient, query: str, **params: Any) -> list[dict[str, Any]]:
+async def _select_many(
+    client: SurrealContentClient, query: str, **params: Any
+) -> list[dict[str, Any]]:
     result = await client.execute_query(query, **params)
     error = _query_error(result)
     if error is not None:
@@ -287,7 +289,9 @@ async def _select_many(client: SurrealContentClient, query: str, **params: Any) 
     return _normalize_records(result)
 
 
-async def _select_one(client: SurrealContentClient, query: str, **params: Any) -> dict[str, Any] | None:
+async def _select_one(
+    client: SurrealContentClient, query: str, **params: Any
+) -> dict[str, Any] | None:
     rows = await _select_many(client, query, **params)
     return rows[0] if rows else None
 
@@ -310,13 +314,17 @@ async def _replace_record(
     rows = await _select_many(client, _CREATE_RECORD[table], record=record)
     if rows:
         return rows[0]
-    created = await _select_one(client, f"SELECT * FROM {table} WHERE uuid = $uuid LIMIT 1;", uuid=uuid)
+    created = await _select_one(
+        client, f"SELECT * FROM {table} WHERE uuid = $uuid LIMIT 1;", uuid=uuid
+    )
     if created is None:
         raise RuntimeError(f"failed to persist {table} record {uuid}")
     return created
 
 
-def _value_batches(values: Iterable[str], *, batch_size: int = _DEFAULT_BATCH_SIZE) -> list[list[str]]:
+def _value_batches(
+    values: Iterable[str], *, batch_size: int = _DEFAULT_BATCH_SIZE
+) -> list[list[str]]:
     batch: list[str] = []
     batches: list[list[str]] = []
     for value in values:
@@ -480,7 +488,9 @@ async def load_search_scope(
     organization_id: str,
     source_id: str | None,
     source_name: str | None,
-) -> tuple[list[ContentSource], dict[str, ContentSource], dict[str, ContentDocument], list[ContentChunk]]:
+) -> tuple[
+    list[ContentSource], dict[str, ContentSource], dict[str, ContentDocument], list[ContentChunk]
+]:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
         if source_id is not None:
@@ -491,7 +501,9 @@ async def load_search_scope(
 
         source_ids = [source.id for source in sources]
         documents = await _load_documents_for_source_ids(client, source_ids)
-        chunks = await _load_chunks_for_document_ids(client, [document.id for document in documents])
+        chunks = await _load_chunks_for_document_ids(
+            client, [document.id for document in documents]
+        )
 
     sources_by_id = {source.id: source for source in sources}
     documents_by_id = {document.id: document for document in documents}

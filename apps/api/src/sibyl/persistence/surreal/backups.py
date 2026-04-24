@@ -75,9 +75,7 @@ def _record_include_database_dump(record: dict[str, object]) -> bool:
     requested_database_dump = resolve_mapping_database_dump(
         record,
         coerce=lambda value: (
-            _coerce_bool(value, default=_database_dump_supported())
-            if value is not None
-            else None
+            _coerce_bool(value, default=_database_dump_supported()) if value is not None else None
         ),
     )
     return _effective_include_database_dump(requested_database_dump)
@@ -126,7 +124,9 @@ def _backup_from_record(record: dict[str, object]) -> Backup:
     include_database_dump = _record_include_database_dump(record)
     return Backup(
         id=_coerce_uuid(record.get("uuid"), field_name="backups.uuid"),
-        organization_id=_coerce_uuid(record.get("organization_id"), field_name="backups.organization_id"),
+        organization_id=_coerce_uuid(
+            record.get("organization_id"), field_name="backups.organization_id"
+        ),
         backup_id=_coerce_str(record.get("backup_id")),
         status=_coerce_str(record.get("status"), default=BackupStatus.PENDING.value),
         job_id=_coerce_optional_str(record.get("job_id")),
@@ -185,7 +185,9 @@ async def _get_backup_settings_for_org(org_id: UUID) -> BackupSettings | None:
 async def _save_backup_settings(settings: BackupSettings) -> BackupSettings:
     existing = await _get_backup_settings_for_org(settings.organization_id)
     if existing is not None:
-        await _execute_query("DELETE FROM backup_settings WHERE uuid = $uuid;", uuid=str(existing.id))
+        await _execute_query(
+            "DELETE FROM backup_settings WHERE uuid = $uuid;", uuid=str(existing.id)
+        )
         settings.id = existing.id
         settings.created_at = existing.created_at
     settings.updated_at = _utcnow()

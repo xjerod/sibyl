@@ -261,7 +261,9 @@ def status(
                 )
                 coordination_error = data.get("coordination_error")
                 if coordination_error:
-                    console.print(f"  Detail:       [{ERROR_RED}]{coordination_error}[/{ERROR_RED}]")
+                    console.print(
+                        f"  Detail:       [{ERROR_RED}]{coordination_error}[/{ERROR_RED}]"
+                    )
                 console.print()
 
                 # Recent errors

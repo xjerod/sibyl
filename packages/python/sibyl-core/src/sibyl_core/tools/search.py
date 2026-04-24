@@ -27,6 +27,7 @@ DOCUMENT_SEARCH_TIMEOUT_SECONDS = min(10.0, TIMEOUTS["search"])
 async def get_graph_runtime(group_id: str):
     return await _service_get_graph_runtime(group_id)
 
+
 __all__ = [
     "_dedupe_document_rows",
     "_document_language_predicates",

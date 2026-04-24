@@ -38,6 +38,7 @@ async def get_entity_graph_runtime(group_id: str):
 async def get_knowledge_read_adapter(group_id: str):
     return await _service_get_knowledge_read_adapter(group_id)
 
+
 router = APIRouter(
     prefix="/metrics",
     tags=["metrics"],

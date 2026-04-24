@@ -3,6 +3,7 @@
 Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 
 ## Summary
+
 - REST routers: 22
 - Top-level HTTP routes: 2
 - WebSocket routes: 1
@@ -17,6 +18,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 ## API Surface
 
 ### Mounted REST routers
+
 - `backups_router`
 - `entities_router`
 - `tasks_router`
@@ -41,15 +43,18 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `users_router`
 
 ### Top-level HTTP routes
+
 - `GET /` → `root`
 - `GET /health` → `health_check`
 
 ### WebSocket routes
+
 - `/ws` → `websocket_handler`
 
 ## MCP Surface
 
 ### Tools
+
 - `add` in `apps/api/src/sibyl/server.py`
 - `explore` in `apps/api/src/sibyl/server.py`
 - `logs` in `apps/api/src/sibyl/server.py`
@@ -57,12 +62,14 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `search` in `apps/api/src/sibyl/server.py`
 
 ### Resources
+
 - `sibyl://health` via `health_resource` in `apps/api/src/sibyl/server.py`
 - `sibyl://stats` via `stats_resource` in `apps/api/src/sibyl/server.py`
 
 ## Storage Coupling
 
 ### SQLModel tables
+
 - `User`
 - `LoginHistory`
 - `PasswordResetToken`
@@ -89,86 +96,169 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `Backup`
 
 ### Raw SQL query usage files
-- `apps/api/src/sibyl/auth/api_keys.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/authorization.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `execute`; query calls: `select`
-- `apps/api/src/sibyl/auth/dependencies.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `execute`, `get`; query calls: `select`
-- `apps/api/src/sibyl/auth/device_authorization.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/invitations.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/memberships.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/organizations.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/password_reset.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/rls.py` — session imports: `AsyncSession`; query imports: `text`; session calls: `execute`; query calls: `text`
-- `apps/api/src/sibyl/auth/sessions.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/auth/users.py` — session imports: `AsyncSession`; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/cli/db.py` — session imports: none; query imports: `select`; session calls: `commit`, `execute`; query calls: `select`
-- `apps/api/src/sibyl/crawler/pipeline.py` — session imports: none; query imports: `select`; session calls: `add`, `execute`, `get`, `refresh`, `rollback`; query calls: `select`
-- `apps/api/src/sibyl/crawler/service.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `add`, `execute`, `get`, `refresh`; query calls: `select`
-- `apps/api/src/sibyl/db/connection.py` — session imports: `AsyncSession`, `async_sessionmaker`; query imports: `text`; session calls: `execute`; query calls: `text`
-- `apps/api/src/sibyl/db/models.py` — session imports: none; query imports: `text`; session calls: none; query calls: `text`
-- `apps/api/src/sibyl/db/project_sync.py` — session imports: `AsyncSession`; query imports: `delete`, `select`, `update`; session calls: `add`, `execute`; query calls: `delete`, `select`, `update`
-- `apps/api/src/sibyl/db/sync.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `add`, `execute`; query calls: `select`
-- `apps/api/src/sibyl/jobs/backup.py` — session imports: none; query imports: `select`; session calls: `add`, `commit`, `execute`; query calls: `select`
-- `apps/api/src/sibyl/jobs/consolidation.py` — session imports: none; query imports: `select`; session calls: `execute`; query calls: `select`
-- `apps/api/src/sibyl/jobs/crawl.py` — session imports: none; query imports: `select`; session calls: `execute`, `get`; query calls: `select`
-- `apps/api/src/sibyl/main.py` — session imports: none; query imports: `text`; session calls: `execute`; query calls: `text`
-- `apps/api/src/sibyl/persistence/legacy/admin.py` — session imports: none; query imports: `select`; session calls: `execute`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/auth.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `execute`, `get`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/backups.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `add`, `commit`, `delete`, `execute`, `get`, `refresh`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/crawler.py` — session imports: none; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/entities.py` — session imports: none; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/jobs.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `execute`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/org_members.py` — session imports: none; query imports: `select`; session calls: `execute`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/orgs.py` — session imports: none; query imports: `select`; session calls: `execute`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/project_members.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `add`, `delete`, `execute`, `get`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/rag.py` — session imports: none; query imports: `select`; session calls: none; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/settings.py` — session imports: none; query imports: `select`; session calls: `execute`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/setup.py` — session imports: none; query imports: `select`; session calls: `execute`, `get`; query calls: `select`
-- `apps/api/src/sibyl/persistence/legacy/users.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `commit`, `delete`, `execute`, `get`; query calls: `select`
-- `apps/api/src/sibyl/services/settings.py` — session imports: `AsyncSession`; query imports: `select`; session calls: `add`, `commit`, `delete`, `execute`; query calls: `select`
-- `packages/python/sibyl-core/src/sibyl_core/services/crawl_sources.py` — session imports: none; query imports: `select`; session calls: `add`, `execute`, `refresh`; query calls: `select`
-- `packages/python/sibyl-core/src/sibyl_core/services/document_search.py` — session imports: none; query imports: `select`; session calls: `execute`; query calls: `select`
-- `packages/python/sibyl-core/src/sibyl_core/services/link_graph_status.py` — session imports: none; query imports: `select`; session calls: none; query calls: `select`
+
+- `apps/api/src/sibyl/auth/api_keys.py` — session imports: `AsyncSession`; query imports: `select`;
+  session calls: none; query calls: `select`
+- `apps/api/src/sibyl/auth/authorization.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: `execute`; query calls: `select`
+- `apps/api/src/sibyl/auth/dependencies.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: `execute`, `get`; query calls: `select`
+- `apps/api/src/sibyl/auth/device_authorization.py` — session imports: `AsyncSession`; query
+  imports: `select`; session calls: none; query calls: `select`
+- `apps/api/src/sibyl/auth/invitations.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: none; query calls: `select`
+- `apps/api/src/sibyl/auth/memberships.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: none; query calls: `select`
+- `apps/api/src/sibyl/auth/organizations.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: none; query calls: `select`
+- `apps/api/src/sibyl/auth/password_reset.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: none; query calls: `select`
+- `apps/api/src/sibyl/auth/rls.py` — session imports: `AsyncSession`; query imports: `text`; session
+  calls: `execute`; query calls: `text`
+- `apps/api/src/sibyl/auth/sessions.py` — session imports: `AsyncSession`; query imports: `select`;
+  session calls: none; query calls: `select`
+- `apps/api/src/sibyl/auth/users.py` — session imports: `AsyncSession`; query imports: `select`;
+  session calls: none; query calls: `select`
+- `apps/api/src/sibyl/cli/db.py` — session imports: none; query imports: `select`; session calls:
+  `commit`, `execute`; query calls: `select`
+- `apps/api/src/sibyl/crawler/pipeline.py` — session imports: none; query imports: `select`; session
+  calls: `add`, `execute`, `get`, `refresh`, `rollback`; query calls: `select`
+- `apps/api/src/sibyl/crawler/service.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: `add`, `execute`, `get`, `refresh`; query calls: `select`
+- `apps/api/src/sibyl/db/connection.py` — session imports: `AsyncSession`, `async_sessionmaker`;
+  query imports: `text`; session calls: `execute`; query calls: `text`
+- `apps/api/src/sibyl/db/models.py` — session imports: none; query imports: `text`; session calls:
+  none; query calls: `text`
+- `apps/api/src/sibyl/db/project_sync.py` — session imports: `AsyncSession`; query imports:
+  `delete`, `select`, `update`; session calls: `add`, `execute`; query calls: `delete`, `select`,
+  `update`
+- `apps/api/src/sibyl/db/sync.py` — session imports: `AsyncSession`; query imports: `select`;
+  session calls: `add`, `execute`; query calls: `select`
+- `apps/api/src/sibyl/jobs/backup.py` — session imports: none; query imports: `select`; session
+  calls: `add`, `commit`, `execute`; query calls: `select`
+- `apps/api/src/sibyl/jobs/consolidation.py` — session imports: none; query imports: `select`;
+  session calls: `execute`; query calls: `select`
+- `apps/api/src/sibyl/jobs/crawl.py` — session imports: none; query imports: `select`; session
+  calls: `execute`, `get`; query calls: `select`
+- `apps/api/src/sibyl/main.py` — session imports: none; query imports: `text`; session calls:
+  `execute`; query calls: `text`
+- `apps/api/src/sibyl/persistence/legacy/admin.py` — session imports: none; query imports: `select`;
+  session calls: `execute`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/auth.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: `execute`, `get`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/backups.py` — session imports: `AsyncSession`; query
+  imports: `select`; session calls: `add`, `commit`, `delete`, `execute`, `get`, `refresh`; query
+  calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/crawler.py` — session imports: none; query imports:
+  `select`; session calls: none; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/entities.py` — session imports: none; query imports:
+  `select`; session calls: none; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/jobs.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: `execute`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/org_members.py` — session imports: none; query imports:
+  `select`; session calls: `execute`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/orgs.py` — session imports: none; query imports: `select`;
+  session calls: `execute`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/project_members.py` — session imports: `AsyncSession`;
+  query imports: `select`; session calls: `add`, `delete`, `execute`, `get`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/rag.py` — session imports: none; query imports: `select`;
+  session calls: none; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/settings.py` — session imports: none; query imports:
+  `select`; session calls: `execute`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/setup.py` — session imports: none; query imports: `select`;
+  session calls: `execute`, `get`; query calls: `select`
+- `apps/api/src/sibyl/persistence/legacy/users.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: `commit`, `delete`, `execute`, `get`; query calls: `select`
+- `apps/api/src/sibyl/services/settings.py` — session imports: `AsyncSession`; query imports:
+  `select`; session calls: `add`, `commit`, `delete`, `execute`; query calls: `select`
+- `packages/python/sibyl-core/src/sibyl_core/services/crawl_sources.py` — session imports: none;
+  query imports: `select`; session calls: `add`, `execute`, `refresh`; query calls: `select`
+- `packages/python/sibyl-core/src/sibyl_core/services/document_search.py` — session imports: none;
+  query imports: `select`; session calls: `execute`; query calls: `select`
+- `packages/python/sibyl-core/src/sibyl_core/services/link_graph_status.py` — session imports: none;
+  query imports: `select`; session calls: none; query calls: `select`
 
 ### Session-backed storage access files
-- `apps/api/src/sibyl/api/routes/crawler.py` — session imports: none; query imports: none; session calls: `add`, `delete`, `get`, `refresh`; query calls: none
-- `apps/api/src/sibyl/api/routes/entities.py` — session imports: none; query imports: none; session calls: `commit`; query calls: none
-- `apps/api/src/sibyl/api/routes/rag.py` — session imports: none; query imports: none; session calls: `add`, `commit`, `get`, `refresh`; query calls: none
-- `apps/api/src/sibyl/auth/audit.py` — session imports: `AsyncSession`; query imports: none; session calls: none; query calls: none
-- `apps/api/src/sibyl/crawler/graph_integration.py` — session imports: none; query imports: none; session calls: `add`, `commit`; query calls: none
+
+- `apps/api/src/sibyl/api/routes/crawler.py` — session imports: none; query imports: none; session
+  calls: `add`, `delete`, `get`, `refresh`; query calls: none
+- `apps/api/src/sibyl/api/routes/entities.py` — session imports: none; query imports: none; session
+  calls: `commit`; query calls: none
+- `apps/api/src/sibyl/api/routes/rag.py` — session imports: none; query imports: none; session
+  calls: `add`, `commit`, `get`, `refresh`; query calls: none
+- `apps/api/src/sibyl/auth/audit.py` — session imports: `AsyncSession`; query imports: none; session
+  calls: none; query calls: none
+- `apps/api/src/sibyl/crawler/graph_integration.py` — session imports: none; query imports: none;
+  session calls: `add`, `commit`; query calls: none
 
 ### Graphiti import files
-- `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py` — `graphiti_core.embedder.client`
-- `packages/python/sibyl-core/src/sibyl_core/graph/client.py` — `graphiti_core`, `graphiti_core.driver.falkordb`, `graphiti_core.driver.falkordb_driver`, `graphiti_core.helpers`, `graphiti_core.llm_client`, `graphiti_core.llm_client.anthropic_client`, `graphiti_core.llm_client.config`, `graphiti_core.llm_client.openai_client`, `graphiti_core.search.search_utils`
-- `packages/python/sibyl-core/src/sibyl_core/graph/entities.py` — `graphiti_core.nodes`, `graphiti_core.search.search_config_recipes`
-- `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py` — `graphiti_core.llm_client.client`, `graphiti_core.llm_client.config`, `graphiti_core.prompts.models`
-- `packages/python/sibyl-core/src/sibyl_core/graph/relationships.py` — `graphiti_core.edges`, `graphiti_core.nodes`
-- `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py` — `graphiti_core.driver.search_interface.search_interface`, `graphiti_core.edges`, `graphiti_core.helpers`, `graphiti_core.search`, `graphiti_core.search.search_utils`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/driver.py` — `graphiti_core.driver.driver`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/community_edge_ops.py` — `graphiti_core.driver.operations.community_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/community_node_ops.py` — `graphiti_core.driver.operations.community_node_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.driver.record_parsers`, `graphiti_core.errors`, `graphiti_core.nodes`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_edge_ops.py` — `graphiti_core.driver.operations.entity_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.driver.record_parsers`, `graphiti_core.edges`, `graphiti_core.errors`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_node_ops.py` — `graphiti_core.driver.operations.entity_node_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.driver.record_parsers`, `graphiti_core.errors`, `graphiti_core.nodes`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/episode_node_ops.py` — `graphiti_core.driver.operations.episode_node_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.driver.record_parsers`, `graphiti_core.errors`, `graphiti_core.nodes`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/episodic_edge_ops.py` — `graphiti_core.driver.operations.episodic_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/graph_ops.py` — `graphiti_core.driver.operations.graph_ops`, `graphiti_core.driver.operations.graph_utils`, `graphiti_core.driver.query_executor`, `graphiti_core.driver.record_parsers`, `graphiti_core.nodes`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/has_episode_edge_ops.py` — `graphiti_core.driver.operations.has_episode_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/next_episode_edge_ops.py` — `graphiti_core.driver.operations.next_episode_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/saga_node_ops.py` — `graphiti_core.driver.operations.saga_node_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.errors`, `graphiti_core.helpers`, `graphiti_core.nodes`
+
+- `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py` —
+  `graphiti_core.embedder.client`
+- `packages/python/sibyl-core/src/sibyl_core/graph/client.py` — `graphiti_core`,
+  `graphiti_core.driver.falkordb`, `graphiti_core.driver.falkordb_driver`, `graphiti_core.helpers`,
+  `graphiti_core.llm_client`, `graphiti_core.llm_client.anthropic_client`,
+  `graphiti_core.llm_client.config`, `graphiti_core.llm_client.openai_client`,
+  `graphiti_core.search.search_utils`
+- `packages/python/sibyl-core/src/sibyl_core/graph/entities.py` — `graphiti_core.nodes`,
+  `graphiti_core.search.search_config_recipes`
+- `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py` — `graphiti_core.llm_client.client`,
+  `graphiti_core.llm_client.config`, `graphiti_core.prompts.models`
+- `packages/python/sibyl-core/src/sibyl_core/graph/relationships.py` — `graphiti_core.edges`,
+  `graphiti_core.nodes`
+- `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py` —
+  `graphiti_core.driver.search_interface.search_interface`, `graphiti_core.edges`,
+  `graphiti_core.helpers`, `graphiti_core.search`, `graphiti_core.search.search_utils`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/driver.py` —
+  `graphiti_core.driver.driver`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/community_edge_ops.py` —
+  `graphiti_core.driver.operations.community_edge_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/community_node_ops.py` —
+  `graphiti_core.driver.operations.community_node_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.driver.record_parsers`, `graphiti_core.errors`, `graphiti_core.nodes`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_edge_ops.py` —
+  `graphiti_core.driver.operations.entity_edge_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.driver.record_parsers`, `graphiti_core.edges`, `graphiti_core.errors`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_node_ops.py` —
+  `graphiti_core.driver.operations.entity_node_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.driver.record_parsers`, `graphiti_core.errors`, `graphiti_core.nodes`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/episode_node_ops.py` —
+  `graphiti_core.driver.operations.episode_node_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.driver.record_parsers`, `graphiti_core.errors`, `graphiti_core.nodes`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/episodic_edge_ops.py` —
+  `graphiti_core.driver.operations.episodic_edge_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/graph_ops.py` —
+  `graphiti_core.driver.operations.graph_ops`, `graphiti_core.driver.operations.graph_utils`,
+  `graphiti_core.driver.query_executor`, `graphiti_core.driver.record_parsers`,
+  `graphiti_core.nodes`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/has_episode_edge_ops.py` —
+  `graphiti_core.driver.operations.has_episode_edge_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/next_episode_edge_ops.py` —
+  `graphiti_core.driver.operations.next_episode_edge_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/saga_node_ops.py` —
+  `graphiti_core.driver.operations.saga_node_ops`, `graphiti_core.driver.query_executor`,
+  `graphiti_core.errors`, `graphiti_core.helpers`, `graphiti_core.nodes`
 
 ## Dependency Inventory
 
 ### Legacy and transition dependencies
-| Project | Dependency |
-| ------- | ---------- |
-| `apps/api/pyproject.toml` | `alembic>=1.17.2` |
-| `apps/api/pyproject.toml` | `arq>=0.26.3` |
-| `apps/api/pyproject.toml` | `asyncpg>=0.31.0` |
-| `apps/api/pyproject.toml` | `pgvector>=0.4.2` |
-| `apps/api/pyproject.toml` | `sqlmodel>=0.0.27` |
+
+| Project                                     | Dependency                                  |
+| ------------------------------------------- | ------------------------------------------- |
+| `apps/api/pyproject.toml`                   | `alembic>=1.17.2`                           |
+| `apps/api/pyproject.toml`                   | `arq>=0.26.3`                               |
+| `apps/api/pyproject.toml`                   | `asyncpg>=0.31.0`                           |
+| `apps/api/pyproject.toml`                   | `pgvector>=0.4.2`                           |
+| `apps/api/pyproject.toml`                   | `sqlmodel>=0.0.27`                          |
 | `packages/python/sibyl-core/pyproject.toml` | `graphiti-core[falkordb,anthropic]>=0.28.2` |
 
 ### Target SurrealDB dependencies
-| Project | Dependency |
-| ------- | ---------- |
-| `apps/api/pyproject.toml` | `surrealdb>=1.0.8,<3.0` |
+
+| Project                                     | Dependency              |
+| ------------------------------------------- | ----------------------- |
+| `apps/api/pyproject.toml`                   | `surrealdb>=1.0.8,<3.0` |
 | `packages/python/sibyl-core/pyproject.toml` | `surrealdb>=1.0.8,<3.0` |

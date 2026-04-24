@@ -55,11 +55,7 @@ def _ctx(*, include_org: bool = True) -> AuthContext:
         is_admin=True,
         avatar_url="https://example.com/avatar.png",
     )
-    organization = (
-        AuthOrganization(id=uuid4(), name="Sibyl", slug="sibyl")
-        if include_org
-        else None
-    )
+    organization = AuthOrganization(id=uuid4(), name="Sibyl", slug="sibyl") if include_org else None
     return AuthContext(
         user=user,
         organization=organization,

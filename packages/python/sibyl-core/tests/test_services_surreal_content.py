@@ -21,7 +21,9 @@ class FakeClient:
         self._responses = list(responses)
         self.calls: list[tuple[str, dict[str, object]]] = []
 
-    async def execute_query(self, query: str, params: dict[str, object] | None = None, **kwargs: object) -> object:
+    async def execute_query(
+        self, query: str, params: dict[str, object] | None = None, **kwargs: object
+    ) -> object:
         merged = dict(params or {})
         merged.update(kwargs)
         self.calls.append((query, merged))

@@ -13,7 +13,9 @@ from sibyl_core.services.surreal_content import ContentChunk, ContentDocument, C
 
 class TestDocumentSearch:
     @pytest.mark.asyncio
-    async def test_search_documents_uses_surreal_scope(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_search_documents_uses_surreal_scope(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(document_search_service.settings, "store", "surreal")
 
         source = ContentSource(

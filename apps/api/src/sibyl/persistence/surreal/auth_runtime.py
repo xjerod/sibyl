@@ -331,9 +331,7 @@ class _SurrealRepository:
             msg = f"Unsupported replace table: {table}"
             raise ValueError(msg)
         await self._client.execute_query(delete_query, uuid=str(uuid))
-        created = _normalize_records(
-            await self._client.execute_query(create_query, record=record)
-        )
+        created = _normalize_records(await self._client.execute_query(create_query, record=record))
         if not created:
             msg = f"Failed to write {table} record {uuid}"
             raise RuntimeError(msg)
@@ -645,7 +643,9 @@ async def _list_user_org_records(client: Any, *, user_id: UUID) -> list[dict[str
         "SELECT * FROM organization_members WHERE user_id = $user_id ORDER BY created_at ASC;",
         user_id=str(user_id),
     )
-    org_ids = [str(record["organization_id"]) for record in memberships if record.get("organization_id")]
+    org_ids = [
+        str(record["organization_id"]) for record in memberships if record.get("organization_id")
+    ]
     organizations: list[dict[str, Any]] = []
     for org_id in org_ids:
         record = await repo.select_one(
@@ -713,7 +713,9 @@ async def _issue_auth_session(
         user_id=user.id,
         organization_id=organization.id,
     )
-    access_expires = _utcnow() + timedelta(minutes=config_module.settings.access_token_expire_minutes)
+    access_expires = _utcnow() + timedelta(
+        minutes=config_module.settings.access_token_expire_minutes
+    )
     sessions = SurrealSessionRepository.from_client(client)
     await sessions.create_session(
         user_id=user.id,
@@ -773,7 +775,9 @@ async def authenticate_api_key(raw_key: str):
                 api_key_id=str(updated["uuid"]),
             )
             project_ids = [
-                _coerce_uuid(record.get("project_id"), field_name="api_key_project_scope.project_id")
+                _coerce_uuid(
+                    record.get("project_id"), field_name="api_key_project_scope.project_id"
+                )
                 for record in project_scope_records
                 if record.get("project_id") is not None
             ]
@@ -804,7 +808,9 @@ async def authenticate_local_user(*, email: str, password: str):
             password,
             salt_hex=str(record["password_salt"]),
             hash_hex=str(record["password_hash"]),
-            iterations=int(record.get("password_iterations") or config_module.settings.password_iterations),
+            iterations=int(
+                record.get("password_iterations") or config_module.settings.password_iterations
+            ),
         )
         if not ok:
             return None
@@ -966,29 +972,29 @@ async def login_github_identity(*, identity, request) -> IssuedAuthSession:
             client,
             user=_require_namespace(
                 _auth_user_namespace(
-                {
-                    "uuid": str(user.id),
-                    "email": user.email,
-                    "name": user.name,
-                    "avatar_url": user.avatar_url,
-                    "github_id": user.github_id,
-                    "is_admin": user.is_admin,
-                    "bio": user.bio,
-                    "timezone": user.timezone,
-                    "preferences": dict(user.preferences),
-                }
+                    {
+                        "uuid": str(user.id),
+                        "email": user.email,
+                        "name": user.name,
+                        "avatar_url": user.avatar_url,
+                        "github_id": user.github_id,
+                        "is_admin": user.is_admin,
+                        "bio": user.bio,
+                        "timezone": user.timezone,
+                        "preferences": dict(user.preferences),
+                    }
                 ),
                 label="user",
             ),
             organization=_require_namespace(
                 _auth_org_namespace(
-                {
-                    "uuid": str(organization.id),
-                    "name": organization.name,
-                    "slug": organization.slug,
-                    "is_personal": organization.is_personal,
-                    "settings": dict(organization.settings),
-                }
+                    {
+                        "uuid": str(organization.id),
+                        "name": organization.name,
+                        "slug": organization.slug,
+                        "is_personal": organization.is_personal,
+                        "settings": dict(organization.settings),
+                    }
                 ),
                 label="organization",
             ),
@@ -1020,29 +1026,29 @@ async def signup_local_user(*, email: str, password: str, name: str, request):
             client,
             user=_require_namespace(
                 _auth_user_namespace(
-                {
-                    "uuid": str(user.id),
-                    "email": user.email,
-                    "name": user.name,
-                    "avatar_url": user.avatar_url,
-                    "github_id": user.github_id,
-                    "is_admin": user.is_admin,
-                    "bio": user.bio,
-                    "timezone": user.timezone,
-                    "preferences": dict(user.preferences),
-                }
+                    {
+                        "uuid": str(user.id),
+                        "email": user.email,
+                        "name": user.name,
+                        "avatar_url": user.avatar_url,
+                        "github_id": user.github_id,
+                        "is_admin": user.is_admin,
+                        "bio": user.bio,
+                        "timezone": user.timezone,
+                        "preferences": dict(user.preferences),
+                    }
                 ),
                 label="user",
             ),
             organization=_require_namespace(
                 _auth_org_namespace(
-                {
-                    "uuid": str(organization.id),
-                    "name": organization.name,
-                    "slug": organization.slug,
-                    "is_personal": organization.is_personal,
-                    "settings": dict(organization.settings),
-                }
+                    {
+                        "uuid": str(organization.id),
+                        "name": organization.name,
+                        "slug": organization.slug,
+                        "is_personal": organization.is_personal,
+                        "settings": dict(organization.settings),
+                    }
                 ),
                 label="organization",
             ),
@@ -1070,29 +1076,29 @@ async def login_local_user(*, email: str, password: str, request):
             client,
             user=_require_namespace(
                 _auth_user_namespace(
-                {
-                    "uuid": str(user.id),
-                    "email": user.email,
-                    "name": user.name,
-                    "avatar_url": user.avatar_url,
-                    "github_id": user.github_id,
-                    "is_admin": user.is_admin,
-                    "bio": user.bio,
-                    "timezone": user.timezone,
-                    "preferences": dict(user.preferences),
-                }
+                    {
+                        "uuid": str(user.id),
+                        "email": user.email,
+                        "name": user.name,
+                        "avatar_url": user.avatar_url,
+                        "github_id": user.github_id,
+                        "is_admin": user.is_admin,
+                        "bio": user.bio,
+                        "timezone": user.timezone,
+                        "preferences": dict(user.preferences),
+                    }
                 ),
                 label="user",
             ),
             organization=_require_namespace(
                 _auth_org_namespace(
-                {
-                    "uuid": str(organization.id),
-                    "name": organization.name,
-                    "slug": organization.slug,
-                    "is_personal": organization.is_personal,
-                    "settings": dict(organization.settings),
-                }
+                    {
+                        "uuid": str(organization.id),
+                        "name": organization.name,
+                        "slug": organization.slug,
+                        "is_personal": organization.is_personal,
+                        "settings": dict(organization.settings),
+                    }
                 ),
                 label="organization",
             ),
@@ -1233,7 +1239,9 @@ async def exchange_device_code(*, device_code: str) -> dict[str, object]:
             "refresh_token": refresh_token,
             "token_type": "Bearer",
             "expires_in": int(
-                timedelta(minutes=config_module.settings.access_token_expire_minutes).total_seconds()
+                timedelta(
+                    minutes=config_module.settings.access_token_expire_minutes
+                ).total_seconds()
             ),
             "scope": (request_row.scope or "mcp").strip() or "mcp",
         }
@@ -1329,7 +1337,10 @@ async def deny_device_authorization(*, user_id: UUID, user_code: str, request):
             user_id=user.id,
             organization_id=None,
             request=request,
-            details={"device_request_id": str(request_row.id), "client_name": request_row.client_name},
+            details={
+                "device_request_id": str(request_row.id),
+                "client_name": request_row.client_name,
+            },
         )
         return _device_request_namespace(written)
 
@@ -1376,7 +1387,10 @@ async def approve_device_authorization(*, user_id: UUID, user_code: str, request
             user_id=user.id,
             organization_id=organization.id,
             request=request,
-            details={"device_request_id": str(request_row.id), "client_name": request_row.client_name},
+            details={
+                "device_request_id": str(request_row.id),
+                "client_name": request_row.client_name,
+            },
         )
         return (
             _auth_org_namespace(
@@ -1410,7 +1424,9 @@ async def rotate_refresh_exchange(
             organization_id=organization_id,
             session_id=existing.id,
         )
-        access_expires = _utcnow() + timedelta(minutes=config_module.settings.access_token_expire_minutes)
+        access_expires = _utcnow() + timedelta(
+            minutes=config_module.settings.access_token_expire_minutes
+        )
         await sessions.rotate_tokens(
             existing,
             new_access_token=access_token,
@@ -1506,7 +1522,9 @@ def _project_record_namespace(record: dict[str, Any]) -> SimpleNamespace:
     owner_user_id = _coerce_optional_uuid(record.get("owner_user_id"))
     return SimpleNamespace(
         id=_coerce_uuid(record.get("uuid"), field_name="projects.uuid"),
-        organization_id=_coerce_uuid(record.get("organization_id"), field_name="projects.organization_id"),
+        organization_id=_coerce_uuid(
+            record.get("organization_id"), field_name="projects.organization_id"
+        ),
         graph_project_id=str(record.get("graph_project_id") or ""),
         name=record.get("name"),
         description=record.get("description"),
@@ -1751,11 +1769,15 @@ async def revoke_api_key_for_user(
             "SELECT * FROM api_keys WHERE uuid = $uuid LIMIT 1;",
             uuid=str(api_key_id),
         )
-        if record is None or _coerce_optional_uuid(record.get("organization_id")) != organization_id:
+        if (
+            record is None
+            or _coerce_optional_uuid(record.get("organization_id")) != organization_id
+        ):
             raise HTTPException(status_code=404, detail="API key not found")
-        if _coerce_optional_uuid(record.get("user_id")) != actor_user_id and _role_value(
-            actor_org_role
-        ) not in _ORG_ADMIN_ROLE_VALUES:
+        if (
+            _coerce_optional_uuid(record.get("user_id")) != actor_user_id
+            and _role_value(actor_org_role) not in _ORG_ADMIN_ROLE_VALUES
+        ):
             raise HTTPException(status_code=403, detail="Forbidden")
         updated = {**record, "revoked_at": _utcnow(), "updated_at": _utcnow()}
         await repo.replace_record("api_keys", uuid=api_key_id, record=updated)
@@ -1783,7 +1805,9 @@ async def update_auth_user(
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
         users = SurrealUserRepository.from_client(client)
-        user = await repo.select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id))
+        user = await repo.select_one(
+            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id)
+        )
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         changes: list[str] = []
@@ -1843,7 +1867,7 @@ async def update_auth_user(
                 organization_id=organization_id,
                 request=request,
                 details={},
-        )
+            )
         return _auth_user_namespace(written)
 
 
@@ -1857,7 +1881,9 @@ async def patch_auth_user(
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
         users = SurrealUserRepository.from_client(client)
-        user = await repo.select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id))
+        user = await repo.select_one(
+            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id)
+        )
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         if not updates:
@@ -1884,7 +1910,9 @@ async def patch_auth_user(
             changes.append("name")
         if "avatar_url" in updates:
             avatar_url = updates["avatar_url"]
-            updated["avatar_url"] = str(avatar_url).strip() or None if avatar_url is not None else None
+            updated["avatar_url"] = (
+                str(avatar_url).strip() or None if avatar_url is not None else None
+            )
             changes.append("avatar_url")
         if "bio" in updates:
             bio = updates["bio"]
@@ -2007,7 +2035,11 @@ async def request_password_reset(email: str) -> None:
                 return
         for token_record in existing_tokens:
             token_row = _password_reset_namespace(token_record)
-            if token_row is None or token_row.used_at is not None or token_row.revoked_at is not None:
+            if (
+                token_row is None
+                or token_row.used_at is not None
+                or token_row.revoked_at is not None
+            ):
                 continue
             updated_token = {**token_record, "revoked_at": now}
             await repo.replace_record(
@@ -2029,19 +2061,21 @@ async def request_password_reset(email: str) -> None:
             "user_agent": None,
             "created_at": now,
         }
-        await client.execute_query("CREATE password_reset_tokens CONTENT $record;", record=token_record)
+        await client.execute_query(
+            "CREATE password_reset_tokens CONTENT $record;", record=token_record
+        )
 
         from sibyl.config import settings as app_settings
 
-        reset_url = (
-            f"{app_settings.frontend_url.rstrip('/')}/reset-password?token={raw_token}"
-        )
+        reset_url = f"{app_settings.frontend_url.rstrip('/')}/reset-password?token={raw_token}"
         template = PasswordResetEmail(
             reset_url=reset_url,
             user_name=str(user.get("name") or "") or None,
             expires_in_minutes=60,
         )
-        await get_email_client().send_template(template, to=str(user.get("email") or normalized_email))
+        await get_email_client().send_template(
+            template, to=str(user.get("email") or normalized_email)
+        )
         await _log_login_history(
             client,
             user_id=_coerce_uuid(user.get("uuid"), field_name="user.uuid"),
@@ -2133,12 +2167,16 @@ async def remove_oauth_connection(
         if connection is None:
             raise HTTPException(status_code=404, detail="Connection not found")
 
-        user = await repo.select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id))
+        user = await repo.select_one(
+            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id)
+        )
         remaining_connections = await repo.select_many(
             "SELECT * FROM oauth_connections WHERE user_id = $user_id ORDER BY created_at ASC;",
             user_id=str(user_id),
         )
-        has_other_connections = any(str(row.get("uuid")) != str(connection_id) for row in remaining_connections)
+        has_other_connections = any(
+            str(row.get("uuid")) != str(connection_id) for row in remaining_connections
+        )
         has_password = bool(user and user.get("password_hash"))
         if not has_other_connections and not has_password:
             raise HTTPException(

@@ -120,6 +120,7 @@ def _patch_falkordb_driver() -> None:
     FalkorDriver.clone = patched_clone
     FalkorDriver.build_fulltext_query = patched_build_fulltext_query
 
+
 from sibyl_core.errors import GraphConnectionError  # noqa: E402
 from sibyl_core.utils.resilience import GRAPH_RETRY, TIMEOUTS, retry, with_timeout  # noqa: E402
 

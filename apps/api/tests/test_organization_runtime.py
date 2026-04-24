@@ -71,7 +71,9 @@ def test_organization_runtime_only_exports_neutral_runtime_surface() -> None:
     assert "LegacyOrgSummary" not in organization_common.__all__
     assert "LegacyProjectMembersResult" not in organization_common.__all__
     assert organization_common.OrgSummary is organization_common.LegacyOrgSummary
-    assert organization_common.ProjectMembersResult is organization_common.LegacyProjectMembersResult
+    assert (
+        organization_common.ProjectMembersResult is organization_common.LegacyProjectMembersResult
+    )
 
 
 def test_organization_runtime_resolves_postgres_neutral_exports(
@@ -79,7 +81,9 @@ def test_organization_runtime_resolves_postgres_neutral_exports(
 ) -> None:
     monkeypatch.setattr(organization_runtime.settings, "auth_store", "postgres")
 
-    assert organization_runtime._resolve_backend_export("list_orgs") is legacy_orgs_runtime.list_orgs
+    assert (
+        organization_runtime._resolve_backend_export("list_orgs") is legacy_orgs_runtime.list_orgs
+    )
     assert (
         organization_runtime._resolve_backend_export("list_project_members")
         is legacy_project_members_runtime.list_project_members
@@ -618,7 +622,9 @@ async def test_surreal_add_project_member_rejects_existing_membership(
     async def fake_scope():
         yield FakeClient()
 
-    user_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id=target_user_id)))
+    user_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id=target_user_id))
+    )
 
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
     monkeypatch.setattr(
@@ -659,7 +665,10 @@ async def test_surreal_add_project_member_handles_unique_index_conflict(
             if "SELECT * FROM project_members" in query:
                 return []
             if "CREATE project_members CONTENT $record" in query:
-                return {"status": "ERR", "detail": "Database index `idx_project_members_project_user` already contains"}
+                return {
+                    "status": "ERR",
+                    "detail": "Database index `idx_project_members_project_user` already contains",
+                }
             return []
 
         async def close(self) -> None:
@@ -669,7 +678,9 @@ async def test_surreal_add_project_member_handles_unique_index_conflict(
     async def fake_scope():
         yield FakeClient()
 
-    user_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id=target_user_id)))
+    user_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id=target_user_id))
+    )
 
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
     monkeypatch.setattr(

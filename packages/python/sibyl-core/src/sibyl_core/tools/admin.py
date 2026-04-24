@@ -7,12 +7,11 @@ import contextlib
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from importlib import import_module
 from typing import Any
 from uuid import uuid4
 
 import structlog
-from graphiti_core.edges import EpisodicEdge
-from graphiti_core.nodes import EpisodeType, EpisodicNode
 
 from sibyl_core.config import settings
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
@@ -35,6 +34,7 @@ async def get_graph_client():
 
 async def get_graph_runtime(group_id: str):
     return await _service_get_graph_runtime(group_id)
+
 
 BACKFILL_PAGE_SIZE = 1000
 
@@ -485,6 +485,18 @@ class RestoreResult:
 BACKUP_ENTITY_TYPES = list(EntityType)
 
 
+def _episode_type_cls() -> Any:
+    return import_module("graphiti_core.nodes").EpisodeType
+
+
+def _episodic_node_cls() -> Any:
+    return import_module("graphiti_core.nodes").EpisodicNode
+
+
+def _episodic_edge_cls() -> Any:
+    return import_module("graphiti_core.edges").EpisodicEdge
+
+
 def _serialize_backup_datetime(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -500,7 +512,8 @@ def _parse_backup_datetime(value: Any) -> datetime:
     return datetime.now(UTC)
 
 
-def _coerce_episode_type(value: Any) -> EpisodeType:
+def _coerce_episode_type(value: Any) -> Any:
+    EpisodeType = _episode_type_cls()
     raw_value = str(value or "").strip().lower()
     for episode_type in EpisodeType:
         if episode_type.value == raw_value:
@@ -508,7 +521,7 @@ def _coerce_episode_type(value: Any) -> EpisodeType:
     return EpisodeType.message
 
 
-def _episode_payload_from_node(node: EpisodicNode, *, organization_id: str) -> dict[str, Any]:
+def _episode_payload_from_node(node: Any, *, organization_id: str) -> dict[str, Any]:
     return {
         "uuid": node.uuid,
         "name": node.name,
@@ -523,7 +536,7 @@ def _episode_payload_from_node(node: EpisodicNode, *, organization_id: str) -> d
     }
 
 
-def _mention_payload_from_edge(edge: EpisodicEdge, *, organization_id: str) -> dict[str, Any]:
+def _mention_payload_from_edge(edge: Any, *, organization_id: str) -> dict[str, Any]:
     return {
         "uuid": edge.uuid,
         "source_id": edge.source_node_uuid,
@@ -533,10 +546,10 @@ def _mention_payload_from_edge(edge: EpisodicEdge, *, organization_id: str) -> d
     }
 
 
-def _episode_from_payload(payload: dict[str, Any], *, organization_id: str) -> EpisodicNode:
+def _episode_from_payload(payload: dict[str, Any], *, organization_id: str) -> Any:
     created_at = _parse_backup_datetime(payload.get("created_at"))
     valid_at = _parse_backup_datetime(payload.get("valid_at") or created_at)
-    return EpisodicNode(
+    return _episodic_node_cls()(
         uuid=str(payload.get("uuid") or ""),
         name=str(payload.get("name") or ""),
         group_id=organization_id,
@@ -549,8 +562,8 @@ def _episode_from_payload(payload: dict[str, Any], *, organization_id: str) -> E
     )
 
 
-def _mention_from_payload(payload: dict[str, Any], *, organization_id: str) -> EpisodicEdge:
-    return EpisodicEdge(
+def _mention_from_payload(payload: dict[str, Any], *, organization_id: str) -> Any:
+    return _episodic_edge_cls()(
         uuid=str(payload.get("uuid") or ""),
         group_id=organization_id,
         source_node_uuid=str(payload.get("source_id") or payload.get("source_node_uuid") or ""),
@@ -621,7 +634,7 @@ async def _list_backup_episodes(
                 {
                     "uuid": str(row.get("uuid") or ""),
                     "name": str(row.get("name") or ""),
-                    "source": str(row.get("source") or EpisodeType.message.value),
+                    "source": str(row.get("source") or _episode_type_cls().message.value),
                     "source_description": row.get("source_description"),
                     "content": str(row.get("content") or ""),
                     "labels": list(row.get("labels") or ["Episodic"]),
@@ -730,7 +743,9 @@ async def _list_backup_relationships(
         return relationships
 
     driver = client.get_org_driver(organization_id)
-    quoted_types = ", ".join(f"'{relationship_type.value}'" for relationship_type in RelationshipType)
+    quoted_types = ", ".join(
+        f"'{relationship_type.value}'" for relationship_type in RelationshipType
+    )
     relationships: list[Relationship] = []
     offset = 0
     while True:
@@ -1057,7 +1072,7 @@ async def restore_backup(
                     if len(errors) <= 10:
                         log.warning("Entity restore failed", error=error_msg)
 
-        episodes_to_restore: list[EpisodicNode] = []
+        episodes_to_restore: list[Any] = []
         for episode_data in backup_data.episodes:
             try:
                 episode = _episode_from_payload(episode_data, organization_id=organization_id)
@@ -1140,7 +1155,7 @@ async def restore_backup(
                     if len(errors) <= 10:
                         log.warning("Relationship restore failed", error=error_msg)
 
-        mentions_to_restore: list[EpisodicEdge] = []
+        mentions_to_restore: list[Any] = []
         for mention_data in normalize_mention_payloads(backup_data.mentions):
             try:
                 mention = _mention_from_payload(mention_data, organization_id=organization_id)
@@ -1461,9 +1476,7 @@ async def backfill_project_id_from_relationships(
                 break
             project_offset += len(projects)
             project_ids.update(
-                str(project.id)
-                for project in projects
-                if getattr(project, "id", None)
+                str(project.id) for project in projects if getattr(project, "id", None)
             )
 
         updates_needed: list[tuple[str, str, str]] = []
@@ -1879,7 +1892,6 @@ async def backfill_shared_project(
 
         # Step 3: Update orphan entities to use shared project
         for entity_id, entity_type in orphan_entities:
-
             if dry_run:
                 log.debug(
                     "would_set_project_id",

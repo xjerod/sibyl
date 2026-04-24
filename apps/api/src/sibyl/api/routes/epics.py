@@ -39,6 +39,7 @@ async def get_knowledge_read_adapter(group_id: str):
 async def update_graph_entity(group_id: str, entity_id: str, patch: dict[str, object]):
     return await _service_update_graph_entity(group_id, entity_id, patch)
 
+
 router = APIRouter(
     prefix="/epics",
     tags=["epics"],

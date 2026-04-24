@@ -25,9 +25,7 @@ class TestCanManageMembers:
         project.owner_user_id = user.id
 
         assert project_member_routes._can_manage_members(None, project, user) is True
-        assert (
-            project_member_routes._can_manage_members(ProjectRole.VIEWER, project, user) is True
-        )
+        assert project_member_routes._can_manage_members(ProjectRole.VIEWER, project, user) is True
 
     def test_owner_role_can_manage(self) -> None:
         user = MagicMock()

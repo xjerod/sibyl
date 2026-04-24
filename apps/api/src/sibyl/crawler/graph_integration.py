@@ -372,7 +372,9 @@ class EntityLinker:
             self._entity_manager = EntityManager(self.graph_client, group_id=self.organization_id)
         return self._entity_manager
 
-    async def _list_graph_entities_via_manager(self, entity_type: str | None = None) -> list[Entity]:
+    async def _list_graph_entities_via_manager(
+        self, entity_type: str | None = None
+    ) -> list[Entity]:
         entity_manager = self._get_entity_manager()
         entities: list[Entity] = []
         offset = 0

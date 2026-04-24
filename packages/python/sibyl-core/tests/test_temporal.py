@@ -69,7 +69,9 @@ def _make_temporal_context(
         get_by_group_ids=(
             AsyncMock(side_effect=group_error)
             if group_error is not None
-            else AsyncMock(return_value=list(group_edges if group_edges is not None else node_edges or []))
+            else AsyncMock(
+                return_value=list(group_edges if group_edges is not None else node_edges or [])
+            )
         ),
     )
     names = node_names or {}
@@ -82,6 +84,7 @@ def _make_temporal_context(
         )
     )
     return driver, edge_ops, node_ops
+
 
 # =============================================================================
 # Response Model Tests

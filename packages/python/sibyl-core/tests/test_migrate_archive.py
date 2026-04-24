@@ -78,8 +78,13 @@ def _content_bytes(*, chunk_rows: int = 1) -> bytes:
             "created_at": "2026-04-21T03:00:00+00:00",
             "tables": {
                 "crawl_sources": [{"id": "source-1", "organization_id": "org-123", "name": "Docs"}],
-                "crawled_documents": [{"id": "document-1", "source_id": "source-1", "title": "Page"}],
-                "document_chunks": [{"id": f"chunk-{index}", "document_id": "document-1"} for index in range(chunk_rows)],
+                "crawled_documents": [
+                    {"id": "document-1", "source_id": "source-1", "title": "Page"}
+                ],
+                "document_chunks": [
+                    {"id": f"chunk-{index}", "document_id": "document-1"}
+                    for index in range(chunk_rows)
+                ],
                 "raw_captures": [],
                 "system_settings": [],
                 "backup_settings": [],
@@ -355,9 +360,24 @@ def test_effective_graph_counts_normalize_duplicate_edges() -> None:
         "entities": [{"id": "entity-1"}, {"id": "entity-2"}],
         "episodes": [{"uuid": "episode-1"}],
         "relationships": [
-            {"id": "rel-1", "source_id": "entity-1", "relationship_type": "related_to", "target_id": "entity-2"},
-            {"id": "rel-2", "source_id": "entity-1", "relationship_type": "related_to", "target_id": "entity-2"},
-            {"id": "rel-1", "source_id": "entity-2", "relationship_type": "depends_on", "target_id": "entity-1"},
+            {
+                "id": "rel-1",
+                "source_id": "entity-1",
+                "relationship_type": "related_to",
+                "target_id": "entity-2",
+            },
+            {
+                "id": "rel-2",
+                "source_id": "entity-1",
+                "relationship_type": "related_to",
+                "target_id": "entity-2",
+            },
+            {
+                "id": "rel-1",
+                "source_id": "entity-2",
+                "relationship_type": "depends_on",
+                "target_id": "entity-1",
+            },
         ],
         "mentions": [
             {"uuid": "mention-1", "source_id": "episode-1", "target_id": "entity-1"},

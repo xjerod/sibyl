@@ -32,7 +32,9 @@ async def test_build_auth_context_uses_surreal_resolver_without_postgres(
     user_id = uuid4()
     org_id = uuid4()
     request = _make_request(user_id=str(user_id), org_id=str(org_id))
-    expected_ctx = SimpleNamespace(user=SimpleNamespace(id=user_id), organization=SimpleNamespace(id=org_id))
+    expected_ctx = SimpleNamespace(
+        user=SimpleNamespace(id=user_id), organization=SimpleNamespace(id=org_id)
+    )
 
     resolve_auth_context = AsyncMock(return_value=expected_ctx)
 

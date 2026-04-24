@@ -91,7 +91,9 @@ class LocalScheduler:
 
     async def _run_spec(self, spec: ScheduleSpec, current_minute: datetime) -> None:
         try:
-            log.info("Scheduled job started", job=spec.name, scheduled_for=current_minute.isoformat())
+            log.info(
+                "Scheduled job started", job=spec.name, scheduled_for=current_minute.isoformat()
+            )
             await spec.function({"scheduled_for": current_minute.isoformat()})
             log.info("Scheduled job complete", job=spec.name)
         except asyncio.CancelledError:

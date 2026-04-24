@@ -150,4 +150,6 @@ def test_configure_requested_worker_mode_warns_for_surreal_redis(monkeypatch) ->
 
     assert "SIBYL_RUN_WORKER" not in env
     warn.assert_called_once_with("`--with-worker` is only supported in legacy mode")
-    info.assert_called_once_with("Run `moon run api:worker` or `uv run sibyld worker` in another shell.")
+    info.assert_called_once_with(
+        "Run `moon run api:worker` or `uv run sibyld worker` in another shell."
+    )

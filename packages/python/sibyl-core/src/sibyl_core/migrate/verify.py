@@ -73,18 +73,20 @@ async def verify_graph_archive(
         errors.append(backup_result.message)
 
     if actual_entities != expected_entities:
-        errors.append(
-            f"entity count mismatch: expected {expected_entities}, got {actual_entities}"
-        )
+        errors.append(f"entity count mismatch: expected {expected_entities}, got {actual_entities}")
     if actual_relationships != expected_relationships:
         errors.append(
             "relationship count mismatch: "
             f"expected {expected_relationships}, got {actual_relationships}"
         )
     if actual_episodes != expected_episodes:
-        errors.append(f"episode count mismatch: expected {expected_episodes}, got {actual_episodes}")
+        errors.append(
+            f"episode count mismatch: expected {expected_episodes}, got {actual_episodes}"
+        )
     if actual_mentions != expected_mentions:
-        errors.append(f"mention count mismatch: expected {expected_mentions}, got {actual_mentions}")
+        errors.append(
+            f"mention count mismatch: expected {expected_mentions}, got {actual_mentions}"
+        )
 
     runtime = await get_graph_runtime(organization_id)
     validated_entity_ids: list[str] = []

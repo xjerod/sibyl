@@ -146,7 +146,10 @@ def test_restore_prepares_graph_runtime_before_restore(tmp_path: Path) -> None:
     prepare = AsyncMock()
 
     with (
-        patch("sibyl.cli.db._prepare_graph_runtime", side_effect=AssertionError("sync helper should not be used")),
+        patch(
+            "sibyl.cli.db._prepare_graph_runtime",
+            side_effect=AssertionError("sync helper should not be used"),
+        ),
         patch("sibyl.cli.db._prepare_graph_runtime_async", prepare),
         patch("sibyl_core.tools.admin.restore_backup", restore_backup),
     ):
@@ -190,7 +193,9 @@ def test_restore_graph_payload_prepares_runtime_in_same_async_flow() -> None:
     prepare.assert_awaited_once_with("org-123", clean=True)
 
 
-def test_prepare_graph_runtime_surreal_clears_rows_without_bootstrapping_schema(monkeypatch) -> None:
+def test_prepare_graph_runtime_surreal_clears_rows_without_bootstrapping_schema(
+    monkeypatch,
+) -> None:
     driver = MagicMock()
     driver.graph_ops = SimpleNamespace(clear_data=AsyncMock())
     driver.build_indices_and_constraints = AsyncMock()

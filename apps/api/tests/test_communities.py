@@ -524,7 +524,8 @@ class TestHierarchicalGraph:
             _make_entity(f"task-{index}", f"Task {index}", EntityType.TASK) for index in range(110)
         ]
         topic_entities = [
-            _make_entity(f"topic-{index}", f"Topic {index}", EntityType.TOPIC) for index in range(10)
+            _make_entity(f"topic-{index}", f"Topic {index}", EntityType.TOPIC)
+            for index in range(10)
         ]
         entities = [*task_entities, *topic_entities]
         relationships = [
@@ -554,7 +555,9 @@ class TestHierarchicalGraph:
                 return_value=(partition, 0.5),
             ),
         ):
-            data = await get_hierarchical_graph(mock_client, TEST_ORG_ID, max_nodes=100, max_edges=300)
+            data = await get_hierarchical_graph(
+                mock_client, TEST_ORG_ID, max_nodes=100, max_edges=300
+            )
 
         topic_count = sum(1 for node in data.nodes if node["type"] == EntityType.TOPIC.value)
         assert data.displayed_nodes == 100
@@ -591,7 +594,9 @@ class TestHierarchicalGraph:
                 return_value=(partition, 0.5),
             ),
         ):
-            data = await get_hierarchical_graph(mock_client, TEST_ORG_ID, max_nodes=100, max_edges=300)
+            data = await get_hierarchical_graph(
+                mock_client, TEST_ORG_ID, max_nodes=100, max_edges=300
+            )
 
         cluster = next(cluster for cluster in data.clusters if cluster["id"] != "unclustered")
         assert data.total_nodes == 120

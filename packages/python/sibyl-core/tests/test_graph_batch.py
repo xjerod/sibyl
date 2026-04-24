@@ -79,9 +79,7 @@ class TestBatchCreateNodes:
     ) -> None:
         """Creates multiple nodes through EntityManager."""
         entity_manager = MagicMock()
-        entity_manager.create = AsyncMock(
-            side_effect=[node["uuid"] for node in sample_nodes]
-        )
+        entity_manager.create = AsyncMock(side_effect=[node["uuid"] for node in sample_nodes])
 
         with patch("sibyl_core.graph.batch.EntityManager", return_value=entity_manager):
             result = await batch_create_nodes(mock_client, org_id, sample_nodes)

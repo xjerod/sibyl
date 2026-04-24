@@ -161,7 +161,9 @@ async def build_auth_context(
     except InvalidAuthClaimsError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from e
     except UserNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found") from e
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        ) from e
 
 
 async def get_auth_context(

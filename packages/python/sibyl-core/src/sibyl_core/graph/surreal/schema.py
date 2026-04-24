@@ -21,4 +21,3 @@ __all__ = [
     "bootstrap_schema",
     "drop_all_indexes",
 ]
-

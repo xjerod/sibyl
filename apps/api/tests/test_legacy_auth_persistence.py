@@ -55,13 +55,19 @@ class FakeUserManager:
             name=identity.name or identity.login,
         )
 
-    async def create_local_user(self, *, email: str, password: str, name: str, is_admin: bool = False):
+    async def create_local_user(
+        self, *, email: str, password: str, name: str, is_admin: bool = False
+    ):
         del password, is_admin
         return SimpleNamespace(id=uuid4(), email=email, name=name)
 
     async def authenticate_local(self, *, email: str, password: str):
         del password
-        return self.user if self.user is not None and getattr(self.user, "email", None) == email else None
+        return (
+            self.user
+            if self.user is not None and getattr(self.user, "email", None) == email
+            else None
+        )
 
     async def update_profile(self, user, **kwargs):
         for key, value in kwargs.items():
@@ -91,7 +97,10 @@ class FakeMembershipRepository:
     async def get_for_user(self, organization_id, user_id):
         if self.membership is None:
             return None
-        if self.membership.organization_id == organization_id and self.membership.user_id == user_id:
+        if (
+            self.membership.organization_id == organization_id
+            and self.membership.user_id == user_id
+        ):
             return self.membership
         return None
 

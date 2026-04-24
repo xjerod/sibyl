@@ -1,9 +1,7 @@
 # Redis-Optional Coordination Plan
 
-**Status:** Revised proposal
-**Owner:** Stef
-**Last updated:** 2026-04-21
-**Supersedes:** the earlier TaskIQ-first draft in this file
+**Status:** Revised proposal **Owner:** Stef **Last updated:** 2026-04-21 **Supersedes:** the
+earlier TaskIQ-first draft in this file
 
 ## 1. Recommendation
 
@@ -33,40 +31,53 @@ The earlier draft mixed together two separate changes:
 
 That coupling makes the blast radius much larger than the goal requires.
 
-After checking the current codebase and current TaskIQ docs on 2026-04-21, the main problems with a TaskIQ-first rollout are:
+After checking the current codebase and current TaskIQ docs on 2026-04-21, the main problems with a
+TaskIQ-first rollout are:
 
-1. **It weakens the "keep distributed semantics unchanged" promise.**
-   `taskiq-redis` documents that `ListQueueBroker` has no acknowledgements, and recommends stream-based Redis when durability matters. That conflicts with the draft's promise that scaled Redis deployments preserve current durability semantics.
+1. **It weakens the "keep distributed semantics unchanged" promise.** `taskiq-redis` documents that
+   `ListQueueBroker` has no acknowledgements, and recommends stream-based Redis when durability
+   matters. That conflicts with the draft's promise that scaled Redis deployments preserve current
+   durability semantics.
 
-2. **Cancellation parity is not established.**
-   Sibyl has a real `cancel_job` API today and uses `arq`'s queued-job abort behavior. The TaskIQ docs describe results, workers, schedulers, middlewares, and dynamic receivers, but they do not provide a documented drop-in equivalent to `job.abort()` for queued Redis jobs.
+2. **Cancellation parity is not established.** Sibyl has a real `cancel_job` API today and uses
+   `arq`'s queued-job abort behavior. The TaskIQ docs describe results, workers, schedulers,
+   middlewares, and dynamic receivers, but they do not provide a documented drop-in equivalent to
+   `job.abort()` for queued Redis jobs.
 
-3. **The scheduler model was underspecified.**
-   TaskIQ scheduling is a separate scheduler concept. The official docs explicitly call out `taskiq scheduler ...` and warn to run only one scheduler instance. If we ever adopt TaskIQ, worker and scheduler lifecycle must be designed deliberately instead of treated as a small worker rewrite.
+3. **The scheduler model was underspecified.** TaskIQ scheduling is a separate scheduler concept.
+   The official docs explicitly call out `taskiq scheduler ...` and warn to run only one scheduler
+   instance. If we ever adopt TaskIQ, worker and scheduler lifecycle must be designed deliberately
+   instead of treated as a small worker rewrite.
 
-4. **The current Sibyl runtime is already split by `store`.**
-   `main.py` and `api/app.py` both gate Redis behavior behind `settings.store == "legacy"`, while `up_cmd.py` already defaults local dev to `SIBYL_STORE=surreal`. The original draft did not anchor the migration plan to that existing split.
+4. **The current Sibyl runtime is already split by `store`.** `main.py` and `api/app.py` both gate
+   Redis behavior behind `settings.store == "legacy"`, while `up_cmd.py` already defaults local dev
+   to `SIBYL_STORE=surreal`. The original draft did not anchor the migration plan to that existing
+   split.
 
-5. **The scope was much larger than necessary.**
-   Replacing the job library, worker CLI, scheduler model, and every Redis-backed coordination concern in one pass creates a lot of avoidable churn.
+5. **The scope was much larger than necessary.** Replacing the job library, worker CLI, scheduler
+   model, and every Redis-backed coordination concern in one pass creates a lot of avoidable churn.
 
 ## 3. Current State
 
 Redis currently backs four distinct concerns:
 
-| Concern | Primary files | Notes |
-|---|---|---|
-| Job queue + job metadata | `apps/api/src/sibyl/jobs/queue.py`, `worker.py`, `jobs/*.py` | `arq` with deterministic `_job_id`, recent-job ZSET, cancel/status/list APIs |
-| Entity locks | `apps/api/src/sibyl/locks.py` | Redis `SET NX EX` with Lua compare-and-delete / extend |
-| Cross-pod websocket fanout | `apps/api/src/sibyl/api/pubsub.py` | Redis pub/sub channel |
-| Pending entity registry | `apps/api/src/sibyl/jobs/pending.py` | Pending markers plus queued ops lists |
+| Concern                    | Primary files                                                | Notes                                                                        |
+| -------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Job queue + job metadata   | `apps/api/src/sibyl/jobs/queue.py`, `worker.py`, `jobs/*.py` | `arq` with deterministic `_job_id`, recent-job ZSET, cancel/status/list APIs |
+| Entity locks               | `apps/api/src/sibyl/locks.py`                                | Redis `SET NX EX` with Lua compare-and-delete / extend                       |
+| Cross-pod websocket fanout | `apps/api/src/sibyl/api/pubsub.py`                           | Redis pub/sub channel                                                        |
+| Pending entity registry    | `apps/api/src/sibyl/jobs/pending.py`                         | Pending markers plus queued ops lists                                        |
 
 Additional context from the current code:
 
-- `jobs/queue.py` exports **11** `enqueue_*` helpers and there are about **20** import sites across `apps/` and `packages/`.
-- `apps/api/src/sibyl/main.py` and `apps/api/src/sibyl/api/app.py` have overlapping startup/shutdown logic.
-- `settings.store` still defaults to `"legacy"`, but `apps/api/src/sibyl/cli/up_cmd.py` defaults local startup to `"surreal"`.
-- Redis-dependent startup already degrades gracefully in several places, but the queue path is still a hard dependency for background work.
+- `jobs/queue.py` exports **11** `enqueue_*` helpers and there are about **20** import sites across
+  `apps/` and `packages/`.
+- `apps/api/src/sibyl/main.py` and `apps/api/src/sibyl/api/app.py` have overlapping startup/shutdown
+  logic.
+- `settings.store` still defaults to `"legacy"`, but `apps/api/src/sibyl/cli/up_cmd.py` defaults
+  local startup to `"surreal"`.
+- Redis-dependent startup already degrades gracefully in several places, but the queue path is still
+  a hard dependency for background work.
 
 ## 4. Revised Target Architecture
 
@@ -100,7 +111,8 @@ apps/api/src/sibyl/coordination/
 
 - Wraps the current implementations.
 - Keeps `arq` for jobs in v1.
-- Keeps today's lock behavior, pub/sub behavior, pending registry behavior, and job status/cancel/list behavior.
+- Keeps today's lock behavior, pub/sub behavior, pending registry behavior, and job
+  status/cancel/list behavior.
 - Goal: near-zero behavioral change for existing Redis deployments.
 
 **`local` backend**
@@ -136,7 +148,8 @@ These public modules stay in place as stable shims:
 - `sibyl.locks`
 - `sibyl.api.pubsub`
 
-Upstream callers keep using the same imports and function signatures while the backend is swapped underneath.
+Upstream callers keep using the same imports and function signatures while the backend is swapped
+underneath.
 
 ## 5. Behavior Contract
 
@@ -218,7 +231,8 @@ Each phase should land green and be independently reviewable.
 
 ### Phase 2 - Broker interface with Redis wrapper
 
-**Goal:** preserve the existing Redis queue behavior behind a broker interface before adding local jobs.
+**Goal:** preserve the existing Redis queue behavior behind a broker interface before adding local
+jobs.
 
 **New**
 
@@ -278,7 +292,8 @@ The interface should cover exactly what the app already needs:
 **Semantics**
 
 - If the same dedup key is queued twice while queued/running, return the same job ID.
-- If a completed local job should be rerunnable today because Sibyl clears old `arq:result:*`, mirror that behavior explicitly in the local broker.
+- If a completed local job should be rerunnable today because Sibyl clears old `arq:result:*`,
+  mirror that behavior explicitly in the local broker.
 - Queued jobs can be cancelled before execution.
 - Running jobs may only be cancelled cooperatively; do not pretend otherwise.
 
@@ -314,7 +329,8 @@ The interface should cover exactly what the app already needs:
 
 **Scope rule**
 
-Do not introduce a new third-party scheduler unless the custom minute-tick loop proves insufficient. Sibyl currently has only a small number of schedules, so the simplest thing is better here.
+Do not introduce a new third-party scheduler unless the custom minute-tick loop proves insufficient.
+Sibyl currently has only a small number of schedules, so the simplest thing is better here.
 
 **Modified**
 
@@ -325,7 +341,8 @@ Do not introduce a new third-party scheduler unless the custom minute-tick loop 
 **CLI behavior**
 
 - In `redis` mode, `sibyld worker` keeps running the `arq` worker.
-- In `local` mode, `sibyld worker` should print a clear message that background jobs run in-process under `sibyld serve` and exit successfully.
+- In `local` mode, `sibyld worker` should print a clear message that background jobs run in-process
+  under `sibyld serve` and exit successfully.
 
 **Verify**
 
@@ -369,33 +386,34 @@ Only revisit TaskIQ after:
 
 If we revisit it later, the evaluation must answer:
 
-1. Do we want `RedisStreamBroker` or `ListQueueBroker`, and what durability tradeoff are we accepting?
+1. Do we want `RedisStreamBroker` or `ListQueueBroker`, and what durability tradeoff are we
+   accepting?
 2. What is the real cancellation story for queued and running jobs?
 3. How will worker and scheduler processes be managed in production?
 4. Is the migration worth the churn now that Redis is already optional locally?
 
 ## 7. File Change Matrix
 
-| File | Phase | Action |
-|---|---|---|
-| `apps/api/src/sibyl/config.py` | 0 | Add backend selection and resolution |
-| `apps/api/src/sibyl/main.py` | 0-4 | Centralize coordination lifecycle |
-| `apps/api/src/sibyl/api/app.py` | 0-1 | Match backend lifecycle behavior |
-| `apps/api/src/sibyl/coordination/*` | 1-4 | New abstraction layer |
-| `apps/api/src/sibyl/api/pubsub.py` | 1 | Thin shim |
-| `apps/api/src/sibyl/locks.py` | 1 | Thin shim |
-| `apps/api/src/sibyl/jobs/pending.py` | 1 | Thin shim + operation processor |
-| `apps/api/src/sibyl/jobs/queue.py` | 2-3 | Thin shim over broker |
-| `apps/api/src/sibyl/jobs/__init__.py` | 2 | Re-export updated broker surface |
-| `apps/api/src/sibyl/jobs/worker.py` | 4 | Keep `arq` worker path for Redis; factor schedule responsibilities |
-| `apps/api/src/sibyl/cli/main.py` | 4 | Worker command aware of backend |
-| `apps/api/src/sibyl/api/routes/jobs.py` | 0-2 | Health/status/list/cancel through broker |
-| `apps/api/src/sibyl/api/routes/admin.py` | 0-2 | Queue health through broker |
-| `apps/api/src/sibyl/api/routes/crawler.py` | 2 | Cancel path through broker |
-| `apps/api/src/sibyl/api/routes/backups.py` | 2 | Status path through broker |
-| `tools/dev/run-surreal-dev.sh` | 5 | Default local backend |
-| `docker-compose.yml` | 5 | Redis optional in dev |
-| `README.md`, `apps/api/README.md` | 5 | Document runtime matrix |
+| File                                       | Phase | Action                                                             |
+| ------------------------------------------ | ----- | ------------------------------------------------------------------ |
+| `apps/api/src/sibyl/config.py`             | 0     | Add backend selection and resolution                               |
+| `apps/api/src/sibyl/main.py`               | 0-4   | Centralize coordination lifecycle                                  |
+| `apps/api/src/sibyl/api/app.py`            | 0-1   | Match backend lifecycle behavior                                   |
+| `apps/api/src/sibyl/coordination/*`        | 1-4   | New abstraction layer                                              |
+| `apps/api/src/sibyl/api/pubsub.py`         | 1     | Thin shim                                                          |
+| `apps/api/src/sibyl/locks.py`              | 1     | Thin shim                                                          |
+| `apps/api/src/sibyl/jobs/pending.py`       | 1     | Thin shim + operation processor                                    |
+| `apps/api/src/sibyl/jobs/queue.py`         | 2-3   | Thin shim over broker                                              |
+| `apps/api/src/sibyl/jobs/__init__.py`      | 2     | Re-export updated broker surface                                   |
+| `apps/api/src/sibyl/jobs/worker.py`        | 4     | Keep `arq` worker path for Redis; factor schedule responsibilities |
+| `apps/api/src/sibyl/cli/main.py`           | 4     | Worker command aware of backend                                    |
+| `apps/api/src/sibyl/api/routes/jobs.py`    | 0-2   | Health/status/list/cancel through broker                           |
+| `apps/api/src/sibyl/api/routes/admin.py`   | 0-2   | Queue health through broker                                        |
+| `apps/api/src/sibyl/api/routes/crawler.py` | 2     | Cancel path through broker                                         |
+| `apps/api/src/sibyl/api/routes/backups.py` | 2     | Status path through broker                                         |
+| `tools/dev/run-surreal-dev.sh`             | 5     | Default local backend                                              |
+| `docker-compose.yml`                       | 5     | Redis optional in dev                                              |
+| `README.md`, `apps/api/README.md`          | 5     | Document runtime matrix                                            |
 
 ## 8. Testing Strategy
 
@@ -443,18 +461,19 @@ Redis-only tests should keep covering:
 3. Keep Redis deploys on the existing `arq` path until parity is proven.
 4. Only after that, decide whether a queue-library migration is still worth doing.
 
-This keeps the migration additive first, then opt-in, instead of replacing the most stateful subsystem up front.
+This keeps the migration additive first, then opt-in, instead of replacing the most stateful
+subsystem up front.
 
 ## 10. Risks And Mitigations
 
-| Risk | Severity | Mitigation |
-|---|---|---|
-| Default runtime confusion (`store` vs `up_cmd.py`) | High | Resolve backend explicitly in config and document the supported matrix |
-| Local mode behaves like distributed mode in user expectations | Medium | Loud startup log line: single-process, no cross-process guarantees, ephemeral state |
-| Running-job cancellation is weaker in local mode | Medium | Expose it as best-effort, keep queued cancellation solid, document the difference |
-| Duplicate lifecycle logic between `main.py` and `api/app.py` drifts | Medium | Move backend resolution into shared coordination factory helpers |
-| Migration stalls after abstractions land | Low | Keep phases independently shippable and useful |
-| Later TaskIQ migration pressure returns | Low | Treat it as a separate RFC with explicit go/no-go criteria |
+| Risk                                                                | Severity | Mitigation                                                                          |
+| ------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| Default runtime confusion (`store` vs `up_cmd.py`)                  | High     | Resolve backend explicitly in config and document the supported matrix              |
+| Local mode behaves like distributed mode in user expectations       | Medium   | Loud startup log line: single-process, no cross-process guarantees, ephemeral state |
+| Running-job cancellation is weaker in local mode                    | Medium   | Expose it as best-effort, keep queued cancellation solid, document the difference   |
+| Duplicate lifecycle logic between `main.py` and `api/app.py` drifts | Medium   | Move backend resolution into shared coordination factory helpers                    |
+| Migration stalls after abstractions land                            | Low      | Keep phases independently shippable and useful                                      |
+| Later TaskIQ migration pressure returns                             | Low      | Treat it as a separate RFC with explicit go/no-go criteria                          |
 
 ## 11. Success Criteria
 

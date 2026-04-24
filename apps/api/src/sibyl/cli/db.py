@@ -981,6 +981,7 @@ def _prepare_graph_runtime(org_id: str, *, clean: bool) -> None:
 
 def _restore_graph_payload(backup_dict: dict[str, object], org_id: str, clean: bool) -> bool:
     """Restore graph data from a decoded backup payload."""
+
     @run_async
     async def _restore() -> bool:
         from sibyl_core.tools.admin import restore_backup

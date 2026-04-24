@@ -28,7 +28,10 @@ def _auth_payload(*, user_rows: int = 1) -> dict[str, object]:
         "version": "1.0",
         "created_at": "2026-04-21T02:00:00+00:00",
         "tables": {
-            "users": [{"id": f"user-{index}", "email": f"user{index}@example.com"} for index in range(user_rows)],
+            "users": [
+                {"id": f"user-{index}", "email": f"user{index}@example.com"}
+                for index in range(user_rows)
+            ],
             "organizations": [],
         },
         "row_counts": {"users": user_rows, "organizations": 0},
@@ -42,7 +45,12 @@ def _content_payload(*, chunk_rows: int = 1) -> dict[str, object]:
         "created_at": "2026-04-21T03:00:00+00:00",
         "tables": {
             "crawl_sources": [
-                {"id": "source-1", "organization_id": "org-123", "name": "Docs", "url": "https://docs.example.com"}
+                {
+                    "id": "source-1",
+                    "organization_id": "org-123",
+                    "name": "Docs",
+                    "url": "https://docs.example.com",
+                }
             ],
             "crawled_documents": [
                 {
@@ -98,7 +106,9 @@ def _write_graph_archive(path: Path, *, org_id: str = "org-123") -> None:
         organization_id=org_id,
         source_store="legacy",
         files=files,
-        file_metadata={GRAPH_FILENAME: {"kind": "graph", "entity_count": 1, "relationship_count": 0}},
+        file_metadata={
+            GRAPH_FILENAME: {"kind": "graph", "entity_count": 1, "relationship_count": 0}
+        },
     )
     write_archive(path, manifest=manifest, files=files)
 
@@ -378,7 +388,9 @@ def test_migrate_export_loads_auth_and_content_in_one_runtime_pass(tmp_path: Pat
             "sibyl.cli.migrate._load_graph_export",
             return_value=(graph_payload, json.dumps(graph_payload).encode("utf-8")),
         ),
-        patch("sibyl.cli.migrate._load_runtime_exports", return_value=runtime_exports) as load_runtime_exports,
+        patch(
+            "sibyl.cli.migrate._load_runtime_exports", return_value=runtime_exports
+        ) as load_runtime_exports,
         patch("sibyl.cli.migrate._run_pg_dump", return_value=b"select 1;\n"),
     ):
         result = runner.invoke(

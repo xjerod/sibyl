@@ -96,11 +96,7 @@ router = APIRouter(
 LIST_ALL_PAGE_SIZE = 2000
 LIST_BY_TYPE_PAGE_SIZE = 1000
 GRAPH_ENTITY_ID_PREFIXES = frozenset(
-    {
-        entity_type.value
-        for entity_type in EntityType
-        if entity_type is not EntityType.DOCUMENT
-    }
+    {entity_type.value for entity_type in EntityType if entity_type is not EntityType.DOCUMENT}
 )
 
 
@@ -354,7 +350,9 @@ async def _fetch_related_entity_summaries(
     limit: int,
 ) -> list[RelatedEntitySummary] | None:
     try:
-        related_pairs = await relationship_manager.get_related_entities(entity_id=entity_id, limit=limit)
+        related_pairs = await relationship_manager.get_related_entities(
+            entity_id=entity_id, limit=limit
+        )
         if not related_pairs:
             return None
 

@@ -305,7 +305,9 @@ class SibylMcpOAuthProvider(
             new_refresh_expires_at=new_refresh_expires_at,
         )
         if existing is None:
-            raise TokenError(error="invalid_grant", error_description="refresh token does not exist")
+            raise TokenError(
+                error="invalid_grant", error_description="refresh token does not exist"
+            )
         return OAuthToken(
             access_token=access,
             refresh_token=new_refresh,

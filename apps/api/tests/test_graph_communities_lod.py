@@ -84,9 +84,7 @@ def test_build_overview_graph_preserves_rare_categories() -> None:
     assert any(node["type"] == "episode" and node["name"] == "episode-1" for node in graph.nodes)
     assert any(node["type"] == "epic" and node["name"] == "epic-1" for node in graph.nodes)
     assert all(not node.get("aggregate", False) for node in graph.nodes)
-    assert any(
-        edge["source"] == "task-1" and edge["target"] == "epic-1" for edge in graph.edges
-    )
+    assert any(edge["source"] == "task-1" and edge["target"] == "epic-1" for edge in graph.edges)
     cluster_a = next(cluster for cluster in graph.clusters if cluster["id"] == "cluster-a")
     assert cluster_a["displayed_member_count"] == 4
     assert cluster_a["displayed_type_distribution"]["task"] == 3
@@ -128,9 +126,7 @@ def test_build_cluster_detail_graph_includes_cluster_members_and_neighbors() -> 
 
     assert graph.resolution == "detail"
     assert {node["id"] for node in graph.nodes} >= {"task-1", "task-2", "episode-1", "project-1"}
-    assert any(
-        edge["source"] == "task-1" and edge["target"] == "project-1" for edge in graph.edges
-    )
+    assert any(edge["source"] == "task-1" and edge["target"] == "project-1" for edge in graph.edges)
 
 
 @pytest.mark.asyncio

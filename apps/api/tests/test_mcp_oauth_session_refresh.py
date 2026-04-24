@@ -87,7 +87,9 @@ async def test_mcp_oauth_exchange_refresh_rotates_session(monkeypatch) -> None:
         lambda **k: ("new_refresh", datetime.now(UTC) + timedelta(days=30)),
     )
     monkeypatch.setattr("sibyl.auth.mcp_oauth.create_access_token", lambda **k: "new_access")
-    rotate_refresh = AsyncMock(return_value=SimpleNamespace(user_id=user_id, organization_id=org_id))
+    rotate_refresh = AsyncMock(
+        return_value=SimpleNamespace(user_id=user_id, organization_id=org_id)
+    )
     monkeypatch.setattr(provider, "_rotate_refresh_session_record", rotate_refresh)
 
     incoming = RefreshToken(

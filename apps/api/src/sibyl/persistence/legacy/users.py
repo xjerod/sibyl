@@ -31,9 +31,7 @@ async def confirm_password_reset(token: str, new_password: str) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-async def list_oauth_connections(
-    session: AsyncSession, user_id: UUID
-) -> list[OAuthConnection]:
+async def list_oauth_connections(session: AsyncSession, user_id: UUID) -> list[OAuthConnection]:
     """List OAuth connections for a user from the relational runtime."""
     result = await session.execute(
         select(OAuthConnection).where(OAuthConnection.user_id == user_id)

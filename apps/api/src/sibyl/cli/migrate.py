@@ -114,8 +114,12 @@ def _warn_if_database_dump_payload_skipped(*, archive: object, restore_database_
     archive_files = getattr(archive, "files", {})
     if POSTGRES_FILENAME not in archive_files:
         return
-    warn("Archive includes the database dump sidecar (postgres.sql), but database dump restore is disabled")
-    info("Pass --restore-database-dump when you want the database dump restored before graph import")
+    warn(
+        "Archive includes the database dump sidecar (postgres.sql), but database dump restore is disabled"
+    )
+    info(
+        "Pass --restore-database-dump when you want the database dump restored before graph import"
+    )
 
 
 def _warn_if_auth_payload_skipped(*, archive: object, restore_auth: bool) -> None:
@@ -432,11 +436,10 @@ def check_archive(
             f"{graph_payload.get('episode_count', len(graph_payload.get('episodes', [])))} episodes, "
             f"{graph_payload.get('mention_count', len(graph_payload.get('mentions', [])))} mentions"
         )
-        if (
-            effective_counts["relationship_count"]
-            != int(graph_payload.get("relationship_count", len(graph_payload.get("relationships", []))))
-            or effective_counts["mention_count"]
-            != int(graph_payload.get("mention_count", len(graph_payload.get("mentions", []))))
+        if effective_counts["relationship_count"] != int(
+            graph_payload.get("relationship_count", len(graph_payload.get("relationships", [])))
+        ) or effective_counts["mention_count"] != int(
+            graph_payload.get("mention_count", len(graph_payload.get("mentions", [])))
         ):
             info(
                 "Effective restore counts: "
@@ -490,7 +493,9 @@ def export_archive(
     ] = True,
     include_content: Annotated[
         bool,
-        typer.Option("--include-content/--skip-content", help="Include content/operations snapshot"),
+        typer.Option(
+            "--include-content/--skip-content", help="Include content/operations snapshot"
+        ),
     ] = False,
 ) -> None:
     """Export a manifest-driven migration archive from the active store."""
@@ -624,7 +629,9 @@ def import_archive(
     ] = True,
     restore_auth: Annotated[
         bool,
-        typer.Option("--restore-auth/--skip-auth", help="Restore auth payload into Surreal auth storage"),
+        typer.Option(
+            "--restore-auth/--skip-auth", help="Restore auth payload into Surreal auth storage"
+        ),
     ] = True,
     restore_content: Annotated[
         bool,
@@ -636,7 +643,9 @@ def import_archive(
 ) -> None:
     """Import a manifest archive into the active store."""
     archive = _load_valid_archive(source)
-    effective_org_id = _resolve_org_id(org_id, archive.manifest.organization_id) if restore_graph else ""
+    effective_org_id = (
+        _resolve_org_id(org_id, archive.manifest.organization_id) if restore_graph else ""
+    )
 
     if restore_database_dump and POSTGRES_FILENAME not in archive.files:
         error("Archive does not contain the database dump sidecar (postgres.sql)")
@@ -737,7 +746,9 @@ def rehearse_archive(
     ] = False,
     restore_auth: Annotated[
         bool,
-        typer.Option("--restore-auth/--skip-auth", help="Restore auth payload into Surreal auth storage"),
+        typer.Option(
+            "--restore-auth/--skip-auth", help="Restore auth payload into Surreal auth storage"
+        ),
     ] = True,
     restore_content: Annotated[
         bool,
@@ -748,7 +759,9 @@ def rehearse_archive(
     ] = True,
     run_baseline: Annotated[
         bool,
-        typer.Option("--run-baseline/--skip-baseline", help="Replay the deterministic runtime baseline"),
+        typer.Option(
+            "--run-baseline/--skip-baseline", help="Replay the deterministic runtime baseline"
+        ),
     ] = True,
     base_url: Annotated[
         str,
@@ -760,7 +773,9 @@ def rehearse_archive(
     ] = DEFAULT_REHEARSAL_BASELINES_DIR,
     manifest_path: Annotated[
         Path,
-        typer.Option("--manifest-path", help="Runtime baseline manifest from `moon run baseline-seed`"),
+        typer.Option(
+            "--manifest-path", help="Runtime baseline manifest from `moon run baseline-seed`"
+        ),
     ] = DEFAULT_REHEARSAL_MANIFEST,
     email: Annotated[
         str,
@@ -884,7 +899,9 @@ def cutover_archive(
     ] = False,
     restore_auth: Annotated[
         bool,
-        typer.Option("--restore-auth/--skip-auth", help="Restore auth payload into Surreal auth storage"),
+        typer.Option(
+            "--restore-auth/--skip-auth", help="Restore auth payload into Surreal auth storage"
+        ),
     ] = True,
     restore_content: Annotated[
         bool,
@@ -895,15 +912,21 @@ def cutover_archive(
     ] = True,
     run_baseline: Annotated[
         bool,
-        typer.Option("--run-baseline/--skip-baseline", help="Replay the deterministic runtime baseline"),
+        typer.Option(
+            "--run-baseline/--skip-baseline", help="Replay the deterministic runtime baseline"
+        ),
     ] = True,
     run_bench_live_smoke: Annotated[
         bool,
-        typer.Option("--run-bench-live-smoke", help="Run the live smoke bench after baseline replay"),
+        typer.Option(
+            "--run-bench-live-smoke", help="Run the live smoke bench after baseline replay"
+        ),
     ] = False,
     run_bench_live: Annotated[
         bool,
-        typer.Option("--run-bench-live", help="Run the artifact-producing live bench after acceptance smoke"),
+        typer.Option(
+            "--run-bench-live", help="Run the artifact-producing live bench after acceptance smoke"
+        ),
     ] = False,
     bench_label: Annotated[
         str,
@@ -919,7 +942,9 @@ def cutover_archive(
     ] = DEFAULT_REHEARSAL_BASELINES_DIR,
     manifest_path: Annotated[
         Path,
-        typer.Option("--manifest-path", help="Runtime baseline manifest from `moon run baseline-seed`"),
+        typer.Option(
+            "--manifest-path", help="Runtime baseline manifest from `moon run baseline-seed`"
+        ),
     ] = DEFAULT_REHEARSAL_MANIFEST,
     email: Annotated[
         str,
@@ -935,7 +960,10 @@ def cutover_archive(
     ] = 10,
     reopen_writes: Annotated[
         bool,
-        typer.Option("--reopen-writes", help="Mark the acceptance gate complete and permit writes on SurrealDB"),
+        typer.Option(
+            "--reopen-writes",
+            help="Mark the acceptance gate complete and permit writes on SurrealDB",
+        ),
     ] = False,
     acknowledge_no_instant_rollback: Annotated[
         bool,

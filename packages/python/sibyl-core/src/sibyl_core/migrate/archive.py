@@ -218,9 +218,8 @@ def _select_legacy_payload(
     if not matches:
         return None
     if len(matches) > 1:
-        msg = (
-            f"Archive contains multiple {kind} payload candidates: "
-            + ", ".join(name for name, _ in matches)
+        msg = f"Archive contains multiple {kind} payload candidates: " + ", ".join(
+            name for name, _ in matches
         )
         raise ValueError(msg)
     return matches[0]
@@ -275,7 +274,9 @@ def _legacy_manifest_from_backup_payloads(
         }
 
     manifest = build_manifest(
-        organization_id=_organization_id_from_graph_bytes(normalized_files.get(GRAPH_FILENAME, b"")),
+        organization_id=_organization_id_from_graph_bytes(
+            normalized_files.get(GRAPH_FILENAME, b"")
+        ),
         source_store="legacy",
         files=normalized_files,
         file_metadata=file_metadata,
@@ -342,9 +343,7 @@ def _validate_tabular_archive_payload(
     try:
         normalized_total_rows = int(declared_total_rows)
     except (TypeError, ValueError):
-        errors.append(
-            f"{filename} total_rows must be an integer, got {declared_total_rows!r}"
-        )
+        errors.append(f"{filename} total_rows must be an integer, got {declared_total_rows!r}")
         return
     if normalized_total_rows != actual_total_rows:
         errors.append(

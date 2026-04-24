@@ -93,7 +93,9 @@ async def test_update_settings_uses_request_body_for_environment_updates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings_routes, "require_settings_admin", AsyncMock())
-    monkeypatch.setattr(settings_routes, "_validate_openai_key", AsyncMock(return_value=(True, None)))
+    monkeypatch.setattr(
+        settings_routes, "_validate_openai_key", AsyncMock(return_value=(True, None))
+    )
     monkeypatch.setattr(
         settings_routes,
         "_validate_anthropic_key",

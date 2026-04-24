@@ -30,6 +30,7 @@ def _desc(column: ColumnElement) -> ColumnElement:
 class InvitationError(ValueError):
     """Invitation error."""
 
+
 def utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 

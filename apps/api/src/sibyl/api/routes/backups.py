@@ -66,6 +66,7 @@ def _backup_settings_response(settings) -> "BackupSettingsResponse":
         last_backup_id=settings.last_backup_id,
     )
 
+
 router = APIRouter(
     prefix="/backups",
     tags=["backups"],

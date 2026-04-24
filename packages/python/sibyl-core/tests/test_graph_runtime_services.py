@@ -24,7 +24,9 @@ async def test_get_graph_runtime_binds_active_store_managers() -> None:
 
     with (
         patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)),
-        patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager) as entity_ctor,
+        patch(
+            "sibyl_core.graph.entities.EntityManager", return_value=entity_manager
+        ) as entity_ctor,
         patch(
             "sibyl_core.graph.relationships.RelationshipManager",
             return_value=relationship_manager,
@@ -60,7 +62,9 @@ async def test_execute_graph_query_normalizes_driver_result() -> None:
     client.client.driver.clone.return_value = driver
     client.normalize_result.return_value = [{"row": "value"}]
 
-    with patch("sibyl_core.services.graph_runtime.get_graph_client", AsyncMock(return_value=client)):
+    with patch(
+        "sibyl_core.services.graph_runtime.get_graph_client", AsyncMock(return_value=client)
+    ):
         result = await execute_graph_query("org-123", "RETURN $value", value="x")
 
     assert result == [{"row": "value"}]

@@ -205,7 +205,9 @@ async def search_documents(
                 score=float(score),
                 include_content=include_content,
             )
-            for chunk, doc, src_name, src_id, score in _dedupe_document_rows(vector_rows_raw)[:limit]
+            for chunk, doc, src_name, src_id, score in _dedupe_document_rows(vector_rows_raw)[
+                :limit
+            ]
         ]
 
         lexical_rows_raw: list[tuple[Any, Any, str, Any, float]] = []

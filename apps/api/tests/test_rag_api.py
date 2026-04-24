@@ -156,7 +156,6 @@ class TestRAGSearchEndpoint:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch("sibyl.api.routes.rag.get_content_read_session", mock_content_session):
-
             from sibyl.api.routes.rag import rag_search
             from sibyl.api.schemas import RAGSearchRequest
 
@@ -188,7 +187,6 @@ class TestRAGSearchEndpoint:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch("sibyl.api.routes.rag.get_content_read_session", mock_content_session):
-
             from sibyl.api.routes.rag import rag_search
             from sibyl.api.schemas import RAGSearchRequest
 
@@ -221,7 +219,6 @@ class TestRAGSearchEndpoint:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch("sibyl.api.routes.rag.get_content_read_session", mock_content_session):
-
             from sibyl.api.routes.rag import rag_search
             from sibyl.api.schemas import RAGSearchRequest
 
@@ -245,7 +242,6 @@ class TestRAGSearchEndpoint:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch("sibyl.api.routes.rag.get_content_read_session", mock_content_session):
-
             from sibyl.api.routes.rag import rag_search
             from sibyl.api.schemas import RAGSearchRequest
 
@@ -304,7 +300,6 @@ class TestCodeExampleSearch:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch("sibyl.api.routes.rag.get_content_read_session", mock_content_session):
-
             from sibyl.api.routes.rag import search_code_examples
             from sibyl.api.schemas import CodeExampleRequest
 
@@ -338,7 +333,6 @@ class TestCodeExampleSearch:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch("sibyl.api.routes.rag.get_content_read_session", mock_content_session):
-
             from sibyl.api.routes.rag import search_code_examples
             from sibyl.api.schemas import CodeExampleRequest
 
@@ -362,9 +356,7 @@ class TestPageRetrieval:
     """Tests for page listing and full page retrieval."""
 
     @pytest.mark.asyncio
-    async def test_list_source_pages(
-        self, mock_auth_context, sample_document, sample_source
-    ):
+    async def test_list_source_pages(self, mock_auth_context, sample_document, sample_source):
         """Test listing pages for a source."""
         # Set source org ID to match auth context
         sample_source.organization_id = mock_auth_context.organization_id
@@ -384,7 +376,6 @@ class TestPageRetrieval:
                 AsyncMock(return_value=([sample_document], 1)),
             ) as list_documents_page,
         ):
-
             from sibyl.api.routes.rag import list_source_pages
 
             response = await list_source_pages(
@@ -399,9 +390,7 @@ class TestPageRetrieval:
             list_documents_page.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_get_full_page(
-        self, mock_auth_context, sample_document, sample_source
-    ):
+    async def test_get_full_page(self, mock_auth_context, sample_document, sample_source):
         """Test getting full page content."""
         # Set source org ID to match auth context
         sample_source.organization_id = mock_auth_context.organization_id
@@ -421,7 +410,6 @@ class TestPageRetrieval:
                 AsyncMock(return_value=sample_source),
             ) as get_source,
         ):
-
             from sibyl.api.routes.rag import get_full_page
 
             response = await get_full_page(
@@ -438,6 +426,7 @@ class TestPageRetrieval:
     @pytest.mark.asyncio
     async def test_get_page_not_found(self, mock_auth_context):
         """Test 404 when page not found."""
+
         @asynccontextmanager
         async def mock_content_session():
             yield None
@@ -449,7 +438,6 @@ class TestPageRetrieval:
                 AsyncMock(return_value=None),
             ),
         ):
-
             from fastapi import HTTPException
 
             from sibyl.api.routes.rag import get_full_page
@@ -565,7 +553,6 @@ class TestHybridSearch:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch("sibyl.api.routes.rag.get_content_read_session", mock_content_session):
-
             from sibyl.api.routes.rag import hybrid_search
             from sibyl.api.schemas import RAGSearchRequest
 
@@ -613,6 +600,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_source_not_found(self, mock_session, mock_auth_context):
         """Test 404 when source not found."""
+
         @asynccontextmanager
         async def mock_content_session():
             yield None
@@ -624,7 +612,6 @@ class TestErrorHandling:
                 AsyncMock(return_value=None),
             ),
         ):
-
             from fastapi import HTTPException
 
             from sibyl.api.routes.rag import list_source_pages

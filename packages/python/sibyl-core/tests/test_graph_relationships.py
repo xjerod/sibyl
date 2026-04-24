@@ -359,7 +359,9 @@ class TestRelationshipBulkCreate:
         ops.save_bulk.assert_awaited_once()
         saved_edges = ops.save_bulk.await_args.args[1]
         assert len(saved_edges) == 2
-        assert {(edge.source_node_uuid, edge.name, edge.target_node_uuid) for edge in saved_edges} == {
+        assert {
+            (edge.source_node_uuid, edge.name, edge.target_node_uuid) for edge in saved_edges
+        } == {
             ("entity-1", "RELATED_TO", "entity-2"),
             ("entity-2", "DEPENDS_ON", "entity-3"),
         }
@@ -440,7 +442,9 @@ class TestGetForEntity:
         ops = surreal_relationship_manager._driver.entity_edge_ops
         ops.get_by_node_uuid = AsyncMock(return_value=[sample_entity_edge])
 
-        results = await surreal_relationship_manager.get_for_entity("entity-001", direction="outgoing")
+        results = await surreal_relationship_manager.get_for_entity(
+            "entity-001", direction="outgoing"
+        )
 
         assert len(results) == 1
         assert results[0].source_id == "entity-001"

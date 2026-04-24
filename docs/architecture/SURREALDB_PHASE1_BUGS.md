@@ -1,7 +1,7 @@
 # SurrealDB Phase 1 — Burn-down Findings
 
-Captured during the Sibyl task burn-down session on `feat/surrealdb-driver-phase1` on 2026-04-20.
-We pushed the live API through roughly 140 archive and complete operations while SurrealDB was the
+Captured during the Sibyl task burn-down session on `feat/surrealdb-driver-phase1` on 2026-04-20. We
+pushed the live API through roughly 140 archive and complete operations while SurrealDB was the
 active graph backend. The result is encouraging: there appears to be one real Phase 1 blocker, a
 small follow-up tail, and a couple of items that are already fixed.
 
@@ -57,13 +57,13 @@ multi-process access should go through a server instance over the network transp
 
 After the heavy write batch, entity visibility split by freshness:
 
-| Entity | Recently written? | Direct fetch |
-| --- | --- | --- |
-| `task_7ac910ccf4b2` | No | ✓ 200 |
-| `task_740a4425163d` | Yes | ✗ 404 |
-| `project_05eb5c8c782a` | Yes | ✗ 404 |
-| `epic_8b4ad0b571c6` | No | ✗ 404 |
-| `task list` / `explore` scans | n/a | empty |
+| Entity                        | Recently written? | Direct fetch |
+| ----------------------------- | ----------------- | ------------ |
+| `task_7ac910ccf4b2`           | No                | ✓ 200        |
+| `task_740a4425163d`           | Yes               | ✗ 404        |
+| `project_05eb5c8c782a`        | Yes               | ✗ 404        |
+| `epic_8b4ad0b571c6`           | No                | ✗ 404        |
+| `task list` / `explore` scans | n/a               | empty        |
 
 That matches the user-visible behavior we saw during the burn-down:
 
@@ -117,11 +117,10 @@ These still matter, but they are not all the same class of blocker.
 ### 1. `archive_task` can still report failure after a successful archive
 
 **Where:** `apps/api/src/sibyl/api/routes/tasks.py` →
-`packages/python/sibyl-core/src/sibyl_core/tasks/workflow.py` →
-`_update_project_progress`
+`packages/python/sibyl-core/src/sibyl_core/tasks/workflow.py` → `_update_project_progress`
 
-The root cause bug made this show up constantly, but the hardening gap is independent: rollup
-cache updates should not be able to turn the primary archive operation into a 500.
+The root cause bug made this show up constantly, but the hardening gap is independent: rollup cache
+updates should not be able to turn the primary archive operation into a 500.
 
 What still needs to happen:
 
@@ -141,8 +140,8 @@ Under pressure, the miss path becomes noisy:
 - fall back to `EpisodicNode`
 - fall back to document-chunk lookup
 
-For real misses, that is a lot of wasted work. For flaky embedded-store reads, it also turns a
-stale read into a slow stale read.
+For real misses, that is a lot of wasted work. For flaky embedded-store reads, it also turns a stale
+read into a slow stale read.
 
 Recommended follow-up:
 

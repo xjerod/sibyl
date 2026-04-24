@@ -52,7 +52,7 @@ class TestCrawlSourceRoutes:
         monkeypatch.setattr(crawler_module.settings, "auth_store", "surreal")
         monkeypatch.setattr(
             crawler_module,
-            "_check_relational_backend_health",
+            "check_relational_backend_health",
             check_relational_backend_health,
         )
         monkeypatch.setitem(sys.modules, "crawl4ai", SimpleNamespace(AsyncWebCrawler=object))
@@ -165,13 +165,16 @@ class TestCrawlSourceRoutes:
         async def mock_content_session():
             yield None
 
-        with patch(
-            "sibyl.api.routes.crawler.get_content_read_session",
-            mock_content_session,
-        ), patch(
-            "sibyl.api.routes.crawler.list_crawl_sources_for_org",
-            AsyncMock(return_value=([_make_source()], 7)),
-        ) as list_sources_for_org:
+        with (
+            patch(
+                "sibyl.api.routes.crawler.get_content_read_session",
+                mock_content_session,
+            ),
+            patch(
+                "sibyl.api.routes.crawler.list_crawl_sources_for_org",
+                AsyncMock(return_value=([_make_source()], 7)),
+            ) as list_sources_for_org,
+        ):
             response = await list_sources(status="pending", limit=25, org=org)
 
         list_sources_for_org.assert_awaited_once_with(

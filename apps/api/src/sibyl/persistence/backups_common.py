@@ -23,6 +23,7 @@ class BackupRuntimeOptions:
     database_dump_supported: bool
     archive_contents: tuple[str, ...]
 
+
 def resolve_object_database_dump(value: object) -> bool | None:
     return getattr(value, "include_database_dump", None)
 

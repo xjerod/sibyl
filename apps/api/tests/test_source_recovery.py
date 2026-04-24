@@ -74,7 +74,9 @@ class TestRecoverStuckSources:
         """Test when there are no stuck sources."""
         with (
             patch("sibyl.api.routes.admin.get_content_read_session", mock_content_session),
-            patch("sibyl.api.routes.admin.list_crawl_sources", AsyncMock(return_value=[])) as list_sources,
+            patch(
+                "sibyl.api.routes.admin.list_crawl_sources", AsyncMock(return_value=[])
+            ) as list_sources,
             patch("sibyl.api.routes.admin.get_source_sync_counts", AsyncMock()) as get_counts,
             patch("sibyl.api.routes.admin.save_crawl_source_record", AsyncMock()) as save_source,
         ):

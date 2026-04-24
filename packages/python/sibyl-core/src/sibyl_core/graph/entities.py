@@ -429,7 +429,10 @@ class EntityManager:
             return False
         if priority_values and str(metadata.get("priority") or "").lower() not in priority_values:
             return False
-        if complexity_values and str(metadata.get("complexity") or "").lower() not in complexity_values:
+        if (
+            complexity_values
+            and str(metadata.get("complexity") or "").lower() not in complexity_values
+        ):
             return False
         if feature and metadata.get("feature") != feature:
             return False
@@ -798,7 +801,9 @@ class EntityManager:
                     limit=limit,
                 )
                 results = self._merge_ranked_results(exact_name_results, fallback_results, limit)
-                log.info("Search completed", query=query, results_count=len(results), mode="surreal_scan")
+                log.info(
+                    "Search completed", query=query, results_count=len(results), mode="surreal_scan"
+                )
                 return results
 
             try:
@@ -1053,7 +1058,9 @@ class EntityManager:
                     score = 0.6
                 fallback_results.append((entity, score))
 
-            fallback_results.sort(key=lambda item: (item[1], *self._entity_sort_key(item[0])), reverse=True)
+            fallback_results.sort(
+                key=lambda item: (item[1], *self._entity_sort_key(item[0])), reverse=True
+            )
             return fallback_results[:limit]
 
         params: dict[str, Any] = {
@@ -2719,7 +2726,9 @@ class EntityManager:
         if surreal_entity_ops is not None:
             for i in range(0, len(entities), batch_size):
                 batch = entities[i : i + batch_size]
-                nodes = [self._build_entity_node(entity, marker_key="_generated") for entity in batch]
+                nodes = [
+                    self._build_entity_node(entity, marker_key="_generated") for entity in batch
+                ]
                 try:
                     await surreal_entity_ops.save_bulk(self._driver, nodes, batch_size=batch_size)
                     created += len(batch)

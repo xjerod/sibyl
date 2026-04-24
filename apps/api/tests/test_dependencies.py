@@ -239,7 +239,9 @@ class TestGraphStoreDependencies:
 
         with (
             patch("sibyl.api.dependencies.get_graph_client", return_value=client),
-            patch("sibyl.api.dependencies.ActiveGraphStore.from_client", return_value=store) as factory,
+            patch(
+                "sibyl.api.dependencies.ActiveGraphStore.from_client", return_value=store
+            ) as factory,
         ):
             result = await get_graph_store(org=mock_org)
 

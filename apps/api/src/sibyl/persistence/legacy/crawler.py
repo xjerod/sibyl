@@ -14,6 +14,12 @@ from sibyl.persistence.content_common import CrawlStats
 from sibyl_core.services.link_graph_status import get_link_graph_status_data
 
 
+async def check_relational_backend_health() -> dict[str, str | None]:
+    from sibyl.db.connection import check_postgres_health
+
+    return await check_postgres_health()
+
+
 async def get_org_crawl_source(
     session: Any,
     *,
@@ -74,7 +80,9 @@ async def list_crawl_sources_for_org(
 
     result = await session.execute(query)
     count_result = await session.execute(
-        select(func.count(CrawlSource.id)).where(col(CrawlSource.organization_id) == organization_id)
+        select(func.count(CrawlSource.id)).where(
+            col(CrawlSource.organization_id) == organization_id
+        )
     )
     return list(result.scalars().all()), count_result.scalar() or 0
 
@@ -159,7 +167,9 @@ async def get_crawl_stats_payload(
     """Aggregate crawl stats for an organization."""
 
     sources_result = await session.execute(
-        select(func.count(CrawlSource.id)).where(col(CrawlSource.organization_id) == organization_id)
+        select(func.count(CrawlSource.id)).where(
+            col(CrawlSource.organization_id) == organization_id
+        )
     )
     total_sources = sources_result.scalar() or 0
 

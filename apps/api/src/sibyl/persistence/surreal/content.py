@@ -40,6 +40,10 @@ _CREATE_RECORD = {
 }
 
 
+async def check_relational_backend_health() -> dict[str, str | None]:
+    return {"status": "disabled", "postgres_version": None, "pgvector_version": None}
+
+
 def build_surreal_content_client() -> SurrealContentClient:
     """Build a Surreal content client from application settings."""
 
@@ -382,7 +386,9 @@ def _chunk_from_record(record: dict[str, Any]) -> DocumentChunk:
     now = datetime.now(UTC).replace(tzinfo=None)
     return DocumentChunk(
         id=_coerce_uuid(record.get("uuid"), field_name="document_chunks.uuid"),
-        document_id=_coerce_uuid(record.get("document_id"), field_name="document_chunks.document_id"),
+        document_id=_coerce_uuid(
+            record.get("document_id"), field_name="document_chunks.document_id"
+        ),
         chunk_index=_coerce_int(record.get("chunk_index")),
         chunk_type=_coerce_chunk_type(record.get("chunk_type")),
         content=_coerce_str(record.get("content")),
@@ -504,7 +510,9 @@ def _combined_hybrid_score(vector_rank: int | None, lexical_rank: int | None) ->
     return score
 
 
-def _value_batches(values: Iterable[str], *, batch_size: int = _DEFAULT_BATCH_SIZE) -> list[list[str]]:
+def _value_batches(
+    values: Iterable[str], *, batch_size: int = _DEFAULT_BATCH_SIZE
+) -> list[list[str]]:
     batch: list[str] = []
     batches: list[list[str]] = []
     for value in values:
@@ -527,11 +535,15 @@ def _where_equals(field: str, values: Sequence[str], *, prefix: str) -> tuple[st
     return " OR ".join(clauses), params
 
 
-async def _select_many(client: SurrealContentClient, query: str, **params: Any) -> list[dict[str, Any]]:
+async def _select_many(
+    client: SurrealContentClient, query: str, **params: Any
+) -> list[dict[str, Any]]:
     return _normalize_records(await client.execute_query(query, **params))
 
 
-async def _select_one(client: SurrealContentClient, query: str, **params: Any) -> dict[str, Any] | None:
+async def _select_one(
+    client: SurrealContentClient, query: str, **params: Any
+) -> dict[str, Any] | None:
     rows = await _select_many(client, query, **params)
     return rows[0] if rows else None
 
@@ -701,12 +713,18 @@ async def get_crawl_stats_payload(
 ) -> CrawlStats:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
-        documents = await _load_documents_for_source_ids(client, [str(source.id) for source in sources])
+        documents = await _load_documents_for_source_ids(
+            client, [str(source.id) for source in sources]
+        )
         chunks = await _load_chunks_for_document_ids(client, [str(doc.id) for doc in documents])
 
     status_counts: dict[str, int] = {}
     for source in sources:
-        key = source.crawl_status.value if hasattr(source.crawl_status, "value") else str(source.crawl_status)
+        key = (
+            source.crawl_status.value
+            if hasattr(source.crawl_status, "value")
+            else str(source.crawl_status)
+        )
         status_counts[key] = status_counts.get(key, 0) + 1
 
     return CrawlStats(
@@ -727,7 +745,9 @@ async def list_crawled_documents_for_org(
 ) -> tuple[list[CrawledDocument], int]:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
-        documents = await _load_documents_for_source_ids(client, [str(source.id) for source in sources])
+        documents = await _load_documents_for_source_ids(
+            client, [str(source.id) for source in sources]
+        )
 
     documents = sorted(documents, key=lambda doc: _sort_key(doc.crawled_at), reverse=True)
     return _page(documents, limit=limit, offset=offset)
@@ -952,8 +972,12 @@ async def get_link_graph_status_payload(
 ) -> LinkGraphStatusData:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
-        documents = await _load_documents_for_source_ids(client, [str(source.id) for source in sources])
-        chunks = await _load_chunks_for_document_ids(client, [str(document.id) for document in documents])
+        documents = await _load_documents_for_source_ids(
+            client, [str(source.id) for source in sources]
+        )
+        chunks = await _load_chunks_for_document_ids(
+            client, [str(document.id) for document in documents]
+        )
 
     document_source_ids = {str(document.id): str(document.source_id) for document in documents}
     pending_by_source = {str(source.id): 0 for source in sources}
@@ -1036,7 +1060,9 @@ async def count_remaining_unlinked_chunks(
             documents = await _load_documents_for_source_ids(client, [str(source_id)])
         else:
             sources = await _load_sources_for_org(client, organization_id=organization_id)
-            documents = await _load_documents_for_source_ids(client, [str(source.id) for source in sources])
+            documents = await _load_documents_for_source_ids(
+                client, [str(source.id) for source in sources]
+            )
         chunks = await _load_chunks_for_document_ids(client, [str(doc.id) for doc in documents])
     return sum(1 for chunk in chunks if not chunk.has_entities)
 
@@ -1135,7 +1161,9 @@ async def resolve_document_entity(
         chunk = next((item for item in chunks if item.id == chunk_uuid), None)
     except ValueError:
         normalized_prefix = entity_id.lower().replace("-", "")
-        if len(normalized_prefix) >= 4 and all(char in "0123456789abcdef" for char in normalized_prefix):
+        if len(normalized_prefix) >= 4 and all(
+            char in "0123456789abcdef" for char in normalized_prefix
+        ):
             chunk = next(
                 (
                     item
@@ -1334,7 +1362,9 @@ async def _load_search_scope(
     organization_id: UUID | str,
     source_id: UUID | None,
     source_name: str | None,
-) -> tuple[list[CrawlSource], dict[str, CrawlSource], dict[str, CrawledDocument], list[DocumentChunk]]:
+) -> tuple[
+    list[CrawlSource], dict[str, CrawlSource], dict[str, CrawledDocument], list[DocumentChunk]
+]:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
         if source_id is not None:
@@ -1346,7 +1376,9 @@ async def _load_search_scope(
 
         source_ids = [str(source.id) for source in sources]
         documents = await _load_documents_for_source_ids(client, source_ids)
-        chunks = await _load_chunks_for_document_ids(client, [str(document.id) for document in documents])
+        chunks = await _load_chunks_for_document_ids(
+            client, [str(document.id) for document in documents]
+        )
 
     sources_by_id = {str(source.id): source for source in sources}
     documents_by_id = {str(document.id): document for document in documents}
@@ -1493,11 +1525,15 @@ async def hybrid_search_chunks(
         similarity = similarity_by_chunk_id.get(chunk_id, 0.0)
         lexical = lexical_by_chunk_id.get(chunk_id, 0.0)
         score = _combined_hybrid_score(vector_ranks.get(chunk_id), lexical_ranks.get(chunk_id))
-        combined.append((chunk, document, source.name, source.id, similarity, lexical if score else 0.0))
+        combined.append(
+            (chunk, document, source.name, source.id, similarity, lexical if score else 0.0)
+        )
 
     combined.sort(
         key=lambda row: (
-            _combined_hybrid_score(vector_ranks.get(str(row[0].id)), lexical_ranks.get(str(row[0].id))),
+            _combined_hybrid_score(
+                vector_ranks.get(str(row[0].id)), lexical_ranks.get(str(row[0].id))
+            ),
             row[4],
             row[5],
         ),

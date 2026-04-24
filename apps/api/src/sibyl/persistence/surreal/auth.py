@@ -173,7 +173,9 @@ class SurrealUserRepository(_SurrealAuthRepository):
         return cls(client)
 
     async def get_by_id(self, user_id: UUID) -> AuthUser | None:
-        record = await self._select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id))
+        record = await self._select_one(
+            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id)
+        )
         return _user_from_record(record) if record is not None else None
 
     async def has_any_users(self) -> bool:
@@ -307,7 +309,9 @@ class SurrealUserRepository(_SurrealAuthRepository):
         name: str | None = None,
         avatar_url: str | None = None,
     ) -> AuthUser:
-        record = await self._select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user.id))
+        record = await self._select_one(
+            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user.id)
+        )
         if record is None:
             msg = f"User not found: {user.id}"
             raise LookupError(msg)
@@ -334,7 +338,9 @@ class SurrealUserRepository(_SurrealAuthRepository):
         return _user_from_record(written)
 
     async def change_password(self, user: AuthUser, change: PasswordChange) -> AuthUser:
-        record = await self._select_one("SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user.id))
+        record = await self._select_one(
+            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user.id)
+        )
         if record is None:
             msg = f"User not found: {user.id}"
             raise LookupError(msg)
@@ -537,7 +543,9 @@ class SurrealOrganizationMembershipRepository(_SurrealAuthRepository):
             "updated_at": now,
         }
         created = _normalize_records(
-            await self._client.execute_query("CREATE organization_members CONTENT $record;", record=record)
+            await self._client.execute_query(
+                "CREATE organization_members CONTENT $record;", record=record
+            )
         )
         if not created:
             msg = "Failed to create organization membership"

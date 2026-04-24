@@ -125,7 +125,9 @@ def _coerce_datetime(value: object | None) -> datetime | None:
     return None
 
 
-def _invitation_from_record(record: dict[str, Any], *, include_accept_url: bool = False) -> InvitationRecord:
+def _invitation_from_record(
+    record: dict[str, Any], *, include_accept_url: bool = False
+) -> InvitationRecord:
     invitation = InvitationRecord(
         id=_coerce_uuid(record.get("uuid"), field_name="organization_invitations.uuid"),
         email=str(record.get("invited_email") or ""),
@@ -166,7 +168,9 @@ async def _rotate_or_create_org_session(
     if not current:
         return
 
-    access_expires = _utcnow() + timedelta(minutes=config_module.settings.access_token_expire_minutes)
+    access_expires = _utcnow() + timedelta(
+        minutes=config_module.settings.access_token_expire_minutes
+    )
     sessions = SurrealSessionRepository.from_client(client)
     existing = await sessions.get_session_by_token(current)
     if existing is not None:
@@ -210,13 +214,17 @@ async def _require_org_admin(
         return organization, membership
 
 
-async def _replace_org_invitation_record(client: Any, *, uuid: UUID, record: dict[str, Any]) -> dict[str, Any]:
+async def _replace_org_invitation_record(
+    client: Any, *, uuid: UUID, record: dict[str, Any]
+) -> dict[str, Any]:
     await client.execute_query(
         "DELETE FROM organization_invitations WHERE uuid = $uuid;",
         uuid=str(uuid),
     )
     created = _normalize_records(
-        await client.execute_query("CREATE organization_invitations CONTENT $record;", record=record)
+        await client.execute_query(
+            "CREATE organization_invitations CONTENT $record;", record=record
+        )
     )
     if not created:
         msg = f"Failed to write organization invitation {uuid}"
@@ -806,7 +814,9 @@ async def create_org_invitation(
             "updated_at": now,
         }
         created = _normalize_records(
-            await client.execute_query("CREATE organization_invitations CONTENT $record;", record=record)
+            await client.execute_query(
+                "CREATE organization_invitations CONTENT $record;", record=record
+            )
         )
         if not created:
             msg = "Failed to create organization invitation"
@@ -864,7 +874,9 @@ async def accept_org_invitation(
             )
         )
         if not records:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation not found")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation not found"
+            )
 
         invite = records[0]
         if invite.get("accepted_at") is not None:
@@ -874,7 +886,9 @@ async def accept_org_invitation(
             )
         expires_at = _coerce_datetime(invite.get("expires_at"))
         if expires_at is not None and expires_at < _utcnow():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation expired")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation expired"
+            )
         invited_email = str(invite.get("invited_email") or "").strip().lower()
         if invited_email and (user.email or "").strip().lower() != invited_email:
             raise HTTPException(
@@ -956,7 +970,9 @@ async def _resolve_project_record(client: Any, *, project_id: str, org_id: UUID)
         try:
             uuid_id = UUID(project_id)
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from exc
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+            ) from exc
         records = _normalize_records(
             await client.execute_query(
                 "SELECT * FROM projects "
@@ -1138,7 +1154,9 @@ async def add_project_member(
             "created_at": now,
             "updated_at": now,
         }
-        create_result = await client.execute_query("CREATE project_members CONTENT $record;", record=record)
+        create_result = await client.execute_query(
+            "CREATE project_members CONTENT $record;", record=record
+        )
         error = _query_error(create_result)
         if error is not None:
             if _is_uniqueness_error(error):
@@ -1202,7 +1220,9 @@ async def update_project_member_role(
         membership = membership_records[0]
         updated = {**membership, "role": role.value, "updated_at": _utcnow()}
         await _delete_project_member_records(client, membership_records=membership_records)
-        create_result = await client.execute_query("CREATE project_members CONTENT $record;", record=updated)
+        create_result = await client.execute_query(
+            "CREATE project_members CONTENT $record;", record=updated
+        )
         error = _query_error(create_result)
         if error is not None:
             raise RuntimeError(error)

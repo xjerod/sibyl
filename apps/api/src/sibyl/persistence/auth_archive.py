@@ -121,18 +121,10 @@ _AUTH_ARCHIVE_SQL = {
     },
 }
 AUTH_ARCHIVE_TABLES = tuple(_AUTH_ARCHIVE_SQL)
-_SELECT_TABLE_ROWS = {
-    table: queries["select"] for table, queries in _AUTH_ARCHIVE_SQL.items()
-}
-_DELETE_TABLE_ROWS = {
-    table: queries["delete_all"] for table, queries in _AUTH_ARCHIVE_SQL.items()
-}
-_DELETE_BY_UUID = {
-    table: queries["delete_by_uuid"] for table, queries in _AUTH_ARCHIVE_SQL.items()
-}
-_CREATE_RECORD = {
-    table: queries["create"] for table, queries in _AUTH_ARCHIVE_SQL.items()
-}
+_SELECT_TABLE_ROWS = {table: queries["select"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
+_DELETE_TABLE_ROWS = {table: queries["delete_all"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
+_DELETE_BY_UUID = {table: queries["delete_by_uuid"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
+_CREATE_RECORD = {table: queries["create"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
 _SELECT_SURREAL_TABLE_ROWS = {
     table: f"SELECT * FROM {table};"  # noqa: S608 - table names are fixed constants
     for table in _AUTH_ARCHIVE_SQL
@@ -246,7 +238,10 @@ async def _export_surreal_auth_archive_payload() -> dict[str, object]:
             if error is not None:
                 raise RuntimeError(error)
             rows = _sort_auth_rows(
-                [{str(key): _serialize_value(value) for key, value in row.items()} for row in _normalize_records(result)]
+                [
+                    {str(key): _serialize_value(value) for key, value in row.items()}
+                    for row in _normalize_records(result)
+                ]
             )
             tables[table] = rows
             row_counts[table] = len(rows)

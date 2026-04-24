@@ -256,7 +256,9 @@ async def list_legacy_user_organizations(*, user_id: UUID) -> list[Organization]
     async with get_session() as session:
         result = await session.execute(
             select(Organization)
-            .join(OrganizationMember, col(OrganizationMember.organization_id) == col(Organization.id))
+            .join(
+                OrganizationMember, col(OrganizationMember.organization_id) == col(Organization.id)
+            )
             .where(col(OrganizationMember.user_id) == user_id)
             .order_by(col(Organization.is_personal).desc(), col(Organization.name).asc())
         )
@@ -323,7 +325,9 @@ async def _issue_auth_session(
     )
 
 
-async def login_legacy_github_identity(*, identity: GitHubUserIdentity, request) -> IssuedAuthSession:
+async def login_legacy_github_identity(
+    *, identity: GitHubUserIdentity, request
+) -> IssuedAuthSession:
     """Upsert a GitHub user, ensure personal org membership, and issue tokens."""
     from sibyl.db.connection import get_session
 
@@ -346,7 +350,9 @@ async def login_legacy_github_identity(*, identity: GitHubUserIdentity, request)
     )
 
 
-async def signup_legacy_local_user(*, email: str, password: str, name: str, request) -> IssuedAuthSession:
+async def signup_legacy_local_user(
+    *, email: str, password: str, name: str, request
+) -> IssuedAuthSession:
     """Create a local user, ensure a personal org, and issue tokens."""
     from sibyl.db.connection import get_session
 
@@ -374,7 +380,9 @@ async def signup_legacy_local_user(*, email: str, password: str, name: str, requ
     )
 
 
-async def login_legacy_local_user(*, email: str, password: str, request) -> IssuedAuthSession | None:
+async def login_legacy_local_user(
+    *, email: str, password: str, request
+) -> IssuedAuthSession | None:
     """Authenticate a local user, ensure a personal org, and issue tokens."""
     from sibyl.db.connection import get_session
 
@@ -421,7 +429,9 @@ async def exchange_legacy_device_code(*, device_code: str) -> dict[str, object]:
     from sibyl.db.connection import get_session
 
     async with get_session() as session:
-        return await DeviceAuthorizationManager(session).exchange_device_code(device_code=device_code)
+        return await DeviceAuthorizationManager(session).exchange_device_code(
+            device_code=device_code
+        )
 
 
 async def get_legacy_device_request_by_user_code(
@@ -703,7 +713,11 @@ async def create_legacy_api_key_for_user(
             user_id=user_id,
             organization_id=organization_id,
             request=request,
-            details={"api_key_id": str(record.id), "name": record.name, "prefix": record.key_prefix},
+            details={
+                "api_key_id": str(record.id),
+                "name": record.name,
+                "prefix": record.key_prefix,
+            },
         )
         return record, raw
 
@@ -894,9 +908,7 @@ class UserRepository(_UserRepository):
     async def upsert_from_github(
         self, identity: GitHubUserIdentity, *, is_admin: bool = False
     ) -> AuthUser:
-        return coerce_auth_user(
-            await self._manager.upsert_from_github(identity, is_admin=is_admin)
-        )
+        return coerce_auth_user(await self._manager.upsert_from_github(identity, is_admin=is_admin))
 
     async def create_local_user(
         self, *, email: str, password: str, name: str, is_admin: bool = False
@@ -911,9 +923,7 @@ class UserRepository(_UserRepository):
         )
 
     async def authenticate_local(self, *, email: str, password: str) -> AuthUser | None:
-        return _to_auth_user(
-            await self._manager.authenticate_local(email=email, password=password)
-        )
+        return _to_auth_user(await self._manager.authenticate_local(email=email, password=password))
 
     async def update_profile(
         self,

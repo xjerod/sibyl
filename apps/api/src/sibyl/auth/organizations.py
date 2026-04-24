@@ -13,6 +13,7 @@ from sibyl.db.models import Organization, User
 if TYPE_CHECKING:
     from uuid import UUID
 
+
 class OrganizationManager:
     """CRUD helpers for `Organization`."""
 

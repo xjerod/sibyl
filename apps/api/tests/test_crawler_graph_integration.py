@@ -522,9 +522,7 @@ class TestGraphIntegrationService:
         service.entity_manager = MagicMock()
         service.entity_manager.create_direct = AsyncMock(return_value="doc-entity")
         service.relationship_manager = MagicMock()
-        service.relationship_manager.create = AsyncMock(
-            side_effect=["rel-1", "rel-2", "rel-3"]
-        )
+        service.relationship_manager.create = AsyncMock(side_effect=["rel-1", "rel-2", "rel-3"])
 
         doc_id = uuid4()
         entity_uuids = ["entity-1", "entity-2", "entity-3"]

@@ -208,7 +208,10 @@ async def _list_surreal_episodic_relationships(
         edges = await edge_ops.get_by_group_ids(driver, [organization_id])
         relationships: list[Relationship] = []
         for edge in edges:
-            if edge.source_node_uuid not in entity_by_id or edge.target_node_uuid not in entity_by_id:
+            if (
+                edge.source_node_uuid not in entity_by_id
+                or edge.target_node_uuid not in entity_by_id
+            ):
                 continue
             relationships.append(
                 Relationship(

@@ -74,7 +74,9 @@ class TestBackupInventory:
                 return result[0]
             return result if isinstance(result, list) else []
 
-        async def execute_query(query: str, **_: object) -> tuple[list[dict[str, object]], None, None]:
+        async def execute_query(
+            query: str, **_: object
+        ) -> tuple[list[dict[str, object]], None, None]:
             if "MATCH (entity)" in query:
                 return (
                     [
@@ -183,7 +185,9 @@ class TestBackupInventory:
         assert result.backup_data is not None
         assert {entity["id"] for entity in result.backup_data.entities} == {"entity-1", "entity-2"}
         assert {
-            entity["entity_type"] for entity in result.backup_data.entities if entity["id"] == "entity-2"
+            entity["entity_type"]
+            for entity in result.backup_data.entities
+            if entity["id"] == "entity-2"
         } == {"topic"}
         assert result.backup_data.relationships[0]["relationship_type"] == "MENTIONS"
         assert result.backup_data.episodes[0]["uuid"] == "episode-1"
@@ -414,7 +418,9 @@ class TestRestoreBackup:
         entity_manager = AsyncMock()
         relationship_manager = AsyncMock()
         episode_ops = SimpleNamespace(save_bulk=AsyncMock(), save=AsyncMock())
-        mention_ops = SimpleNamespace(save_bulk=AsyncMock(), save=AsyncMock(), get_by_uuid=AsyncMock())
+        mention_ops = SimpleNamespace(
+            save_bulk=AsyncMock(), save=AsyncMock(), get_by_uuid=AsyncMock()
+        )
         driver = SimpleNamespace(
             episode_node_ops=episode_ops,
             episodic_edge_ops=mention_ops,
@@ -611,9 +617,7 @@ class TestBackfillProjectIdFromRelationships:
                 return project_page_one
             return []
 
-        async def list_all(
-            limit: int = 50, offset: int = 0, **_: object
-        ) -> list[SimpleNamespace]:
+        async def list_all(limit: int = 50, offset: int = 0, **_: object) -> list[SimpleNamespace]:
             assert limit == page_size
             if offset == 0:
                 return entity_page_one
@@ -758,11 +762,20 @@ class TestBackfillSharedProjectRelationships:
         entity_manager.list_all = AsyncMock(
             side_effect=[
                 [
-                    SimpleNamespace(id="task-1", entity_type=EntityType.TASK, project_id=None, metadata={}),
-                    SimpleNamespace(id="topic-1", entity_type=EntityType.TOPIC, project_id="project-1", metadata={}),
+                    SimpleNamespace(
+                        id="task-1", entity_type=EntityType.TASK, project_id=None, metadata={}
+                    ),
+                    SimpleNamespace(
+                        id="topic-1",
+                        entity_type=EntityType.TOPIC,
+                        project_id="project-1",
+                        metadata={},
+                    ),
                 ],
                 [
-                    SimpleNamespace(id="episode-1", entity_type=EntityType.EPISODE, project_id=None, metadata={}),
+                    SimpleNamespace(
+                        id="episode-1", entity_type=EntityType.EPISODE, project_id=None, metadata={}
+                    ),
                 ],
                 [],
             ]
@@ -815,8 +828,12 @@ class TestBackfillSharedProjectRelationships:
         entity_manager.list_all = AsyncMock(
             side_effect=[
                 [
-                    SimpleNamespace(id="task-1", entity_type=EntityType.TASK, project_id=None, metadata={}),
-                    SimpleNamespace(id="pattern-1", entity_type=EntityType.PATTERN, project_id=None, metadata={}),
+                    SimpleNamespace(
+                        id="task-1", entity_type=EntityType.TASK, project_id=None, metadata={}
+                    ),
+                    SimpleNamespace(
+                        id="pattern-1", entity_type=EntityType.PATTERN, project_id=None, metadata={}
+                    ),
                 ],
                 [],
             ]

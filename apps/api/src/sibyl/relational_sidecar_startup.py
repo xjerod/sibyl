@@ -37,13 +37,17 @@ async def load_relational_sidecar_api_keys() -> None:
 
 async def bootstrap_relational_sidecar_support() -> bool:
     if not settings.requires_relational_support:
-        log.info("Relational sidecar bootstrap disabled in fully surreal mode", store=settings.store)
+        log.info(
+            "Relational sidecar bootstrap disabled in fully surreal mode", store=settings.store
+        )
         return False
 
     try:
         await check_relational_sidecar_connection()
     except Exception as exc:
-        log.warning("Relational sidecar unavailable at startup", error=str(exc), store=settings.store)
+        log.warning(
+            "Relational sidecar unavailable at startup", error=str(exc), store=settings.store
+        )
         return False
 
     log.info("Relational sidecar connected", host=settings.postgres_host, store=settings.store)

@@ -78,6 +78,7 @@ async def get_hierarchical_graph(
         cluster_id=cluster_id,
     )
 
+
 router = APIRouter(
     prefix="/graph",
     tags=["graph"],
@@ -263,7 +264,10 @@ async def _get_connection_counts(
         for relationship in batch:
             if relationship.source_id in counts:
                 counts[relationship.source_id] += 1
-            if relationship.target_id in counts and relationship.target_id != relationship.source_id:
+            if (
+                relationship.target_id in counts
+                and relationship.target_id != relationship.source_id
+            ):
                 counts[relationship.target_id] += 1
 
     return counts
@@ -292,8 +296,7 @@ async def get_all_nodes(
         )
 
         connection_counts = await _get_connection_counts(
-            runtime.relationship_manager,
-            [entity.id for entity in entities]
+            runtime.relationship_manager, [entity.id for entity in entities]
         )
 
         max_connections = max(connection_counts.values()) if connection_counts else 1

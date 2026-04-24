@@ -943,7 +943,9 @@ class TestEntityListByType:
         query = surreal_entity_manager._driver.execute_query.await_args.args[0]
         assert "FROM entity" in query
         assert "entity_type = $entity_type" in query
-        assert surreal_entity_manager._driver.execute_query.await_args.kwargs["entity_type"] == "task"
+        assert (
+            surreal_entity_manager._driver.execute_query.await_args.kwargs["entity_type"] == "task"
+        )
 
     @pytest.mark.asyncio
     async def test_list_by_type_basic(
@@ -1533,6 +1535,7 @@ class TestEntityListAll:
         entity_manager: EntityManager,
     ) -> None:
         """list_all() returns entities of all types."""
+
         async def _list_by_type(
             entity_type: EntityType,
             limit: int = 50,
@@ -1652,7 +1655,9 @@ class TestEntitySearch:
         ops = surreal_entity_manager._driver.entity_node_ops
         ops.get_by_group_ids = AsyncMock(return_value=[matching_node, other_node])
 
-        results = await surreal_entity_manager.search("repository", entity_types=[EntityType.PATTERN])
+        results = await surreal_entity_manager.search(
+            "repository", entity_types=[EntityType.PATTERN]
+        )
 
         assert len(results) == 1
         assert results[0][0].id == "pattern-001"

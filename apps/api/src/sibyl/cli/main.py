@@ -256,7 +256,9 @@ def _check_docker_available() -> bool:
         return True
 
     error("Docker not found")
-    console.print(f"  [{NEON_CYAN}]Install Docker: https://docs.docker.com/get-docker/[/{NEON_CYAN}]")
+    console.print(
+        f"  [{NEON_CYAN}]Install Docker: https://docs.docker.com/get-docker/[/{NEON_CYAN}]"
+    )
     return False
 
 
@@ -287,7 +289,9 @@ def _check_relational_sidecar_services(settings: Any) -> bool:
 
     all_good = True
 
-    if requires_object_relational_support(settings, default_store=resolve_object_store(settings, default="surreal")):
+    if requires_object_relational_support(
+        settings, default_store=resolve_object_store(settings, default="surreal")
+    ):
         if _tcp_service_running(settings.postgres_host, settings.postgres_port):
             success(f"PostgreSQL running on {settings.postgres_host}:{settings.postgres_port}")
         else:
@@ -335,6 +339,7 @@ def _check_runtime_services(settings: Any) -> bool:
         all_good = _check_relational_sidecar_services(settings) and all_good
 
     return all_good
+
 
 @app.command()
 def setup() -> None:

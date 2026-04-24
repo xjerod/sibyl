@@ -327,8 +327,11 @@ class TestDeduplicationIntegration:
                 ("e3", "Database Pooling", "pattern", [0.0, 1.0, 0.0]),  # Different
             ]
         )
+
         async def _list_all(limit: int = 100, offset: int = 0, **kwargs) -> list[Entity]:
-            rows = await mock_client.execute_read_org("", organization_id=mock_entity_manager._group_id)
+            rows = await mock_client.execute_read_org(
+                "", organization_id=mock_entity_manager._group_id
+            )
             entities = [
                 Entity(
                     id=entity_id,

@@ -154,7 +154,9 @@ def get_schedule_specs() -> list[ScheduleSpec]:
                 schedule="1 hour after backup schedule",
             )
         except Exception as e:
-            log.warning("cron_schedule_parse_failed", schedule=settings.backup_schedule, error=str(e))
+            log.warning(
+                "cron_schedule_parse_failed", schedule=settings.backup_schedule, error=str(e)
+            )
 
     schedule_specs.append(
         ScheduleSpec(

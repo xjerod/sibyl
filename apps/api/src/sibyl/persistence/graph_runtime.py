@@ -305,7 +305,9 @@ class GraphEntityStore(EntityStore):
             next_cursor=_encode_next_cursor(offset, limit, len(items)),
         )
 
-    async def find_by_name(self, name: str, *, exact: bool = False, limit: int = 20) -> list[Entity]:
+    async def find_by_name(
+        self, name: str, *, exact: bool = False, limit: int = 20
+    ) -> list[Entity]:
         if exact:
             matches = await self._manager.search_exact_name(name, limit=limit)
         else:
@@ -478,7 +480,10 @@ class GraphRelationshipStore(RelationshipStore):
                 if getattr(edge, "group_id", None) != self._group_id:
                     continue
                 relationship = _relationship_from_edge(edge)
-                if relationship_type is not None and relationship.relationship_type != relationship_type:
+                if (
+                    relationship_type is not None
+                    and relationship.relationship_type != relationship_type
+                ):
                     continue
                 matches[relationship.id] = relationship
 
@@ -940,7 +945,10 @@ class GraphQueryAdapter:
             for relationship in batch:
                 if relationship.source_id in counts:
                     counts[relationship.source_id] += 1
-                if relationship.target_id in counts and relationship.target_id != relationship.source_id:
+                if (
+                    relationship.target_id in counts
+                    and relationship.target_id != relationship.source_id
+                ):
                     counts[relationship.target_id] += 1
 
         return counts
@@ -1092,11 +1100,14 @@ async def execute_debug_query(
             rows.append({"value": record})
     return rows
 
+
 def _collect_related_ids(entity_id: str, relationships: Sequence[Relationship]) -> Iterable[str]:
     seen: set[str] = set()
     for relationship in relationships:
         candidate = (
-            relationship.target_id if relationship.source_id == entity_id else relationship.source_id
+            relationship.target_id
+            if relationship.source_id == entity_id
+            else relationship.source_id
         )
         if not candidate or candidate == entity_id or candidate in seen:
             continue

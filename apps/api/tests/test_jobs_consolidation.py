@@ -231,7 +231,9 @@ async def test_priority_decay_archives_only_old_unarchived_episodes(
         ),
     )
 
-    result = await consolidation_module.priority_decay({}, group_id="org-123", max_archives_per_run=10)
+    result = await consolidation_module.priority_decay(
+        {}, group_id="org-123", max_archives_per_run=10
+    )
 
     assert result == {
         "group_id": "org-123",
@@ -286,7 +288,9 @@ async def test_priority_decay_respects_archive_cap_across_pages(
         ),
     )
 
-    result = await consolidation_module.priority_decay({}, group_id="org-123", max_archives_per_run=3)
+    result = await consolidation_module.priority_decay(
+        {}, group_id="org-123", max_archives_per_run=3
+    )
 
     assert result["candidates_found"] == 3
     assert result["archived"] == 3

@@ -369,9 +369,7 @@ async def restore_content_archive_payload(
                     or ""
                 ).strip()
                 if not identity:
-                    errors.append(
-                        f"{spec.name} row is missing {spec.source_identity_field}"
-                    )
+                    errors.append(f"{spec.name} row is missing {spec.source_identity_field}")
                     continue
 
                 record = {

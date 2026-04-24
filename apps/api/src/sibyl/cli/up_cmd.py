@@ -228,7 +228,9 @@ def up(
 
         # Start Docker services
         with console.status(f"[{NEON_CYAN}]Starting Docker services...[/{NEON_CYAN}]"):
-            result = _run_docker_compose(["up", "-d", *_compose_services_for_env(env)], project_root)
+            result = _run_docker_compose(
+                ["up", "-d", *_compose_services_for_env(env)], project_root
+            )
             if result.returncode != 0:
                 error("Failed to start Docker services")
                 console.print(f"[dim]{result.stderr}[/dim]")

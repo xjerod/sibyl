@@ -24,7 +24,10 @@ def test_content_runtime_uses_legacy_exports_in_legacy_mode(
 ) -> None:
     monkeypatch.setattr(content_runtime.settings, "store", "legacy")
 
-    assert content_runtime._resolve_backend_export("get_crawl_stats_payload") is legacy_get_crawl_stats_payload
+    assert (
+        content_runtime._resolve_backend_export("get_crawl_stats_payload")
+        is legacy_get_crawl_stats_payload
+    )
     assert content_runtime._resolve_backend_export("get_raw_capture") is legacy_get_raw_capture
 
 
@@ -33,7 +36,10 @@ def test_content_runtime_maps_surreal_exports(
 ) -> None:
     monkeypatch.setattr(content_runtime.settings, "store", "surreal")
 
-    assert content_runtime._resolve_backend_export("get_crawl_stats_payload") is surreal_get_crawl_stats_payload
+    assert (
+        content_runtime._resolve_backend_export("get_crawl_stats_payload")
+        is surreal_get_crawl_stats_payload
+    )
     assert (
         content_runtime._resolve_backend_export("list_rag_source_documents_page")
         is surreal_list_rag_source_documents_page

@@ -56,4 +56,3 @@ class SurrealAuthClient:
 
     def _requires_auth(self) -> bool:
         return not self._url.startswith(("memory://", "surrealkv://"))
-

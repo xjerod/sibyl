@@ -125,7 +125,9 @@ async def list_legacy_orgs(*, user_id: UUID) -> list[LegacyOrgSummary]:
 
 async def list_legacy_org_ids() -> list[str]:
     async with get_session() as session:
-        result = await session.execute(select(Organization.id).order_by(col(Organization.created_at).asc()))
+        result = await session.execute(
+            select(Organization.id).order_by(col(Organization.created_at).asc())
+        )
         return [str(org_id) for org_id in result.scalars().all()]
 
 
@@ -221,7 +223,9 @@ async def update_legacy_org(
         if resolved_slug and resolved_slug != org.slug:
             existing = await OrganizationManager(session).get_by_slug(resolved_slug)
             if existing is not None:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already taken")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="Slug already taken"
+                )
 
         updated = await OrganizationManager(session).update(org, name=name, slug=resolved_slug)
         await AuditLogger(session).log(

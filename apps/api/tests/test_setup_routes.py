@@ -106,9 +106,7 @@ async def test_update_config_persists_and_reports_current_state(
 @pytest.mark.asyncio
 async def test_get_config_status_uses_settings_service(monkeypatch: pytest.MonkeyPatch) -> None:
     service = AsyncMock()
-    service.get_with_source = AsyncMock(
-        side_effect=[("sk-openai", "database"), (None, "none")]
-    )
+    service.get_with_source = AsyncMock(side_effect=[("sk-openai", "database"), (None, "none")])
 
     monkeypatch.setattr(setup_routes, "get_settings_service", lambda: service)
 

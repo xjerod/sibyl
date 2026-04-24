@@ -117,6 +117,7 @@ async def require_settings_admin(request: Request) -> None:
     if ctx.organization is None or ctx.org_role not in _ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="Admin or owner role required")
 
+
 __all__ = [
     "SetupStatus",
     "SurrealOrganizationRepository",

@@ -140,13 +140,16 @@ async def test_update_raw_capture_review_state_updates_metadata() -> None:
     capture = _capture(org_id=org.id, title="Quick memory", surface="dashboard")
     session = MagicMock()
 
-    with patch(
-        "sibyl.api.routes.entities.content_runtime.get_raw_capture",
-        AsyncMock(return_value=capture),
-    ), patch(
-        "sibyl.api.routes.entities.save_raw_capture_record",
-        AsyncMock(return_value=capture),
-    ) as save_capture:
+    with (
+        patch(
+            "sibyl.api.routes.entities.content_runtime.get_raw_capture",
+            AsyncMock(return_value=capture),
+        ),
+        patch(
+            "sibyl.api.routes.entities.save_raw_capture_record",
+            AsyncMock(return_value=capture),
+        ) as save_capture,
+    ):
         response = await update_raw_capture_review_state(
             capture.id,
             RawCaptureReviewUpdate(review_state="deferred"),

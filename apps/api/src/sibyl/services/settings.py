@@ -70,9 +70,7 @@ class SettingsService:
     Encrypted values are automatically decrypted on read and encrypted on write.
     """
 
-    def __init__(
-        self, session_factory: Callable[[], AbstractAsyncContextManager[Any]]
-    ) -> None:
+    def __init__(self, session_factory: Callable[[], AbstractAsyncContextManager[Any]]) -> None:
         """Initialize the settings service.
 
         Args:

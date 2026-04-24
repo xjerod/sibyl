@@ -48,6 +48,7 @@ from sibyl.db.models import (
     utcnow_naive,
 )
 from sibyl.persistence.content_runtime import (
+    check_relational_backend_health,
     count_remaining_unlinked_chunks,
     create_crawl_source_record,
     delete_crawl_source_record,
@@ -68,12 +69,6 @@ from sibyl.persistence.content_runtime import (
 )
 
 log = structlog.get_logger()
-
-
-async def _check_relational_backend_health() -> dict[str, Any]:
-    from sibyl.db.connection import check_postgres_health
-
-    return await check_postgres_health()
 
 
 async def _get_org_source(session: Any, source_id: str, org: Organization) -> CrawlSource:
@@ -190,7 +185,7 @@ async def get_health() -> CrawlHealthResponse:
             "pgvector_version": None,
         }
     else:
-        relational_health = await _check_relational_backend_health()
+        relational_health = await check_relational_backend_health()
 
     # Check Crawl4AI availability
     crawl4ai_available = False
@@ -207,9 +202,7 @@ async def get_health() -> CrawlHealthResponse:
         relational_backend_version=relational_health.get("postgres_version"),
         vector_extension_version=relational_health.get("pgvector_version"),
         crawl4ai_available=crawl4ai_available,
-        error=None
-        if relational_health["status"] == "disabled"
-        else relational_health.get("error"),
+        error=None if relational_health["status"] == "disabled" else relational_health.get("error"),
     )
 
 

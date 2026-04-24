@@ -43,6 +43,7 @@ PROJECT_ROLE_LEVELS: dict[ProjectRole, int] = {
     ProjectRole.OWNER: 40,
 }
 
+
 def _max_role(*roles: ProjectRole | None) -> ProjectRole | None:
     """Return the highest-privilege role from the given roles."""
     valid = [r for r in roles if r is not None]

@@ -7,4 +7,3 @@ from sibyl_core.backends.surreal.driver import (
 )
 
 __all__ = ["SurrealDriver", "SurrealDriverSession", "_namespace_for_group"]
-

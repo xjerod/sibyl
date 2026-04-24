@@ -205,9 +205,7 @@ class TestRequireRlsSession:
         with (
             patch("sibyl.auth.rls.get_session", mock_get_session),
             patch("sibyl.auth.rls.settings") as mock_settings,
-            patch(
-                "sibyl.auth.rls.resolve_request_claims", new_callable=AsyncMock
-            ) as mock_resolve,
+            patch("sibyl.auth.rls.resolve_request_claims", new_callable=AsyncMock) as mock_resolve,
         ):
             mock_settings.disable_auth = False
             mock_settings.requires_relational_support = True
@@ -234,9 +232,7 @@ class TestRequireRlsSession:
         with (
             patch("sibyl.auth.rls.get_session", mock_get_session),
             patch("sibyl.auth.rls.settings") as mock_settings,
-            patch(
-                "sibyl.auth.rls.resolve_request_claims", new_callable=AsyncMock
-            ) as mock_resolve,
+            patch("sibyl.auth.rls.resolve_request_claims", new_callable=AsyncMock) as mock_resolve,
         ):
             mock_settings.disable_auth = False
             mock_settings.requires_relational_support = True

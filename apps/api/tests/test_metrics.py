@@ -1069,17 +1069,17 @@ class TestGetOrgMetrics:
                 limit=500,
                 cursor=None,
             ),
-                call(
-                    EntityType.PROJECT,
-                    limit=500,
-                    cursor="500",
-                ),
-                call(
-                    EntityType.TASK,
-                    limit=1000,
-                    cursor=None,
-                ),
-            ]
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                cursor="500",
+            ),
+            call(
+                EntityType.TASK,
+                limit=1000,
+                cursor=None,
+            ),
+        ]
 
 
 class TestGetProjectSummaries:
@@ -1206,17 +1206,17 @@ class TestGetProjectSummaries:
                 limit=500,
                 cursor=None,
             ),
-                call(
-                    EntityType.PROJECT,
-                    limit=500,
-                    cursor="500",
-                ),
-                call(
-                    EntityType.TASK,
-                    limit=1000,
-                    cursor=None,
-                ),
-            ]
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                cursor="500",
+            ),
+            call(
+                EntityType.TASK,
+                limit=1000,
+                cursor=None,
+            ),
+        ]
 
 
 class TestMetricsErrorHandling:

@@ -19,7 +19,9 @@ class EventBus(Protocol):
 
     async def subscribe(self, subscriber: EventSubscriber) -> None: ...
 
-    async def publish(self, event: str, data: dict[str, Any], org_id: str | None = None) -> None: ...
+    async def publish(
+        self, event: str, data: dict[str, Any], org_id: str | None = None
+    ) -> None: ...
 
 
 _events: EventBus | None = None

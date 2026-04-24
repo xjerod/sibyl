@@ -25,9 +25,7 @@ _SCHEMA_DIR = Path(__file__).with_name("schemas") / "content"
 
 
 def _load_schema_file(filename: str) -> str:
-    return (_SCHEMA_DIR / filename).read_text(encoding="utf-8").format(
-        EMBEDDING_DIM=EMBEDDING_DIM
-    )
+    return (_SCHEMA_DIR / filename).read_text(encoding="utf-8").format(EMBEDDING_DIM=EMBEDDING_DIM)
 
 
 CONTENT_ANALYZER_DEFINITIONS = _load_schema_file("01_analyzers.surql")

@@ -230,7 +230,10 @@ async def test_get_legacy_graph_stats_payload_uses_read_adapter() -> None:
     adapter = AsyncMock()
     adapter.stats.return_value = stats
 
-    with patch("sibyl.persistence.legacy.graph.get_legacy_knowledge_read_adapter", AsyncMock(return_value=adapter)):
+    with patch(
+        "sibyl.persistence.legacy.graph.get_legacy_knowledge_read_adapter",
+        AsyncMock(return_value=adapter),
+    ):
         payload = await get_legacy_graph_stats_payload("org-1")
 
     assert payload["total_entities"] == 5
@@ -254,7 +257,10 @@ async def test_legacy_graph_query_adapter_proxies_scoped_reads() -> None:
     with (
         patch("sibyl.persistence.legacy.graph.EntityManager", return_value=manager),
         patch("sibyl.persistence.legacy.graph.RelationshipManager", return_value=relationships),
-        patch("sibyl.persistence.legacy.graph.GraphClient.normalize_result", return_value=[{"id": "node-1"}]),
+        patch(
+            "sibyl.persistence.legacy.graph.GraphClient.normalize_result",
+            return_value=[{"id": "node-1"}],
+        ),
     ):
         adapter = LegacyGraphQueryAdapter(client, "org-1")
         entities = await adapter.list_entities_by_type(
@@ -267,7 +273,9 @@ async def test_legacy_graph_query_adapter_proxies_scoped_reads() -> None:
         rels = await adapter.list_relationships(limit=25, offset=5)
         search_results = await adapter.search_entities("task query", limit=15)
         query_rows = await adapter.execute_query("RETURN n.uuid AS id")
-        rows = await adapter.execute_read_org("RETURN 1 AS value", now_iso="2026-04-17T00:00:00+00:00")
+        rows = await adapter.execute_read_org(
+            "RETURN 1 AS value", now_iso="2026-04-17T00:00:00+00:00"
+        )
 
     assert entities == ["task-1"]
     assert entity == "entity-1"
@@ -362,6 +370,7 @@ async def test_legacy_graph_query_adapter_scopes_relationship_reads_to_entity_id
         source_id="task-2",
         target_id="project-1",
     )
+
     async def list_all(
         *,
         relationship_types: list[RelationshipType] | None = None,

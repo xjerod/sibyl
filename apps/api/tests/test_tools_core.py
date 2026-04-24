@@ -650,6 +650,7 @@ class TestGetStats:
     @pytest.mark.asyncio
     async def test_stats_returns_entity_counts(self) -> None:
         """Stats should return entity counts per type."""
+
         async def list_all(
             limit: int = 1000,
             offset: int = 0,

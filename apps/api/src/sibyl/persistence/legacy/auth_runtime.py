@@ -346,7 +346,9 @@ async def patch_legacy_auth_user(
             if profile_updates:
                 await manager.update_profile(user, **profile_updates)
             if "bio" in updates:
-                user.bio = str(updates["bio"]).strip() or None if updates["bio"] is not None else None
+                user.bio = (
+                    str(updates["bio"]).strip() or None if updates["bio"] is not None else None
+                )
                 changes.append("bio")
             if "timezone" in updates:
                 timezone = updates["timezone"]

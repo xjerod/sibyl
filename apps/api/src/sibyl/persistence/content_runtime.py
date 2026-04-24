@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     create_crawl_source_record: Any
     count_remaining_unlinked_chunks: Any
+    check_relational_backend_health: Any
     delete_crawl_source_record: Any
     delete_crawled_document_record: Any
     get_crawl_source_by_id: Any
@@ -58,6 +59,7 @@ _BACKEND_MODULES = {
 _BACKEND_EXPORTS = [
     "create_crawl_source_record",
     "count_remaining_unlinked_chunks",
+    "check_relational_backend_health",
     "delete_crawl_source_record",
     "delete_crawled_document_record",
     "get_crawl_source_by_id",
@@ -95,6 +97,7 @@ __all__ = [
     "get_content_read_session_dependency",
     "create_crawl_source_record",
     "count_remaining_unlinked_chunks",
+    "check_relational_backend_health",
     "delete_crawl_source_record",
     "delete_crawled_document_record",
     "get_crawl_source_by_id",
