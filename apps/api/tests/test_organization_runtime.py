@@ -25,6 +25,15 @@ def _request(*, authorization: str | None = "Bearer current-token") -> SimpleNam
     )
 
 
+def test_organization_runtime_keeps_legacy_aliases_pointed_at_neutral_exports() -> None:
+    assert organization_runtime.create_legacy_org is organization_runtime.create_org
+    assert organization_runtime.list_legacy_orgs is organization_runtime.list_orgs
+    assert (
+        organization_runtime.can_manage_legacy_project_members
+        is organization_runtime.can_manage_project_members
+    )
+
+
 @pytest.mark.asyncio
 async def test_organization_runtime_dispatches_neutral_org_reads_to_surreal(
     monkeypatch: pytest.MonkeyPatch,
