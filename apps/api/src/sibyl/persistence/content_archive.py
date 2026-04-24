@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from sibyl import config as config_module
 from sibyl.db.connection import get_session
+from sibyl.persistence.backups_common import resolve_mapping_database_dump
 from sibyl.persistence.surreal.content import _normalize_records
 from sibyl_core.backends.surreal import SurrealContentClient, bootstrap_content_schema
 
@@ -219,10 +220,7 @@ def _coerce_archive_bool(value: object) -> bool | None:
 
 
 def _resolve_archive_database_dump_value(row: dict[str, object]) -> bool | None:
-    include_database_dump = _coerce_archive_bool(row.get("include_database_dump"))
-    if include_database_dump is not None:
-        return include_database_dump
-    return _coerce_archive_bool(row.get("include_postgres"))
+    return resolve_mapping_database_dump(row, coerce=_coerce_archive_bool)
 
 
 def _normalize_content_archive_export_row(

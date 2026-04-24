@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from sibyl.db.models import Backup
@@ -37,6 +38,17 @@ def resolve_object_database_dump(value: object) -> bool | None:
     return resolve_requested_database_dump(
         include_database_dump=getattr(value, "include_database_dump", None),
         include_postgres=getattr(value, "include_postgres", None),
+    )
+
+
+def resolve_mapping_database_dump(
+    value: Mapping[str, object],
+    *,
+    coerce: Callable[[object], bool | None],
+) -> bool | None:
+    return resolve_requested_database_dump(
+        include_database_dump=coerce(value.get("include_database_dump")),
+        include_postgres=coerce(value.get("include_postgres")),
     )
 
 

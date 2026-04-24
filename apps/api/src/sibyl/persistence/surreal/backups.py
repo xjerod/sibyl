@@ -12,7 +12,7 @@ from sibyl.db.models import Backup, BackupSettings, BackupStatus
 from sibyl.persistence.backups_common import (
     BackupListResult,
     resolve_backup_runtime_options,
-    resolve_requested_database_dump,
+    resolve_mapping_database_dump,
 )
 from sibyl.persistence.surreal.content import (
     _coerce_bool,
@@ -72,17 +72,11 @@ def _effective_include_database_dump(requested: bool | None = None) -> bool:
 
 
 def _record_include_database_dump(record: dict[str, object]) -> bool:
-    database_dump_value = record.get("include_database_dump")
-    legacy_database_dump_value = record.get("include_postgres")
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=(
-            _coerce_bool(database_dump_value)
-            if database_dump_value is not None
-            else None
-        ),
-        include_postgres=(
-            _coerce_bool(legacy_database_dump_value, default=_database_dump_supported())
-            if legacy_database_dump_value is not None
+    requested_database_dump = resolve_mapping_database_dump(
+        record,
+        coerce=lambda value: (
+            _coerce_bool(value, default=_database_dump_supported())
+            if value is not None
             else None
         ),
     )
