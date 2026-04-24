@@ -15,7 +15,7 @@ from sibyl.db.models import Project, ProjectMember, ProjectRole, User
 from sibyl.persistence.organization_common import (
     LegacyProjectMemberChange,
     LegacyProjectMembersResult,
-    can_manage_legacy_project_members,
+    can_manage_project_members,
 )
 
 
@@ -148,7 +148,7 @@ async def list_legacy_project_members(
 
         return LegacyProjectMembersResult(
             members=members,
-            can_manage=can_manage_legacy_project_members(user_role, project, actor),
+            can_manage=can_manage_project_members(user_role, project, actor),
         )
 
 
@@ -169,7 +169,7 @@ async def add_legacy_project_member(
             session=session,
         )
 
-        if not can_manage_legacy_project_members(user_role, project, actor):
+        if not can_manage_project_members(user_role, project, actor):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
         target_user = await session.get(User, target_user_id)
@@ -234,7 +234,7 @@ async def update_legacy_project_member_role(
             session=session,
         )
 
-        if not can_manage_legacy_project_members(user_role, project, actor):
+        if not can_manage_project_members(user_role, project, actor):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
         if target_user_id == project.owner_user_id:
@@ -299,7 +299,7 @@ async def remove_legacy_project_member(
                 detail="Cannot remove project owner",
             )
 
-        if actor.id != target_user_id and not can_manage_legacy_project_members(
+        if actor.id != target_user_id and not can_manage_project_members(
             user_role,
             project,
             actor,

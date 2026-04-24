@@ -109,6 +109,3 @@ def can_manage_project_members(
     if project.owner_user_id == user.id:
         return True
     return role in {ProjectRole.OWNER, ProjectRole.MAINTAINER}
-
-
-can_manage_legacy_project_members = can_manage_project_members

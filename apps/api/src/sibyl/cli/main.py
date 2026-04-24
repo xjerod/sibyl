@@ -336,10 +336,6 @@ def _check_runtime_services(settings: Any) -> bool:
 
     return all_good
 
-
-_check_legacy_services = _check_falkordb_services
-
-
 @app.command()
 def setup() -> None:
     """Check environment and guide first-time setup."""
