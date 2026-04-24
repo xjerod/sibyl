@@ -58,6 +58,8 @@ def test_auth_runtime_keeps_legacy_helper_aliases_pointed_at_neutral_exports() -
     assert auth_runtime.patch_legacy_auth_user is auth_runtime.patch_auth_user
     assert auth_runtime.get_legacy_project_record_by_graph_id is auth_runtime.get_project_record_by_graph_id
     assert auth_runtime.list_legacy_oauth_connections is auth_runtime.list_oauth_connections
+    assert legacy_auth_runtime.resolve_auth_context is legacy_auth_runtime.resolve_legacy_auth_context
+    assert legacy_auth_runtime.patch_auth_user is legacy_auth_runtime.patch_legacy_auth_user
     assert surreal_auth_runtime.authenticate_api_key is surreal_auth_runtime.authenticate_legacy_api_key
     assert surreal_auth_runtime.SessionRepository is SurrealSessionRepository
 
@@ -156,7 +158,7 @@ async def test_auth_runtime_dispatches_auth_context_resolution_to_postgres_helpe
     dispatched = AsyncMock(return_value=expected)
 
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "postgres")
-    monkeypatch.setattr(legacy_auth_runtime, "resolve_legacy_auth_context", dispatched)
+    monkeypatch.setattr(legacy_auth_runtime, "resolve_auth_context", dispatched)
 
     result = await auth_runtime.resolve_legacy_auth_context(claims=claims, session=session)
 
@@ -173,7 +175,7 @@ async def test_auth_runtime_dispatches_oauth_listing_to_postgres_helper(
     dispatched = AsyncMock(return_value=expected)
 
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "postgres")
-    monkeypatch.setattr(legacy_auth_runtime, "list_legacy_oauth_connections", dispatched)
+    monkeypatch.setattr(legacy_auth_runtime, "list_oauth_connections", dispatched)
 
     result = await auth_runtime.list_legacy_oauth_connections(user_id=user_id)
 
@@ -214,7 +216,7 @@ async def test_auth_runtime_dispatches_project_lookup_by_id_to_postgres_helper(
     dispatched = AsyncMock(return_value=expected)
 
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "postgres")
-    monkeypatch.setattr(legacy_auth_runtime, "get_legacy_project_record_by_id", dispatched)
+    monkeypatch.setattr(legacy_auth_runtime, "get_project_record_by_id", dispatched)
 
     result = await auth_runtime.get_legacy_project_record_by_id(
         organization_id=organization_id,
@@ -258,7 +260,7 @@ async def test_auth_runtime_dispatches_entity_project_access_to_postgres_helper(
     dispatched = AsyncMock(return_value=expected)
 
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "postgres")
-    monkeypatch.setattr(legacy_auth_runtime, "verify_legacy_entity_project_access", dispatched)
+    monkeypatch.setattr(legacy_auth_runtime, "verify_entity_project_access", dispatched)
 
     result = await auth_runtime.verify_legacy_entity_project_access(
         ctx=ctx,

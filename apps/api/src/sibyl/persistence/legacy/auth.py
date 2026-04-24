@@ -40,12 +40,12 @@ from sibyl_core.auth import (
     AuthSession,
     AuthUser,
     GitHubUserIdentity,
-    OrganizationMembershipRepository,
-    OrganizationRepository,
+    OrganizationMembershipRepository as _OrganizationMembershipRepository,
+    OrganizationRepository as _OrganizationRepository,
     OrganizationRole,
     PasswordChange,
-    SessionRepository,
-    UserRepository,
+    SessionRepository as _SessionRepository,
+    UserRepository as _UserRepository,
 )
 from sibyl_core.auth.models import (
     coerce_auth_membership,
@@ -869,7 +869,7 @@ def _require_auth_session(value: object | None) -> AuthSession:
     return session
 
 
-class LegacyUserRepository(UserRepository):
+class LegacyUserRepository(_UserRepository):
     """UserRepository backed by the current SQLModel auth manager."""
 
     def __init__(self, manager: UserManager) -> None:
@@ -945,7 +945,7 @@ class LegacyUserRepository(UserRepository):
         return user
 
 
-class LegacyOrganizationRepository(OrganizationRepository):
+class LegacyOrganizationRepository(_OrganizationRepository):
     """OrganizationRepository backed by the current SQLModel auth managers."""
 
     def __init__(self, manager: OrganizationManager, user_manager: UserManager) -> None:
@@ -1022,7 +1022,7 @@ class LegacyOrganizationRepository(OrganizationRepository):
         return user
 
 
-class LegacyOrganizationMembershipRepository(OrganizationMembershipRepository):
+class LegacyOrganizationMembershipRepository(_OrganizationMembershipRepository):
     """OrganizationMembershipRepository backed by the current SQLModel manager."""
 
     def __init__(self, manager: OrganizationMembershipManager) -> None:
@@ -1075,7 +1075,7 @@ class LegacyOrganizationMembershipRepository(OrganizationMembershipRepository):
         )
 
 
-class LegacySessionRepository(SessionRepository):
+class LegacySessionRepository(_SessionRepository):
     """SessionRepository backed by the current SQLModel manager."""
 
     def __init__(self, manager: SessionManager) -> None:
@@ -1201,3 +1201,43 @@ class LegacyAuthContextResolver(RepositoryAuthContextResolver):
             organizations=LegacyOrganizationRepository.from_session(session),
             memberships=LegacyOrganizationMembershipRepository.from_session(session),
         )
+
+
+IssuedAuthSession = LegacyIssuedAuthSession
+DeviceBrowserLogin = LegacyDeviceBrowserLogin
+RefreshRotation = LegacyRefreshRotation
+AuthContextResolver = LegacyAuthContextResolver
+OrganizationMembershipRepository = LegacyOrganizationMembershipRepository
+OrganizationRepository = LegacyOrganizationRepository
+SessionRepository = LegacySessionRepository
+UserRepository = LegacyUserRepository
+approve_device_authorization = approve_legacy_device_authorization
+authenticate_api_key = authenticate_legacy_api_key
+authenticate_local_user = authenticate_legacy_local_user
+create_api_key_for_user = create_legacy_api_key_for_user
+create_session_record = create_legacy_session_record
+deny_device_authorization = deny_legacy_device_authorization
+ensure_personal_organization = ensure_legacy_personal_organization
+exchange_device_code = exchange_legacy_device_code
+get_device_request_by_user_code = get_legacy_device_request_by_user_code
+get_user_by_id = get_legacy_user_by_id
+has_owner_membership = has_legacy_owner_membership
+list_accessible_project_graph_ids = list_legacy_accessible_project_graph_ids
+list_api_keys_for_user = list_legacy_api_keys_for_user
+list_user_organizations = list_legacy_user_organizations
+load_refresh_session_record = load_legacy_refresh_session_record
+log_audit_event = log_legacy_audit_event
+login_device_browser_user = login_legacy_device_browser_user
+login_github_identity = login_legacy_github_identity
+login_local_user = login_legacy_local_user
+resolve_accessible_project_graph_ids = resolve_legacy_accessible_project_graph_ids
+resolve_request_claims = resolve_legacy_request_claims
+resolve_request_user = resolve_legacy_request_user
+revoke_access_session = revoke_legacy_access_session
+revoke_api_key_for_user = revoke_legacy_api_key_for_user
+revoke_refresh_session_record = revoke_legacy_refresh_session_record
+rotate_refresh_exchange = rotate_legacy_refresh_exchange
+rotate_refresh_session_record = rotate_legacy_refresh_session_record
+signup_local_user = signup_legacy_local_user
+start_device_authorization = start_legacy_device_authorization
+update_auth_user = update_legacy_auth_user

@@ -499,3 +499,22 @@ async def remove_legacy_oauth_connection(
             user_id=user_id,
             connection_id=connection_id,
         )
+
+
+resolve_auth_context = resolve_legacy_auth_context
+list_accessible_project_graph_ids = list_legacy_accessible_project_graph_ids
+resolve_accessible_project_graph_ids = resolve_legacy_accessible_project_graph_ids
+verify_entity_project_access = verify_legacy_entity_project_access
+patch_auth_user = patch_legacy_auth_user
+create_project_record = create_legacy_project_record
+update_project_record = update_legacy_project_record
+delete_project_record = delete_legacy_project_record
+get_project_record_by_graph_id = get_legacy_project_record_by_graph_id
+get_project_record_by_id = get_legacy_project_record_by_id
+list_user_sessions = list_legacy_user_sessions
+revoke_all_user_sessions = revoke_all_legacy_user_sessions
+revoke_user_session = revoke_legacy_user_session
+request_password_reset = request_legacy_password_reset
+confirm_password_reset = confirm_legacy_password_reset
+list_oauth_connections = list_legacy_oauth_connections
+remove_oauth_connection = remove_legacy_oauth_connection
