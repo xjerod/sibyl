@@ -107,7 +107,7 @@ _CREATE_QUERY_BY_TABLE = {
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyIssuedAuthSession:
+class IssuedAuthSession:
     user: SimpleNamespace
     organization: SimpleNamespace
     access_token: str
@@ -116,14 +116,14 @@ class LegacyIssuedAuthSession:
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyDeviceBrowserLogin:
+class DeviceBrowserLogin:
     user: SimpleNamespace
     organization: SimpleNamespace
     access_token: str
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyRefreshRotation:
+class RefreshRotation:
     session_id: UUID
     access_token: str
     refresh_token: str
@@ -2441,9 +2441,14 @@ __all__ = [
 ]
 
 
-IssuedAuthSession = LegacyIssuedAuthSession
-DeviceBrowserLogin = LegacyDeviceBrowserLogin
-RefreshRotation = LegacyRefreshRotation
+LegacyIssuedAuthSession = IssuedAuthSession
+LegacyDeviceBrowserLogin = DeviceBrowserLogin
+LegacyRefreshRotation = RefreshRotation
+LegacyAuthContextResolver = SurrealAuthContextResolver
+LegacyOrganizationMembershipRepository = SurrealOrganizationMembershipRepository
+LegacyOrganizationRepository = SurrealOrganizationRepository
+LegacySessionRepository = SurrealSessionRepository
+LegacyUserRepository = SurrealUserRepository
 AuthContextResolver = SurrealAuthContextResolver
 OrganizationMembershipRepository = SurrealOrganizationMembershipRepository
 OrganizationRepository = SurrealOrganizationRepository

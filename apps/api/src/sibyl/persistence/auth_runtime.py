@@ -56,16 +56,6 @@ _BACKEND_MODULES = {
     "surreal": "sibyl.persistence.surreal.auth_runtime",
 }
 
-_BACKEND_NAME_OVERRIDES = {
-    "surreal": {
-        "LegacyAuthContextResolver": "SurrealAuthContextResolver",
-        "LegacyOrganizationMembershipRepository": "SurrealOrganizationMembershipRepository",
-        "LegacyOrganizationRepository": "SurrealOrganizationRepository",
-        "LegacySessionRepository": "SurrealSessionRepository",
-        "LegacyUserRepository": "SurrealUserRepository",
-    },
-}
-
 _PUBLIC_EXPORT_ALIASES = {
     "AuthContextResolver": "AuthContextResolver",
     "OrganizationMembershipRepository": "OrganizationMembershipRepository",
@@ -138,9 +128,8 @@ def _active_backend_name() -> str:
 def _resolve_backend_export(name: str) -> Any:
     backend = _active_backend_name()
     module = import_module(_BACKEND_MODULES[backend])
-    export_name = _BACKEND_NAME_OVERRIDES.get(backend, {}).get(name, name)
-    if hasattr(module, export_name):
-        return getattr(module, export_name)
+    if hasattr(module, name):
+        return getattr(module, name)
     return _unsupported_export(name=name, backend=backend)
 
 

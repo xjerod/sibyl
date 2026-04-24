@@ -61,7 +61,7 @@ __all__ = ["InvalidAuthClaimsError", "UserNotFoundError"]
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyIssuedAuthSession:
+class IssuedAuthSession:
     user: User
     organization: Organization
     access_token: str
@@ -70,14 +70,14 @@ class LegacyIssuedAuthSession:
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyDeviceBrowserLogin:
+class DeviceBrowserLogin:
     user: User
     organization: Organization
     access_token: str
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyRefreshRotation:
+class RefreshRotation:
     session_id: UUID
     access_token: str
     refresh_token: str
@@ -281,14 +281,14 @@ async def ensure_legacy_personal_organization(*, user_id: UUID) -> Organization 
         return organization
 
 
-async def _issue_legacy_auth_session(
+async def _issue_auth_session(
     *,
     user: User,
     organization: Organization,
     request,
     action: str,
     details: dict[str, Any],
-) -> LegacyIssuedAuthSession:
+) -> IssuedAuthSession:
     access_token = create_access_token(user_id=user.id, organization_id=organization.id)
     refresh_token, refresh_expires = create_refresh_token(
         user_id=user.id,
@@ -314,7 +314,7 @@ async def _issue_legacy_auth_session(
         request=request,
         details=details,
     )
-    return LegacyIssuedAuthSession(
+    return IssuedAuthSession(
         user=user,
         organization=organization,
         access_token=access_token,
@@ -323,7 +323,7 @@ async def _issue_legacy_auth_session(
     )
 
 
-async def login_legacy_github_identity(*, identity: GitHubUserIdentity, request) -> LegacyIssuedAuthSession:
+async def login_legacy_github_identity(*, identity: GitHubUserIdentity, request) -> IssuedAuthSession:
     """Upsert a GitHub user, ensure personal org membership, and issue tokens."""
     from sibyl.db.connection import get_session
 
@@ -337,7 +337,7 @@ async def login_legacy_github_identity(*, identity: GitHubUserIdentity, request)
             user_id=user.id,
             role=LegacyOrgRole.OWNER,
         )
-    return await _issue_legacy_auth_session(
+    return await _issue_auth_session(
         user=user,
         organization=organization,
         request=request,
@@ -346,7 +346,7 @@ async def login_legacy_github_identity(*, identity: GitHubUserIdentity, request)
     )
 
 
-async def signup_legacy_local_user(*, email: str, password: str, name: str, request) -> LegacyIssuedAuthSession:
+async def signup_legacy_local_user(*, email: str, password: str, name: str, request) -> IssuedAuthSession:
     """Create a local user, ensure a personal org, and issue tokens."""
     from sibyl.db.connection import get_session
 
@@ -365,7 +365,7 @@ async def signup_legacy_local_user(*, email: str, password: str, name: str, requ
             user_id=user.id,
             role=LegacyOrgRole.OWNER,
         )
-    return await _issue_legacy_auth_session(
+    return await _issue_auth_session(
         user=user,
         organization=organization,
         request=request,
@@ -374,7 +374,7 @@ async def signup_legacy_local_user(*, email: str, password: str, name: str, requ
     )
 
 
-async def login_legacy_local_user(*, email: str, password: str, request) -> LegacyIssuedAuthSession | None:
+async def login_legacy_local_user(*, email: str, password: str, request) -> IssuedAuthSession | None:
     """Authenticate a local user, ensure a personal org, and issue tokens."""
     from sibyl.db.connection import get_session
 
@@ -388,7 +388,7 @@ async def login_legacy_local_user(*, email: str, password: str, request) -> Lega
             user_id=user.id,
             role=LegacyOrgRole.OWNER,
         )
-    return await _issue_legacy_auth_session(
+    return await _issue_auth_session(
         user=user,
         organization=organization,
         request=request,
@@ -484,7 +484,7 @@ async def login_legacy_device_browser_user(
     email: str,
     password: str,
     request,
-) -> LegacyDeviceBrowserLogin | None:
+) -> DeviceBrowserLogin | None:
     """Authenticate a local user for the device approval page and issue an access cookie."""
     from sibyl.db.connection import get_session
 
@@ -506,7 +506,7 @@ async def login_legacy_device_browser_user(
             request=request,
             details={"email": user.email},
         )
-        return LegacyDeviceBrowserLogin(
+        return DeviceBrowserLogin(
             user=user,
             organization=organization,
             access_token=access_token,
@@ -584,7 +584,7 @@ async def rotate_legacy_refresh_exchange(
     user_id: UUID,
     organization_id: UUID | None,
     request,
-) -> LegacyRefreshRotation | None:
+) -> RefreshRotation | None:
     """Rotate a refresh token and audit the exchange."""
     from sibyl.db.connection import get_session
 
@@ -617,7 +617,7 @@ async def rotate_legacy_refresh_exchange(
             request=request,
             details={"session_id": str(existing.id)},
         )
-        return LegacyRefreshRotation(
+        return RefreshRotation(
             session_id=existing.id,
             access_token=access_token,
             refresh_token=new_refresh_token,
@@ -869,7 +869,7 @@ def _require_auth_session(value: object | None) -> AuthSession:
     return session
 
 
-class LegacyUserRepository(_UserRepository):
+class UserRepository(_UserRepository):
     """UserRepository backed by the current SQLModel auth manager."""
 
     def __init__(self, manager: UserManager) -> None:
@@ -945,7 +945,7 @@ class LegacyUserRepository(_UserRepository):
         return user
 
 
-class LegacyOrganizationRepository(_OrganizationRepository):
+class OrganizationRepository(_OrganizationRepository):
     """OrganizationRepository backed by the current SQLModel auth managers."""
 
     def __init__(self, manager: OrganizationManager, user_manager: UserManager) -> None:
@@ -1022,7 +1022,7 @@ class LegacyOrganizationRepository(_OrganizationRepository):
         return user
 
 
-class LegacyOrganizationMembershipRepository(_OrganizationMembershipRepository):
+class OrganizationMembershipRepository(_OrganizationMembershipRepository):
     """OrganizationMembershipRepository backed by the current SQLModel manager."""
 
     def __init__(self, manager: OrganizationMembershipManager) -> None:
@@ -1075,7 +1075,7 @@ class LegacyOrganizationMembershipRepository(_OrganizationMembershipRepository):
         )
 
 
-class LegacySessionRepository(_SessionRepository):
+class SessionRepository(_SessionRepository):
     """SessionRepository backed by the current SQLModel manager."""
 
     def __init__(self, manager: SessionManager) -> None:
@@ -1191,26 +1191,26 @@ class LegacySessionRepository(_SessionRepository):
         return session
 
 
-class LegacyAuthContextResolver(RepositoryAuthContextResolver):
+class AuthContextResolver(RepositoryAuthContextResolver):
     """Build AuthContext using the legacy repositories instead of direct ORM access."""
 
     @classmethod
     def from_session(cls, session: AsyncSession) -> Self:
         return cls(
-            users=LegacyUserRepository.from_session(session),
-            organizations=LegacyOrganizationRepository.from_session(session),
-            memberships=LegacyOrganizationMembershipRepository.from_session(session),
+            users=UserRepository.from_session(session),
+            organizations=OrganizationRepository.from_session(session),
+            memberships=OrganizationMembershipRepository.from_session(session),
         )
 
 
-IssuedAuthSession = LegacyIssuedAuthSession
-DeviceBrowserLogin = LegacyDeviceBrowserLogin
-RefreshRotation = LegacyRefreshRotation
-AuthContextResolver = LegacyAuthContextResolver
-OrganizationMembershipRepository = LegacyOrganizationMembershipRepository
-OrganizationRepository = LegacyOrganizationRepository
-SessionRepository = LegacySessionRepository
-UserRepository = LegacyUserRepository
+LegacyIssuedAuthSession = IssuedAuthSession
+LegacyDeviceBrowserLogin = DeviceBrowserLogin
+LegacyRefreshRotation = RefreshRotation
+LegacyAuthContextResolver = AuthContextResolver
+LegacyOrganizationMembershipRepository = OrganizationMembershipRepository
+LegacyOrganizationRepository = OrganizationRepository
+LegacySessionRepository = SessionRepository
+LegacyUserRepository = UserRepository
 approve_device_authorization = approve_legacy_device_authorization
 authenticate_api_key = authenticate_legacy_api_key
 authenticate_local_user = authenticate_legacy_local_user

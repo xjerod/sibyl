@@ -60,7 +60,9 @@ def test_auth_runtime_keeps_legacy_helper_aliases_pointed_at_neutral_exports() -
     assert auth_runtime.list_legacy_oauth_connections is auth_runtime.list_oauth_connections
     assert legacy_auth_runtime.resolve_auth_context is legacy_auth_runtime.resolve_legacy_auth_context
     assert legacy_auth_runtime.patch_auth_user is legacy_auth_runtime.patch_legacy_auth_user
+    assert surreal_auth_runtime.LegacyAuthContextResolver is surreal_auth_runtime.AuthContextResolver
     assert surreal_auth_runtime.authenticate_api_key is surreal_auth_runtime.authenticate_legacy_api_key
+    assert surreal_auth_runtime.LegacySessionRepository is surreal_auth_runtime.SessionRepository
     assert surreal_auth_runtime.SessionRepository is SurrealSessionRepository
 
 
@@ -69,14 +71,12 @@ def test_auth_runtime_surreal_backend_covers_public_exports(
 ) -> None:
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "surreal")
 
-    overrides = auth_runtime._BACKEND_NAME_OVERRIDES.get("surreal", {})
     skipped = {"InvalidAuthClaimsError", "UserNotFoundError"}
 
     for name in auth_runtime.__all__:
         if name in skipped:
             continue
-        export_name = overrides.get(name, name)
-        assert hasattr(surreal_auth_runtime, export_name), name
+        assert hasattr(surreal_auth_runtime, name), name
 
 
 @pytest.mark.asyncio
