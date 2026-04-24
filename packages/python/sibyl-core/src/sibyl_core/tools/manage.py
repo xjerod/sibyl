@@ -260,11 +260,15 @@ async def _handle_task_action(
 
     Uses the TaskWorkflowEngine for proper state machine validation.
     """
-    if not entity_id and action != "update_task":
+    if not entity_id:
         return ManageResponse(
             success=False,
             action=action,
-            message="entity_id required for task actions",
+            message=(
+                "entity_id required for update_task"
+                if action == "update_task"
+                else "entity_id required for task actions"
+            ),
         )
 
     if not organization_id:

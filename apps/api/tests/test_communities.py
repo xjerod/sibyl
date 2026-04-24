@@ -441,6 +441,8 @@ class TestHierarchicalGraph:
 
         with (
             patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
                 "sibyl_core.graph.communities._list_all_entities",
                 AsyncMock(return_value=entities),
@@ -480,6 +482,8 @@ class TestHierarchicalGraph:
 
         with (
             patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
                 "sibyl_core.graph.communities._list_all_entities",
                 AsyncMock(return_value=entities),
@@ -535,6 +539,8 @@ class TestHierarchicalGraph:
 
         with (
             patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
                 "sibyl_core.graph.communities._list_all_entities",
                 AsyncMock(return_value=entities),
@@ -570,6 +576,8 @@ class TestHierarchicalGraph:
 
         with (
             patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
                 "sibyl_core.graph.communities._list_all_entities",
                 AsyncMock(return_value=entities),

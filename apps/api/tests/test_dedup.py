@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
-from sibyl_core.models.entities import Relationship, RelationshipType
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.retrieval.dedup import (
     DedupConfig,
     DuplicatePair,
@@ -13,6 +13,26 @@ from sibyl_core.retrieval.dedup import (
     cosine_similarity,
     jaccard_similarity,
 )
+
+
+def _dedup_rows_to_entities(rows: list[tuple[str, str, str, list[float]]]) -> list[Entity]:
+    return [
+        Entity(
+            id=entity_id,
+            name=name,
+            entity_type=EntityType(entity_type),
+            embedding=embedding,
+        )
+        for entity_id, name, entity_type, embedding in rows
+    ]
+
+
+def _wire_dedup_list_all(mock_client: MagicMock, mock_entity_manager: MagicMock) -> None:
+    async def _list_all(limit: int = 100, offset: int = 0, **kwargs) -> list[Entity]:
+        rows = await mock_client.execute_read_org("", organization_id=mock_entity_manager._group_id)
+        return _dedup_rows_to_entities(rows)[offset : offset + limit]
+
+    mock_entity_manager.list_all = AsyncMock(side_effect=_list_all)
 
 
 class TestCosineSimilarity:
@@ -205,6 +225,7 @@ class TestEntityDeduplicator:
     @pytest.fixture
     def dedup(self, mock_client: MagicMock, mock_entity_manager: MagicMock) -> EntityDeduplicator:
         """Create EntityDeduplicator with mocks."""
+        _wire_dedup_list_all(mock_client, mock_entity_manager)
         return EntityDeduplicator(
             client=mock_client,
             entity_manager=mock_entity_manager,
@@ -266,7 +287,7 @@ class TestEntityDeduplicator:
         assert pairs[0].entity2_id == "id2"
         assert pairs[0].similarity > 0.9
         mock_client.execute_read.assert_not_called()
-        mock_client.execute_read_org.assert_called_once()
+        assert mock_client.execute_read_org.await_count >= 1
 
     @pytest.mark.asyncio
     async def test_find_duplicates_same_type_only(
@@ -300,6 +321,7 @@ class TestEntityDeduplicator:
             entity_manager=mock_entity_manager,
             config=DedupConfig(same_type_only=False, min_name_overlap=0.0),
         )
+        _wire_dedup_list_all(mock_client, mock_entity_manager)
 
         mock_client.client.driver.execute_query = AsyncMock(
             return_value=[
@@ -514,6 +536,7 @@ class TestDedupWithNameOverlap:
             entity_manager=mock_entity_manager,
             config=DedupConfig(min_name_overlap=0.5),  # Require 50% name overlap
         )
+        _wire_dedup_list_all(mock_client, mock_entity_manager)
 
         # Same embedding but different names
         mock_client.client.driver.execute_query = AsyncMock(
@@ -537,6 +560,7 @@ class TestDedupWithNameOverlap:
             entity_manager=mock_entity_manager,
             config=DedupConfig(min_name_overlap=0.3),
         )
+        _wire_dedup_list_all(mock_client, mock_entity_manager)
 
         # Same embedding and similar names
         mock_client.client.driver.execute_query = AsyncMock(

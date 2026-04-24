@@ -210,6 +210,11 @@ class MockRelationshipManager:
         self._relationships[rel_id] = relationship
         return rel_id
 
+    async def create_bulk(self, relationships: list[Relationship]) -> tuple[int, int]:
+        for relationship in relationships:
+            await self.create(relationship)
+        return len(relationships), 0
+
     async def get_for_entity(
         self,
         entity_id: str,

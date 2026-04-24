@@ -14,10 +14,11 @@ from sibyl_core.models.entities import Entity, EntityType, Relationship, Relatio
 def mock_graph_client() -> MagicMock:
     """Create a mock GraphClient."""
     client = MagicMock()
-    client.driver = MagicMock()
+    org_driver = MagicMock()
+    client.driver = org_driver
     client.client = MagicMock()
-    client.client.driver = MagicMock()
-    client.client.driver.clone = MagicMock(return_value=MagicMock())
+    client.client.driver = org_driver
+    client.get_org_driver = MagicMock(return_value=org_driver)
     client.write_lock = MagicMock()
     client.write_lock.__aenter__ = AsyncMock()
     client.write_lock.__aexit__ = AsyncMock()
@@ -59,9 +60,9 @@ class TestRelationshipManagerInit:
         assert manager._group_id == "org_123"
 
     def test_clones_driver_for_org(self, mock_graph_client: MagicMock) -> None:
-        """Should clone driver with group_id for multi-tenancy."""
+        """Should resolve the org-scoped driver."""
         RelationshipManager(mock_graph_client, group_id="org_456")
-        mock_graph_client.client.driver.clone.assert_called_once_with("org_456")
+        mock_graph_client.get_org_driver.assert_called_once_with("org_456")
 
 
 class TestToGraphitiEdge:
@@ -269,8 +270,8 @@ class TestCreateBulk:
         rels = [
             Relationship(
                 id=f"rel_{i}",
-                source_id="src",
-                target_id="tgt",
+                source_id=f"src_{i}",
+                target_id=f"tgt_{i}",
                 relationship_type=RelationshipType.RELATED_TO,
             )
             for i in range(3)
@@ -296,8 +297,8 @@ class TestCreateBulk:
         rels = [
             Relationship(
                 id=f"rel_{i}",
-                source_id="src",
-                target_id="tgt",
+                source_id=f"src_{i}",
+                target_id=f"tgt_{i}",
                 relationship_type=RelationshipType.RELATED_TO,
             )
             for i in range(3)

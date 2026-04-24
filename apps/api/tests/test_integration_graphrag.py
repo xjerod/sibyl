@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from sibyl_core.models.entities import Entity, EntityType
 from sibyl_core.retrieval import (
     BM25Index,
     rrf_merge,
@@ -326,6 +327,20 @@ class TestDeduplicationIntegration:
                 ("e3", "Database Pooling", "pattern", [0.0, 1.0, 0.0]),  # Different
             ]
         )
+        async def _list_all(limit: int = 100, offset: int = 0, **kwargs) -> list[Entity]:
+            rows = await mock_client.execute_read_org("", organization_id=mock_entity_manager._group_id)
+            entities = [
+                Entity(
+                    id=entity_id,
+                    name=name,
+                    entity_type=EntityType(entity_type),
+                    embedding=embedding,
+                )
+                for entity_id, name, entity_type, embedding in rows
+            ]
+            return entities[offset : offset + limit]
+
+        mock_entity_manager.list_all = AsyncMock(side_effect=_list_all)
 
         dedup = EntityDeduplicator(
             client=mock_client,

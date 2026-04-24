@@ -102,6 +102,9 @@ class MockGraphClient:
     def write_lock(self) -> asyncio.Semaphore:
         return self._write_semaphore
 
+    def get_org_driver(self, group_id: str) -> MockDriver:
+        return self._driver
+
     @staticmethod
     def normalize_result(result: Any) -> list[dict[str, Any]]:
         """Normalize query results."""
