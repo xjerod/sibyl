@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 
 from sibyl_core.backends.surreal import SurrealDriver, SurrealDriverSession
@@ -53,6 +56,15 @@ class TestDriverConstruction:
         # With no client established, repeated clone is safe
         assert second.group_id == "org-abc"
 
+    def test_clone_gets_independent_query_lock(self) -> None:
+        d = SurrealDriver("memory://")
+        first = d.clone("org-a")
+        second = d.clone("org-b")
+
+        assert first._query_lock is not d._query_lock
+        assert second._query_lock is not d._query_lock
+        assert first._query_lock is not second._query_lock
+
     def test_session_returns_surreal_session(self) -> None:
         d = SurrealDriver("memory://")
         session = d.session()
@@ -94,6 +106,35 @@ class TestBuildFulltextQuery:
 
 @pytest.mark.asyncio
 class TestDriverConnection:
+    async def test_execute_query_serializes_shared_client_calls(self, monkeypatch) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        active_queries = 0
+        max_active_queries = 0
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            nonlocal active_queries, max_active_queries
+            active_queries += 1
+            max_active_queries = max(max_active_queries, active_queries)
+            await asyncio.sleep(0)
+            active_queries -= 1
+            return [{"query": query, "params": params}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(
+            driver,
+            "_ensure_client",
+            fake_ensure_client,
+        )
+
+        await asyncio.gather(
+            driver.execute_query("RETURN $value;", value="a"),
+            driver.execute_query("RETURN $value;", value="b"),
+        )
+
+        assert max_active_queries == 1
+
     async def test_execute_query_roundtrip(self, surreal_driver: SurrealDriver) -> None:
         info = await surreal_driver.execute_query("INFO FOR DB;")
         assert isinstance(info, dict)

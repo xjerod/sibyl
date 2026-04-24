@@ -27,6 +27,7 @@ Provider tag:
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 from functools import cached_property
@@ -104,6 +105,7 @@ class SurrealDriver(GraphDriver):
         self._default_database = default_database
         self._database: str = ""
         self._client: Any | None = None
+        self._query_lock = asyncio.Lock()
 
     @property
     def namespace_prefix(self) -> str:
@@ -242,8 +244,9 @@ class SurrealDriver(GraphDriver):
         return not self._url.startswith(("memory://", "surrealkv://"))
 
     async def execute_query(self, cypher_query_: str, **kwargs: Any) -> Any:
-        client = await self._ensure_client()
-        return await client.query(cypher_query_, kwargs if kwargs else None)
+        async with self._query_lock:
+            client = await self._ensure_client()
+            return await client.query(cypher_query_, kwargs if kwargs else None)
 
     def session(self, database: str | None = None) -> GraphDriverSession:
         if database is not None and database != self._database:
@@ -261,6 +264,7 @@ class SurrealDriver(GraphDriver):
         cloned = copy.copy(self)
         cloned._database = database
         cloned._client = None
+        cloned._query_lock = asyncio.Lock()
         return cloned
 
     async def delete_all_indexes(self) -> None:

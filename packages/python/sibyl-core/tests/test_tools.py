@@ -6,8 +6,10 @@ of EntityManager dependencies.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from importlib import import_module
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -904,6 +906,37 @@ class TestSearchTool:
         assert isinstance(response.results, list)
         assert isinstance(response.total, int)
         assert isinstance(response.filters, dict)
+
+    @pytest.mark.asyncio
+    async def test_search_document_timeout_returns_without_results(self) -> None:
+        search_module = import_module("sibyl_core.tools.search")
+
+        async def slow_document_search(**_: object) -> list[SearchResult]:
+            await asyncio.sleep(0.05)
+            return [
+                SearchResult(
+                    id="doc-timeout",
+                    type="document",
+                    name="Too slow",
+                    content="",
+                    score=1.0,
+                    result_origin="document",
+                )
+            ]
+
+        with (
+            patch("sibyl_core.tools.search._search_documents", slow_document_search),
+            patch.object(search_module, "DOCUMENT_SEARCH_TIMEOUT_SECONDS", 0.001),
+        ):
+            response = await search_module.search(
+                query="test",
+                organization_id="org_123",
+                include_documents=True,
+                include_graph=False,
+            )
+
+        assert response.total == 0
+        assert response.document_count == 0
 
     @pytest.mark.asyncio
     async def test_search_promotes_exact_title_match_over_noisy_hybrid_results(self) -> None:
