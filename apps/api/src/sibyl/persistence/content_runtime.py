@@ -31,20 +31,18 @@ _BACKEND_NAME_OVERRIDES = {
     },
 }
 
-_RUNTIME_EXPORTS = [
+_BACKEND_EXPORTS = [
     "create_crawl_source_record",
     "count_remaining_unlinked_chunks",
     "delete_crawl_source_record",
     "delete_crawled_document_record",
     "get_crawl_source_by_id",
     "get_crawl_source_by_url",
-    "get_content_read_session",
-    "get_content_read_session_dependency",
     "get_crawl_stats_payload",
     "get_crawled_document_for_org",
     "get_document_by_url_for_org",
     "get_link_graph_status_payload",
-    "get_legacy_raw_capture",
+    "get_raw_capture",
     "get_org_crawl_source",
     "get_source_sync_counts",
     "hybrid_search_chunks",
@@ -52,14 +50,14 @@ _RUNTIME_EXPORTS = [
     "list_crawl_sources",
     "list_crawled_documents_for_org",
     "list_document_chunks",
-    "list_legacy_raw_captures",
+    "list_raw_captures",
     "list_rag_source_documents_page",
     "list_source_chunks",
     "list_source_documents",
     "list_source_documents_page",
     "list_sources_for_graph_linking",
     "list_unlinked_source_chunks",
-    "resolve_legacy_document_entity",
+    "resolve_document_entity",
     "save_crawl_source_record",
     "save_crawled_document_record",
     "save_document_chunks",
@@ -68,14 +66,23 @@ _RUNTIME_EXPORTS = [
     "search_rag_chunks",
 ]
 
-_NEUTRAL_EXPORTS = [
-    "get_raw_capture",
-    "list_raw_captures",
-    "resolve_document_entity",
-]
+_LEGACY_EXPORT_ALIASES = {
+    "get_legacy_raw_capture": "get_raw_capture",
+    "list_legacy_raw_captures": "list_raw_captures",
+    "resolve_legacy_document_entity": "resolve_document_entity",
+}
 
-__all__ = list(_RUNTIME_EXPORTS)
-__all__.extend(_NEUTRAL_EXPORTS)
+_BACKEND_TARGET_ALIASES = {
+    neutral_name: legacy_name
+    for legacy_name, neutral_name in _LEGACY_EXPORT_ALIASES.items()
+}
+
+__all__ = [
+    "get_content_read_session",
+    "get_content_read_session_dependency",
+]
+__all__.extend(_BACKEND_EXPORTS)
+__all__.extend(_LEGACY_EXPORT_ALIASES)
 
 
 def _active_backend_name() -> str:
@@ -84,7 +91,8 @@ def _active_backend_name() -> str:
 
 def _resolve_backend_export(name: str) -> Any:
     backend = _active_backend_name()
-    export_name = _BACKEND_NAME_OVERRIDES.get(backend, {}).get(name, name)
+    export_name = _BACKEND_TARGET_ALIASES.get(name, name)
+    export_name = _BACKEND_NAME_OVERRIDES.get(backend, {}).get(export_name, export_name)
     for module_name in _BACKEND_MODULES[backend]:
         module = import_module(module_name)
         if hasattr(module, export_name):
@@ -126,34 +134,24 @@ def _make_runtime_proxy(name: str) -> Any:
     return _proxy
 
 
-for _export_name in _RUNTIME_EXPORTS:
+for _export_name in _BACKEND_EXPORTS:
     if _export_name not in globals():
         globals()[_export_name] = _make_runtime_proxy(_export_name)
 
+for _legacy_name, _neutral_name in _LEGACY_EXPORT_ALIASES.items():
+    globals()[_legacy_name] = globals()[_neutral_name]
 
-async def _call_runtime_export(name: str, *args: object, **kwargs: object) -> Any:
-    export = _resolve_backend_export(name)
-    return await export(*args, **kwargs)
-
-
-async def get_raw_capture(*args: object, **kwargs: object) -> Any:
-    return await _call_runtime_export("get_legacy_raw_capture", *args, **kwargs)
-
-
-async def list_raw_captures(*args: object, **kwargs: object) -> Any:
-    return await _call_runtime_export("list_legacy_raw_captures", *args, **kwargs)
-
-
-async def resolve_document_entity(*args: object, **kwargs: object) -> Any:
-    return await _call_runtime_export("resolve_legacy_document_entity", *args, **kwargs)
+del _export_name
+del _legacy_name
+del _neutral_name
 
 
 def __getattr__(name: str) -> Any:
-    if name in _RUNTIME_EXPORTS:
+    if name in _BACKEND_EXPORTS or name in _LEGACY_EXPORT_ALIASES:
         return _resolve_backend_export(name)
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(_RUNTIME_EXPORTS))
+    return sorted(set(globals()) | set(_BACKEND_EXPORTS) | set(_LEGACY_EXPORT_ALIASES))
