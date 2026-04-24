@@ -110,7 +110,7 @@ async def require_setup_mode_or_admin(request: Request) -> User | None:
 async def require_settings_admin(request: Request) -> None:
     from sibyl.persistence.legacy import settings as legacy_settings
 
-    await legacy_settings.require_legacy_settings_admin(request)
+    await legacy_settings.require_settings_admin(request)
 
 
 is_legacy_setup_mode = is_setup_mode

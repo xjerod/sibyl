@@ -13,7 +13,7 @@ from sibyl.db.models import OrganizationRole, User
 _ADMIN_ROLES = (OrganizationRole.OWNER, OrganizationRole.ADMIN)
 
 
-async def is_legacy_setup_mode() -> bool:
+async def is_setup_mode() -> bool:
     """Return whether the system has no users and is in setup mode."""
     async with get_session() as session:
         result = await session.execute(select(func.count(User.id)))
@@ -21,9 +21,9 @@ async def is_legacy_setup_mode() -> bool:
         return user_count == 0
 
 
-async def require_legacy_settings_admin(request: Request) -> None:
+async def require_settings_admin(request: Request) -> None:
     """Allow setup-mode bootstrap access, otherwise require an org admin."""
-    if await is_legacy_setup_mode():
+    if await is_setup_mode():
         return
 
     async with get_session() as session:
@@ -32,3 +32,14 @@ async def require_legacy_settings_admin(request: Request) -> None:
             from fastapi import HTTPException
 
             raise HTTPException(status_code=403, detail="Admin or owner role required")
+
+
+is_legacy_setup_mode = is_setup_mode
+require_legacy_settings_admin = require_settings_admin
+
+__all__ = [
+    "is_setup_mode",
+    "is_legacy_setup_mode",
+    "require_settings_admin",
+    "require_legacy_settings_admin",
+]

@@ -23,7 +23,7 @@ async def test_require_legacy_settings_admin_allows_setup_mode(
 ) -> None:
     auth_mock = AsyncMock()
 
-    monkeypatch.setattr(legacy_settings, "is_legacy_setup_mode", AsyncMock(return_value=True))
+    monkeypatch.setattr(legacy_settings, "is_setup_mode", AsyncMock(return_value=True))
     monkeypatch.setattr(legacy_settings, "build_auth_context", auth_mock)
 
     await legacy_settings.require_legacy_settings_admin(_request())
@@ -40,7 +40,7 @@ async def test_require_legacy_settings_admin_rejects_non_admin(
     session_manager.__aenter__.return_value = session
     session_manager.__aexit__.return_value = False
 
-    monkeypatch.setattr(legacy_settings, "is_legacy_setup_mode", AsyncMock(return_value=False))
+    monkeypatch.setattr(legacy_settings, "is_setup_mode", AsyncMock(return_value=False))
     monkeypatch.setattr(
         legacy_settings,
         "build_auth_context",
@@ -57,6 +57,11 @@ async def test_require_legacy_settings_admin_rejects_non_admin(
         await legacy_settings.require_legacy_settings_admin(_request())
 
     assert exc_info.value.status_code == 403
+
+
+def test_legacy_settings_keeps_compat_aliases_pointed_at_neutral_exports() -> None:
+    assert legacy_settings.is_legacy_setup_mode is legacy_settings.is_setup_mode
+    assert legacy_settings.require_legacy_settings_admin is legacy_settings.require_settings_admin
 
 
 @pytest.mark.asyncio
