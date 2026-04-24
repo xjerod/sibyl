@@ -66,6 +66,14 @@ _BACKEND_NAME_OVERRIDES = {
     },
 }
 
+_PUBLIC_EXPORT_ALIASES = {
+    "AuthContextResolver": "LegacyAuthContextResolver",
+    "OrganizationMembershipRepository": "LegacyOrganizationMembershipRepository",
+    "OrganizationRepository": "LegacyOrganizationRepository",
+    "SessionRepository": "LegacySessionRepository",
+    "UserRepository": "LegacyUserRepository",
+}
+
 __all__ = [
     "InvalidAuthClaimsError",
     "LegacyAuthContextResolver",
@@ -174,6 +182,8 @@ def __getattr__(name: str) -> Any:
         return InvalidAuthClaimsError
     if name == "UserNotFoundError":
         return UserNotFoundError
+    if name in _PUBLIC_EXPORT_ALIASES:
+        return _resolve_backend_export(_PUBLIC_EXPORT_ALIASES[name])
     if name in __all__:
         return _resolve_backend_export(name)
     msg = f"module {__name__!r} has no attribute {name!r}"
@@ -181,7 +191,7 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(__all__))
+    return sorted(set(globals()) | set(__all__) | set(_PUBLIC_EXPORT_ALIASES))
 
 
 def _runtime_helper_module() -> Any:

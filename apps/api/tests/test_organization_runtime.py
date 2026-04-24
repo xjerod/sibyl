@@ -296,7 +296,7 @@ async def test_surreal_create_legacy_org_rotates_current_session(
         "select_access_token",
         lambda **_kwargs: "current-token",
     )
-    monkeypatch.setattr(surreal_organization_runtime, "log_legacy_audit_event", audit_log)
+    monkeypatch.setattr(surreal_organization_runtime, "log_audit_event", audit_log)
 
     result = await surreal_organization_runtime.create_legacy_org(
         request=_request(),
@@ -350,7 +350,7 @@ async def test_surreal_remove_org_member_allows_self_service(
         "from_client",
         lambda _client: membership_repo,
     )
-    monkeypatch.setattr(surreal_organization_runtime, "log_legacy_audit_event", audit_log)
+    monkeypatch.setattr(surreal_organization_runtime, "log_audit_event", audit_log)
 
     result = await surreal_organization_runtime.remove_legacy_org_member(
         slug="electric-coven",
@@ -514,7 +514,7 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
         "select_access_token",
         lambda **_kwargs: "current-token",
     )
-    monkeypatch.setattr(surreal_organization_runtime, "log_legacy_audit_event", audit_log)
+    monkeypatch.setattr(surreal_organization_runtime, "log_audit_event", audit_log)
 
     result = await surreal_organization_runtime.accept_legacy_org_invitation(
         token="invite-token",

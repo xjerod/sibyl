@@ -9,7 +9,7 @@ from sibyl.db.models import ProjectRole
 from sibyl.persistence import auth_runtime
 from sibyl.persistence.auth_common import InvalidAuthClaimsError, UserNotFoundError
 from sibyl.persistence.legacy import auth_runtime as legacy_auth_runtime
-from sibyl.persistence.legacy.auth import LegacyAuthContextResolver
+from sibyl.persistence.legacy.auth import LegacyAuthContextResolver, LegacySessionRepository
 from sibyl.persistence.surreal import auth_runtime as surreal_auth_runtime
 from sibyl.persistence.surreal.auth import SurrealAuthContextResolver
 from sibyl.persistence.surreal.auth_runtime import (
@@ -25,7 +25,10 @@ def test_auth_runtime_uses_shared_error_types(
 
     assert auth_runtime.InvalidAuthClaimsError is InvalidAuthClaimsError
     assert auth_runtime.UserNotFoundError is UserNotFoundError
+    assert auth_runtime.AuthContextResolver is LegacyAuthContextResolver
     assert auth_runtime.LegacyAuthContextResolver is LegacyAuthContextResolver
+    assert auth_runtime.SessionRepository is LegacySessionRepository
+    assert "AuthContextResolver" in dir(auth_runtime)
 
 
 def test_auth_runtime_maps_resolver_name_for_surreal(
@@ -33,7 +36,9 @@ def test_auth_runtime_maps_resolver_name_for_surreal(
 ) -> None:
     monkeypatch.setattr(auth_runtime.settings, "auth_store", "surreal")
 
+    assert auth_runtime.AuthContextResolver is SurrealAuthContextResolver
     assert auth_runtime.LegacyAuthContextResolver is SurrealAuthContextResolver
+    assert auth_runtime.SessionRepository is SurrealSessionRepository
     assert auth_runtime.LegacySessionRepository is SurrealSessionRepository
     assert auth_runtime.resolve_surreal_auth_context is resolve_surreal_auth_context
 

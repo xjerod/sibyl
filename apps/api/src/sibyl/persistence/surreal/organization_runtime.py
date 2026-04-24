@@ -17,7 +17,7 @@ from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import create_access_token, create_refresh_token
 from sibyl.auth.primitives import generate_invite_token, slugify
 from sibyl.db.models import OrganizationRole, ProjectRole, User
-from sibyl.persistence.auth_runtime import log_legacy_audit_event
+from sibyl.persistence.auth_runtime import log_audit_event
 from sibyl.persistence.graph_runtime import ensure_graph_indexes
 from sibyl.persistence.organization_common import (
     LegacyInvitationAcceptance,
@@ -306,7 +306,7 @@ async def create_legacy_org(
             refresh_token=refresh_token,
             refresh_expires=refresh_expires,
         )
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.create",
             user_id=user_id,
             organization_id=organization.id,
@@ -371,7 +371,7 @@ async def switch_legacy_org(
             refresh_token=refresh_token,
             refresh_expires=refresh_expires,
         )
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.switch",
             user_id=user_id,
             organization_id=organization.id,
@@ -458,7 +458,7 @@ async def update_legacy_org(
         if refreshed is None:
             msg = f"Organization disappeared during update: {organization.id}"
             raise RuntimeError(msg)
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.update",
             user_id=user_id,
             organization_id=refreshed.id,
@@ -491,7 +491,7 @@ async def delete_legacy_org(*, request: Request, slug: str, user_id: UUID) -> No
         if membership is None or membership.role is not OrganizationRole.OWNER:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.delete",
             user_id=user_id,
             organization_id=organization.id,
@@ -660,7 +660,7 @@ async def add_legacy_org_member(
             user_id=target_user_id,
             role=role,
         )
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.member.add",
             user_id=actor_id,
             organization_id=organization.id,
@@ -704,7 +704,7 @@ async def update_legacy_org_member_role(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.member.update_role",
             user_id=actor_id,
             organization_id=organization.id,
@@ -749,7 +749,7 @@ async def remove_legacy_org_member(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.member.remove",
             user_id=actor_id,
             organization_id=organization.id,
@@ -812,7 +812,7 @@ async def create_legacy_org_invitation(
             msg = "Failed to create organization invitation"
             raise RuntimeError(msg)
         invite = created[0]
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.invitation.create",
             user_id=actor_id,
             organization_id=organization.id,
@@ -839,7 +839,7 @@ async def delete_legacy_org_invitation(
             "DELETE FROM organization_invitations WHERE uuid = $uuid;",
             uuid=str(invitation_id),
         )
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.invitation.delete",
             user_id=actor_id,
             organization_id=organization.id,
@@ -922,7 +922,7 @@ async def accept_legacy_org_invitation(
             uuid=_coerce_uuid(updated.get("uuid"), field_name="organization_invitations.uuid"),
             record=updated,
         )
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="org.invitation.accept",
             user_id=user.id,
             organization_id=organization.id,
@@ -1148,7 +1148,7 @@ async def add_legacy_project_member(
                 )
             raise RuntimeError(error)
 
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="project.member.add",
             user_id=actor.id,
             organization_id=org_id,
@@ -1207,7 +1207,7 @@ async def update_legacy_project_member_role(
         if error is not None:
             raise RuntimeError(error)
 
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="project.member.update_role",
             user_id=actor.id,
             organization_id=org_id,
@@ -1263,7 +1263,7 @@ async def remove_legacy_project_member(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
         await _delete_project_member_records(client, membership_records=membership_records)
 
-        await log_legacy_audit_event(
+        await log_audit_event(
             action="project.member.remove",
             user_id=actor.id,
             organization_id=org_id,
