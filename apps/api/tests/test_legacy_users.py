@@ -122,8 +122,8 @@ async def test_remove_oauth_connection_deletes_and_commits(
     session.commit.assert_awaited_once()
 
 
-def test_legacy_user_helpers_keep_compat_aliases_pointed_at_neutral_exports() -> None:
-    assert legacy_users.request_legacy_password_reset is legacy_users.request_password_reset
-    assert legacy_users.confirm_legacy_password_reset is legacy_users.confirm_password_reset
-    assert legacy_users.list_legacy_oauth_connections is legacy_users.list_oauth_connections
-    assert legacy_users.remove_legacy_oauth_connection is legacy_users.remove_oauth_connection
+def test_legacy_user_helpers_only_expose_neutral_exports() -> None:
+    assert not hasattr(legacy_users, "request_legacy_password_reset")
+    assert not hasattr(legacy_users, "confirm_legacy_password_reset")
+    assert not hasattr(legacy_users, "list_legacy_oauth_connections")
+    assert not hasattr(legacy_users, "remove_legacy_oauth_connection")

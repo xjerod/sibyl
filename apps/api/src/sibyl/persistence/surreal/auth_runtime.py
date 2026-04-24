@@ -2409,7 +2409,6 @@ __all__ = [
     "has_legacy_owner_membership",
     "list_legacy_accessible_project_graph_ids",
     "list_legacy_api_keys_for_user",
-    "list_legacy_oauth_connections",
     "list_legacy_user_sessions",
     "list_legacy_user_organizations",
     "load_legacy_refresh_session_record",
@@ -2432,9 +2431,6 @@ __all__ = [
     "signup_legacy_local_user",
     "start_legacy_device_authorization",
     "patch_legacy_auth_user",
-    "request_legacy_password_reset",
-    "confirm_legacy_password_reset",
-    "remove_legacy_oauth_connection",
     "update_legacy_auth_user",
     "update_legacy_project_record",
     "verify_legacy_entity_project_access",
@@ -2471,7 +2467,6 @@ get_legacy_user_by_id = get_user_by_id
 has_legacy_owner_membership = has_owner_membership
 list_legacy_accessible_project_graph_ids = list_accessible_project_graph_ids
 list_legacy_api_keys_for_user = list_api_keys_for_user
-list_legacy_oauth_connections = list_oauth_connections
 list_legacy_user_organizations = list_user_organizations
 list_legacy_user_sessions = list_user_sessions
 load_legacy_refresh_session_record = load_refresh_session_record
@@ -2480,9 +2475,6 @@ login_legacy_device_browser_user = login_device_browser_user
 login_legacy_github_identity = login_github_identity
 login_legacy_local_user = login_local_user
 patch_legacy_auth_user = patch_auth_user
-confirm_legacy_password_reset = confirm_password_reset
-remove_legacy_oauth_connection = remove_oauth_connection
-request_legacy_password_reset = request_password_reset
 resolve_legacy_accessible_project_graph_ids = resolve_accessible_project_graph_ids
 resolve_legacy_auth_context = resolve_auth_context
 resolve_legacy_request_claims = resolve_request_claims

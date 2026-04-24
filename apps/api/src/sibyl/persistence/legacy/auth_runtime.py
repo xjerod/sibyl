@@ -514,7 +514,3 @@ get_project_record_by_id = get_legacy_project_record_by_id
 list_user_sessions = list_legacy_user_sessions
 revoke_all_user_sessions = revoke_all_legacy_user_sessions
 revoke_user_session = revoke_legacy_user_session
-request_legacy_password_reset = request_password_reset
-confirm_legacy_password_reset = confirm_password_reset
-list_legacy_oauth_connections = list_oauth_connections
-remove_legacy_oauth_connection = remove_oauth_connection

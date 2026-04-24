@@ -77,9 +77,3 @@ async def remove_oauth_connection(
     await session.delete(connection)
     await session.commit()
     return connection
-
-
-request_legacy_password_reset = request_password_reset
-confirm_legacy_password_reset = confirm_password_reset
-list_legacy_oauth_connections = list_oauth_connections
-remove_legacy_oauth_connection = remove_oauth_connection
