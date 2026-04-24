@@ -63,19 +63,11 @@ def _database_dump_supported() -> bool:
     ).database_dump_supported
 
 
-def _effective_include_database_dump(
-    requested: bool | None = None,
-    *,
-    include_postgres: bool | None = None,
-) -> bool:
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=requested,
-        include_postgres=include_postgres,
-    )
+def _effective_include_database_dump(requested: bool | None = None) -> bool:
     return resolve_backup_runtime_options(
         store=app_settings.store,
         auth_store=app_settings.auth_store,
-        include_database_dump=requested_database_dump,
+        include_database_dump=requested,
     ).include_database_dump
 
 

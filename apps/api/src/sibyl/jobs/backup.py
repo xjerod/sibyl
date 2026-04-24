@@ -29,7 +29,6 @@ from sibyl.persistence.auth_archive import export_auth_archive_payload
 from sibyl.persistence.backups_common import (
     resolve_backup_runtime_options,
     resolve_object_database_dump,
-    resolve_requested_database_dump,
 )
 from sibyl.persistence.backups_runtime import (
     attach_backup_job,
@@ -76,19 +75,11 @@ class BackupResult:
     error: str | None = None
 
 
-def _effective_include_database_dump(
-    requested: bool | None = None,
-    *,
-    include_postgres: bool | None = None,
-) -> bool:
-    requested_database_dump = resolve_requested_database_dump(
-        include_database_dump=requested,
-        include_postgres=include_postgres,
-    )
+def _effective_include_database_dump(requested: bool | None = None) -> bool:
     return resolve_backup_runtime_options(
         store=settings.store,
         auth_store=settings.auth_store,
-        include_database_dump=requested_database_dump,
+        include_database_dump=requested,
     ).include_database_dump
 
 
@@ -217,7 +208,6 @@ async def run_backup(  # noqa: PLR0915
     organization_id: str,
     *,
     include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
     include_graph: bool = True,
     backup_id: str | None = None,
 ) -> dict[str, Any]:
@@ -234,7 +224,6 @@ async def run_backup(  # noqa: PLR0915
         ctx: arq context
         organization_id: Organization UUID to backup
         include_database_dump: Include a database dump sidecar when supported
-        include_postgres: Legacy alias for include_database_dump
         include_graph: Include graph export (default: True)
         backup_id: Pre-generated backup ID (optional, for API-triggered backups)
 
@@ -247,10 +236,7 @@ async def run_backup(  # noqa: PLR0915
     start_time = time.time()
     started_at = datetime.now(UTC)
     backup_id = backup_id or generate_backup_id(organization_id)
-    include_database_dump = _effective_include_database_dump(
-        include_database_dump,
-        include_postgres=include_postgres,
-    )
+    include_database_dump = _effective_include_database_dump(include_database_dump)
     include_auth_snapshot = _include_surreal_auth_snapshot()
     include_content_snapshot = _include_surreal_content_snapshot()
 
