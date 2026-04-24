@@ -9,12 +9,10 @@ from sibyl.persistence.legacy.crawler import (
     get_crawl_stats_payload as legacy_get_crawl_stats_payload,
 )
 from sibyl.persistence.legacy.entities import (
-    get_legacy_raw_capture as legacy_get_legacy_raw_capture,
     get_raw_capture as legacy_get_raw_capture,
 )
 from sibyl.persistence.surreal.content import (
     get_crawl_stats_payload as surreal_get_crawl_stats_payload,
-    get_legacy_raw_capture as surreal_get_legacy_raw_capture,
     get_raw_capture as surreal_get_raw_capture,
     list_rag_source_documents_page as surreal_list_rag_source_documents_page,
 )
@@ -42,12 +40,13 @@ def test_content_runtime_maps_surreal_exports(
     assert content_runtime._resolve_backend_export("get_raw_capture") is surreal_get_raw_capture
 
 
-def test_content_runtime_keeps_legacy_aliases_pointed_at_neutral_exports() -> None:
-    assert content_runtime.get_legacy_raw_capture is content_runtime.get_raw_capture
-    assert content_runtime.list_legacy_raw_captures is content_runtime.list_raw_captures
-    assert content_runtime.resolve_legacy_document_entity is content_runtime.resolve_document_entity
-    assert legacy_get_legacy_raw_capture is legacy_get_raw_capture
-    assert surreal_get_legacy_raw_capture is surreal_get_raw_capture
+def test_content_runtime_only_exports_neutral_runtime_surface() -> None:
+    assert not hasattr(content_runtime, "get_legacy_raw_capture")
+    assert not hasattr(content_runtime, "list_legacy_raw_captures")
+    assert not hasattr(content_runtime, "resolve_legacy_document_entity")
+    assert content_common.__all__ == ["CrawlStats", "DocumentEntityRecord"]
+    assert "LegacyCrawlStats" not in content_common.__all__
+    assert "LegacyDocumentEntityRecord" not in content_common.__all__
     assert content_common.CrawlStats is content_common.LegacyCrawlStats
     assert content_common.DocumentEntityRecord is content_common.LegacyDocumentEntityRecord
 

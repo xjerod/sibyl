@@ -11,4 +11,4 @@ class SetupStatus:
 
 LegacySetupStatus = SetupStatus
 
-__all__ = ["SetupStatus", "LegacySetupStatus"]
+__all__ = ["SetupStatus"]

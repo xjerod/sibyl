@@ -191,7 +191,7 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
                     "enabled": True,
                     "schedule": "0 2 * * *",
                     "retention_days": 30,
-                    "include_postgres": True,
+                    "include_database_dump": True,
                     "include_graph": True,
                     "created_at": "2026-04-20T00:00:00+00:00",
                     "updated_at": "2026-04-20T00:00:00+00:00",
@@ -204,7 +204,7 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
                     "backup_id": "backup_123",
                     "status": "completed",
                     "size_bytes": 128,
-                    "include_postgres": True,
+                    "include_database_dump": True,
                     "include_graph": True,
                     "created_at": "2026-04-20T00:00:00+00:00",
                     "updated_at": "2026-04-20T00:00:00+00:00",
@@ -272,9 +272,7 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
     assert capture_rows[0]["metadata"] == {"source": "manual"}
     assert setting_rows[0]["is_secret"] is True
     assert backup_setting_rows[0]["include_database_dump"] is True
-    assert "include_postgres" not in backup_setting_rows[0]
     assert backup_rows[0]["include_database_dump"] is True
-    assert "include_postgres" not in backup_rows[0]
 
 
 @pytest.mark.asyncio
@@ -537,7 +535,7 @@ async def test_content_archive_export_reads_from_surreal_backend(
             "enabled": True,
             "schedule": "0 2 * * *",
             "retention_days": 14,
-            "include_postgres": False,
+            "include_database_dump": False,
             "include_graph": True,
         },
     )
@@ -549,7 +547,7 @@ async def test_content_archive_export_reads_from_surreal_backend(
             "backup_id": "backup_export",
             "status": "completed",
             "size_bytes": 128,
-            "include_postgres": False,
+            "include_database_dump": False,
             "include_graph": True,
         },
     )
@@ -571,9 +569,7 @@ async def test_content_archive_export_reads_from_surreal_backend(
     assert payload["total_rows"] == 3
     assert payload["tables"]["system_settings"][0]["key"] == "exported_setting"
     assert payload["tables"]["backup_settings"][0]["include_database_dump"] is False
-    assert "include_postgres" not in payload["tables"]["backup_settings"][0]
     assert payload["tables"]["backups"][0]["include_database_dump"] is False
-    assert "include_postgres" not in payload["tables"]["backups"][0]
     close.assert_awaited_once()
 
 
@@ -640,7 +636,6 @@ async def test_surreal_backup_helpers_round_trip(
     assert updated_settings.schedule == "0 3 * * *"
     assert updated_settings.retention_days == 14
     assert updated_settings.include_database_dump is False
-    assert updated_settings.include_postgres is False
     assert [item.organization_id for item in enabled] == [org_id]
     assert isinstance(created, Backup)
     assert created.include_database_dump is False
@@ -653,7 +648,5 @@ async def test_surreal_backup_helpers_round_trip(
     assert fetched.backup_id == "backup_fixed"
     assert retention == 14
     assert setting_rows[0]["include_database_dump"] is False
-    assert "include_postgres" not in setting_rows[0]
     assert backup_rows[0]["include_database_dump"] is False
-    assert "include_postgres" not in backup_rows[0]
     assert deleted.backup_id == "backup_fixed"

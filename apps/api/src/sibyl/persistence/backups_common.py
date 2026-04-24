@@ -23,22 +23,8 @@ class BackupRuntimeOptions:
     database_dump_supported: bool
     archive_contents: tuple[str, ...]
 
-
-def resolve_requested_database_dump(
-    *,
-    include_database_dump: bool | None = None,
-    include_postgres: bool | None = None,
-) -> bool | None:
-    if include_database_dump is not None:
-        return include_database_dump
-    return include_postgres
-
-
 def resolve_object_database_dump(value: object) -> bool | None:
-    return resolve_requested_database_dump(
-        include_database_dump=getattr(value, "include_database_dump", None),
-        include_postgres=getattr(value, "include_postgres", None),
-    )
+    return getattr(value, "include_database_dump", None)
 
 
 def resolve_mapping_database_dump(
@@ -46,10 +32,7 @@ def resolve_mapping_database_dump(
     *,
     coerce: Callable[[object], bool | None],
 ) -> bool | None:
-    return resolve_requested_database_dump(
-        include_database_dump=coerce(value.get("include_database_dump")),
-        include_postgres=coerce(value.get("include_postgres")),
-    )
+    return coerce(value.get("include_database_dump"))
 
 
 def resolve_backup_runtime_options(

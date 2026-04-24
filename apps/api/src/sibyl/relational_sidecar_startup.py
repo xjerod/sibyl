@@ -67,21 +67,10 @@ async def bootstrap_relational_sidecar_support() -> bool:
     return True
 
 
-check_legacy_postgres_connection = check_relational_sidecar_connection
-run_legacy_postgres_migrations = run_relational_sidecar_migrations
-recover_legacy_postgres_sources = recover_relational_sidecar_sources
-load_legacy_postgres_api_keys = load_relational_sidecar_api_keys
-bootstrap_legacy_postgres_support = bootstrap_relational_sidecar_support
-
 __all__ = [
-    "bootstrap_legacy_postgres_support",
     "bootstrap_relational_sidecar_support",
-    "check_legacy_postgres_connection",
     "check_relational_sidecar_connection",
-    "load_legacy_postgres_api_keys",
     "load_relational_sidecar_api_keys",
-    "recover_legacy_postgres_sources",
     "recover_relational_sidecar_sources",
-    "run_legacy_postgres_migrations",
     "run_relational_sidecar_migrations",
 ]

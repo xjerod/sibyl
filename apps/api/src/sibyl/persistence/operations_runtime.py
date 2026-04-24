@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import (
@@ -23,10 +23,45 @@ from sibyl.persistence.backups_runtime import (
     update_backup_settings,
 )
 
+if TYPE_CHECKING:
+    get_setup_status: Any
+    is_setup_mode: Any
+    require_settings_admin: Any
+    require_setup_mode_or_admin: Any
+    require_setup_mode_or_auth: Any
+
 _AUTH_BACKEND_MODULES = {
     "postgres": "sibyl.persistence.legacy.setup",
     "surreal": "sibyl.persistence.surreal.setup",
 }
+
+_AUTH_RUNTIME_EXPORTS = [
+    "get_setup_status",
+    "is_setup_mode",
+    "require_settings_admin",
+    "require_setup_mode_or_admin",
+    "require_setup_mode_or_auth",
+]
+
+__all__ = [
+    "attach_backup_job",
+    "confirm_password_reset",
+    "create_backup_record",
+    "delete_backup_record",
+    "get_backup",
+    "get_backup_retention",
+    "get_backup_settings",
+    "get_setup_status",
+    "is_setup_mode",
+    "require_settings_admin",
+    "require_setup_mode_or_admin",
+    "require_setup_mode_or_auth",
+    "list_backups",
+    "list_oauth_connections",
+    "remove_oauth_connection",
+    "request_password_reset",
+    "update_backup_settings",
+]
 
 
 def _auth_backend_module() -> Any:
@@ -42,63 +77,8 @@ def _make_auth_runtime_proxy(name: str) -> Any:
     return _proxy
 
 
-get_setup_status = _make_auth_runtime_proxy("get_setup_status")
-is_setup_mode = _make_auth_runtime_proxy("is_setup_mode")
-require_settings_admin = _make_auth_runtime_proxy("require_settings_admin")
-require_setup_mode_or_admin = _make_auth_runtime_proxy("require_setup_mode_or_admin")
-require_setup_mode_or_auth = _make_auth_runtime_proxy("require_setup_mode_or_auth")
+for _export_name in _AUTH_RUNTIME_EXPORTS:
+    globals()[_export_name] = _make_auth_runtime_proxy(_export_name)
 
-attach_legacy_backup_job = attach_backup_job
-confirm_legacy_password_reset = confirm_password_reset
-create_legacy_backup_record = create_backup_record
-delete_legacy_backup_record = delete_backup_record
-get_legacy_backup = get_backup
-get_legacy_backup_retention = get_backup_retention
-get_legacy_backup_settings = get_backup_settings
-get_legacy_setup_status = get_setup_status
-is_legacy_setup_mode = is_setup_mode
-list_legacy_backups = list_backups
-list_legacy_oauth_connections = list_oauth_connections
-remove_legacy_oauth_connection = remove_oauth_connection
-request_legacy_password_reset = request_password_reset
-require_legacy_settings_admin = require_settings_admin
-require_legacy_setup_mode_or_admin = require_setup_mode_or_admin
-require_legacy_setup_mode_or_auth = require_setup_mode_or_auth
-update_legacy_backup_settings = update_backup_settings
 
-__all__ = [
-    "attach_backup_job",
-    "attach_legacy_backup_job",
-    "confirm_password_reset",
-    "confirm_legacy_password_reset",
-    "create_backup_record",
-    "create_legacy_backup_record",
-    "delete_backup_record",
-    "delete_legacy_backup_record",
-    "get_backup",
-    "get_legacy_backup",
-    "get_backup_retention",
-    "get_legacy_backup_retention",
-    "get_backup_settings",
-    "get_legacy_backup_settings",
-    "get_setup_status",
-    "get_legacy_setup_status",
-    "is_setup_mode",
-    "is_legacy_setup_mode",
-    "list_backups",
-    "list_legacy_backups",
-    "list_oauth_connections",
-    "list_legacy_oauth_connections",
-    "remove_oauth_connection",
-    "remove_legacy_oauth_connection",
-    "request_password_reset",
-    "request_legacy_password_reset",
-    "require_settings_admin",
-    "require_legacy_settings_admin",
-    "update_legacy_backup_settings",
-    "require_setup_mode_or_admin",
-    "require_legacy_setup_mode_or_admin",
-    "require_setup_mode_or_auth",
-    "require_legacy_setup_mode_or_auth",
-    "update_backup_settings",
-]
+del _export_name

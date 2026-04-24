@@ -17,14 +17,14 @@ def _user() -> SimpleNamespace:
     return SimpleNamespace(id=uuid4())
 
 
-def test_backup_settings_update_accepts_legacy_database_dump_alias() -> None:
-    request = backup_routes.BackupSettingsUpdate(include_postgres=True)
+def test_backup_settings_update_uses_database_dump_field() -> None:
+    request = backup_routes.BackupSettingsUpdate(include_database_dump=True)
 
     assert request.include_database_dump is True
 
 
-def test_create_backup_request_accepts_legacy_database_dump_alias() -> None:
-    request = backup_routes.CreateBackupRequest(include_postgres=True)
+def test_create_backup_request_uses_database_dump_field() -> None:
+    request = backup_routes.CreateBackupRequest(include_database_dump=True)
 
     assert request.include_database_dump is True
 
@@ -58,14 +58,14 @@ async def test_get_backup_settings_uses_runtime_metadata(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_get_backup_settings_accepts_legacy_settings_alias(
+async def test_get_backup_settings_reads_database_dump_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = SimpleNamespace(
         enabled=True,
         schedule="0 2 * * *",
         retention_days=30,
-        include_postgres=True,
+        include_database_dump=False,
         include_graph=False,
         last_backup_at=None,
         last_backup_id=None,
@@ -80,7 +80,8 @@ async def test_get_backup_settings_accepts_legacy_settings_alias(
 
     response = await backup_routes.get_backup_settings(org=_org())
 
-    assert response.include_database_dump is True
+    assert response.include_database_dump is False
+    assert response.archive_contents == ["metadata.json"]
 
 
 @pytest.mark.asyncio
@@ -123,7 +124,7 @@ async def test_create_backup_uses_runtime_record_helpers(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_create_backup_disables_postgres_in_fully_surreal_mode(
+async def test_create_backup_disables_database_dump_in_fully_surreal_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     org = _org()
@@ -150,7 +151,10 @@ async def test_create_backup_disables_postgres_in_fully_surreal_mode(
     )
 
     response = await backup_routes.create_backup(
-        request=backup_routes.CreateBackupRequest(include_postgres=True, include_graph=False),
+        request=backup_routes.CreateBackupRequest(
+            include_database_dump=True,
+            include_graph=False,
+        ),
         org=org,
         user=user,
     )

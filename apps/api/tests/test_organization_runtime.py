@@ -29,9 +29,10 @@ def _request(*, authorization: str | None = "Bearer current-token") -> SimpleNam
     )
 
 
-def test_organization_runtime_keeps_legacy_aliases_pointed_at_neutral_exports() -> None:
-    assert organization_runtime.create_legacy_org is organization_runtime.create_org
-    assert organization_runtime.list_legacy_orgs is organization_runtime.list_orgs
+def test_organization_runtime_only_exports_neutral_runtime_surface() -> None:
+    assert not hasattr(organization_runtime, "create_legacy_org")
+    assert not hasattr(organization_runtime, "list_legacy_orgs")
+    assert not hasattr(organization_runtime, "can_manage_legacy_project_members")
     assert legacy_orgs_runtime.list_orgs is legacy_orgs_runtime.list_legacy_orgs
     assert (
         legacy_project_members_runtime.list_project_members
@@ -42,10 +43,19 @@ def test_organization_runtime_keeps_legacy_aliases_pointed_at_neutral_exports() 
         surreal_organization_runtime.list_project_members
         is surreal_organization_runtime.list_legacy_project_members
     )
-    assert (
-        organization_runtime.can_manage_legacy_project_members
-        is organization_runtime.can_manage_project_members
-    )
+    assert organization_common.__all__ == [
+        "InvitationAcceptance",
+        "InvitationRecord",
+        "OrgAuthResult",
+        "OrgMemberChange",
+        "OrgRoleResult",
+        "OrgSummary",
+        "ProjectMemberChange",
+        "ProjectMembersResult",
+        "can_manage_project_members",
+    ]
+    assert "LegacyOrgSummary" not in organization_common.__all__
+    assert "LegacyProjectMembersResult" not in organization_common.__all__
     assert organization_common.OrgSummary is organization_common.LegacyOrgSummary
     assert organization_common.ProjectMembersResult is organization_common.LegacyProjectMembersResult
 

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from sibyl.api.dependencies import get_legacy_graph_store, get_legacy_knowledge_read_service
+from sibyl.api.dependencies import get_graph_store, get_knowledge_read_service
 from sibyl.api.routes.graph import get_graph_stats
 from sibyl.persistence.legacy.graph import (
     LegacyEntityStore,
@@ -166,7 +166,7 @@ async def test_legacy_knowledge_read_adapter_builds_entity_bundle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_legacy_graph_store_scopes_to_org() -> None:
+async def test_get_graph_store_scopes_to_org() -> None:
     org = MagicMock()
     org.id = uuid4()
     client = MagicMock()
@@ -174,19 +174,19 @@ async def test_get_legacy_graph_store_scopes_to_org() -> None:
 
     with (
         patch("sibyl.api.dependencies.get_graph_client", return_value=client),
-        patch("sibyl.api.dependencies.LegacyGraphStore.from_client", return_value=store) as factory,
+        patch("sibyl.api.dependencies.ActiveGraphStore.from_client", return_value=store) as factory,
     ):
-        result = await get_legacy_graph_store(org=org)
+        result = await get_graph_store(org=org)
 
     assert result is store
     factory.assert_called_once_with(client, str(org.id))
 
 
 @pytest.mark.asyncio
-async def test_get_legacy_knowledge_read_service_wraps_store() -> None:
+async def test_get_knowledge_read_service_wraps_store() -> None:
     store = MagicMock(spec=LegacyGraphStore)
 
-    service = await get_legacy_knowledge_read_service(graph_store=store)
+    service = await get_knowledge_read_service(graph_store=store)
 
     assert isinstance(service, LegacyKnowledgeReadAdapter)
     assert service._store is store

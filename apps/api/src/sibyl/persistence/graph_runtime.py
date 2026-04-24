@@ -1040,7 +1040,7 @@ async def get_entity_graph_runtime(group_id: str) -> TaskGraphRuntime:
     return await get_task_graph_runtime(group_id)
 
 
-async def update_legacy_entity(
+async def update_graph_entity(
     group_id: str,
     entity_id: str,
     patch: dict[str, object],
@@ -1048,14 +1048,6 @@ async def update_legacy_entity(
     """Update an entity through the current graph runtime."""
     client = await get_graph_client()
     return await EntityManager(client, group_id=group_id).update(entity_id, patch)
-
-
-async def update_graph_entity(
-    group_id: str,
-    entity_id: str,
-    patch: dict[str, object],
-) -> Entity | None:
-    return await update_legacy_entity(group_id, entity_id, patch)
 
 
 def graph_stats_payload(stats: GraphStats) -> dict[str, object]:
@@ -1099,26 +1091,6 @@ async def execute_debug_query(
         else:
             rows.append({"value": record})
     return rows
-
-
-LegacyEntityStore = GraphEntityStore
-LegacyRelationshipStore = GraphRelationshipStore
-LegacySearchIndex = GraphSearchIndex
-LegacyGraphStore = ActiveGraphStore
-LegacyKnowledgeReadAdapter = GraphReadServiceAdapter
-LegacyKnowledgeWriteAdapter = GraphWriteServiceAdapter
-LegacyTaskRuntime = TaskGraphRuntime
-LegacyGraphQueryAdapter = GraphQueryAdapter
-
-get_legacy_knowledge_read_adapter = get_knowledge_read_adapter
-get_legacy_graph_query_adapter = get_graph_query_adapter
-get_legacy_task_runtime = get_task_graph_runtime
-get_legacy_entity_runtime = get_entity_graph_runtime
-get_legacy_graph_stats_payload = get_graph_stats_payload
-ensure_legacy_graph_indexes = ensure_graph_indexes
-reset_legacy_graph_runtime = reset_graph_runtime
-execute_legacy_debug_query = execute_debug_query
-
 
 def _collect_related_ids(entity_id: str, relationships: Sequence[Relationship]) -> Iterable[str]:
     seen: set[str] = set()

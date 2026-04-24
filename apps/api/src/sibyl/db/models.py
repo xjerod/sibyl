@@ -1243,14 +1243,6 @@ class BackupSettings(TimestampMixin, table=True):
         default=None, max_length=64, description="ID of last completed backup"
     )
 
-    @property
-    def include_postgres(self) -> bool:
-        return self.include_database_dump
-
-    @include_postgres.setter
-    def include_postgres(self, value: bool) -> None:
-        self.include_database_dump = value
-
     def __repr__(self) -> str:
         return f"<BackupSettings org={self.organization_id} enabled={self.enabled}>"
 
@@ -1324,14 +1316,6 @@ class Backup(TimestampMixin, table=True):
     created_by_user_id: UUID | None = Field(
         default=None, foreign_key="users.id", description="User who triggered manual backup"
     )
-
-    @property
-    def include_postgres(self) -> bool:
-        return self.include_database_dump
-
-    @include_postgres.setter
-    def include_postgres(self, value: bool) -> None:
-        self.include_database_dump = value
 
     def __repr__(self) -> str:
         return f"<Backup {self.backup_id} status={self.status}>"

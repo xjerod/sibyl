@@ -32,10 +32,10 @@ from sibyl.db.sync import get_graph_projects
 from sibyl.persistence.auth_common import UserNotFoundError
 from sibyl.persistence.legacy.auth import LegacyAuthContextResolver
 from sibyl.persistence.legacy.users import (
-    confirm_legacy_password_reset as legacy_confirm_password_reset,
-    list_legacy_oauth_connections as legacy_list_oauth_connections,
-    remove_legacy_oauth_connection as legacy_remove_oauth_connection,
-    request_legacy_password_reset as legacy_request_password_reset,
+    confirm_password_reset as legacy_confirm_password_reset,
+    list_oauth_connections as legacy_list_oauth_connections,
+    remove_oauth_connection as legacy_remove_oauth_connection,
+    request_password_reset as legacy_request_password_reset,
 )
 
 _PROJECT_ROLE_LEVELS: dict[ProjectRole, int] = {
@@ -475,20 +475,20 @@ async def revoke_legacy_user_session(
         return await manager.revoke_session(session_id, user_id)
 
 
-async def request_legacy_password_reset(email: str) -> None:
+async def request_password_reset(email: str) -> None:
     await legacy_request_password_reset(email)
 
 
-async def confirm_legacy_password_reset(token: str, new_password: str) -> None:
+async def confirm_password_reset(token: str, new_password: str) -> None:
     await legacy_confirm_password_reset(token, new_password)
 
 
-async def list_legacy_oauth_connections(*, user_id: UUID):
+async def list_oauth_connections(*, user_id: UUID):
     async with get_session() as session:
         return await legacy_list_oauth_connections(session, user_id)
 
 
-async def remove_legacy_oauth_connection(
+async def remove_oauth_connection(
     *,
     user_id: UUID,
     connection_id: UUID,
@@ -514,7 +514,7 @@ get_project_record_by_id = get_legacy_project_record_by_id
 list_user_sessions = list_legacy_user_sessions
 revoke_all_user_sessions = revoke_all_legacy_user_sessions
 revoke_user_session = revoke_legacy_user_session
-request_password_reset = request_legacy_password_reset
-confirm_password_reset = confirm_legacy_password_reset
-list_oauth_connections = list_legacy_oauth_connections
-remove_oauth_connection = remove_legacy_oauth_connection
+request_legacy_password_reset = request_password_reset
+confirm_legacy_password_reset = confirm_password_reset
+list_legacy_oauth_connections = list_oauth_connections
+remove_legacy_oauth_connection = remove_oauth_connection

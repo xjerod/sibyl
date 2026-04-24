@@ -13,6 +13,39 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    create_crawl_source_record: Any
+    count_remaining_unlinked_chunks: Any
+    delete_crawl_source_record: Any
+    delete_crawled_document_record: Any
+    get_crawl_source_by_id: Any
+    get_crawl_source_by_url: Any
+    get_crawl_stats_payload: Any
+    get_crawled_document_for_org: Any
+    get_document_by_url_for_org: Any
+    get_link_graph_status_payload: Any
+    get_org_crawl_source: Any
+    get_raw_capture: Any
+    get_source_sync_counts: Any
+    hybrid_search_chunks: Any
+    list_crawl_sources: Any
+    list_crawl_sources_for_org: Any
+    list_crawled_documents_for_org: Any
+    list_document_chunks: Any
+    list_rag_source_documents_page: Any
+    list_raw_captures: Any
+    list_source_chunks: Any
+    list_source_documents: Any
+    list_source_documents_page: Any
+    list_sources_for_graph_linking: Any
+    list_unlinked_source_chunks: Any
+    resolve_document_entity: Any
+    save_crawl_source_record: Any
+    save_crawled_document_record: Any
+    save_document_chunks: Any
+    save_raw_capture_record: Any
+    search_code_example_chunks: Any
+    search_rag_chunks: Any
+
 _BACKEND_MODULES = {
     "legacy": (
         "sibyl.persistence.legacy.crawler",
@@ -57,18 +90,42 @@ _BACKEND_EXPORTS = [
     "search_rag_chunks",
 ]
 
-_LEGACY_EXPORT_ALIASES = {
-    "get_legacy_raw_capture": "get_raw_capture",
-    "list_legacy_raw_captures": "list_raw_captures",
-    "resolve_legacy_document_entity": "resolve_document_entity",
-}
-
 __all__ = [
     "get_content_read_session",
     "get_content_read_session_dependency",
+    "create_crawl_source_record",
+    "count_remaining_unlinked_chunks",
+    "delete_crawl_source_record",
+    "delete_crawled_document_record",
+    "get_crawl_source_by_id",
+    "get_crawl_source_by_url",
+    "get_crawl_stats_payload",
+    "get_crawled_document_for_org",
+    "get_document_by_url_for_org",
+    "get_link_graph_status_payload",
+    "get_raw_capture",
+    "get_org_crawl_source",
+    "get_source_sync_counts",
+    "hybrid_search_chunks",
+    "list_crawl_sources_for_org",
+    "list_crawl_sources",
+    "list_crawled_documents_for_org",
+    "list_document_chunks",
+    "list_raw_captures",
+    "list_rag_source_documents_page",
+    "list_source_chunks",
+    "list_source_documents",
+    "list_source_documents_page",
+    "list_sources_for_graph_linking",
+    "list_unlinked_source_chunks",
+    "resolve_document_entity",
+    "save_crawl_source_record",
+    "save_crawled_document_record",
+    "save_document_chunks",
+    "save_raw_capture_record",
+    "search_code_example_chunks",
+    "search_rag_chunks",
 ]
-__all__.extend(_BACKEND_EXPORTS)
-__all__.extend(_LEGACY_EXPORT_ALIASES)
 
 
 def _active_backend_name() -> str:
@@ -122,20 +179,4 @@ for _export_name in _BACKEND_EXPORTS:
     if _export_name not in globals():
         globals()[_export_name] = _make_runtime_proxy(_export_name)
 
-for _legacy_name, _neutral_name in _LEGACY_EXPORT_ALIASES.items():
-    globals()[_legacy_name] = globals()[_neutral_name]
-
 del _export_name
-del _legacy_name
-del _neutral_name
-
-
-def __getattr__(name: str) -> Any:
-    if name in _BACKEND_EXPORTS or name in _LEGACY_EXPORT_ALIASES:
-        return _resolve_backend_export(name)
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)
-
-
-def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(_BACKEND_EXPORTS) | set(_LEGACY_EXPORT_ALIASES))

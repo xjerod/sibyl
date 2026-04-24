@@ -30,8 +30,6 @@ if TYPE_CHECKING:
 
 GraphStore = ActiveGraphStore
 KnowledgeReadAdapter = GraphReadServiceAdapter
-LegacyGraphStore = GraphStore
-LegacyKnowledgeReadAdapter = KnowledgeReadAdapter
 
 
 async def get_graph() -> GraphClient:
@@ -104,10 +102,6 @@ async def get_knowledge_read_service(
 ) -> KnowledgeReadService:
     """Get the seam-based graph read service backed by the active runtime."""
     return GraphReadServiceAdapter(graph_store)
-
-
-get_legacy_graph_store = get_graph_store
-get_legacy_knowledge_read_service = get_knowledge_read_service
 
 
 async def get_group_id(

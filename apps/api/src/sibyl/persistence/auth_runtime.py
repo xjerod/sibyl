@@ -11,44 +11,11 @@ from sibyl.persistence.auth_common import InvalidAuthClaimsError, UserNotFoundEr
 
 if TYPE_CHECKING:
     from sibyl.persistence.legacy.auth import (
-        LegacyAuthContextResolver,
-        LegacyOrganizationMembershipRepository,
-        LegacyOrganizationRepository,
-        LegacySessionRepository,
-        LegacyUserRepository,
-        approve_legacy_device_authorization,
-        authenticate_legacy_api_key,
-        authenticate_legacy_local_user,
-        create_legacy_api_key_for_user,
-        create_legacy_session_record,
-        deny_legacy_device_authorization,
-        ensure_legacy_personal_organization,
-        exchange_legacy_device_code,
-        get_legacy_device_request_by_user_code,
-        get_legacy_user_by_id,
-        has_legacy_owner_membership,
-        list_legacy_accessible_project_graph_ids,
-        list_legacy_api_keys_for_user,
-        list_legacy_user_organizations,
-        load_legacy_refresh_session_record,
-        log_legacy_audit_event,
-        login_legacy_device_browser_user,
-        login_legacy_github_identity,
-        login_legacy_local_user,
-        resolve_legacy_accessible_project_graph_ids,
-        resolve_legacy_auth_context,
-        resolve_legacy_request_claims,
-        resolve_legacy_request_user,
-        resolve_surreal_auth_context,
-        revoke_legacy_access_session,
-        revoke_legacy_api_key_for_user,
-        revoke_legacy_refresh_session_record,
-        rotate_legacy_refresh_exchange,
-        rotate_legacy_refresh_session_record,
-        signup_legacy_local_user,
-        start_legacy_device_authorization,
-        update_legacy_auth_user,
-        verify_legacy_entity_project_access,
+        AuthContextResolver,
+        OrganizationMembershipRepository,
+        OrganizationRepository,
+        SessionRepository,
+        UserRepository,
     )
 
 _BACKEND_MODULES = {
@@ -56,68 +23,67 @@ _BACKEND_MODULES = {
     "surreal": "sibyl.persistence.surreal.auth_runtime",
 }
 
-_PUBLIC_EXPORT_ALIASES = {
-    "AuthContextResolver": "AuthContextResolver",
-    "OrganizationMembershipRepository": "OrganizationMembershipRepository",
-    "OrganizationRepository": "OrganizationRepository",
-    "SessionRepository": "SessionRepository",
-    "UserRepository": "UserRepository",
+_DYNAMIC_EXPORTS = {
+    "AuthContextResolver",
+    "OrganizationMembershipRepository",
+    "OrganizationRepository",
+    "SessionRepository",
+    "UserRepository",
 }
 
 __all__ = [
+    "AuthContextResolver",
     "InvalidAuthClaimsError",
-    "LegacyAuthContextResolver",
-    "LegacyOrganizationMembershipRepository",
-    "LegacyOrganizationRepository",
-    "LegacySessionRepository",
-    "LegacyUserRepository",
+    "OrganizationMembershipRepository",
+    "OrganizationRepository",
+    "SessionRepository",
     "UserNotFoundError",
-    "approve_legacy_device_authorization",
-    "authenticate_legacy_api_key",
-    "authenticate_legacy_local_user",
-    "create_legacy_api_key_for_user",
-    "create_legacy_project_record",
-    "create_legacy_session_record",
-    "delete_legacy_project_record",
-    "deny_legacy_device_authorization",
-    "ensure_legacy_personal_organization",
-    "exchange_legacy_device_code",
-    "get_legacy_device_request_by_user_code",
-    "get_legacy_project_record_by_graph_id",
-    "get_legacy_project_record_by_id",
-    "get_legacy_user_by_id",
-    "has_legacy_owner_membership",
-    "list_legacy_accessible_project_graph_ids",
-    "list_legacy_api_keys_for_user",
-    "list_legacy_oauth_connections",
-    "list_legacy_user_sessions",
-    "list_legacy_user_organizations",
-    "load_legacy_refresh_session_record",
-    "log_legacy_audit_event",
-    "login_legacy_device_browser_user",
-    "login_legacy_github_identity",
-    "login_legacy_local_user",
-    "resolve_legacy_accessible_project_graph_ids",
-    "resolve_surreal_auth_context",
-    "resolve_legacy_auth_context",
-    "resolve_legacy_request_claims",
-    "resolve_legacy_request_user",
-    "revoke_legacy_access_session",
-    "revoke_legacy_api_key_for_user",
-    "revoke_legacy_user_session",
-    "revoke_all_legacy_user_sessions",
-    "revoke_legacy_refresh_session_record",
-    "rotate_legacy_refresh_exchange",
-    "rotate_legacy_refresh_session_record",
-    "signup_legacy_local_user",
-    "start_legacy_device_authorization",
-    "patch_legacy_auth_user",
-    "request_legacy_password_reset",
-    "confirm_legacy_password_reset",
-    "remove_legacy_oauth_connection",
-    "update_legacy_auth_user",
-    "update_legacy_project_record",
-    "verify_legacy_entity_project_access",
+    "UserRepository",
+    "approve_device_authorization",
+    "authenticate_api_key",
+    "authenticate_local_user",
+    "confirm_password_reset",
+    "create_api_key_for_user",
+    "create_project_record",
+    "create_session_record",
+    "delete_project_record",
+    "deny_device_authorization",
+    "ensure_personal_organization",
+    "exchange_device_code",
+    "get_device_request_by_user_code",
+    "get_project_record_by_graph_id",
+    "get_project_record_by_id",
+    "get_user_by_id",
+    "has_owner_membership",
+    "list_accessible_project_graph_ids",
+    "list_api_keys_for_user",
+    "list_oauth_connections",
+    "list_user_organizations",
+    "list_user_sessions",
+    "load_refresh_session_record",
+    "log_audit_event",
+    "login_device_browser_user",
+    "login_github_identity",
+    "login_local_user",
+    "patch_auth_user",
+    "remove_oauth_connection",
+    "request_password_reset",
+    "resolve_accessible_project_graph_ids",
+    "resolve_auth_context",
+    "resolve_request_claims",
+    "resolve_request_user",
+    "revoke_access_session",
+    "revoke_all_user_sessions",
+    "revoke_api_key_for_user",
+    "revoke_refresh_session_record",
+    "revoke_user_session",
+    "rotate_refresh_exchange",
+    "rotate_refresh_session_record",
+    "signup_local_user",
+    "start_device_authorization",
+    "update_auth_user",
+    "update_project_record",
+    "verify_entity_project_access",
 ]
 
 
@@ -171,16 +137,14 @@ def __getattr__(name: str) -> Any:
         return InvalidAuthClaimsError
     if name == "UserNotFoundError":
         return UserNotFoundError
-    if name in _PUBLIC_EXPORT_ALIASES:
-        return _resolve_backend_export(_PUBLIC_EXPORT_ALIASES[name])
-    if name in __all__:
+    if name in _DYNAMIC_EXPORTS:
         return _resolve_backend_export(name)
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(__all__) | set(_PUBLIC_EXPORT_ALIASES))
+    return sorted(set(globals()) | set(__all__))
 
 
 def _runtime_helper_module() -> Any:
@@ -521,52 +485,4 @@ async def remove_oauth_connection(
         "remove_oauth_connection",
         user_id=user_id,
         connection_id=connection_id,
-    )
-
-
-patch_legacy_auth_user = patch_auth_user
-create_legacy_project_record = create_project_record
-update_legacy_project_record = update_project_record
-delete_legacy_project_record = delete_project_record
-get_legacy_project_record_by_graph_id = get_project_record_by_graph_id
-get_legacy_project_record_by_id = get_project_record_by_id
-resolve_legacy_auth_context = resolve_auth_context
-list_legacy_user_sessions = list_user_sessions
-revoke_all_legacy_user_sessions = revoke_all_user_sessions
-revoke_legacy_user_session = revoke_user_session
-request_legacy_password_reset = request_password_reset
-confirm_legacy_password_reset = confirm_password_reset
-list_legacy_oauth_connections = list_oauth_connections
-remove_legacy_oauth_connection = remove_oauth_connection
-
-
-async def list_legacy_accessible_project_graph_ids(ctx: Any) -> set[str] | None:
-    return await list_accessible_project_graph_ids(ctx)
-
-
-async def resolve_legacy_accessible_project_graph_ids(
-    *,
-    user_id: str,
-    org_id: str,
-    scopes: Any | None = None,
-    api_key_project_ids: Any | None = None,
-) -> set[str] | None:
-    return await resolve_accessible_project_graph_ids(
-        user_id=user_id,
-        org_id=org_id,
-        scopes=scopes,
-        api_key_project_ids=api_key_project_ids,
-    )
-
-
-async def verify_legacy_entity_project_access(
-    *,
-    ctx: Any,
-    entity_project_id: str | None,
-    required_role: Any,
-) -> Any:
-    return await verify_entity_project_access(
-        ctx=ctx,
-        entity_project_id=entity_project_id,
-        required_role=required_role,
     )

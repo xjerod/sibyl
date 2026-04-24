@@ -5,21 +5,15 @@ from __future__ import annotations
 from sibyl.persistence import graph_runtime as _runtime
 from sibyl.persistence.graph_runtime import (
     ActiveGraphStore,
+    GraphEntityStore,
     GraphQueryAdapter,
     GraphReadServiceAdapter,
+    GraphRelationshipStore,
+    GraphSearchIndex,
     GraphWriteServiceAdapter,
-    LegacyEntityStore,
-    LegacyGraphStore,
-    LegacyKnowledgeReadAdapter,
-    LegacyKnowledgeWriteAdapter,
-    LegacyRelationshipStore,
-    LegacySearchIndex,
-    LegacyTaskRuntime,
     TaskGraphRuntime,
     ensure_graph_indexes,
-    ensure_legacy_graph_indexes,
     execute_debug_query,
-    execute_legacy_debug_query,
     get_entity_graph_runtime,
     get_graph_query_adapter,
     get_graph_stats_payload,
@@ -27,9 +21,7 @@ from sibyl.persistence.graph_runtime import (
     get_task_graph_runtime,
     graph_stats_payload,
     reset_graph_runtime,
-    reset_legacy_graph_runtime,
     update_graph_entity,
-    update_legacy_entity,
 )
 from sibyl_core.graph.client import GraphClient, get_graph_client
 from sibyl_core.graph.entities import EntityManager
@@ -73,6 +65,19 @@ async def get_legacy_graph_stats_payload(group_id: str) -> dict[str, object]:
     service = await get_legacy_knowledge_read_adapter(group_id)
     stats = await service.stats()
     return graph_stats_payload(stats)
+
+
+LegacyEntityStore = GraphEntityStore
+LegacyGraphStore = ActiveGraphStore
+LegacyKnowledgeReadAdapter = GraphReadServiceAdapter
+LegacyKnowledgeWriteAdapter = GraphWriteServiceAdapter
+LegacyRelationshipStore = GraphRelationshipStore
+LegacySearchIndex = GraphSearchIndex
+LegacyTaskRuntime = TaskGraphRuntime
+ensure_legacy_graph_indexes = ensure_graph_indexes
+execute_legacy_debug_query = execute_debug_query
+reset_legacy_graph_runtime = reset_graph_runtime
+update_legacy_entity = update_graph_entity
 
 __all__ = [
     "ActiveGraphStore",

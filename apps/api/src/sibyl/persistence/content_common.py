@@ -25,5 +25,8 @@ class DocumentEntityRecord:
     content: str
 
 
+__all__ = ["CrawlStats", "DocumentEntityRecord"]
+
+
 LegacyCrawlStats = CrawlStats
 LegacyDocumentEntityRecord = DocumentEntityRecord

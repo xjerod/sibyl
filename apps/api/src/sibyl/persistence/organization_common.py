@@ -77,6 +77,19 @@ class ProjectMemberChange:
     role: ProjectRole | None = None
 
 
+__all__ = [
+    "InvitationAcceptance",
+    "InvitationRecord",
+    "OrgAuthResult",
+    "OrgMemberChange",
+    "OrgRoleResult",
+    "OrgSummary",
+    "ProjectMemberChange",
+    "ProjectMembersResult",
+    "can_manage_project_members",
+]
+
+
 LegacyOrgSummary = OrgSummary
 LegacyOrgAuthResult = OrgAuthResult
 LegacyOrgRoleResult = OrgRoleResult

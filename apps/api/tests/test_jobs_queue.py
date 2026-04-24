@@ -231,7 +231,6 @@ async def test_enqueue_backup_uses_database_dump_kwarg_when_requested() -> None:
 
     assert job_id == "backup:backup_a"
     assert pool.calls[0][2]["include_database_dump"] is False
-    assert "include_postgres" not in pool.calls[0][2]
 
 
 @pytest.mark.asyncio

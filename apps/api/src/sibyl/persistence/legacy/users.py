@@ -14,14 +14,14 @@ from sibyl.db.models import OAuthConnection, User
 from sibyl.email import get_email_client
 
 
-async def request_legacy_password_reset(email: str) -> None:
+async def request_password_reset(email: str) -> None:
     """Request a password reset using the current relational auth runtime."""
     async with get_session() as session:
         manager = PasswordResetManager(session, get_email_client())
         await manager.request_reset(email)
 
 
-async def confirm_legacy_password_reset(token: str, new_password: str) -> None:
+async def confirm_password_reset(token: str, new_password: str) -> None:
     """Confirm a password reset using the current relational auth runtime."""
     async with get_session() as session:
         manager = PasswordResetManager(session, get_email_client())
@@ -31,7 +31,7 @@ async def confirm_legacy_password_reset(token: str, new_password: str) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-async def list_legacy_oauth_connections(
+async def list_oauth_connections(
     session: AsyncSession, user_id: UUID
 ) -> list[OAuthConnection]:
     """List OAuth connections for a user from the relational runtime."""
@@ -41,7 +41,7 @@ async def list_legacy_oauth_connections(
     return list(result.scalars().all())
 
 
-async def remove_legacy_oauth_connection(
+async def remove_oauth_connection(
     session: AsyncSession,
     *,
     user_id: UUID,
@@ -77,3 +77,9 @@ async def remove_legacy_oauth_connection(
     await session.delete(connection)
     await session.commit()
     return connection
+
+
+request_legacy_password_reset = request_password_reset
+confirm_legacy_password_reset = confirm_password_reset
+list_legacy_oauth_connections = list_oauth_connections
+remove_legacy_oauth_connection = remove_oauth_connection

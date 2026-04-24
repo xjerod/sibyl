@@ -17,8 +17,6 @@ from sibyl.api.dependencies import (
     get_graph_store,
     get_group_id,
     get_knowledge_read_service,
-    get_legacy_graph_store,
-    get_legacy_knowledge_read_service,
     get_relationship_manager,
 )
 
@@ -255,10 +253,3 @@ class TestGraphStoreDependencies:
         service = await get_knowledge_read_service(graph_store=store)
 
         assert service._store is store
-
-    @pytest.mark.asyncio
-    async def test_legacy_graph_store_alias_uses_active_dependency(self) -> None:
-        assert get_legacy_graph_store is get_graph_store
-
-    def test_legacy_knowledge_read_service_alias_uses_active_dependency(self) -> None:
-        assert get_legacy_knowledge_read_service is get_knowledge_read_service

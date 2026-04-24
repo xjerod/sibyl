@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from sibyl import legacy_postgres_startup, relational_sidecar_startup
+from sibyl import relational_sidecar_startup
 
 
 @pytest.mark.asyncio
@@ -125,14 +125,3 @@ async def test_bootstrap_relational_sidecar_support_is_disabled_in_fully_surreal
     run_migrations.assert_not_awaited()
     recover_sources.assert_not_awaited()
     load_api_keys.assert_not_awaited()
-
-
-def test_legacy_postgres_startup_reexports_relational_sidecar_module() -> None:
-    assert (
-        legacy_postgres_startup.bootstrap_relational_sidecar_support
-        is relational_sidecar_startup.bootstrap_relational_sidecar_support
-    )
-    assert (
-        legacy_postgres_startup.bootstrap_legacy_postgres_support
-        is relational_sidecar_startup.bootstrap_relational_sidecar_support
-    )

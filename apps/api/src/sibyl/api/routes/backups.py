@@ -12,7 +12,7 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field
 
 from sibyl.auth.dependencies import get_current_organization, get_current_user, require_org_admin
 from sibyl.backup_ids import generate_backup_id
@@ -21,7 +21,6 @@ from sibyl.db.models import BackupStatus, Organization, User
 from sibyl.persistence.backups_common import (
     BackupRuntimeOptions,
     resolve_backup_runtime_options,
-    resolve_object_database_dump,
 )
 from sibyl.persistence.backups_runtime import (
     attach_backup_job as attach_backup_job_record,
@@ -52,7 +51,7 @@ def _backup_runtime_options(
 
 def _backup_settings_response(settings) -> "BackupSettingsResponse":
     options = _backup_runtime_options(
-        include_database_dump=resolve_object_database_dump(settings),
+        include_database_dump=settings.include_database_dump,
         include_graph=settings.include_graph,
     )
     return BackupSettingsResponse(
@@ -85,10 +84,7 @@ class BackupSettingsUpdate(BaseModel):
     enabled: bool | None = None
     schedule: str | None = Field(None, max_length=64)
     retention_days: int | None = Field(None, ge=1, le=365)
-    include_database_dump: bool | None = Field(
-        default=None,
-        validation_alias=AliasChoices("include_database_dump", "include_postgres"),
-    )
+    include_database_dump: bool | None = None
     include_graph: bool | None = None
 
 
@@ -111,7 +107,6 @@ class CreateBackupRequest(BaseModel):
 
     include_database_dump: bool | None = Field(
         default=None,
-        validation_alias=AliasChoices("include_database_dump", "include_postgres"),
         description="Include a database dump sidecar when supported by the active runtime",
     )
     include_graph: bool = Field(default=True, description="Include graph export")
