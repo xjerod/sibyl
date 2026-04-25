@@ -938,12 +938,21 @@ DROP TABLE IF EXISTS alembic_version CASCADE;
 async def _prepare_graph_runtime_async(org_id: str, *, clean: bool) -> None:
     """Ensure the target graph runtime is ready for restore."""
     from sibyl.config import settings
-    from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
+    from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES, bootstrap_schema
     from sibyl_core.graph.client import get_graph_client
 
     client = await get_graph_client()
     if settings.store == "surreal":
         driver = client.get_org_driver(org_id)
+
+        # Bootstrap the SCHEMAFULL tables + indexes. With reset=True, this also
+        # drops existing tables (which clears data, replacing the manual delete
+        # path). With reset=False, IF NOT EXISTS lets it run idempotently.
+        await bootstrap_schema(driver, reset=clean)
+
+        # Without reset, schema bootstrap leaves data alone — clear explicitly.
+        if not clean:
+            return
 
         async def _clear_surreal_group_data() -> None:
             # Table names come from the static schema constants above.
@@ -951,15 +960,16 @@ async def _prepare_graph_runtime_async(org_id: str, *, clean: bool) -> None:
                 query = f"DELETE FROM {table} WHERE group_id = $group_id;"  # noqa: S608
                 await driver.execute_query(query, group_id=org_id)
 
-        if clean:
-            graph_ops = getattr(driver, "graph_ops", None)
-            if graph_ops is not None:
-                try:
-                    await graph_ops.clear_data(driver, group_ids=[org_id])
-                except Exception:
-                    await _clear_surreal_group_data()
-            else:
+        # `bootstrap_schema(reset=True)` already dropped the per-org tables, so
+        # the data clear is a no-op safety net for any rows left by edge cases.
+        graph_ops = getattr(driver, "graph_ops", None)
+        if graph_ops is not None:
+            try:
+                await graph_ops.clear_data(driver, group_ids=[org_id])
+            except Exception:
                 await _clear_surreal_group_data()
+        else:
+            await _clear_surreal_group_data()
         return
 
     if clean:

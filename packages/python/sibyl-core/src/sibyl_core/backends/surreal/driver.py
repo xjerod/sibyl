@@ -45,6 +45,26 @@ logger = logging.getLogger(__name__)
 _SURREAL_PROVIDER_TAG: GraphProvider = GraphProvider.NEO4J
 
 
+def _raise_if_surreal_error(query: str, result: Any) -> None:
+    """Raise a SurrealQueryError when the SDK returned an error envelope."""
+    if isinstance(result, str):
+        raise SurrealQueryError(query, result)
+    if isinstance(result, list):
+        for entry in result:
+            if isinstance(entry, dict) and entry.get("status") == "ERR":
+                raise SurrealQueryError(query, str(entry.get("result", entry)))
+
+
+class SurrealQueryError(RuntimeError):
+    """Raised when SurrealDB returns an error envelope instead of result rows."""
+
+    def __init__(self, query: str, message: str) -> None:
+        snippet = (query[:120] + "…") if len(query) > 120 else query
+        super().__init__(f"SurrealDB query failed: {message} (query: {snippet!r})")
+        self.query = query
+        self.surreal_message = message
+
+
 def _namespace_for_group(prefix: str, group_id: str) -> str:
     """Translate a Sibyl group_id (UUID) into a SurrealDB namespace name.
 
@@ -246,7 +266,13 @@ class SurrealDriver(GraphDriver):
     async def execute_query(self, cypher_query_: str, **kwargs: Any) -> Any:
         async with self._query_lock:
             client = await self._ensure_client()
-            return await client.query(cypher_query_, kwargs if kwargs else None)
+            result = await client.query(cypher_query_, kwargs if kwargs else None)
+        # The surrealdb SDK does not raise on per-statement errors — it returns
+        # the error message as a string (single statement) or as `{"status":
+        # "ERR", "result": "..."}` (multi-statement). Detect both and raise so
+        # bulk paths can't falsely report success on a rejected insert.
+        _raise_if_surreal_error(cypher_query_, result)
+        return result
 
     def session(self, database: str | None = None) -> GraphDriverSession:
         if database is not None and database != self._database:

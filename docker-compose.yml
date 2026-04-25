@@ -25,7 +25,9 @@ services:
     ports:
       - "${SIBYL_SURREAL_PORT:-8000}:8000"
     volumes:
-      - "${SURREAL_DATA_DIR:-./.moon/cache/surreal-dev}:/data"
+      # `:U` is a podman extension that chowns the bind mount to the container UID
+      # on first start (no-op under Docker Engine). Fixes rootless podman perm denied.
+      - "${SURREAL_DATA_DIR:-./.moon/cache/surreal-dev}:/data:U"
     restart: unless-stopped
 
   redis:

@@ -387,6 +387,30 @@ def _restore_content_payload(payload: dict[str, object], *, clean: bool) -> bool
     return _restore()
 
 
+def _bootstrap_surreal_runtimes(*, clean: bool) -> None:
+    """Bootstrap SCHEMAFULL tables + indexes in surreal auth and content namespaces.
+
+    Runs unconditionally during import so namespaces are queryable even when the
+    archive carries no auth or content payload to restore. Without this, surreal
+    lazily creates SCHEMALESS tables on first insert and search surfaces fail
+    with "table does not exist" or return zero results.
+    """
+    from sibyl.persistence.surreal.auth import build_surreal_auth_client
+    from sibyl.persistence.surreal.content import build_surreal_content_client
+    from sibyl_core.backends.surreal import bootstrap_auth_schema, bootstrap_content_schema
+
+    @run_async
+    async def _bootstrap() -> None:
+        if not settings.uses_relational_auth:
+            info("Bootstrapping Surreal auth schema...")
+            await bootstrap_auth_schema(build_surreal_auth_client(), reset=clean)
+        if settings.store == "surreal":
+            info("Bootstrapping Surreal content schema...")
+            await bootstrap_content_schema(build_surreal_content_client(), reset=clean)
+
+    _bootstrap()
+
+
 def _run_pg_dump() -> bytes:
     cmd = [
         _find_pg_tool("pg_dump"),
@@ -671,6 +695,8 @@ def import_archive(
         info("Restoring database dump sidecar...")
         _restore_pg_sql(archive.files[POSTGRES_FILENAME].decode("utf-8"), clean)
 
+    _bootstrap_surreal_runtimes(clean=clean)
+
     if restore_auth and AUTH_FILENAME in archive.files and not settings.uses_relational_auth:
         info("Restoring auth payload into Surreal auth storage...")
         payload = auth_payload_from_archive(archive)
@@ -819,6 +845,8 @@ def rehearse_archive(
     if restore_database_dump:
         info("Restoring database dump sidecar...")
         _restore_pg_sql(archive.files[POSTGRES_FILENAME].decode("utf-8"), clean)
+
+    _bootstrap_surreal_runtimes(clean=clean)
 
     if restore_auth and AUTH_FILENAME in archive.files and not settings.uses_relational_auth:
         info("Restoring auth payload into Surreal auth storage...")
@@ -1024,6 +1052,8 @@ def cutover_archive(
     if restore_database_dump:
         info("Restoring database dump sidecar...")
         _restore_pg_sql(archive.files[POSTGRES_FILENAME].decode("utf-8"), clean)
+
+    _bootstrap_surreal_runtimes(clean=clean)
 
     if restore_auth and AUTH_FILENAME in archive.files and not settings.uses_relational_auth:
         info("Importing auth payload into the Surreal auth runtime...")

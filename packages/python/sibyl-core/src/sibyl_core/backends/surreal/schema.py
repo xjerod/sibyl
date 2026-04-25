@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sibyl_core.config import core_config
+
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.driver import SurrealDriver
 
 
-EMBEDDING_DIM = 1536
+# Graph node embeddings (entity/community/relationship facts) come from Graphiti's
+# embedder, which is configured separately from the OpenAI chunk embedder. Default
+# is 1024-dim; override via SIBYL_GRAPH_EMBEDDING_DIMENSIONS.
+EMBEDDING_DIM = core_config.graph_embedding_dimensions
 _EMBEDDED_SURREAL_SCHEMES = ("memory://", "surrealkv://")
 
 ANALYZER_DEFINITIONS = """

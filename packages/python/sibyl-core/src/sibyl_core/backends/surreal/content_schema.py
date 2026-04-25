@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sibyl_core.backends.surreal.schema import EMBEDDING_DIM, render_fulltext_compatible_sql
+from sibyl_core.backends.surreal.schema import render_fulltext_compatible_sql
+from sibyl_core.config import core_config
+
+# Document chunks use the OpenAI embedder dimension (text-embedding-3-small = 1536),
+# which differs from the graph node embedder dimension. Keep them as separate
+# constants so a graph dim change can't silently break content search and vice versa.
+EMBEDDING_DIM = core_config.embedding_dimensions
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.content_client import SurrealContentClient
