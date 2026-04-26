@@ -30,12 +30,15 @@ from sibyl_core.migrate import (
     CONTENT_FILENAME,
     GRAPH_FILENAME,
     POSTGRES_FILENAME,
+    ArchiveMergeOptions,
+    EntityCollisionPolicy,
     auth_payload_from_archive,
     build_manifest,
     content_payload_from_archive,
     effective_graph_counts,
     graph_payload_from_archive,
     load_archive,
+    merge_archives,
     validate_archive,
     verify_graph_archive,
     write_archive,
@@ -487,6 +490,100 @@ def check_archive(
         )
         info(f"Content tables: {len(row_counts)} tables, {total_rows} rows")
     success("Archive validation passed")
+
+
+@app.command("merge")
+def merge_archive_sources(
+    sources: Annotated[
+        list[Path],
+        typer.Argument(help="Archive .tar.gz files or directories to merge"),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output merged archive path"),
+    ] = Path("sibyl_merged_migration.tar.gz"),
+    canonical_org_id: Annotated[
+        str,
+        typer.Option("--canonical-org-id", help="Canonical organization UUID for merged data"),
+    ] = "",
+    canonical_org_name: Annotated[
+        str,
+        typer.Option(
+            "--canonical-org-name",
+            help="Canonical organization display name; defaults to the first source org name",
+        ),
+    ] = "",
+    canonical_org_slug: Annotated[
+        str,
+        typer.Option(
+            "--canonical-org-slug",
+            help="Canonical organization slug; defaults to the first source org slug",
+        ),
+    ] = "",
+    entity_collision_policy: Annotated[
+        str,
+        typer.Option(
+            "--entity-collision-policy",
+            help="Entity merge policy: merge-by-type-name or keep-all",
+        ),
+    ] = EntityCollisionPolicy.MERGE_BY_TYPE_NAME.value,
+) -> None:
+    """Merge multiple migration archives into one canonical organization archive."""
+    if not sources:
+        error("At least one source archive is required")
+        raise typer.Exit(code=1)
+    if not canonical_org_id.strip():
+        error("--canonical-org-id is required")
+        raise typer.Exit(code=1)
+
+    try:
+        collision_policy = EntityCollisionPolicy(entity_collision_policy)
+    except ValueError as exc:
+        allowed = ", ".join(policy.value for policy in EntityCollisionPolicy)
+        error(f"Invalid --entity-collision-policy. Expected one of: {allowed}")
+        raise typer.Exit(code=1) from exc
+
+    archives = [_load_valid_archive(source) for source in sources]
+    try:
+        result = merge_archives(
+            archives,
+            options=ArchiveMergeOptions(
+                canonical_org_id=canonical_org_id,
+                canonical_org_name=canonical_org_name,
+                canonical_org_slug=canonical_org_slug,
+                entity_collision_policy=collision_policy,
+            ),
+        )
+    except ValueError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    errors = validate_archive(result.archive)
+    if errors:
+        for issue in errors:
+            warn(issue)
+        error("Merged archive validation failed")
+        raise typer.Exit(code=1)
+
+    write_archive(output, manifest=result.archive.manifest, files=result.archive.files)
+
+    info(f"Merged {result.source_count} archive(s)")
+    info(f"Source organizations: {', '.join(result.source_org_ids) or 'unknown'}")
+    if result.graph_counts:
+        info(
+            "Graph counts: "
+            f"{result.graph_counts['entities']} entities, "
+            f"{result.graph_counts['relationships']} relationships, "
+            f"{result.graph_counts['episodes']} episodes, "
+            f"{result.graph_counts['mentions']} mentions"
+        )
+        if result.entity_alias_count:
+            info(f"Merged entity aliases: {result.entity_alias_count}")
+    if result.auth_row_counts:
+        info(f"Auth rows: {sum(result.auth_row_counts.values())}")
+    if result.content_row_counts:
+        info(f"Content rows: {sum(result.content_row_counts.values())}")
+    success(f"Merged archive written to {output}")
 
 
 @app.command("export")

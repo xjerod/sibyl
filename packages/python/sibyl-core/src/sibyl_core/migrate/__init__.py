@@ -21,6 +21,12 @@ from sibyl_core.migrate.archive import (
     validate_archive,
     write_archive,
 )
+from sibyl_core.migrate.merge import (
+    ArchiveMergeOptions,
+    ArchiveMergeResult,
+    EntityCollisionPolicy,
+    merge_archives,
+)
 from sibyl_core.migrate.verify import GraphVerificationResult, verify_graph_archive
 
 __all__ = [
@@ -32,6 +38,9 @@ __all__ = [
     "POSTGRES_FILENAME",
     "ArchiveFileManifest",
     "ArchiveManifest",
+    "ArchiveMergeOptions",
+    "ArchiveMergeResult",
+    "EntityCollisionPolicy",
     "GraphVerificationResult",
     "LoadedArchive",
     "auth_payload_from_archive",
@@ -40,6 +49,7 @@ __all__ = [
     "effective_graph_counts",
     "graph_payload_from_archive",
     "load_archive",
+    "merge_archives",
     "normalize_mention_payloads",
     "normalize_relationship_payloads",
     "validate_archive",

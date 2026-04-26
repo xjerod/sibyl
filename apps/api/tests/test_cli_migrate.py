@@ -16,6 +16,7 @@ from sibyl_core.migrate.archive import (
     GRAPH_FILENAME,
     POSTGRES_FILENAME,
     build_manifest,
+    graph_payload_from_archive,
     load_archive,
     write_archive,
 )
@@ -175,6 +176,36 @@ def test_migrate_check_validates_archive(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Archive validation passed" in result.output
+
+
+def test_migrate_merge_writes_canonical_archive(tmp_path: Path) -> None:
+    first_archive = tmp_path / "first.tar.gz"
+    second_archive = tmp_path / "second.tar.gz"
+    output_archive = tmp_path / "merged.tar.gz"
+    _write_graph_archive(first_archive, org_id="org-a")
+    _write_graph_archive(second_archive, org_id="org-b")
+
+    result = runner.invoke(
+        migrate_cli.app,
+        [
+            "merge",
+            str(first_archive),
+            str(second_archive),
+            "--canonical-org-id",
+            "org-canonical",
+            "--output",
+            str(output_archive),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Merged archive written" in result.output
+
+    loaded = load_archive(output_archive)
+    graph_payload = graph_payload_from_archive(loaded)
+    assert loaded.manifest.organization_id == "org-canonical"
+    assert graph_payload is not None
+    assert graph_payload["organization_id"] == "org-canonical"
 
 
 def test_migrate_export_graph_only_writes_archive(tmp_path: Path) -> None:
