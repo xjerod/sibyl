@@ -40,6 +40,31 @@ These rules exist because real agent sessions consistently fail without them.
 
 ---
 
+## Memory Interface Contract
+
+Sibyl is the agent's durable brain. Use it as a loop, not a lookup box:
+
+1. **Recall before acting.** Run `sibyl recall "<goal>" --intent <mode>` to get compact working
+   memory: active work, decisions, plans, constraints, related graph context, and recent lessons.
+2. **Act with context in hand.** Use recalled IDs for follow-up retrieval with
+   `sibyl entity show <id>` when a preview is not enough.
+3. **Remember while learning.** Run `sibyl remember "Title" "What matters" --kind <type>` whenever
+   future agents should not rediscover a decision, plan, idea, claim, artifact, session, procedure,
+   or gotcha.
+4. **Reflect at clean breakpoints.** On task completion, use `sibyl task complete --learnings "..."`
+   and capture any durable insight that is larger than the task note.
+
+**Perfect interface shape:** `recall -> act -> remember -> reflect`.
+
+Prefer these verbs:
+
+- `recall`: pull agent-ready working context before work.
+- `remember`: store durable memory during or after work.
+- `search`: discover candidates when you do not yet know the goal shape.
+- `entity show`: retrieve full source memory from an ID.
+
+---
+
 ## Quick Start
 
 ```bash
