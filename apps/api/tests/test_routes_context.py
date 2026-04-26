@@ -135,6 +135,10 @@ class TestReflectRoute:
                 "sibyl_core.tools.core.reflect_memory",
                 AsyncMock(return_value=_reflection_pack()),
             ) as reflect_memory,
+            patch(
+                "sibyl_core.tools.core.explore",
+                AsyncMock(return_value=SimpleNamespace(entities=[])),
+            ) as explore,
         ):
             response = await reflect_context(
                 request=ReflectionRequest(
@@ -154,8 +158,117 @@ class TestReflectRoute:
         assert response.persisted_count == 0
         assert reflect_memory.await_args.kwargs["organization_id"] == str(org.id)
         assert reflect_memory.await_args.kwargs["project"] == "proj_1"
+        assert reflect_memory.await_args.kwargs["related_to"] is None
         assert reflect_memory.await_args.kwargs["persist"] is True
         assert reflect_memory.await_args.kwargs["persist_source"] is True
+        explore.assert_awaited_once_with(
+            mode="list",
+            types=["task"],
+            project="proj_1",
+            status="doing",
+            limit=2,
+            organization_id=str(org.id),
+        )
+
+    @pytest.mark.asyncio
+    async def test_reflect_links_explicit_and_single_active_task(self) -> None:
+        from sibyl.api.routes.context import reflect_context
+
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        explore = AsyncMock(return_value=SimpleNamespace(entities=[SimpleNamespace(id="task_2")]))
+
+        with (
+            patch(
+                "sibyl.api.routes.context.list_accessible_project_graph_ids",
+                AsyncMock(return_value=["proj_1"]),
+            ),
+            patch(
+                "sibyl_core.tools.core.reflect_memory",
+                AsyncMock(return_value=_reflection_pack()),
+            ) as reflect_memory,
+            patch("sibyl_core.tools.core.explore", explore),
+        ):
+            await reflect_context(
+                request=ReflectionRequest(
+                    content="We decided to add reflect.",
+                    source_title="Planning",
+                    intent=ContextIntent.BUILD,
+                    project="proj_1",
+                    related_to=["plan_1"],
+                    task_ids=["task_1", "plan_1"],
+                    persist=True,
+                ),
+                org=org,
+                ctx=SimpleNamespace(),
+            )
+
+        assert reflect_memory.await_args.kwargs["related_to"] == ["plan_1", "task_1", "task_2"]
+        explore.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_reflect_skips_active_task_lookup_when_not_persisting(self) -> None:
+        from sibyl.api.routes.context import reflect_context
+
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+
+        with (
+            patch(
+                "sibyl.api.routes.context.list_accessible_project_graph_ids",
+                AsyncMock(return_value=["proj_1"]),
+            ),
+            patch(
+                "sibyl_core.tools.core.reflect_memory",
+                AsyncMock(return_value=_reflection_pack()),
+            ) as reflect_memory,
+            patch("sibyl_core.tools.core.explore", AsyncMock()) as explore,
+        ):
+            await reflect_context(
+                request=ReflectionRequest(
+                    content="We decided to add reflect.",
+                    source_title="Planning",
+                    intent=ContextIntent.BUILD,
+                    project="proj_1",
+                    task_ids=["task_1"],
+                    persist=False,
+                ),
+                org=org,
+                ctx=SimpleNamespace(),
+            )
+
+        assert reflect_memory.await_args.kwargs["related_to"] == ["task_1"]
+        explore.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reflect_skips_active_task_lookup_without_project(self) -> None:
+        from sibyl.api.routes.context import reflect_context
+
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+
+        with (
+            patch(
+                "sibyl.api.routes.context.list_accessible_project_graph_ids",
+                AsyncMock(return_value=["proj_1"]),
+            ),
+            patch(
+                "sibyl_core.tools.core.reflect_memory",
+                AsyncMock(return_value=_reflection_pack()),
+            ) as reflect_memory,
+            patch("sibyl_core.tools.core.explore", AsyncMock()) as explore,
+        ):
+            await reflect_context(
+                request=ReflectionRequest(
+                    content="We decided to add reflect.",
+                    source_title="Planning",
+                    intent=ContextIntent.BUILD,
+                    task_ids=["task_1"],
+                    persist=True,
+                ),
+                org=org,
+                ctx=SimpleNamespace(),
+            )
+
+        assert reflect_memory.await_args.kwargs["related_to"] == ["task_1"]
+        explore.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_reflect_rejects_inaccessible_project(self) -> None:

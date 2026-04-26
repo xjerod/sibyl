@@ -165,6 +165,54 @@ async def _resolve_mcp_project_scope(
     return accessible_projects
 
 
+def _append_unique_ids(existing: list[str] | None, additions: list[str] | None) -> list[str] | None:
+    links = list(existing or [])
+    seen = set(links)
+    for item in additions or []:
+        if item not in seen:
+            links.append(item)
+            seen.add(item)
+    return links or None
+
+
+async def _resolve_mcp_capture_links(
+    *,
+    ctx: McpContext,
+    project: str | None,
+    related_to: list[str] | None,
+    task_ids: list[str] | None,
+    active_task: bool,
+) -> list[str] | None:
+    links = _append_unique_ids(related_to, task_ids)
+    if not active_task or not project:
+        return links
+
+    from sibyl_core.tools.core import explore
+
+    try:
+        response = await explore(
+            mode="list",
+            types=["task"],
+            project=project,
+            status="doing",
+            limit=2,
+            organization_id=ctx.org_id,
+        )
+    except Exception as exc:
+        log.warning("mcp_active_task_lookup_failed", project=project, error=str(exc))
+        return links
+
+    entities = getattr(response, "entities", [])
+    if len(entities) != 1:
+        return links
+
+    task_id = getattr(entities[0], "id", None)
+    if not task_id:
+        return links
+
+    return _append_unique_ids(links, [str(task_id)])
+
+
 async def _remember_mcp_memory(
     *,
     title: str,
@@ -174,7 +222,9 @@ async def _remember_mcp_memory(
     project: str | None,
     tags: list[str] | None,
     related_to: list[str] | None,
-    metadata: dict[str, Any] | None,
+    task_ids: list[str] | None = None,
+    active_task: bool = True,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from sibyl_core.tools.core import add
 
@@ -194,6 +244,13 @@ async def _remember_mcp_memory(
         full_metadata["project_id"] = project
     if ctx.user_id:
         full_metadata["created_by"] = ctx.user_id
+    resolved_links = await _resolve_mcp_capture_links(
+        ctx=ctx,
+        project=project,
+        related_to=related_to,
+        task_ids=task_ids,
+        active_task=active_task,
+    )
 
     result = await add(
         title=title,
@@ -201,11 +258,63 @@ async def _remember_mcp_memory(
         entity_type=kind,
         category=domain,
         tags=tags,
-        related_to=related_to,
+        related_to=resolved_links,
         metadata=full_metadata,
         project=project,
     )
     return _to_dict(result)
+
+
+async def _reflect_mcp_memory(
+    *,
+    content: str,
+    source_title: str = "Session reflection",
+    intent: Literal[
+        "build", "plan", "ideate", "research", "debug", "decide", "learn", "general"
+    ] = "general",
+    domain: str | None = None,
+    project: str | None = None,
+    related_to: list[str] | None = None,
+    task_ids: list[str] | None = None,
+    active_task: bool = True,
+    persist: bool = False,
+    persist_source: bool = True,
+    limit: int = 12,
+) -> dict[str, Any]:
+    from sibyl_core.tools.core import (
+        reflect_memory,
+        reflection_pack_to_dict,
+        reflection_pack_to_markdown,
+    )
+
+    ctx = await _require_mcp_context()
+    await _resolve_mcp_project_scope(
+        ctx,
+        project,
+        require_project_when_restricted=persist,
+    )
+    resolved_links = await _resolve_mcp_capture_links(
+        ctx=ctx,
+        project=project,
+        related_to=related_to,
+        task_ids=task_ids,
+        active_task=active_task and persist,
+    )
+    pack = await reflect_memory(
+        content=content,
+        source_title=source_title,
+        intent=intent,
+        domain=domain,
+        project=project,
+        related_to=resolved_links,
+        organization_id=ctx.org_id,
+        persist=persist,
+        persist_source=persist_source,
+        limit=limit,
+    )
+    payload = reflection_pack_to_dict(pack)
+    payload["markdown"] = reflection_pack_to_markdown(pack)
+    return payload
 
 
 async def _require_org_id() -> str:
@@ -693,6 +802,8 @@ def _register_tools(mcp: FastMCP) -> None:
         project: str | None = None,
         tags: list[str] | None = None,
         related_to: list[str] | None = None,
+        task_ids: list[str] | None = None,
+        active_task: bool = True,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Remember durable context from planning, ideation, building, or any domain.
@@ -701,6 +812,8 @@ def _register_tools(mcp: FastMCP) -> None:
         ideas, claims, procedures, artifacts, sessions, and domain facts. This
         is the capture companion to the context tool: context retrieves what
         matters, remember stores what future agents should not have to relearn.
+        Provide task_ids for exact task context. With a project, active_task
+        links the memory to the single active doing task when one exists.
         """
 
         return await _remember_mcp_memory(
@@ -711,6 +824,8 @@ def _register_tools(mcp: FastMCP) -> None:
             project=project,
             tags=tags,
             related_to=related_to,
+            task_ids=task_ids,
+            active_task=active_task,
             metadata=metadata,
         )
 
@@ -728,6 +843,8 @@ def _register_tools(mcp: FastMCP) -> None:
         domain: str | None = None,
         project: str | None = None,
         related_to: list[str] | None = None,
+        task_ids: list[str] | None = None,
+        active_task: bool = True,
         persist: bool = False,
         persist_source: bool = True,
         limit: int = 12,
@@ -737,35 +854,23 @@ def _register_tools(mcp: FastMCP) -> None:
         Use this after planning, ideation, debugging, or building sessions to
         extract decisions, plans, ideas, claims, artifacts, procedures, and
         session checkpoints. Set persist=True when the candidates should be
-        written back into Sibyl immediately.
+        written back into Sibyl immediately. Provide task_ids for exact task
+        context. With persist=True and a project, active_task links persisted
+        output to the single active doing task when one exists.
         """
-        from sibyl_core.tools.core import (
-            reflect_memory as _reflect_memory,
-            reflection_pack_to_dict,
-            reflection_pack_to_markdown,
-        )
-
-        ctx = await _require_mcp_context()
-        await _resolve_mcp_project_scope(
-            ctx,
-            project,
-            require_project_when_restricted=persist,
-        )
-        pack = await _reflect_memory(
+        return await _reflect_mcp_memory(
             content=content,
             source_title=source_title,
             intent=intent,
             domain=domain,
             project=project,
             related_to=related_to,
-            organization_id=ctx.org_id,
+            task_ids=task_ids,
+            active_task=active_task,
             persist=persist,
             persist_source=persist_source,
             limit=limit,
         )
-        payload = reflection_pack_to_dict(pack)
-        payload["markdown"] = reflection_pack_to_markdown(pack)
-        return payload
 
     # =========================================================================
     # TOOL 7: manage

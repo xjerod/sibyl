@@ -327,6 +327,14 @@ class ReflectionRequest(BaseModel):
     related_to: list[str] | None = Field(
         default=None, description="Entity IDs to link persisted candidates to"
     )
+    task_ids: list[str] | None = Field(
+        default=None,
+        description="Task IDs to link persisted source and candidates to",
+    )
+    active_task: bool = Field(
+        default=True,
+        description="When persisting with a project, link to the single active doing task",
+    )
     persist: bool = Field(default=False, description="Persist candidates into the graph")
     persist_source: bool = Field(
         default=True,
