@@ -544,6 +544,77 @@ def remember_memory(
     run_remember()
 
 
+@app.command("reflect")
+def reflect_memory(
+    content: str | None = typer.Argument(
+        None,
+        help="Raw notes to reflect. Reads stdin if omitted.",
+    ),
+    title: str = typer.Option("Session reflection", "--title", "-t", help="Source/session title"),
+    intent: str = typer.Option(
+        "general",
+        "--intent",
+        "-i",
+        help="Intent: build, plan, ideate, research, debug, decide, learn, general",
+    ),
+    domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Project ID"),
+    all_projects: bool = typer.Option(
+        False,
+        "--all-projects",
+        help="Do not auto-scope to the linked project",
+    ),
+    related_to: str | None = typer.Option(
+        None,
+        "--related-to",
+        help="Comma-separated entity IDs to link persisted candidates to",
+    ),
+    persist: bool = typer.Option(False, "--persist", help="Persist candidates into the graph"),
+    limit: int = typer.Option(12, "--limit", "-l", min=1, max=25, help="Maximum candidates"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Reflect raw notes into memory candidates, optionally persisting them."""
+
+    resolved_content = content
+    if resolved_content is None and not sys.stdin.isatty():
+        resolved_content = sys.stdin.read()
+
+    resolved_content = (resolved_content or "").strip()
+    if not resolved_content:
+        error("Provide notes as an argument or via stdin.")
+        raise typer.Exit(code=1)
+
+    effective_project = project or (None if all_projects else resolve_project_from_cwd())
+    related_ids = (
+        [item.strip() for item in related_to.split(",") if item.strip()] if related_to else None
+    )
+
+    @run_async
+    async def run_reflect() -> None:
+        try:
+            async with get_client() as client:
+                data = await client.reflect(
+                    content=resolved_content,
+                    source_title=title,
+                    intent=intent,
+                    domain=domain,
+                    project=effective_project,
+                    related_to=related_ids,
+                    persist=persist,
+                    limit=limit,
+                )
+
+            if json_output:
+                print_json(data)
+                return
+
+            console.print(data.get("markdown") or "")
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_reflect()
+
+
 @app.command()
 def stats(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),

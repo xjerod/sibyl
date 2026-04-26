@@ -25,6 +25,7 @@ sibyl recall "goal"                     # Agent-ready context before work
 sibyl add "title" "content"             # Add knowledge
 sibyl capture "content"                 # Quick capture from the CLI
 sibyl remember "title" "content" --kind decision # Agent memory capture
+sibyl reflect "raw notes" --persist     # Extract memory candidates from a session
 sibyl session bundle                    # Wake up with active context
 sibyl task list --status todo,doing     # List tasks
 sibyl task start <id>                   # Start task
@@ -33,33 +34,34 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 
 ## All Commands
 
-| Command     | Purpose                                                  |
-| ----------- | -------------------------------------------------------- |
-| `health`    | Check API connectivity and health                        |
-| `search`    | Semantic search                                          |
-| `recall`    | Agent-ready Markdown or JSON context before work         |
-| `add`       | Add knowledge                                            |
-| `capture`   | Quick capture from CLI arguments or stdin                |
-| `remember`  | Capture decisions, plans, ideas, claims, artifacts, and session memory |
-| `stats`     | Show knowledge graph statistics                          |
-| `version`   | Show CLI version information                             |
-| `task`      | Task lifecycle (list, show, create, start, block, unblock, review, complete, archive, update, note) |
-| `epic`      | Epic management (list, start, complete, roadmap)         |
-| `project`   | Project management (list, link, create)                  |
-| `archive`   | Browse archived raw captures                             |
-| `session`   | Package wake-up context for a session or agent           |
-| `entity`    | Entity CRUD                                              |
-| `explore`   | Graph navigation (related, traverse, dependencies, path) |
-| `crawl`     | Documentation sources, crawling, and graph linking       |
-| `debug`     | Debug tools for development                              |
-| `dev`       | Devcontainer shell and lifecycle commands                |
-| `auth`      | Login, logout, API keys                                  |
-| `org`       | Organization switching, member management                |
-| `config`    | Configuration                                            |
-| `context`   | Multi-server context management                          |
-| `local`     | Manage a local Docker-based Sibyl instance               |
-| `logs`      | Tail server logs                                         |
-| `update`    | Update Sibyl components                                  |
+| Command    | Purpose                                                                                             |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| `health`   | Check API connectivity and health                                                                   |
+| `search`   | Semantic search                                                                                     |
+| `recall`   | Agent-ready Markdown or JSON context before work                                                    |
+| `add`      | Add knowledge                                                                                       |
+| `capture`  | Quick capture from CLI arguments or stdin                                                           |
+| `remember` | Capture decisions, plans, ideas, claims, artifacts, and session memory                              |
+| `reflect`  | Extract reviewable memory candidates from raw notes or stdin                                        |
+| `stats`    | Show knowledge graph statistics                                                                     |
+| `version`  | Show CLI version information                                                                        |
+| `task`     | Task lifecycle (list, show, create, start, block, unblock, review, complete, archive, update, note) |
+| `epic`     | Epic management (list, start, complete, roadmap)                                                    |
+| `project`  | Project management (list, link, create)                                                             |
+| `archive`  | Browse archived raw captures                                                                        |
+| `session`  | Package wake-up context for a session or agent                                                      |
+| `entity`   | Entity CRUD                                                                                         |
+| `explore`  | Graph navigation (related, traverse, dependencies, path)                                            |
+| `crawl`    | Documentation sources, crawling, and graph linking                                                  |
+| `debug`    | Debug tools for development                                                                         |
+| `dev`      | Devcontainer shell and lifecycle commands                                                           |
+| `auth`     | Login, logout, API keys                                                                             |
+| `org`      | Organization switching, member management                                                           |
+| `config`   | Configuration                                                                                       |
+| `context`  | Multi-server context management                                                                     |
+| `local`    | Manage a local Docker-based Sibyl instance                                                          |
+| `logs`     | Tail server logs                                                                                    |
+| `update`   | Update Sibyl components                                                                             |
 
 ## Output Formats
 
@@ -87,6 +89,7 @@ compatibility.
 sibyl recall "ship the SurrealDB-native memory path" --intent build
 sibyl capture "Redis TTL mismatch caused the stale auth token bug"
 sibyl remember "Token TTL decision" "Keep refresh token TTL longer than access token TTL." --kind decision --domain auth
+echo "Raw planning notes..." | sibyl reflect --title "Planning session" --persist
 sibyl archive list --surface cli
 sibyl archive show <capture_id>
 ```

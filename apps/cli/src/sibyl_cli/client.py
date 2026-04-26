@@ -783,6 +783,33 @@ class SibylClient:
             data["project"] = project
         return await self._request("POST", "/context/pack", json=data)
 
+    async def reflect(
+        self,
+        content: str,
+        source_title: str = "Session reflection",
+        intent: str = "general",
+        domain: str | None = None,
+        project: str | None = None,
+        related_to: list[str] | None = None,
+        persist: bool = False,
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        """Reflect raw notes into durable memory candidates."""
+        data: dict[str, Any] = {
+            "content": content,
+            "source_title": source_title,
+            "intent": intent,
+            "persist": persist,
+            "limit": limit,
+        }
+        if domain:
+            data["domain"] = domain
+        if project:
+            data["project"] = project
+        if related_to:
+            data["related_to"] = related_to
+        return await self._request("POST", "/context/reflect", json=data)
+
     async def explore(
         self,
         mode: str = "list",

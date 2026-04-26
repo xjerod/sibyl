@@ -31,6 +31,11 @@ from sibyl_core.tools.helpers import (
     auto_tag_task,
     get_project_tags,
 )
+from sibyl_core.tools.reflect import (
+    reflect_memory,
+    reflection_pack_to_dict,
+    reflection_pack_to_markdown,
+)
 from sibyl_core.tools.responses import (
     AddResponse,
     DependencyNode,
@@ -71,5 +76,8 @@ __all__ = [
     "get_health",
     "get_project_tags",
     "get_stats",
+    "reflect_memory",
+    "reflection_pack_to_dict",
+    "reflection_pack_to_markdown",
     "search",
 ]

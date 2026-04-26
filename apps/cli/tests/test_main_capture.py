@@ -227,3 +227,51 @@ def test_recall_command_outputs_markdown_context(
         related_limit=3,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_reflect_command_outputs_markdown_candidates(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.reflect = AsyncMock(
+        return_value={
+            "source_title": "Planning",
+            "markdown": "# Sibyl Reflection: Planning\n\n## Decision: Use reflect",
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "reflect",
+            "We decided to build reflect.",
+            "--title",
+            "Planning",
+            "--intent",
+            "build",
+            "--domain",
+            "sibyl",
+            "--related-to",
+            "project_123",
+            "--persist",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "# Sibyl Reflection: Planning" in result.stdout
+    mock_client.reflect.assert_awaited_once_with(
+        content="We decided to build reflect.",
+        source_title="Planning",
+        intent="build",
+        domain="sibyl",
+        project="project_123",
+        related_to=["project_123"],
+        persist=True,
+        limit=12,
+    )
+    mock_resolve_project_from_cwd.assert_called_once_with()

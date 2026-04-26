@@ -653,7 +653,53 @@ def _register_tools(mcp: FastMCP) -> None:
         )
 
     # =========================================================================
-    # TOOL 6: manage
+    # TOOL 6: reflect
+    # =========================================================================
+
+    @mcp.tool()
+    async def reflect(
+        content: str,
+        source_title: str = "Session reflection",
+        intent: Literal[
+            "build", "plan", "ideate", "research", "debug", "decide", "learn", "general"
+        ] = "general",
+        domain: str | None = None,
+        project: str | None = None,
+        related_to: list[str] | None = None,
+        persist: bool = False,
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        """Reflect raw notes into reviewable durable memory candidates.
+
+        Use this after planning, ideation, debugging, or building sessions to
+        extract decisions, plans, ideas, claims, artifacts, procedures, and
+        session checkpoints. Set persist=True when the candidates should be
+        written back into Sibyl immediately.
+        """
+        from sibyl_core.tools.core import (
+            reflect_memory as _reflect_memory,
+            reflection_pack_to_dict,
+            reflection_pack_to_markdown,
+        )
+
+        ctx = await _require_mcp_context()
+        pack = await _reflect_memory(
+            content=content,
+            source_title=source_title,
+            intent=intent,
+            domain=domain,
+            project=project,
+            related_to=related_to,
+            organization_id=ctx.org_id,
+            persist=persist,
+            limit=limit,
+        )
+        payload = reflection_pack_to_dict(pack)
+        payload["markdown"] = reflection_pack_to_markdown(pack)
+        return payload
+
+    # =========================================================================
+    # TOOL 7: manage
     # =========================================================================
 
     @mcp.tool()

@@ -32,6 +32,7 @@ from sibyl_core.models.projects import (
     SHARED_PROJECT_SLUG,
     is_shared_project_slug,
 )
+from sibyl_core.models.reflection import ReflectionCandidate, ReflectionPack
 from sibyl_core.models.responses import (
     EntityResponse,
     GraphStatsResponse,
@@ -116,6 +117,8 @@ __all__ = [
     "Project",
     "ProjectStatus",
     "RecordDebuggingInput",
+    "ReflectionCandidate",
+    "ReflectionPack",
     "Relationship",
     "RelationshipType",
     "Rule",

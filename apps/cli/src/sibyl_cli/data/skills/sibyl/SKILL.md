@@ -51,8 +51,9 @@ Sibyl is the agent's durable brain. Use it as a loop, not a lookup box:
 3. **Remember while learning.** Run `sibyl remember "Title" "What matters" --kind <type>` whenever
    future agents should not rediscover a decision, plan, idea, claim, artifact, session, procedure,
    or gotcha.
-4. **Reflect at clean breakpoints.** On task completion, use `sibyl task complete --learnings "..."`
-   and capture any durable insight that is larger than the task note.
+4. **Reflect at clean breakpoints.** Run `sibyl reflect "<raw notes>" --title "<session>"` to
+   extract reviewable candidates, and add `--persist` when those candidates should be written into
+   the graph immediately. On task completion, still use `sibyl task complete --learnings "..."`.
 
 **Perfect interface shape:** `recall -> act -> remember -> reflect`.
 
@@ -60,6 +61,8 @@ Prefer these verbs:
 
 - `recall`: pull agent-ready working context before work.
 - `remember`: store durable memory during or after work.
+- `reflect`: convert raw session notes into decisions, plans, ideas, claims, artifacts, procedures,
+  and session checkpoints.
 - `search`: discover candidates when you do not yet know the goal shape.
 - `entity show`: retrieve full source memory from an ID.
 
@@ -111,7 +114,8 @@ sibyl task complete task_a1b2c3d4e5f6 --learnings "OAuth tokens expire..."
 3. RETRIEVE         -> sibyl entity show <id>  (get full content by ID from search)
 4. CHECK TASKS      -> sibyl task list --status doing
 5. WORK & REMEMBER  -> sibyl remember "Title" "Decision, plan, idea, or learning..."
-6. COMPLETE         -> sibyl task complete --learnings "..."
+6. REFLECT          -> sibyl reflect "Raw session notes..." --title "Session" --persist
+7. COMPLETE         -> sibyl task complete --learnings "..."
 ```
 
 **Key insight:** Search shows IDs. Use `sibyl entity show <id>` to fetch full content.
@@ -211,6 +215,21 @@ echo "Exact session notes..." | sibyl remember "Planning session" --kind session
 ```
 
 **When to use:** During work, whenever future agents should not have to rediscover a detail.
+
+---
+
+### Reflect - Session Consolidation
+
+```bash
+# Preview reviewable memory candidates
+sibyl reflect "We decided X. Next we will build Y." --title "Planning checkpoint"
+
+# Persist extracted candidates into the graph
+echo "Raw session notes..." | sibyl reflect --title "Build session" --intent build --persist
+```
+
+**When to use:** At clean breakpoints, after ideation/planning/building, or before a long context
+shift.
 
 ---
 

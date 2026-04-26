@@ -316,6 +316,51 @@ class ContextPackResponse(BaseModel):
     )
 
 
+class ReflectionRequest(BaseModel):
+    """Request for reflecting raw notes into durable memory candidates."""
+
+    content: str = Field(..., min_length=1, description="Raw session notes or conversation text")
+    source_title: str = Field(default="Session reflection", description="Source/session title")
+    intent: ContextIntent = Field(default=ContextIntent.GENERAL, description="Reflection intent")
+    domain: str | None = Field(default=None, description="Domain or category for candidates")
+    project: str | None = Field(default=None, description="Project ID to scope candidates")
+    related_to: list[str] | None = Field(
+        default=None, description="Entity IDs to link persisted candidates to"
+    )
+    persist: bool = Field(default=False, description="Persist candidates into the graph")
+    limit: int = Field(default=12, ge=1, le=25, description="Maximum candidates")
+
+
+class ReflectionCandidateResponse(BaseModel):
+    """Single memory candidate produced by reflection."""
+
+    kind: str
+    title: str
+    content: str
+    reason: str
+    confidence: float
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    persisted_id: str | None = None
+
+
+class ReflectionResponse(BaseModel):
+    """Reflection output with reviewable memory candidates."""
+
+    source_title: str
+    intent: str
+    domain: str | None = None
+    project: str | None = None
+    candidates: list[ReflectionCandidateResponse] = Field(default_factory=list)
+    total_candidates: int = 0
+    persisted_count: int = 0
+    usage_hint: str
+    markdown: str | None = Field(
+        default=None,
+        description="Compact Markdown rendering for agent review",
+    )
+
+
 # =============================================================================
 # Explore Schemas
 # =============================================================================
