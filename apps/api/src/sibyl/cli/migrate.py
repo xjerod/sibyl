@@ -527,6 +527,10 @@ def merge_archive_sources(
             help="Entity merge policy: merge-by-type-name or keep-all",
         ),
     ] = EntityCollisionPolicy.MERGE_BY_TYPE_NAME.value,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Build and validate the merged archive without writing it"),
+    ] = False,
 ) -> None:
     """Merge multiple migration archives into one canonical organization archive."""
     if not sources:
@@ -565,8 +569,6 @@ def merge_archive_sources(
         error("Merged archive validation failed")
         raise typer.Exit(code=1)
 
-    write_archive(output, manifest=result.archive.manifest, files=result.archive.files)
-
     info(f"Merged {result.source_count} archive(s)")
     info(f"Source organizations: {', '.join(result.source_org_ids) or 'unknown'}")
     if result.graph_counts:
@@ -583,6 +585,11 @@ def merge_archive_sources(
         info(f"Auth rows: {sum(result.auth_row_counts.values())}")
     if result.content_row_counts:
         info(f"Content rows: {sum(result.content_row_counts.values())}")
+    if dry_run:
+        success("Merged archive dry run passed")
+        return
+
+    write_archive(output, manifest=result.archive.manifest, files=result.archive.files)
     success(f"Merged archive written to {output}")
 
 

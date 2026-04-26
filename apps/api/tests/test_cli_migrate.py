@@ -208,6 +208,29 @@ def test_migrate_merge_writes_canonical_archive(tmp_path: Path) -> None:
     assert graph_payload["organization_id"] == "org-canonical"
 
 
+def test_migrate_merge_dry_run_does_not_write_archive(tmp_path: Path) -> None:
+    source_archive = tmp_path / "source.tar.gz"
+    output_archive = tmp_path / "merged.tar.gz"
+    _write_graph_archive(source_archive, org_id="org-a")
+
+    result = runner.invoke(
+        migrate_cli.app,
+        [
+            "merge",
+            str(source_archive),
+            "--canonical-org-id",
+            "org-canonical",
+            "--output",
+            str(output_archive),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Merged archive dry run passed" in result.output
+    assert not output_archive.exists()
+
+
 def test_migrate_export_graph_only_writes_archive(tmp_path: Path) -> None:
     archive_path = tmp_path / "migration.tar.gz"
     graph_payload = {
