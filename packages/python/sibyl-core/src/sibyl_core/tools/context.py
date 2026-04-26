@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
+from importlib import import_module
 from typing import Any
 
 from sibyl_core.models.context import (
     ContextFacet,
     ContextIntent,
     ContextItem,
-    ContextItemQualityMetadata,
     ContextPack,
     ContextRelatedItem,
     ContextSection,
@@ -18,6 +18,10 @@ from sibyl_core.models.context import (
 from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 from sibyl_core.tools.search import search as default_search
+
+ContextItemQualityMetadata = getattr(
+    import_module("sibyl_core.models.context"), "ContextItemQualityMetadata", None
+)
 
 SearchFn = Callable[..., Awaitable[SearchResponse]]
 RelatedFn = Callable[..., Awaitable[list[ContextRelatedItem]]]
@@ -189,19 +193,21 @@ def _first_metadata_value(metadata: dict[str, Any], *keys: str) -> str | None:
     return None
 
 
-def _quality_metadata_from_result(result: SearchResult) -> ContextItemQualityMetadata:
+def _quality_metadata_from_result(result: SearchResult) -> Any:
     metadata = result.metadata or {}
-    return ContextItemQualityMetadata(
+    values = dict(
         origin=_compact_metadata_value(result.result_origin),
-        source=_compact_metadata_value(result.source)
-        or _first_metadata_value(
-            metadata,
-            "source",
-            "source_file",
-            "source_name",
-            "source_title",
-            "source_id",
-            "reflection_source_title",
+        source=(
+            _compact_metadata_value(result.source)
+            or _first_metadata_value(
+                metadata,
+                "source",
+                "source_file",
+                "source_name",
+                "source_title",
+                "source_id",
+                "reflection_source_title",
+            )
         ),
         url=_compact_metadata_value(result.url) or _first_metadata_value(metadata, "url"),
         created_at=_first_metadata_value(metadata, "created_at", "created", "captured_at"),
@@ -209,6 +215,9 @@ def _quality_metadata_from_result(result: SearchResult) -> ContextItemQualityMet
         valid_at=_first_metadata_value(metadata, "valid_at", "timestamp", "event_time"),
         project_id=_first_metadata_value(metadata, "project_id", "project"),
     )
+    if ContextItemQualityMetadata is not None:
+        return ContextItemQualityMetadata(**values)
+    return values
 
 
 async def _default_related_items(
@@ -247,18 +256,24 @@ async def _default_related_items(
 
 
 def _item_from_result(result: SearchResult, facet: ContextFacet) -> ContextItem:
-    return ContextItem(
-        id=result.id,
-        type=result.type,
-        name=result.name,
-        content=result.content,
-        score=result.score,
-        facet=facet,
-        reason=_reason_for(result, facet),
-        source=result.source,
-        quality=_quality_metadata_from_result(result),
-        metadata=dict(result.metadata),
-    )
+    metadata = dict(result.metadata)
+    quality = _quality_metadata_from_result(result)
+    kwargs: dict[str, Any] = {
+        "id": result.id,
+        "type": result.type,
+        "name": result.name,
+        "content": result.content,
+        "score": result.score,
+        "facet": facet,
+        "reason": _reason_for(result, facet),
+        "source": result.source,
+        "metadata": metadata,
+    }
+    if "quality" in getattr(ContextItem, "__dataclass_fields__", {}):
+        kwargs["quality"] = quality
+    else:
+        metadata["quality"] = quality
+    return ContextItem(**kwargs)
 
 
 def _dedupe_sections(sections: list[ContextSection], limit: int) -> list[ContextSection]:
@@ -295,22 +310,28 @@ def _compact_text(value: str, max_chars: int) -> str:
     return compact[:cutoff].rstrip() + "..."
 
 
-def _quality_metadata_to_markdown(quality: ContextItemQualityMetadata) -> str:
+def _quality_value(quality: Any, key: str) -> str | None:
+    if isinstance(quality, dict):
+        return _compact_metadata_value(quality.get(key))
+    return _compact_metadata_value(getattr(quality, key, None))
+
+
+def _quality_metadata_to_markdown(quality: Any) -> str:
     parts: list[str] = []
-    if quality.origin:
-        parts.append(quality.origin)
-    if quality.source:
-        parts.append(f"src={quality.source}")
-    if quality.project_id:
-        parts.append(f"project={quality.project_id}")
-    if quality.updated_at:
-        parts.append(f"updated={quality.updated_at}")
-    elif quality.created_at:
-        parts.append(f"created={quality.created_at}")
-    if quality.valid_at:
-        parts.append(f"valid={quality.valid_at}")
-    if quality.url:
-        parts.append(f"url={quality.url}")
+    if origin := _quality_value(quality, "origin"):
+        parts.append(origin)
+    if source := _quality_value(quality, "source"):
+        parts.append(f"src={source}")
+    if project_id := _quality_value(quality, "project_id"):
+        parts.append(f"project={project_id}")
+    if updated_at := _quality_value(quality, "updated_at"):
+        parts.append(f"updated={updated_at}")
+    elif created_at := _quality_value(quality, "created_at"):
+        parts.append(f"created={created_at}")
+    if valid_at := _quality_value(quality, "valid_at"):
+        parts.append(f"valid={valid_at}")
+    if url := _quality_value(quality, "url"):
+        parts.append(f"url={url}")
     return "; ".join(parts)
 
 
@@ -347,7 +368,8 @@ def context_pack_to_markdown(
             if remaining <= 0:
                 break
             type_label = f" ({item.type})" if item.type else ""
-            quality = _quality_metadata_to_markdown(item.quality)
+            item_quality = getattr(item, "quality", item.metadata.get("quality", {}))
+            quality = _quality_metadata_to_markdown(item_quality)
             quality_label = f" _{quality}_" if quality else ""
             lines.append(f"- **{item.name}**{type_label} `{item.id}`{quality_label}")
             if item.reason:
