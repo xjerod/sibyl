@@ -55,6 +55,11 @@ def _graph_results_contain_exact_name_match(
     )
 
 
+def _matches_requested_graph_type(entity: Any, requested_graph_types: set[str]) -> bool:
+    entity_type = str(_serialize_enum(_get_field(entity, "entity_type", "")))
+    return entity_type.lower() in requested_graph_types
+
+
 def _merge_graph_results(
     prioritized_results: Sequence[tuple[Any, float]],
     secondary_results: Sequence[tuple[Any, float]],
@@ -375,9 +380,18 @@ async def search(
                 except Exception as e:
                     log.warning("graph_exact_name_search_failed", error=str(e))
 
-            if not raw_results and requested_graph_types:
+            if requested_graph_types:
+                typed_results = [
+                    (entity, score)
+                    for entity, score in raw_results
+                    if _matches_requested_graph_type(entity, requested_graph_types)
+                ]
+            else:
+                typed_results = raw_results
+
+            if not typed_results and requested_graph_types:
                 try:
-                    raw_results = await with_timeout(
+                    fallback_results = await with_timeout(
                         entity_manager.search(
                             query=query,
                             entity_types=None,
@@ -388,15 +402,17 @@ async def search(
                     )
                 except Exception as e:
                     log.warning("untyped_graph_search_failed", error=str(e))
-                    raw_results = []
+                    fallback_results = []
+                typed_results = [
+                    (entity, score)
+                    for entity, score in fallback_results
+                    if _matches_requested_graph_type(entity, requested_graph_types)
+                ]
+
+            raw_results = typed_results
 
             # Filter and convert to SearchResult
             for entity, score in raw_results:
-                if requested_graph_types:
-                    entity_type = str(_serialize_enum(_get_field(entity, "entity_type", "")))
-                    if entity_type.lower() not in requested_graph_types:
-                        continue
-
                 # Apply filters
                 if language:
                     entity_langs = _get_field(entity, "languages", [])

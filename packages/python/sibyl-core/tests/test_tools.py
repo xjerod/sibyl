@@ -1097,18 +1097,18 @@ class TestSearchTool:
             content="Project-scoped remember should be recalled.",
             metadata={"project_id": "project_123"},
         )
-        pattern = MockEntity(
-            id="pattern_other",
-            entity_type=EntityType.PATTERN,
-            name="Unrelated pattern",
-            description="Should be filtered out.",
-            content="Should be filtered out.",
+        procedure = MockEntity(
+            id="procedure_other",
+            entity_type=EntityType.PROCEDURE,
+            name="Unrelated procedure",
+            description="Typed backend returned the wrong type.",
+            content="Typed backend returned the wrong type.",
             metadata={"project_id": "project_123"},
         )
 
         mock_client = AsyncMock()
         mock_entity_manager = AsyncMock()
-        mock_entity_manager.search = AsyncMock(side_effect=[[], [(decision, 1.0), (pattern, 0.9)]])
+        mock_entity_manager.search = AsyncMock(side_effect=[[(procedure, 0.9)], [(decision, 1.0)]])
         mock_entity_manager.search_exact_name = AsyncMock(return_value=[])
 
         with (
