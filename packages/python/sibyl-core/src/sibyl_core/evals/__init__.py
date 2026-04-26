@@ -1,5 +1,10 @@
 """Shared evaluation utilities for Sibyl retrieval surfaces."""
 
+from sibyl_core.evals.context import (
+    ContextPackEvalResult,
+    ContextPackFixture,
+    evaluate_context_pack,
+)
 from sibyl_core.evals.metrics import (
     EvalMetrics,
     EvalQuery,
@@ -24,6 +29,8 @@ from sibyl_core.evals.runtime import (
 )
 
 __all__ = [
+    "ContextPackEvalResult",
+    "ContextPackFixture",
     "EvalConfig",
     "EvalMetrics",
     "EvalQuery",
@@ -34,6 +41,7 @@ __all__ = [
     "aggregate_metrics",
     "compute_metrics",
     "dcg_at_k",
+    "evaluate_context_pack",
     "get_sample_queries",
     "load_queries",
     "mean_reciprocal_rank",
