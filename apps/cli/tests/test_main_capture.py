@@ -136,6 +136,7 @@ def test_remember_command_records_domain_memory_with_links(
 ) -> None:
     mock_client = MagicMock()
     mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
+    mock_client.explore = AsyncMock(return_value={"entities": []})
     mock_get_client.return_value = _FakeClientContext(mock_client)
 
     runner = CliRunner()
@@ -173,6 +174,13 @@ def test_remember_command_records_domain_memory_with_links(
         },
         sync=False,
     )
+    mock_client.explore.assert_awaited_once_with(
+        mode="list",
+        types=["task"],
+        status="doing",
+        project="project_123",
+        limit=2,
+    )
     assert "Queued decision" in result.stdout
     mock_resolve_project_from_cwd.assert_called_once_with()
 
@@ -185,6 +193,7 @@ def test_remember_command_reads_body_from_stdin(
 ) -> None:
     mock_client = MagicMock()
     mock_client.create_entity = AsyncMock(return_value={"id": "idea_123"})
+    mock_client.explore = AsyncMock()
     mock_get_client.return_value = _FakeClientContext(mock_client)
 
     runner = CliRunner()
@@ -205,6 +214,7 @@ def test_remember_command_reads_body_from_stdin(
         },
         sync=False,
     )
+    mock_client.explore.assert_not_called()
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
@@ -216,6 +226,7 @@ def test_remember_command_project_option_overrides_path_context(
 ) -> None:
     mock_client = MagicMock()
     mock_client.create_entity = AsyncMock(return_value={"id": "plan_123"})
+    mock_client.explore = AsyncMock(return_value={"entities": []})
     mock_get_client.return_value = _FakeClientContext(mock_client)
 
     runner = CliRunner()
@@ -234,7 +245,108 @@ def test_remember_command_project_option_overrides_path_context(
     mock_client.create_entity.assert_awaited_once()
     payload = mock_client.create_entity.await_args.kwargs
     assert payload["metadata"]["project_id"] == "project_explicit"
+    mock_client.explore.assert_awaited_once_with(
+        mode="list",
+        types=["task"],
+        status="doing",
+        project="project_explicit",
+        limit=2,
+    )
     mock_resolve_project_from_cwd.assert_not_called()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_auto_links_single_active_project_task(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
+    mock_client.explore = AsyncMock(return_value={"entities": [{"id": "task_active"}]})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "remember",
+            "Capture active work",
+            "Memories should attach to the task agents are building.",
+            "--kind",
+            "decision",
+        ],
+    )
+
+    assert result.exit_code == 0
+    mock_client.create_entity.assert_awaited_once()
+    payload = mock_client.create_entity.await_args.kwargs
+    assert payload["related_to"] == ["task_active"]
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_skips_ambiguous_active_project_tasks(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
+    mock_client.explore = AsyncMock(
+        return_value={"entities": [{"id": "task_one"}, {"id": "task_two"}]}
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "remember",
+            "Capture active work",
+            "Ambiguous active tasks should not receive automatic links.",
+            "--related-to",
+            "plan_1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = mock_client.create_entity.await_args.kwargs
+    assert payload["related_to"] == ["plan_1"]
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_explicit_task_links_and_no_active_task(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
+    mock_client.explore = AsyncMock()
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "remember",
+            "Capture active work",
+            "Explicit task links should not require active-task lookup.",
+            "--related-to",
+            "plan_1",
+            "--task",
+            "task_1,plan_1",
+            "--no-active-task",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = mock_client.create_entity.await_args.kwargs
+    assert payload["related_to"] == ["plan_1", "task_1"]
+    mock_client.explore.assert_not_called()
+    mock_resolve_project_from_cwd.assert_called_once_with()
 
 
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")

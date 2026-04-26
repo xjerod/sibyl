@@ -209,6 +209,7 @@ sibyl remember "Use context packs" "Agents should receive grouped memory before 
 
 # Scope by domain and link to existing graph entities
 sibyl remember "Flow showcase concept" "Use aerial silk transitions..." --kind idea --domain "flow arts" --related-to domain_abc
+sibyl remember "Worker routing decision" "Verifier agents run after non-trivial patches." --kind decision --task task_abc
 
 # Override the linked project explicitly, or opt out of project scoping
 sibyl remember "Venue decision" "Use runway layout..." --kind decision --project project_abc
@@ -219,8 +220,10 @@ echo "Exact session notes..." | sibyl remember "Planning session" --kind session
 ```
 
 **When to use:** During work, whenever future agents should not have to rediscover a detail. Project
-scoping stores both `metadata.project_id` and a project edge, so future recall can find the memory
-from either structured search or graph traversal.
+scoping stores both `metadata.project_id` and a project edge, and `remember` links to the single
+active `doing` task when exactly one exists. Future recall can find the memory from structured
+search, graph traversal, or task context. Use `--no-active-task` when the memory belongs to the
+project but not the current task.
 
 ---
 

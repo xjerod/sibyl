@@ -9,7 +9,7 @@ Server commands (serve, dev, db, generate, etc.) are in sibyl-server.
 import re
 import sys
 from importlib.metadata import version as pkg_version
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 
 import typer
 
@@ -118,6 +118,55 @@ def _derive_capture_title(content: str) -> str:
     if len(compact) <= CAPTURE_TITLE_CHARS:
         return compact
     return compact[: CAPTURE_TITLE_CHARS - 1].rstrip(" ,;:-") + "…"
+
+
+def _parse_csv_ids(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _append_unique_ids(existing: list[str], additions: list[str]) -> list[str]:
+    seen = set(existing)
+    combined = list(existing)
+    for item in additions:
+        if item not in seen:
+            combined.append(item)
+            seen.add(item)
+    return combined
+
+
+async def _resolve_remember_links(
+    client: Any,
+    project: str | None,
+    related_ids: list[str],
+    task_ids: list[str],
+    active_task: bool,
+) -> list[str] | None:
+    links = _append_unique_ids(related_ids, task_ids)
+    if not active_task or not project:
+        return links or None
+
+    try:
+        response = await client.explore(
+            mode="list",
+            types=["task"],
+            status="doing",
+            project=project,
+            limit=2,
+        )
+    except SibylClientError:
+        return links or None
+
+    tasks = response.get("entities", [])
+    if len(tasks) != 1:
+        return links or None
+
+    task_id = tasks[0].get("id")
+    if not task_id:
+        return links or None
+
+    return _append_unique_ids(links, [str(task_id)])
 
 
 def _print_reflection_persistence_summary(
@@ -520,6 +569,16 @@ def remember_memory(
         "--related-to",
         help="Comma-separated entity IDs to connect with RELATED_TO edges",
     ),
+    task: str | None = typer.Option(
+        None,
+        "--task",
+        help="Comma-separated task IDs to connect with RELATED_TO edges",
+    ),
+    active_task: bool = typer.Option(
+        True,
+        "--active-task/--no-active-task",
+        help="Auto-link to the single active task in the current project",
+    ),
     surface: str = typer.Option("cli", "--surface", help="Capture surface metadata"),
     wait_searchable: bool = typer.Option(
         False,
@@ -540,9 +599,8 @@ def remember_memory(
         raise typer.Exit(code=1)
 
     parsed_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-    related_ids = (
-        [item.strip() for item in related_to.split(",") if item.strip()] if related_to else None
-    )
+    related_ids = _parse_csv_ids(related_to)
+    task_ids = _parse_csv_ids(task)
     metadata = {
         "capture_mode": "remember",
         "capture_surface": surface,
@@ -559,13 +617,20 @@ def remember_memory(
     async def run_remember() -> None:
         try:
             async with get_client() as client:
+                resolved_links = await _resolve_remember_links(
+                    client=client,
+                    project=effective_project,
+                    related_ids=related_ids,
+                    task_ids=task_ids,
+                    active_task=active_task,
+                )
                 data = await client.create_entity(
                     name=title,
                     content=resolved_content,
                     entity_type=kind,
                     category=domain,
                     tags=parsed_tags,
-                    related_to=related_ids,
+                    related_to=resolved_links,
                     metadata=metadata,
                     sync=wait_searchable,
                 )
