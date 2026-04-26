@@ -57,9 +57,27 @@ def test_user_prompt_hook_formats_context_pack_sections() -> None:
 def test_user_prompt_hook_prefers_server_markdown() -> None:
     hook = _load_hook()
 
-    formatted = hook.format_context_pack({"markdown": "# Sibyl Context Pack: boop"})
+    formatted = hook.format_context_pack(
+        {
+            "markdown": "# Sibyl Context Pack: boop",
+            "sections": [{"title": "Decisions", "items": [{"name": "Use packs"}]}],
+        }
+    )
 
     assert formatted == "# Sibyl Context Pack: boop"
+
+
+def test_user_prompt_hook_ignores_empty_markdown_context_pack() -> None:
+    hook = _load_hook()
+
+    formatted = hook.format_context_pack(
+        {
+            "markdown": "# Sibyl Context Pack: empty\n\n_Hint: Capture memory._",
+            "sections": [],
+        }
+    )
+
+    assert formatted == ""
 
 
 def test_user_prompt_hook_uses_context_pack_before_search(
@@ -93,3 +111,51 @@ def test_user_prompt_hook_uses_context_pack_before_search(
     assert calls[0][:2] == ("context", "pack")
     payload = json.loads(capsys.readouterr().out)
     assert "Use context packs" in payload["hookSpecificOutput"]["additionalContext"]
+
+
+def test_user_prompt_hook_falls_back_to_search_when_context_pack_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    hook = _load_hook()
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run_sibyl(*args: str, timeout: int = 4) -> str | None:
+        calls.append(args)
+        if args[:2] == ("context", "pack"):
+            return json.dumps({"markdown": "# Empty", "sections": []})
+        if args and args[0] == "search":
+            return json.dumps(
+                {
+                    "results": [
+                        {
+                            "name": "Scoped remember captures linked project context",
+                            "type": "decision",
+                            "content": "Project-scoped memory should still inject via fallback.",
+                        }
+                    ]
+                }
+            )
+        return None
+
+    monkeypatch.setattr(hook, "run_sibyl", fake_run_sibyl)
+    monkeypatch.setattr(hook, "generate_query_with_haiku", lambda _ctx, _prompt: None)
+    monkeypatch.setattr(hook, "fallback_extract_terms", lambda _prompt: "scoped remember")
+    monkeypatch.setattr(
+        hook.sys,
+        "stdin",
+        io.StringIO(json.dumps({"prompt": "please continue building scoped remember"})),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        hook.main()
+
+    assert exc.value.code == 0
+    assert calls[0][:2] == ("context", "pack")
+    assert calls[1][0] == "search"
+    payload = json.loads(capsys.readouterr().out)
+    assert (
+        "Scoped remember captures linked project context"
+        in payload["hookSpecificOutput"]["additionalContext"]
+    )
+    assert "sibyl remember" in payload["hookSpecificOutput"]["additionalContext"]

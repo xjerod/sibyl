@@ -50,7 +50,7 @@ Sibyl is the agent's durable brain. Use it as a loop, not a lookup box:
    `sibyl entity show <id>` when a preview is not enough.
 3. **Remember while learning.** Run `sibyl remember "Title" "What matters" --kind <type>` whenever
    future agents should not rediscover a decision, plan, idea, claim, artifact, session, procedure,
-   or gotcha.
+   or gotcha. In a linked repo, `remember` automatically scopes the memory to that project.
 4. **Reflect at clean breakpoints.** Run `sibyl reflect "<raw notes>" --title "<session>"` to
    extract reviewable candidates. Add `--persist` to write candidates and preserve the raw session
    source as provenance. On task completion, still use `sibyl task complete --learnings "..."`.
@@ -210,11 +210,17 @@ sibyl remember "Use context packs" "Agents should receive grouped memory before 
 # Scope by domain and link to existing graph entities
 sibyl remember "Flow showcase concept" "Use aerial silk transitions..." --kind idea --domain "flow arts" --related-to domain_abc
 
+# Override the linked project explicitly, or opt out of project scoping
+sibyl remember "Venue decision" "Use runway layout..." --kind decision --project project_abc
+sibyl remember "Global convention" "Always cite current docs..." --kind rule --all-projects
+
 # Read the body from stdin
 echo "Exact session notes..." | sibyl remember "Planning session" --kind session
 ```
 
-**When to use:** During work, whenever future agents should not have to rediscover a detail.
+**When to use:** During work, whenever future agents should not have to rediscover a detail. Project
+scoping stores both `metadata.project_id` and a project edge, so future recall can find the memory
+from either structured search or graph traversal.
 
 ---
 

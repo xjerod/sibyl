@@ -325,8 +325,19 @@ def infer_intent(prompt: str) -> str:
     return "build"
 
 
+def context_pack_has_items(pack: dict[str, Any]) -> bool:
+    """Return true when a context pack contains injectable memory items."""
+    sections = pack.get("sections")
+    if not isinstance(sections, list):
+        return False
+    return any(isinstance(section, dict) and section.get("items") for section in sections)
+
+
 def format_context_pack(pack: dict) -> str:
     """Format a structured context pack for injection."""
+    if not context_pack_has_items(pack):
+        return ""
+
     markdown = pack.get("markdown")
     if isinstance(markdown, str) and markdown.strip():
         return markdown.strip()
@@ -464,7 +475,10 @@ def main():
 
         # Output as additional context
         # Include a reminder about the /sibyl skill for assistants that haven't loaded it
-        sibyl_hint = "Sibyl is your knowledge graph. Run `/sibyl` for full CLI instructions."
+        sibyl_hint = (
+            "Sibyl is your knowledge graph. Run `/sibyl` for full CLI instructions; "
+            "use `sibyl remember` to persist new decisions back to the linked project."
+        )
         response = {
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",
