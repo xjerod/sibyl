@@ -24,7 +24,21 @@ _READ_ROLES = (
     OrganizationRole.MEMBER,
     OrganizationRole.VIEWER,
 )
-_SESSION_MEMORY_TYPES = ["pattern", "procedure", "rule", "template", "episode", "document"]
+_SESSION_MEMORY_TYPES = [
+    "decision",
+    "plan",
+    "idea",
+    "claim",
+    "artifact",
+    "session",
+    "pattern",
+    "procedure",
+    "rule",
+    "template",
+    "episode",
+    "domain",
+    "document",
+]
 
 router = APIRouter(
     prefix="/session",

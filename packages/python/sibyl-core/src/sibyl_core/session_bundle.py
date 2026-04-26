@@ -85,7 +85,7 @@ def remember_next(
     if doing:
         return (
             f"Continue {doing.get('name', 'your active task')} and capture anything non-obvious "
-            "with `sibyl capture`."
+            "with `sibyl remember`."
         )
 
     if relevant_entities:
@@ -94,6 +94,6 @@ def remember_next(
         )
 
     if has_project:
-        return "No active tasks yet. Start one or capture the next useful learning."
+        return "No active tasks yet. Start one or remember the next useful learning."
 
     return "Link this directory to a project so session context stays scoped."

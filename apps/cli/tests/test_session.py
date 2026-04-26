@@ -21,7 +21,9 @@ class _FakeClientContext:
 
 @patch("sibyl_cli.session.get_effective_server_url", return_value="http://localhost:3334")
 @patch("sibyl_cli.session.get_effective_project", return_value="project_123")
-@patch("sibyl_cli.session.get_current_context", return_value=("project_123", "/Users/bliss/dev/sibyl"))
+@patch(
+    "sibyl_cli.session.get_current_context", return_value=("project_123", "/Users/bliss/dev/sibyl")
+)
 @patch("sibyl_cli.session.get_active_context")
 @patch("sibyl_cli.session.get_client")
 def test_session_bundle_json_packages_context_tasks_and_memories(
@@ -71,9 +73,9 @@ def test_session_bundle_json_packages_context_tasks_and_memories(
                     "metadata": {},
                 },
                 {
-                    "id": "pattern_1",
-                    "name": "Hook output should share a CLI contract",
-                    "entity_type": "pattern",
+                    "id": "decision_1",
+                    "name": "Use context packs for wake-up",
+                    "entity_type": "decision",
                     "content": "[Hooks] Keep session-start thin and call a first-class bundle command.",
                     "metadata": {},
                 },
@@ -112,9 +114,9 @@ def test_session_bundle_json_packages_context_tasks_and_memories(
     ]
     assert payload["relevant_entities"] == [
         {
-            "id": "pattern_1",
-            "name": "Hook output should share a CLI contract",
-            "entity_type": "pattern",
+            "id": "decision_1",
+            "name": "Use context packs for wake-up",
+            "entity_type": "decision",
             "source": None,
             "preview": "Keep session-start thin and call a first-class bundle command.",
             "document_id": None,
@@ -157,7 +159,10 @@ def test_session_bundle_without_project_guides_user_to_link_one(
     assert payload["query"] is None
     assert payload["tasks"] == []
     assert payload["relevant_entities"] == []
-    assert payload["remember_next"] == "Link this directory to a project so session context stays scoped."
+    assert (
+        payload["remember_next"]
+        == "Link this directory to a project so session context stays scoped."
+    )
 
     mock_client.get_entity.assert_not_called()
     mock_client.search.assert_not_called()
@@ -168,7 +173,9 @@ def test_session_bundle_without_project_guides_user_to_link_one(
 
 @patch("sibyl_cli.session.get_effective_server_url", return_value="http://localhost:3334")
 @patch("sibyl_cli.session.get_effective_project", return_value="project_123")
-@patch("sibyl_cli.session.get_current_context", return_value=("project_123", "/Users/bliss/dev/sibyl"))
+@patch(
+    "sibyl_cli.session.get_current_context", return_value=("project_123", "/Users/bliss/dev/sibyl")
+)
 @patch("sibyl_cli.session.get_active_context")
 @patch("sibyl_cli.session.get_client")
 def test_session_bundle_renders_human_output(
@@ -200,9 +207,9 @@ def test_session_bundle_renders_human_output(
         return_value={
             "results": [
                 {
-                    "id": "pattern_1",
+                    "id": "decision_1",
                     "name": "Session bundles stay small",
-                    "entity_type": "pattern",
+                    "entity_type": "decision",
                     "content": "Keep the bundle tight and readable.",
                     "metadata": {},
                 }
@@ -219,3 +226,25 @@ def test_session_bundle_renders_human_output(
     assert "Fix session bundle" in result.stdout
     assert "Session bundles stay small" in result.stdout
     assert "Remember Next" in result.stdout
+
+
+def test_session_bundle_remember_next_uses_remember_for_active_task() -> None:
+    from sibyl_core.session_bundle import remember_next
+
+    assert (
+        remember_next(
+            [{"id": "task_1", "name": "Build memory loop", "status": "doing"}],
+            [],
+            has_project=True,
+        )
+        == "Continue Build memory loop and capture anything non-obvious with `sibyl remember`."
+    )
+
+
+def test_session_bundle_remember_next_uses_remember_without_active_tasks() -> None:
+    from sibyl_core.session_bundle import remember_next
+
+    assert (
+        remember_next([], [], has_project=True)
+        == "No active tasks yet. Start one or remember the next useful learning."
+    )

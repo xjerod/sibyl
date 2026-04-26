@@ -43,10 +43,10 @@ class TestSessionBundleRoute:
                     "metadata": {},
                 },
                 {
-                    "id": "procedure_1",
-                    "type": "procedure",
-                    "name": "Review raw captures before consolidation",
-                    "content": "[Procedure] Check the archive queue before you run maintenance.",
+                    "id": "decision_1",
+                    "type": "decision",
+                    "name": "Use session bundles for wake-up",
+                    "content": "[Decision] Check the archive queue before you run maintenance.",
                     "metadata": {},
                 },
             ]
@@ -76,7 +76,7 @@ class TestSessionBundleRoute:
         assert response.query == "Ship session snapshot | Archive triage"
         assert response.remember_next == "Unblock Archive triage before you pick up new work."
         assert [task.id for task in response.tasks] == ["task_1", "task_2"]
-        assert [memory.id for memory in response.relevant_entities] == ["procedure_1"]
+        assert [memory.id for memory in response.relevant_entities] == ["decision_1"]
         assert response.relevant_entities[0].preview == (
             "Check the archive queue before you run maintenance."
         )
@@ -86,6 +86,9 @@ class TestSessionBundleRoute:
         assert explore.await_args.kwargs["project_ids"] == ["proj_1"]
         assert search.await_args.kwargs["project"] == "proj_1"
         assert search.await_args.kwargs["accessible_projects"] is None
+        assert "decision" in search.await_args.kwargs["types"]
+        assert "plan" in search.await_args.kwargs["types"]
+        assert "idea" in search.await_args.kwargs["types"]
 
     @pytest.mark.asyncio
     async def test_rejects_inaccessible_project_scope(self) -> None:
@@ -146,7 +149,7 @@ class TestSessionBundleRoute:
         assert response.relevant_entities == []
         assert (
             response.remember_next
-            == "No active tasks yet. Start one or capture the next useful learning."
+            == "No active tasks yet. Start one or remember the next useful learning."
         )
         assert explore.await_args.kwargs["accessible_projects"] == ["proj_1"]
         search.assert_not_awaited()

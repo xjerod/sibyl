@@ -15,7 +15,8 @@ sibyl session bundle --json
 
 - Current server and project context
 - Doing or blocked tasks for the current project
-- A few relevant memories derived from the current task titles or your explicit query
+- A few relevant decisions, plans, ideas, procedures, or other memories derived from the current
+  task titles or your explicit query
 - One short "remember next" line
 
 ## Options
