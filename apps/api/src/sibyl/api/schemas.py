@@ -32,6 +32,10 @@ class EntityCreate(EntityBase):
     """Schema for creating a new entity."""
 
     entity_type: EntityType = Field(default=EntityType.EPISODE, description="Type of entity")
+    related_to: list[str] | None = Field(
+        default=None,
+        description="Entity IDs to explicitly connect with RELATED_TO edges",
+    )
 
 
 class EntityUpdate(BaseModel):

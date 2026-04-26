@@ -129,3 +129,54 @@ async def test_regular_entity_create_does_not_archive_raw_capture() -> None:
 
     assert resp.id == "episode_normal"
     content_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_remember_capture_creates_raw_archive_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sibyl.config import settings
+
+    monkeypatch.setattr(settings, "store", "legacy")
+    org = MagicMock()
+    org.id = uuid4()
+
+    ctx = MagicMock()
+    ctx.user.id = uuid4()
+
+    entity = EntityCreate(
+        name="Architecture decision",
+        description="",
+        content="Use first-class context packs for agent injection.",
+        entity_type=EntityType.DECISION,
+        metadata={
+            "capture_mode": "remember",
+            "capture_surface": "cli",
+            "remember_kind": "decision",
+        },
+    )
+
+    add_result = MagicMock()
+    add_result.success = True
+    add_result.id = "decision_new"
+    add_result.message = "ok"
+
+    content_session = _session()
+
+    with (
+        patch("sibyl_core.tools.core.add", AsyncMock(return_value=add_result)),
+        patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
+    ):
+        resp = await create_entity(
+            request=_request(),
+            entity=entity,
+            org=org,
+            ctx=ctx,
+            content_session=content_session,
+            sync=False,
+        )
+
+    assert resp.id == "decision_new"
+    archive = content_session.add.call_args.args[0]
+    assert archive.entity_id == "decision_new"
+    assert archive.raw_content == "Use first-class context packs for agent injection."
+    assert archive.entity_type == EntityType.DECISION.value
+    assert archive.capture_surface == "cli"

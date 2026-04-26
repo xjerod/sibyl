@@ -414,6 +414,89 @@ def capture_memory(
     run_capture()
 
 
+@app.command("remember")
+def remember_memory(
+    title: str = typer.Argument(..., help="Title/name of the memory"),
+    content: str | None = typer.Argument(
+        None,
+        help="Memory body. Reads stdin if omitted.",
+    ),
+    kind: str = typer.Option(
+        "episode",
+        "--kind",
+        "-k",
+        help="Memory type: decision, plan, idea, claim, artifact, session, procedure, pattern, episode",
+    ),
+    domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
+    tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
+    related_to: str | None = typer.Option(
+        None,
+        "--related-to",
+        help="Comma-separated entity IDs to connect with RELATED_TO edges",
+    ),
+    surface: str = typer.Option("cli", "--surface", help="Capture surface metadata"),
+    wait_searchable: bool = typer.Option(
+        False,
+        "--wait-searchable",
+        help="Wait until the new memory is persisted and ready for direct retrieval",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Remember a decision, plan, idea, claim, artifact, session, or learning."""
+
+    resolved_content = content
+    if resolved_content is None and not sys.stdin.isatty():
+        resolved_content = sys.stdin.read()
+
+    resolved_content = (resolved_content or "").strip()
+    if not resolved_content:
+        error("Provide memory content as an argument or via stdin.")
+        raise typer.Exit(code=1)
+
+    parsed_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    related_ids = (
+        [item.strip() for item in related_to.split(",") if item.strip()] if related_to else None
+    )
+    metadata = {
+        "capture_mode": "remember",
+        "capture_surface": surface,
+        "remember_kind": kind,
+    }
+    if domain:
+        metadata["domain"] = domain
+
+    @run_async
+    async def run_remember() -> None:
+        try:
+            async with get_client() as client:
+                data = await client.create_entity(
+                    name=title,
+                    content=resolved_content,
+                    entity_type=kind,
+                    category=domain,
+                    tags=parsed_tags,
+                    related_to=related_ids,
+                    metadata=metadata,
+                    sync=wait_searchable,
+                )
+
+                entity_id = data.get("id", "unknown")
+
+                if json_output:
+                    print_json(data)
+                    return
+
+                if wait_searchable:
+                    success(f"Remembered {kind}: {title}")
+                else:
+                    info(f"Queued {kind}: {title}")
+                console.print(f"  [dim]ID: {entity_id}[/dim]")
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_remember()
+
+
 @app.command()
 def stats(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),

@@ -25,6 +25,7 @@ async def test_entities_create_passes_task_fields_to_add() -> None:
         description="",
         content="do it",
         entity_type=EntityType.TASK,
+        related_to=["decision_123"],
         metadata={
             "project_id": "project_123",
             "epic_id": "epic_456",
@@ -60,3 +61,4 @@ async def test_entities_create_passes_task_fields_to_add() -> None:
     assert kwargs["epic"] == "epic_456"
     assert kwargs["technologies"] == ["python"]
     assert kwargs["depends_on"] == ["task_a", "task_b"]
+    assert kwargs["related_to"] == ["decision_123"]

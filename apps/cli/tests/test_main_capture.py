@@ -126,3 +126,72 @@ def test_capture_command_waits_for_direct_readiness(mock_get_client: MagicMock) 
     )
     mock_client.search.assert_not_called()
     assert "Captured episode" in result.stdout
+
+
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_records_domain_memory_with_links(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "remember",
+            "Use context packs",
+            "Agents should receive grouped memory before building.",
+            "--kind",
+            "decision",
+            "--domain",
+            "agent-memory",
+            "--tags",
+            "agents,context",
+            "--related-to",
+            "plan_1,idea_2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    mock_client.create_entity.assert_awaited_once_with(
+        name="Use context packs",
+        content="Agents should receive grouped memory before building.",
+        entity_type="decision",
+        category="agent-memory",
+        tags=["agents", "context"],
+        related_to=["plan_1", "idea_2"],
+        metadata={
+            "capture_mode": "remember",
+            "capture_surface": "cli",
+            "remember_kind": "decision",
+            "domain": "agent-memory",
+        },
+        sync=False,
+    )
+    assert "Queued decision" in result.stdout
+
+
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_reads_body_from_stdin(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "idea_123"})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["remember", "Model any domain", "--kind", "idea"], input="Body")
+
+    assert result.exit_code == 0
+    mock_client.create_entity.assert_awaited_once_with(
+        name="Model any domain",
+        content="Body",
+        entity_type="idea",
+        category=None,
+        tags=None,
+        related_to=None,
+        metadata={
+            "capture_mode": "remember",
+            "capture_surface": "cli",
+            "remember_kind": "idea",
+        },
+        sync=False,
+    )

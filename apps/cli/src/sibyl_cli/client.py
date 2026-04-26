@@ -516,6 +516,7 @@ class SibylClient:
         category: str | None = None,
         languages: list[str] | None = None,
         tags: list[str] | None = None,
+        related_to: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         sync: bool = False,
     ) -> dict[str, Any]:
@@ -538,6 +539,8 @@ class SibylClient:
             data["languages"] = languages
         if tags:
             data["tags"] = tags
+        if related_to:
+            data["related_to"] = related_to
         if metadata:
             data["metadata"] = metadata
 

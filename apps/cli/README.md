@@ -23,6 +23,7 @@ sibyl project link <project_id>
 sibyl search "query"                    # Semantic search
 sibyl add "title" "content"             # Add knowledge
 sibyl capture "content"                 # Quick capture from the CLI
+sibyl remember "title" "content" --kind decision # Agent memory capture
 sibyl session bundle                    # Wake up with active context
 sibyl task list --status todo,doing     # List tasks
 sibyl task start <id>                   # Start task
@@ -37,6 +38,7 @@ sibyl task complete <id> --learnings "..." # Complete with learnings
 | `search`    | Semantic search                                          |
 | `add`       | Add knowledge                                            |
 | `capture`   | Quick capture from CLI arguments or stdin                |
+| `remember`  | Capture decisions, plans, ideas, claims, artifacts, and session memory |
 | `stats`     | Show knowledge graph statistics                          |
 | `version`   | Show CLI version information                             |
 | `task`      | Task lifecycle (list, show, create, start, block, unblock, review, complete, archive, update, note) |
@@ -81,6 +83,7 @@ compatibility.
 
 ```bash
 sibyl capture "Redis TTL mismatch caused the stale auth token bug"
+sibyl remember "Token TTL decision" "Keep refresh token TTL longer than access token TTL." --kind decision --domain auth
 sibyl archive list --surface cli
 sibyl archive show <capture_id>
 ```

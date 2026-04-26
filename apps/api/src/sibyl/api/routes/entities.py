@@ -856,6 +856,7 @@ async def create_entity(
             category=entity.category,
             languages=entity.languages,
             tags=entity.tags,
+            related_to=entity.related_to,
             metadata=merged_metadata,
             # Task-specific fields
             project=project,
@@ -871,7 +872,7 @@ async def create_entity(
         if not result.success or not result.id:
             raise HTTPException(status_code=400, detail=result.message)
 
-        if request_metadata.get("capture_mode") == "quick":
+        if request_metadata.get("capture_mode") in {"quick", "remember"}:
             await _archive_raw_capture(
                 content_session,
                 organization_id=org.id,

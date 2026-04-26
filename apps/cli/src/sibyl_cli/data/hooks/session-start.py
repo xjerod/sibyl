@@ -98,7 +98,7 @@ def main():
             lines.append("Session bundle is empty right now.")
 
         if not bundle or not bundle.get("remember_next"):
-            lines.append("Suggest 'sibyl capture' when solving something non-obvious.")
+            lines.append("Suggest 'sibyl remember' when solving something non-obvious.")
         print("\n".join(lines))
         sys.exit(0)
 

@@ -84,7 +84,7 @@ sibyl task complete task_a1b2c3d4e5f6 --learnings "OAuth tokens expire..."
 1. SEARCH           -> sibyl search "topic"
 2. RETRIEVE         -> sibyl entity show <id>  (get full content by ID from search)
 3. CHECK TASKS      -> sibyl task list --status doing
-4. WORK & CAPTURE   -> sibyl add "Title" "Learning..."
+4. WORK & REMEMBER  -> sibyl remember "Title" "Decision, plan, idea, or learning..."
 5. COMPLETE         -> sibyl task complete --learnings "..."
 ```
 
@@ -154,6 +154,23 @@ sibyl entity show "convention:abe924cb-8cee-4cb5-9dd1-818201c1c946"
 ```
 
 **When to use:** Before implementing anything. Find existing patterns, past solutions, gotchas.
+
+---
+
+### Remember - Agent Memory Capture
+
+```bash
+# Capture decisions, plans, ideas, claims, artifacts, sessions, or learnings
+sibyl remember "Use context packs" "Agents should receive grouped memory before building." --kind decision
+
+# Scope by domain and link to existing graph entities
+sibyl remember "Flow showcase concept" "Use aerial silk transitions..." --kind idea --domain "flow arts" --related-to domain_abc
+
+# Read the body from stdin
+echo "Exact session notes..." | sibyl remember "Planning session" --kind session
+```
+
+**When to use:** During work, whenever future agents should not have to rediscover a detail.
 
 ---
 
