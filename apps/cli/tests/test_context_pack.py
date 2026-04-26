@@ -40,6 +40,15 @@ def _context_pack() -> dict:
                         "facet": "decisions",
                         "reason": "decision records a choice or rationale the agent should preserve",
                         "source": None,
+                        "quality": {
+                            "origin": "graph",
+                            "source": "docs/architecture/SIBYL_NORTHSTAR.md",
+                            "url": None,
+                            "created_at": None,
+                            "updated_at": None,
+                            "valid_at": None,
+                            "project_id": "project_123",
+                        },
                         "metadata": {},
                     }
                 ],
@@ -70,6 +79,7 @@ def test_context_pack_json_uses_detected_project(
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["sections"][0]["items"][0]["id"] == "decision_1"
+    assert payload["sections"][0]["items"][0]["quality"]["project_id"] == "project_123"
     mock_client.context_pack.assert_called_once_with(
         goal="ship faster",
         intent="build",

@@ -276,6 +276,18 @@ class ContextPackRelatedItem(BaseModel):
     distance: int = 1
 
 
+class ContextPackItemQuality(BaseModel):
+    """Source and freshness metadata for a selected memory."""
+
+    origin: str | None = None
+    source: str | None = None
+    url: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    valid_at: str | None = None
+    project_id: str | None = None
+
+
 class ContextPackItem(BaseModel):
     """Single selected memory inside a context pack."""
 
@@ -287,6 +299,7 @@ class ContextPackItem(BaseModel):
     facet: ContextFacet
     reason: str
     source: str | None = None
+    quality: ContextPackItemQuality = Field(default_factory=ContextPackItemQuality)
     metadata: dict[str, Any] = Field(default_factory=dict)
     related: list[ContextPackRelatedItem] = Field(default_factory=list)
 

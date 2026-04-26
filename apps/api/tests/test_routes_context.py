@@ -9,7 +9,14 @@ import pytest
 from sibyl.api.routes.context import context_pack
 from sibyl.api.schemas import ContextPackRequest, ReflectionRequest
 from sibyl.auth.errors import ProjectAccessDeniedError
-from sibyl_core.models.context import ContextIntent, ContextPack
+from sibyl_core.models.context import (
+    ContextFacet,
+    ContextIntent,
+    ContextItem,
+    ContextItemQualityMetadata,
+    ContextPack,
+    ContextSection,
+)
 from sibyl_core.models.reflection import ReflectionCandidate, ReflectionPack
 
 
@@ -22,6 +29,40 @@ def _pack() -> ContextPack:
         project=None,
         sections=[],
         total_items=0,
+    )
+
+
+def _pack_with_quality() -> ContextPack:
+    return ContextPack(
+        goal="ship faster",
+        intent=ContextIntent.BUILD,
+        query="ship faster",
+        domain=None,
+        project=None,
+        sections=[
+            ContextSection(
+                facet=ContextFacet.DECISIONS,
+                title="Decisions",
+                items=[
+                    ContextItem(
+                        id="decision_1",
+                        type="decision",
+                        name="Use context packs",
+                        content="Agents should receive precise grouped memory.",
+                        score=0.91,
+                        facet=ContextFacet.DECISIONS,
+                        reason="decision records a choice",
+                        source="Northstar",
+                        quality=ContextItemQualityMetadata(
+                            origin="graph",
+                            source="docs/architecture/SIBYL_NORTHSTAR.md",
+                            project_id="project-sibyl",
+                        ),
+                    )
+                ],
+            )
+        ],
+        total_items=1,
     )
 
 
@@ -54,6 +95,31 @@ class TestContextPackRoute:
         assert compile_context.await_args.kwargs["project"] is None
         assert compile_context.await_args.kwargs["include_related"] is True
         assert compile_context.await_args.kwargs["related_limit"] == 3
+
+    @pytest.mark.asyncio
+    async def test_context_pack_preserves_quality_metadata(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+
+        with (
+            patch(
+                "sibyl.api.routes.context.list_accessible_project_graph_ids",
+                AsyncMock(return_value=["proj_1"]),
+            ),
+            patch(
+                "sibyl_core.tools.context.compile_context",
+                AsyncMock(return_value=_pack_with_quality()),
+            ),
+        ):
+            response = await context_pack(
+                request=ContextPackRequest(goal="ship faster"),
+                org=org,
+                ctx=SimpleNamespace(),
+            )
+
+        item = response.sections[0].items[0]
+        assert item.quality.origin == "graph"
+        assert item.quality.source == "docs/architecture/SIBYL_NORTHSTAR.md"
+        assert item.quality.project_id == "project-sibyl"
 
     @pytest.mark.asyncio
     async def test_context_pack_uses_requested_accessible_project(self) -> None:
