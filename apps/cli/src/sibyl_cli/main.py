@@ -9,7 +9,7 @@ Server commands (serve, dev, db, generate, etc.) are in sibyl-server.
 import re
 import sys
 from importlib.metadata import version as pkg_version
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 
@@ -118,6 +118,39 @@ def _derive_capture_title(content: str) -> str:
     if len(compact) <= CAPTURE_TITLE_CHARS:
         return compact
     return compact[: CAPTURE_TITLE_CHARS - 1].rstrip(" ,;:-") + "…"
+
+
+def _print_reflection_persistence_summary(
+    data: dict[str, object], *, persist: bool, persist_source: bool
+) -> None:
+    if not persist:
+        return
+
+    source_id = data.get("source_id")
+    candidates = data.get("candidates")
+    candidate_items = candidates if isinstance(candidates, list) else []
+    persisted_ids: list[object] = []
+    for item in candidate_items:
+        if not isinstance(item, dict):
+            continue
+        candidate = cast("dict[str, object]", item)
+        if persisted_id := candidate.get("persisted_id"):
+            persisted_ids.append(persisted_id)
+    persisted_count = data.get("persisted_count", len(persisted_ids))
+    total_candidates = data.get("total_candidates", len(candidate_items))
+
+    console.print()
+    if persist_source:
+        if source_id:
+            success(f"Persisted source: {source_id}")
+        else:
+            info("Persisted source: unavailable")
+    else:
+        info("Source persistence skipped (--no-source)")
+
+    success(f"Persisted candidates: {persisted_count}/{total_candidates}")
+    for persisted_id in persisted_ids:
+        console.print(f"  [dim]ID: {persisted_id}[/dim]")
 
 
 def _handle_client_error(e: SibylClientError) -> None:
@@ -615,6 +648,11 @@ def reflect_memory(
                 return
 
             console.print(data.get("markdown") or "")
+            _print_reflection_persistence_summary(
+                data,
+                persist=persist,
+                persist_source=persist_source,
+            )
         except SibylClientError as e:
             _handle_client_error(e)
 

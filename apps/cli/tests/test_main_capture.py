@@ -239,6 +239,10 @@ def test_reflect_command_outputs_markdown_candidates(
     mock_client.reflect = AsyncMock(
         return_value={
             "source_title": "Planning",
+            "source_id": "session_123",
+            "persisted_count": 1,
+            "total_candidates": 1,
+            "candidates": [{"kind": "decision", "persisted_id": "decision_123"}],
             "markdown": "# Sibyl Reflection: Planning\n\n## Decision: Use reflect",
         }
     )
@@ -264,6 +268,9 @@ def test_reflect_command_outputs_markdown_candidates(
 
     assert result.exit_code == 0
     assert "# Sibyl Reflection: Planning" in result.stdout
+    assert "Persisted source: session_123" in result.stdout
+    assert "Persisted candidates: 1/1" in result.stdout
+    assert "ID: decision_123" in result.stdout
     mock_client.reflect.assert_awaited_once_with(
         content="We decided to build reflect.",
         source_title="Planning",
@@ -273,6 +280,90 @@ def test_reflect_command_outputs_markdown_candidates(
         related_to=["project_123"],
         persist=True,
         persist_source=True,
+        limit=12,
+    )
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_reflect_command_reads_notes_from_stdin(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.reflect = AsyncMock(
+        return_value={
+            "source_title": "Planning",
+            "markdown": "# Sibyl Reflection: Planning\n\n## Plan: Build reflect",
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["reflect", "--title", "Planning"], input="Build notes\n")
+
+    assert result.exit_code == 0
+    assert "# Sibyl Reflection: Planning" in result.stdout
+    mock_client.reflect.assert_awaited_once_with(
+        content="Build notes",
+        source_title="Planning",
+        intent="general",
+        domain=None,
+        project="project_123",
+        related_to=None,
+        persist=False,
+        persist_source=True,
+        limit=12,
+    )
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_reflect_command_can_persist_candidates_without_source(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.reflect = AsyncMock(
+        return_value={
+            "source_title": "Planning",
+            "source_id": None,
+            "persisted_count": 1,
+            "total_candidates": 1,
+            "candidates": [{"kind": "claim", "persisted_id": "claim_123"}],
+            "markdown": "# Sibyl Reflection: Planning\n\n## Claim: Reflect works",
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "reflect",
+            "Reflect can write candidates only.",
+            "--title",
+            "Planning",
+            "--persist",
+            "--no-source",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Source persistence skipped (--no-source)" in result.stdout
+    assert "Persisted candidates: 1/1" in result.stdout
+    assert "ID: claim_123" in result.stdout
+    mock_client.reflect.assert_awaited_once_with(
+        content="Reflect can write candidates only.",
+        source_title="Planning",
+        intent="general",
+        domain=None,
+        project="project_123",
+        related_to=None,
+        persist=True,
+        persist_source=False,
         limit=12,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()

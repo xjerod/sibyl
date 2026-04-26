@@ -94,6 +94,18 @@ sibyl archive list --surface cli
 sibyl archive show <capture_id>
 ```
 
+`sibyl reflect` accepts either an argument or stdin. By default, `--persist` writes extracted
+candidates and keeps the raw notes as a `session` source for provenance. Add `--no-source` when the
+raw transcript is too noisy or sensitive, but the extracted candidates should still be saved.
+
+Persisted reflect output prints the source ID when one is stored, the candidate count, and each
+persisted candidate ID:
+
+```bash
+cat session-notes.md | sibyl reflect --title "Build checkpoint" --intent build --persist
+cat session-notes.md | sibyl reflect --title "Private checkpoint" --persist --no-source
+```
+
 ## Context System
 
 ```bash

@@ -226,10 +226,16 @@ sibyl reflect "We decided X. Next we will build Y." --title "Planning checkpoint
 
 # Persist extracted candidates and the raw source session into the graph
 echo "Raw session notes..." | sibyl reflect --title "Build session" --intent build --persist
+
+# Persist candidates only when the raw transcript should not be stored
+echo "Raw session notes..." | sibyl reflect --title "Private checkpoint" --persist --no-source
 ```
 
 **When to use:** At clean breakpoints, after ideation/planning/building, or before a long context
 shift.
+
+Persisted output shows the stored source ID when one exists, the candidate count, and each persisted
+candidate ID. `--no-source` skips storing the raw notes while keeping extracted candidates.
 
 ---
 
