@@ -21,6 +21,20 @@ from sibyl.persistence.auth_runtime import (
 
 log = structlog.get_logger()
 
+MemoryKind = Literal[
+    "episode",
+    "decision",
+    "plan",
+    "idea",
+    "claim",
+    "artifact",
+    "procedure",
+    "domain",
+    "session",
+    "pattern",
+    "rule",
+]
+
 
 @dataclass(frozen=True)
 class McpContext:
@@ -149,6 +163,49 @@ async def _resolve_mcp_project_scope(
     if require_project_when_restricted:
         raise ValueError("Project is required when MCP credentials are project-scoped.")
     return accessible_projects
+
+
+async def _remember_mcp_memory(
+    *,
+    title: str,
+    content: str,
+    kind: MemoryKind,
+    domain: str | None,
+    project: str | None,
+    tags: list[str] | None,
+    related_to: list[str] | None,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    from sibyl_core.tools.core import add
+
+    ctx = await _require_mcp_context()
+    await _resolve_mcp_project_scope(
+        ctx,
+        project,
+        require_project_when_restricted=True,
+    )
+
+    full_metadata = dict(metadata or {})
+    full_metadata["capture_kind"] = kind
+    full_metadata["organization_id"] = ctx.org_id
+    if domain:
+        full_metadata["domain"] = domain
+    if project:
+        full_metadata["project_id"] = project
+    if ctx.user_id:
+        full_metadata["created_by"] = ctx.user_id
+
+    result = await add(
+        title=title,
+        content=content,
+        entity_type=kind,
+        category=domain,
+        tags=tags,
+        related_to=related_to,
+        metadata=full_metadata,
+        project=project,
+    )
+    return _to_dict(result)
 
 
 async def _require_org_id() -> str:
@@ -631,20 +688,9 @@ def _register_tools(mcp: FastMCP) -> None:
     async def remember(
         title: str,
         content: str,
-        kind: Literal[
-            "episode",
-            "decision",
-            "plan",
-            "idea",
-            "claim",
-            "artifact",
-            "procedure",
-            "domain",
-            "session",
-            "pattern",
-            "rule",
-        ] = "episode",
+        kind: MemoryKind = "episode",
         domain: str | None = None,
+        project: str | None = None,
         tags: list[str] | None = None,
         related_to: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -657,19 +703,15 @@ def _register_tools(mcp: FastMCP) -> None:
         matters, remember stores what future agents should not have to relearn.
         """
 
-        full_metadata = dict(metadata or {})
-        full_metadata["capture_kind"] = kind
-        if domain:
-            full_metadata["domain"] = domain
-
-        return await add(
+        return await _remember_mcp_memory(
             title=title,
             content=content,
-            entity_type=kind,
-            category=domain,
+            kind=kind,
+            domain=domain,
+            project=project,
             tags=tags,
             related_to=related_to,
-            metadata=full_metadata,
+            metadata=metadata,
         )
 
     # =========================================================================

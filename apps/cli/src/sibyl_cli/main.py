@@ -508,6 +508,12 @@ def remember_memory(
         help="Memory type: decision, plan, idea, claim, artifact, session, procedure, pattern, episode",
     ),
     domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Project ID"),
+    all_projects: bool = typer.Option(
+        False,
+        "--all-projects",
+        help="Do not auto-scope to the linked project",
+    ),
     tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
     related_to: str | None = typer.Option(
         None,
@@ -544,6 +550,10 @@ def remember_memory(
     }
     if domain:
         metadata["domain"] = domain
+
+    effective_project = project or (None if all_projects else resolve_project_from_cwd())
+    if effective_project:
+        metadata["project_id"] = effective_project
 
     @run_async
     async def run_remember() -> None:

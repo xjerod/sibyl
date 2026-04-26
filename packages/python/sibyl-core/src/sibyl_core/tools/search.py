@@ -280,11 +280,13 @@ async def search(
             entity_manager = runtime.entity_manager
 
             # Determine entity types to search (exclude 'document' - that's for doc search)
+            requested_graph_types: set[str] = set()
             entity_types = None
             if types:
                 entity_types = []
                 for t in types:
                     if t.lower() in VALID_ENTITY_TYPES and t.lower() != "document":
+                        requested_graph_types.add(t.lower())
                         entity_types.append(EntityType(t.lower()))
 
             # Parse since date if provided
@@ -373,8 +375,28 @@ async def search(
                 except Exception as e:
                     log.warning("graph_exact_name_search_failed", error=str(e))
 
+            if not raw_results and requested_graph_types:
+                try:
+                    raw_results = await with_timeout(
+                        entity_manager.search(
+                            query=query,
+                            entity_types=None,
+                            limit=limit * 3,
+                        ),
+                        timeout_seconds=TIMEOUTS["search"],
+                        operation_name="search_untyped_fallback",
+                    )
+                except Exception as e:
+                    log.warning("untyped_graph_search_failed", error=str(e))
+                    raw_results = []
+
             # Filter and convert to SearchResult
             for entity, score in raw_results:
+                if requested_graph_types:
+                    entity_type = str(_serialize_enum(_get_field(entity, "entity_type", "")))
+                    if entity_type.lower() not in requested_graph_types:
+                        continue
+
                 # Apply filters
                 if language:
                     entity_langs = _get_field(entity, "languages", [])

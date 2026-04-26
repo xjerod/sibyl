@@ -266,6 +266,8 @@ async def add(
             "organization_id": org_id,
             **(metadata or {}),
         }
+        if project:
+            full_metadata["project_id"] = project
 
         # Create appropriate entity type
         entity: Entity | Episode | Pattern | Procedure | Task | Project
@@ -428,8 +430,8 @@ async def add(
         # Build list of explicit relationships to create
         relationships_to_create: list[dict[str, Any]] = []
 
-        # Task -> Project (BELONGS_TO)
-        if entity_type == "task" and project:
+        # Entity -> Project (BELONGS_TO)
+        if entity_type != "project" and project:
             relationships_to_create.append(
                 {
                     "id": f"rel_{entity_id}_belongs_to_{project}",

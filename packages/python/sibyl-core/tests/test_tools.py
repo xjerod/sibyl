@@ -18,7 +18,7 @@ import pytest
 from sibyl.db.models import ChunkType, DocumentChunk
 from sqlalchemy import select
 
-from sibyl_core.models.entities import EntityType
+from sibyl_core.models.entities import EntityType, RelationshipType
 from sibyl_core.tools.helpers import (
     MAX_CONTENT_LENGTH,
     MAX_TITLE_LENGTH,
@@ -1083,6 +1083,61 @@ class TestSearchTool:
         mock_entity_manager.search.assert_awaited_once()
         mock_entity_manager.search_exact_name.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_search_retries_untyped_when_typed_backend_misses(self) -> None:
+        """Typed search keeps facet recall working when backend type filtering misses."""
+        from sibyl_core.retrieval.hybrid import HybridResult
+        from sibyl_core.tools.search import search
+
+        decision = MockEntity(
+            id="decision_project_scope",
+            entity_type=EntityType.DECISION,
+            name="Scoped remember captures linked project context",
+            description="Project-scoped remember should be recalled.",
+            content="Project-scoped remember should be recalled.",
+            metadata={"project_id": "project_123"},
+        )
+        pattern = MockEntity(
+            id="pattern_other",
+            entity_type=EntityType.PATTERN,
+            name="Unrelated pattern",
+            description="Should be filtered out.",
+            content="Should be filtered out.",
+            metadata={"project_id": "project_123"},
+        )
+
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.search = AsyncMock(side_effect=[[], [(decision, 1.0), (pattern, 0.9)]])
+        mock_entity_manager.search_exact_name = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "sibyl_core.tools.search.get_graph_runtime",
+                AsyncMock(
+                    return_value=make_graph_runtime(
+                        client=mock_client,
+                        entity_manager=mock_entity_manager,
+                    )
+                ),
+            ),
+            patch(
+                "sibyl_core.tools.search.hybrid_search",
+                new=AsyncMock(return_value=HybridResult(results=[])),
+            ),
+        ):
+            response = await search(
+                query="remember project scoped",
+                types=["decision"],
+                project="project_123",
+                organization_id="org_123",
+                include_documents=False,
+            )
+
+        assert response.graph_count == 1
+        assert [result.id for result in response.results] == ["decision_project_scope"]
+        assert mock_entity_manager.search.await_count == 2
+
 
 class TestDocumentSearchFusion:
     """Test document-side search fusion helpers."""
@@ -1848,6 +1903,61 @@ class TestAddEntityTypes:
             assert created_entity is not None
             assert created_entity.entity_type == EntityType.DECISION
             assert created_entity.metadata["category"] == "performance"
+
+    @pytest.mark.asyncio
+    async def test_add_project_scopes_generic_memory(self) -> None:
+        """Add scopes non-task memory to projects with metadata and BELONGS_TO."""
+        from sibyl_core.tools.add import add
+
+        mock_client = AsyncMock()
+        mock_entity_manager = MagicMock()
+        mock_rel_manager = MagicMock()
+        created_entity = None
+        created_relationships = []
+
+        async def capture_create(entity):
+            nonlocal created_entity
+            created_entity = entity
+            return entity.id
+
+        async def capture_rel_create_bulk(rels):
+            created_relationships.extend(rels)
+            return len(rels), 0
+
+        mock_entity_manager.create_direct = capture_create
+        mock_rel_manager.create_bulk = AsyncMock(side_effect=capture_rel_create_bulk)
+
+        with (
+            patch(
+                "sibyl_core.tools.add.get_graph_runtime",
+                AsyncMock(
+                    return_value=make_graph_runtime(
+                        client=mock_client,
+                        entity_manager=mock_entity_manager,
+                        relationship_manager=mock_rel_manager,
+                    )
+                ),
+            ),
+            patch("sibyl_core.tools.add._auto_discover_links", return_value=[]),
+        ):
+            response = await add(
+                title="Remember venue layout",
+                content="The gala runway layout improves audience sight lines.",
+                entity_type="decision",
+                category="performance",
+                project="project_venue",
+                metadata={"organization_id": "org_123"},
+                sync=True,
+            )
+
+        assert response.success is True
+        assert created_entity is not None
+        assert created_entity.metadata["project_id"] == "project_venue"
+        assert len(created_relationships) == 1
+        relationship = created_relationships[0]
+        assert relationship.source_id == created_entity.id
+        assert relationship.target_id == "project_venue"
+        assert relationship.relationship_type == RelationshipType.BELONGS_TO
 
     @pytest.mark.asyncio
     async def test_add_task_with_relationships(self) -> None:

@@ -128,8 +128,12 @@ def test_capture_command_waits_for_direct_readiness(mock_get_client: MagicMock) 
     assert "Captured episode" in result.stdout
 
 
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
 @patch("sibyl_cli.main.get_client")
-def test_remember_command_records_domain_memory_with_links(mock_get_client: MagicMock) -> None:
+def test_remember_command_records_domain_memory_with_links(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
     mock_client = MagicMock()
     mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -165,14 +169,20 @@ def test_remember_command_records_domain_memory_with_links(mock_get_client: Magi
             "capture_surface": "cli",
             "remember_kind": "decision",
             "domain": "agent-memory",
+            "project_id": "project_123",
         },
         sync=False,
     )
     assert "Queued decision" in result.stdout
+    mock_resolve_project_from_cwd.assert_called_once_with()
 
 
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value=None)
 @patch("sibyl_cli.main.get_client")
-def test_remember_command_reads_body_from_stdin(mock_get_client: MagicMock) -> None:
+def test_remember_command_reads_body_from_stdin(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
     mock_client = MagicMock()
     mock_client.create_entity = AsyncMock(return_value={"id": "idea_123"})
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -195,6 +205,36 @@ def test_remember_command_reads_body_from_stdin(mock_get_client: MagicMock) -> N
         },
         sync=False,
     )
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_from_path")
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_project_option_overrides_path_context(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "plan_123"})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "remember",
+            "Build reusable memory",
+            "Scope memory to project.",
+            "--project",
+            "project_explicit",
+        ],
+    )
+
+    assert result.exit_code == 0
+    mock_client.create_entity.assert_awaited_once()
+    payload = mock_client.create_entity.await_args.kwargs
+    assert payload["metadata"]["project_id"] == "project_explicit"
+    mock_resolve_project_from_cwd.assert_not_called()
 
 
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")

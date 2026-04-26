@@ -9,6 +9,7 @@ import pytest
 
 from sibyl.api.routes.entities import create_entity, delete_entity, update_entity
 from sibyl.api.schemas import EntityCreate, EntityUpdate
+from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl.db.models import ProjectRole
 from sibyl_core.models.entities import EntityType
 
@@ -96,6 +97,47 @@ async def test_create_project_routes_through_runtime_project_record() -> None:
         description="cut postgres loose",
     )
     audit_log.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_entity_verifies_metadata_project_id_before_add() -> None:
+    org = _org()
+    ctx = _ctx()
+    entity = EntityCreate(
+        name="Scoped memory",
+        content="Remember this only in a project the user can write.",
+        entity_type=EntityType.DECISION,
+        metadata={"project_id": "project_denied"},
+    )
+    add = AsyncMock()
+    verify_access = AsyncMock(
+        side_effect=ProjectAccessDeniedError(
+            project_id="project_denied",
+            required_role=ProjectRole.CONTRIBUTOR,
+        )
+    )
+
+    with (
+        patch("sibyl_core.tools.core.add", add),
+        patch("sibyl.api.routes.entities.verify_entity_project_access", verify_access),
+        pytest.raises(ProjectAccessDeniedError),
+    ):
+        await create_entity(
+            request=_request(),
+            entity=entity,
+            org=org,
+            ctx=ctx,
+            content_session="session",
+            sync=False,
+        )
+
+    verify_access.assert_awaited_once_with(
+        "session",
+        ctx,
+        "project_denied",
+        required_role=ProjectRole.CONTRIBUTOR,
+    )
+    add.assert_not_awaited()
 
 
 @pytest.mark.asyncio

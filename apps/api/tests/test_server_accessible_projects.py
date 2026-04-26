@@ -10,6 +10,7 @@ from sibyl.server import (
     McpContext,
     _get_accessible_projects,
     _get_mcp_context,
+    _remember_mcp_memory,
     _require_owner_mcp_context,
     _resolve_mcp_project_scope,
 )
@@ -96,6 +97,47 @@ async def test_resolve_mcp_project_scope_requires_project_for_restricted_writes(
             project=None,
             require_project_when_restricted=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_remember_mcp_memory_scopes_project_metadata() -> None:
+    ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
+    add = AsyncMock(return_value={"success": True, "id": "decision_123"})
+
+    with (
+        patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
+        patch("sibyl.server._get_accessible_projects", AsyncMock(return_value={"project-a"})),
+        patch("sibyl_core.tools.core.add", add),
+    ):
+        result = await _remember_mcp_memory(
+            title="Use scoped memory",
+            content="Remember writes should attach to the target project.",
+            kind="decision",
+            domain="sibyl",
+            project="project-a",
+            tags=["memory"],
+            related_to=["plan_1"],
+            metadata={"source": "test"},
+        )
+
+    assert result == {"success": True, "id": "decision_123"}
+    add.assert_awaited_once_with(
+        title="Use scoped memory",
+        content="Remember writes should attach to the target project.",
+        entity_type="decision",
+        category="sibyl",
+        tags=["memory"],
+        related_to=["plan_1"],
+        metadata={
+            "source": "test",
+            "capture_kind": "decision",
+            "organization_id": ctx.org_id,
+            "domain": "sibyl",
+            "project_id": "project-a",
+            "created_by": ctx.user_id,
+        },
+        project="project-a",
+    )
 
 
 @pytest.mark.asyncio
