@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from sibyl_core.models.context import (
@@ -11,12 +11,15 @@ from sibyl_core.models.context import (
     ContextIntent,
     ContextItem,
     ContextPack,
+    ContextRelatedItem,
     ContextSection,
 )
+from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 from sibyl_core.tools.search import search as default_search
 
 SearchFn = Callable[..., Awaitable[SearchResponse]]
+RelatedFn = Callable[..., Awaitable[list[ContextRelatedItem]]]
 
 FACET_TITLES = {
     ContextFacet.ACTIVE_WORK: "Active Work",
@@ -150,6 +153,51 @@ def _reason_for(result: SearchResult, facet: ContextFacet) -> str:
     return f"{result_type} adds relevant background"
 
 
+async def get_graph_runtime(group_id: str):
+    return await _service_get_graph_runtime(group_id)
+
+
+def _project_id_for(entity: Any) -> str | None:
+    metadata = getattr(entity, "metadata", {}) or {}
+    value = getattr(entity, "project_id", None) or metadata.get("project_id")
+    return str(value) if value is not None else None
+
+
+async def _default_related_items(
+    *,
+    entity_id: str,
+    organization_id: str,
+    accessible_projects: set[str] | None = None,
+    limit: int = 3,
+) -> list[ContextRelatedItem]:
+    runtime = await get_graph_runtime(organization_id)
+    raw_results = await runtime.relationship_manager.get_related_entities(
+        entity_id=entity_id,
+        max_depth=1,
+        limit=limit,
+    )
+
+    related: list[ContextRelatedItem] = []
+    for entity, relationship in raw_results:
+        if accessible_projects is not None:
+            entity_project = _project_id_for(entity)
+            if entity_project is not None and entity_project not in accessible_projects:
+                continue
+
+        related.append(
+            ContextRelatedItem(
+                id=str(entity.id),
+                type=str(entity.entity_type.value),
+                name=str(entity.name),
+                relationship=str(relationship.relationship_type.value),
+                direction="outgoing" if relationship.source_id == entity_id else "incoming",
+            )
+        )
+        if len(related) >= limit:
+            break
+    return related
+
+
 def _item_from_result(result: SearchResult, facet: ContextFacet) -> ContextItem:
     return ContextItem(
         id=result.id,
@@ -188,6 +236,39 @@ def _dedupe_sections(sections: list[ContextSection], limit: int) -> list[Context
     return deduped
 
 
+async def _attach_related_items(
+    sections: list[ContextSection],
+    *,
+    organization_id: str,
+    accessible_projects: set[str] | None,
+    related_limit: int,
+    related_fn: RelatedFn,
+) -> list[ContextSection]:
+    related_limit = max(0, min(related_limit, 5))
+    if related_limit == 0:
+        return sections
+
+    enriched_sections: list[ContextSection] = []
+    for section in sections:
+        items: list[ContextItem] = []
+        for item in section.items:
+            if item.type == "document" or item.id.startswith("document:"):
+                items.append(item)
+                continue
+            try:
+                related = await related_fn(
+                    entity_id=item.id,
+                    organization_id=organization_id,
+                    accessible_projects=accessible_projects,
+                    limit=related_limit,
+                )
+            except Exception:
+                related = []
+            items.append(replace(item, related=related))
+        enriched_sections.append(replace(section, items=items))
+    return enriched_sections
+
+
 async def compile_context(
     goal: str,
     *,
@@ -197,7 +278,10 @@ async def compile_context(
     accessible_projects: set[str] | None = None,
     organization_id: str | None = None,
     limit: int = 24,
+    include_related: bool = False,
+    related_limit: int = 3,
     search_fn: SearchFn = default_search,
+    related_fn: RelatedFn = _default_related_items,
 ) -> ContextPack:
     """Build a small, structured context pack for an agent goal."""
 
@@ -234,6 +318,14 @@ async def compile_context(
             sections.append(ContextSection(facet=facet, title=FACET_TITLES[facet], items=items))
 
     sections = _dedupe_sections(sections, limit)
+    if include_related:
+        sections = await _attach_related_items(
+            sections,
+            organization_id=organization_id,
+            accessible_projects=accessible_projects,
+            related_limit=related_limit,
+            related_fn=related_fn,
+        )
     return ContextPack(
         goal=goal,
         intent=normalized_intent,

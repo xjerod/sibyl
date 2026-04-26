@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from sibyl_core.models.context import ContextFacet, ContextIntent
+from sibyl_core.models.context import ContextFacet, ContextIntent, ContextRelatedItem
 from sibyl_core.tools.context import compile_context, context_pack_to_dict
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 
@@ -124,6 +124,45 @@ async def test_compile_context_dedupes_results_across_facets() -> None:
 
     assert pack.total_items == 1
     assert pack.items[0].id == "same-id"
+
+
+@pytest.mark.asyncio
+async def test_compile_context_can_attach_one_hop_related_items() -> None:
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        return SearchResponse(
+            results=[_result("decision-1", kwargs["types"][0], "Use context packs")],
+            total=1,
+            query=kwargs["query"],
+            filters={},
+        )
+
+    calls: list[dict[str, Any]] = []
+
+    async def fake_related(**kwargs: Any) -> list[ContextRelatedItem]:
+        calls.append(kwargs)
+        return [
+            ContextRelatedItem(
+                id="plan-1",
+                type="plan",
+                name="Agent memory plan",
+                relationship="RELATED_TO",
+                direction="outgoing",
+            )
+        ]
+
+    pack = await compile_context(
+        "ship faster",
+        intent="decide",
+        organization_id="org-123",
+        limit=1,
+        include_related=True,
+        search_fn=fake_search,
+        related_fn=fake_related,
+    )
+
+    assert pack.items[0].related[0].id == "plan-1"
+    assert calls[0]["entity_id"] == "decision-1"
+    assert calls[0]["organization_id"] == "org-123"
 
 
 @pytest.mark.asyncio

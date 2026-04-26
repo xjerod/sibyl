@@ -5,6 +5,7 @@ from sibyl_core.models.context import (
     ContextIntent,
     ContextItem,
     ContextPack,
+    ContextRelatedItem,
     ContextSection,
 )
 from sibyl_core.models.entities import (
@@ -87,6 +88,7 @@ __all__ = [
     "ContextIntent",
     "ContextItem",
     "ContextPack",
+    "ContextRelatedItem",
     "ContextSection",
     "CrawlStatus",
     "Document",

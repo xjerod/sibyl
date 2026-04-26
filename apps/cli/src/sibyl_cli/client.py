@@ -766,12 +766,16 @@ class SibylClient:
         domain: str | None = None,
         project: str | None = None,
         limit: int = 24,
+        include_related: bool = True,
+        related_limit: int = 3,
     ) -> dict[str, Any]:
         """Compile a structured context pack for an agent goal."""
         data: dict[str, Any] = {
             "goal": goal,
             "intent": intent,
             "limit": limit,
+            "include_related": include_related,
+            "related_limit": related_limit,
         }
         if domain:
             data["domain"] = domain

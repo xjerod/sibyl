@@ -75,6 +75,8 @@ def test_context_pack_json_uses_detected_project(
         domain="agent memory",
         project="project_123",
         limit=24,
+        include_related=True,
+        related_limit=3,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
 
@@ -100,5 +102,7 @@ def test_context_pack_all_projects_omits_project_scope(
         domain=None,
         project=None,
         limit=24,
+        include_related=True,
+        related_limit=3,
     )
     mock_resolve_project_from_cwd.assert_not_called()

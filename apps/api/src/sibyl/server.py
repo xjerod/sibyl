@@ -378,6 +378,8 @@ def _register_tools(mcp: FastMCP) -> None:
         domain: str | None = None,
         project: str | None = None,
         limit: int = 24,
+        include_related: bool = True,
+        related_limit: int = 3,
     ) -> dict[str, Any]:
         """Compile a precise context pack for an agent goal.
 
@@ -395,6 +397,8 @@ def _register_tools(mcp: FastMCP) -> None:
                 modeled domain.
             project: Optional project ID to scope active work.
             limit: Maximum total context items, clamped to 1-50.
+            include_related: Include one-hop related graph context.
+            related_limit: Related items per selected context item.
         """
         from sibyl_core.tools.core import (
             compile_context as _compile_context,
@@ -408,6 +412,8 @@ def _register_tools(mcp: FastMCP) -> None:
             domain=domain,
             project=project,
             limit=limit,
+            include_related=include_related,
+            related_limit=related_limit,
             organization_id=ctx.org_id,
         )
         return context_pack_to_dict(pack)

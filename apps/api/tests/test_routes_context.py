@@ -49,6 +49,8 @@ class TestContextPackRoute:
         assert response.goal == "ship faster"
         assert compile_context.await_args.kwargs["accessible_projects"] == {"proj_1"}
         assert compile_context.await_args.kwargs["project"] is None
+        assert compile_context.await_args.kwargs["include_related"] is True
+        assert compile_context.await_args.kwargs["related_limit"] == 3
 
     @pytest.mark.asyncio
     async def test_context_pack_uses_requested_accessible_project(self) -> None:

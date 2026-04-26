@@ -50,6 +50,8 @@ async def context_pack(
             accessible_projects=None if request.project else accessible_projects,
             organization_id=str(org.id),
             limit=request.limit,
+            include_related=request.include_related,
+            related_limit=request.related_limit,
         )
         return ContextPackResponse.model_validate(context_pack_to_dict(pack))
 

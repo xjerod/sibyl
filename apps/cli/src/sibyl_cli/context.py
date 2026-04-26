@@ -338,6 +338,14 @@ def pack_cmd(
         int,
         typer.Option("--limit", "-l", min=1, max=50, help="Maximum total context items"),
     ] = 24,
+    related: Annotated[
+        bool,
+        typer.Option("--related/--no-related", help="Include one-hop related graph context"),
+    ] = True,
+    related_limit: Annotated[
+        int,
+        typer.Option("--related-limit", min=0, max=5, help="Related items per context item"),
+    ] = 3,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
@@ -355,6 +363,8 @@ def pack_cmd(
                     domain=domain,
                     project=effective_project,
                     limit=limit,
+                    include_related=related,
+                    related_limit=related_limit,
                 )
         except SibylClientError as e:
             handle_client_error(e)
@@ -398,6 +408,13 @@ def pack_cmd(
                 content = item.get("content")
                 if content:
                     console.print(f"      {_format_context_pack_preview(content)}", soft_wrap=True)
+                related_items = item.get("related") or []
+                if related_items:
+                    labels = [
+                        f"{related.get('relationship', 'RELATED_TO')} {related.get('name', related.get('id', ''))}"
+                        for related in related_items[:related_limit]
+                    ]
+                    console.print(f"      [dim]Related: {'; '.join(labels)}[/dim]")
             console.print()
 
         if hint := pack.get("usage_hint"):

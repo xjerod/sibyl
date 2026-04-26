@@ -33,6 +33,16 @@ class ContextFacet(StrEnum):
 
 
 @dataclass(frozen=True)
+class ContextRelatedItem:
+    id: str
+    type: str
+    name: str
+    relationship: str
+    direction: str
+    distance: int = 1
+
+
+@dataclass(frozen=True)
 class ContextItem:
     id: str
     type: str
@@ -43,6 +53,7 @@ class ContextItem:
     reason: str
     source: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    related: list[ContextRelatedItem] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

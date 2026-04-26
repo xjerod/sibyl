@@ -261,6 +261,19 @@ class ContextPackRequest(BaseModel):
     domain: str | None = Field(default=None, description="Domain or category to bias retrieval")
     project: str | None = Field(default=None, description="Project ID to scope context")
     limit: int = Field(default=24, ge=1, le=50, description="Maximum total context items")
+    include_related: bool = Field(default=True, description="Include one-hop related graph context")
+    related_limit: int = Field(default=3, ge=0, le=5, description="Related items per context item")
+
+
+class ContextPackRelatedItem(BaseModel):
+    """One-hop graph neighbor for a selected memory."""
+
+    id: str
+    type: str
+    name: str
+    relationship: str
+    direction: str
+    distance: int = 1
 
 
 class ContextPackItem(BaseModel):
@@ -275,6 +288,7 @@ class ContextPackItem(BaseModel):
     reason: str
     source: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    related: list[ContextPackRelatedItem] = Field(default_factory=list)
 
 
 class ContextPackSection(BaseModel):
