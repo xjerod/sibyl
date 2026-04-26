@@ -48,6 +48,11 @@ tasks:
     inputs:
     - '@group(sources)'
     - '@group(tests)'
+  bench-context:
+    command: uv run python ../../../benchmarks/context_pack_eval.py
+    inputs:
+    - '@group(sources)'
+    - '@group(tests)'
   bench-live-smoke:
     command: uv run pytest tests/test_retrieval_live.py -v -s
     inputs:

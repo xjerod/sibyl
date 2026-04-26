@@ -12,6 +12,16 @@ from typing import Any, Literal
 import httpx
 import structlog
 
+from sibyl_core.evals.context import (
+    ContextPackCaseResult,
+    ContextPackEvalCase,
+    ContextPackEvalReport,
+    ContextPackEvalResult,
+    context_pack_from_dict,
+    evaluate_context_pack,
+    get_sample_context_pack_cases,
+    load_context_pack_cases,
+)
 from sibyl_core.evals.metrics import (
     EvalMetrics,
     EvalQuery,
@@ -288,6 +298,67 @@ class EvalRunner:
         )
         return report
 
+    @staticmethod
+    def _build_context_pack_request(case: ContextPackEvalCase) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "goal": case.goal,
+            "intent": case.intent.value,
+            "limit": case.limit,
+            "include_related": case.include_related,
+            "related_limit": case.related_limit,
+        }
+        if case.domain:
+            payload["domain"] = case.domain
+        if case.project:
+            payload["project"] = case.project
+        return payload
+
+    async def run_context_pack_case(self, case: ContextPackEvalCase) -> ContextPackCaseResult:
+        """Run one context-pack fixture against the live API."""
+
+        client = await self._get_client()
+        start_time = time.perf_counter()
+        error = None
+        try:
+            response = await client.post(
+                "/context/pack",
+                json=self._build_context_pack_request(case),
+            )
+            response.raise_for_status()
+            pack = context_pack_from_dict(response.json())
+            result = evaluate_context_pack(pack, case.fixture)
+        except Exception as exc:
+            error = str(exc) or exc.__class__.__name__
+            log.warning("context_pack_evaluation_failed", case=case.name, error=error)
+            result = ContextPackEvalResult(
+                fixture=case.fixture.name,
+                passed=False,
+                failures=[error],
+            )
+
+        return ContextPackCaseResult(
+            case=case,
+            result=result,
+            latency_ms=(time.perf_counter() - start_time) * 1000,
+            error=error,
+        )
+
+    async def run_context_pack_evaluation(
+        self,
+        cases: list[ContextPackEvalCase],
+    ) -> ContextPackEvalReport:
+        """Run context-pack evaluation cases against a live Sibyl endpoint."""
+
+        results = [await self.run_context_pack_case(case) for case in cases]
+        report = ContextPackEvalReport(
+            cases=results,
+            label=self.config.label,
+            metadata=dict(self.config.metadata),
+        )
+        if self.config.save_results:
+            report.save(self.config.output_dir)
+        return report
+
     async def __aenter__(self) -> EvalRunner:
         return self
 
@@ -304,5 +375,18 @@ async def run_evaluation_cli(
     queries = load_queries(queries_file) if queries_file else get_sample_queries()
     async with EvalRunner(config) as runner:
         report = await runner.run_evaluation(queries, search_type)
+        report.print_summary()
+        return report
+
+
+async def run_context_pack_evaluation_cli(
+    cases_file: Path | None = None,
+    config: EvalConfig | None = None,
+) -> ContextPackEvalReport:
+    """Run context-pack evals from a case file or the smoke-test sample."""
+
+    cases = load_context_pack_cases(cases_file) if cases_file else get_sample_context_pack_cases()
+    async with EvalRunner(config) as runner:
+        report = await runner.run_context_pack_evaluation(cases)
         report.print_summary()
         return report

@@ -1,9 +1,15 @@
 """Shared evaluation utilities for Sibyl retrieval surfaces."""
 
 from sibyl_core.evals.context import (
+    ContextPackCaseResult,
+    ContextPackEvalCase,
+    ContextPackEvalReport,
     ContextPackEvalResult,
     ContextPackFixture,
+    context_pack_from_dict,
     evaluate_context_pack,
+    get_sample_context_pack_cases,
+    load_context_pack_cases,
 )
 from sibyl_core.evals.metrics import (
     EvalMetrics,
@@ -25,10 +31,14 @@ from sibyl_core.evals.runtime import (
     EvalRunner,
     get_sample_queries,
     load_queries,
+    run_context_pack_evaluation_cli,
     run_evaluation_cli,
 )
 
 __all__ = [
+    "ContextPackCaseResult",
+    "ContextPackEvalCase",
+    "ContextPackEvalReport",
     "ContextPackEvalResult",
     "ContextPackFixture",
     "EvalConfig",
@@ -40,14 +50,18 @@ __all__ = [
     "RetrievalResult",
     "aggregate_metrics",
     "compute_metrics",
+    "context_pack_from_dict",
     "dcg_at_k",
     "evaluate_context_pack",
+    "get_sample_context_pack_cases",
     "get_sample_queries",
+    "load_context_pack_cases",
     "load_queries",
     "mean_reciprocal_rank",
     "ndcg_at_k",
     "precision_at_k",
     "recall_at_k",
+    "run_context_pack_evaluation_cli",
     "run_evaluation_cli",
     "success_at_k",
 ]

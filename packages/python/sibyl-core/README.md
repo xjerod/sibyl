@@ -174,11 +174,15 @@ moon run core:bench-retrieval
 # Live read-only search benchmark against a running stack
 moon run core:bench-live
 
+# Live context-pack smoke benchmark
+moon run core:bench-context
+
 # Save labeled artifacts for store-to-store comparison
 moon run core:bench-live -- --label surreal --metadata store=surreal
 ```
 
-`core:bench-live` probes the real `/api/search` path with CLI auth and auto-skips
-when the local Sibyl stack or auth context is unavailable, so it is safe to run in
-normal development without mutating graph data. Saved reports can be compared with
+`core:bench-live` probes the real `/api/search` path with CLI auth. `core:bench-context`
+probes `/api/context/pack`; pass a JSON case file to turn smoke checks into dogfood
+acceptance fixtures for coding handoffs, Haven recall, or other memory spaces. Both
+benchmarks are read-only. Saved reports can be compared with
 `uv run python benchmarks/compare_eval_reports.py <baseline.json> <candidate.json>`.

@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import json
+import re
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from sibyl_core.models.context import ContextFacet, ContextItem, ContextPack
+from sibyl_core.models.context import (
+    ContextFacet,
+    ContextIntent,
+    ContextItem,
+    ContextItemQualityMetadata,
+    ContextPack,
+    ContextSection,
+)
 from sibyl_core.tools.context import context_pack_to_markdown
 
 
@@ -31,6 +42,98 @@ class ContextPackEvalResult:
     passed: bool
     failures: list[str] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ContextPackEvalCase:
+    """One context-pack benchmark case."""
+
+    name: str
+    goal: str
+    fixture: ContextPackFixture
+    intent: ContextIntent = ContextIntent.BUILD
+    domain: str | None = None
+    project: str | None = None
+    limit: int = 24
+    include_related: bool = True
+    related_limit: int = 3
+
+
+@dataclass(frozen=True)
+class ContextPackCaseResult:
+    """Evaluation output for one context-pack case."""
+
+    case: ContextPackEvalCase
+    result: ContextPackEvalResult
+    latency_ms: float = 0.0
+    error: str | None = None
+
+
+@dataclass
+class ContextPackEvalReport:
+    """Complete context-pack benchmark report."""
+
+    cases: list[ContextPackCaseResult]
+    label: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    timestamp: str = field(default_factory=lambda: time.strftime("%Y-%m-%d %H:%M:%S"))
+
+    @property
+    def passed(self) -> bool:
+        return all(case.result.passed and case.error is None for case in self.cases)
+
+    def to_dict(self) -> dict[str, Any]:
+        case_count = len(self.cases)
+        passed_cases = sum(1 for case in self.cases if case.result.passed and case.error is None)
+        latency_ms = (
+            sum(case.latency_ms for case in self.cases) / case_count if case_count else 0.0
+        )
+        return {
+            "timestamp": self.timestamp,
+            "label": self.label,
+            "search_type": "context-pack",
+            "metadata": dict(self.metadata),
+            "metrics": {
+                "cases": case_count,
+                "passed": passed_cases,
+                "failed": case_count - passed_cases,
+                "pass_rate": passed_cases / case_count if case_count else 0.0,
+                "latency_ms": latency_ms,
+            },
+            "per_case": [
+                {
+                    "name": case.case.name,
+                    "goal": case.case.goal,
+                    "fixture": case.result.fixture,
+                    "passed": case.result.passed and case.error is None,
+                    "error": case.error,
+                    "failures": list(case.result.failures),
+                    "metrics": dict(case.result.metrics),
+                    "latency_ms": case.latency_ms,
+                }
+                for case in self.cases
+            ],
+        }
+
+    def save(self, output_dir: Path, path: Path | None = None) -> Path:
+        if path is None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            label = ""
+            if self.label:
+                slug = re.sub(r"[^a-z0-9]+", "_", self.label.lower()).strip("_")
+                if slug:
+                    label = f"_{slug}"
+            path = output_dir / f"eval_context_pack{label}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        return path
+
+    def print_summary(self) -> None:
+        metrics = self.to_dict()["metrics"]
+        print("\nSibyl context-pack evaluation summary")
+        print(f"  cases: {metrics['cases']}")
+        print(f"  pass_rate: {metrics['pass_rate']:.3f}")
+        print(f"  failed: {metrics['failed']}")
+        print(f"  latency_ms: {metrics['latency_ms']:.1f}")
 
 
 def _quality_value(item: ContextItem, key: str) -> Any:
@@ -125,8 +228,148 @@ def evaluate_context_pack(
     )
 
 
+def _string_set(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if not isinstance(value, list):
+        msg = "expected a list of strings"
+        raise TypeError(msg)
+    return {str(item) for item in value}
+
+
+def _facet_set(value: Any) -> set[ContextFacet]:
+    return {ContextFacet(item) for item in _string_set(value)}
+
+
+def _fixture_from_dict(name: str, data: dict[str, Any]) -> ContextPackFixture:
+    return ContextPackFixture(
+        name=str(data.get("name") or name),
+        required_item_ids=_string_set(data.get("required_item_ids")),
+        forbidden_item_ids=_string_set(data.get("forbidden_item_ids")),
+        required_facets=_facet_set(data.get("required_facets")),
+        required_terms=_string_set(data.get("required_terms")),
+        max_items=data.get("max_items"),
+        max_markdown_chars=data.get("max_markdown_chars"),
+        require_source_metadata=bool(data.get("require_source_metadata", False)),
+    )
+
+
+def _intent_from_value(value: Any) -> ContextIntent:
+    if isinstance(value, ContextIntent):
+        return value
+    try:
+        return ContextIntent(str(value).lower())
+    except ValueError:
+        return ContextIntent.GENERAL
+
+
+def _case_from_dict(data: dict[str, Any]) -> ContextPackEvalCase:
+    name = str(data["name"])
+    fixture_data = data.get("fixture")
+    if not isinstance(fixture_data, dict):
+        msg = f"context-pack eval case {name!r} is missing fixture"
+        raise ValueError(msg)
+    return ContextPackEvalCase(
+        name=name,
+        goal=str(data["goal"]),
+        intent=_intent_from_value(data.get("intent", ContextIntent.BUILD)),
+        domain=data.get("domain"),
+        project=data.get("project"),
+        limit=int(data.get("limit", 24)),
+        include_related=bool(data.get("include_related", True)),
+        related_limit=int(data.get("related_limit", 3)),
+        fixture=_fixture_from_dict(name, fixture_data),
+    )
+
+
+def get_sample_context_pack_cases() -> list[ContextPackEvalCase]:
+    """Return a smoke-test case for the live context-pack endpoint."""
+
+    return [
+        ContextPackEvalCase(
+            name="context-pack-smoke",
+            goal="ship faster with Sibyl memory",
+            domain="sibyl",
+            limit=8,
+            fixture=ContextPackFixture(
+                name="context-pack-smoke",
+                max_items=8,
+                max_markdown_chars=8000,
+            ),
+        )
+    ]
+
+
+def load_context_pack_cases(path: Path) -> list[ContextPackEvalCase]:
+    """Load context-pack benchmark cases from JSON."""
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    cases = data.get("cases")
+    if not isinstance(cases, list):
+        msg = "context-pack eval file must contain a cases list"
+        raise ValueError(msg)
+    return [_case_from_dict(item) for item in cases]
+
+
+def context_pack_from_dict(data: dict[str, Any]) -> ContextPack:
+    """Parse a JSON context-pack response into core dataclasses."""
+
+    sections: list[ContextSection] = []
+    for section_data in data.get("sections", []):
+        section_facet = ContextFacet(section_data["facet"])
+        items: list[ContextItem] = []
+        for item_data in section_data.get("items", []):
+            quality_data = item_data.get("quality") or {}
+            items.append(
+                ContextItem(
+                    id=str(item_data["id"]),
+                    type=str(item_data.get("type") or ""),
+                    name=str(item_data.get("name") or ""),
+                    content=str(item_data.get("content") or ""),
+                    score=float(item_data.get("score") or 0.0),
+                    facet=ContextFacet(item_data.get("facet") or section_facet),
+                    reason=str(item_data.get("reason") or ""),
+                    source=item_data.get("source"),
+                    quality=ContextItemQualityMetadata(
+                        origin=quality_data.get("origin"),
+                        source=quality_data.get("source"),
+                        url=quality_data.get("url"),
+                        created_at=quality_data.get("created_at"),
+                        updated_at=quality_data.get("updated_at"),
+                        valid_at=quality_data.get("valid_at"),
+                        project_id=quality_data.get("project_id"),
+                    ),
+                    metadata=dict(item_data.get("metadata") or {}),
+                )
+            )
+        sections.append(
+            ContextSection(
+                facet=section_facet,
+                title=str(section_data.get("title") or section_facet.value),
+                items=items,
+            )
+        )
+
+    return ContextPack(
+        goal=str(data["goal"]),
+        intent=_intent_from_value(data.get("intent", ContextIntent.GENERAL)),
+        query=str(data.get("query") or data["goal"]),
+        domain=data.get("domain"),
+        project=data.get("project"),
+        sections=sections,
+        total_items=int(data.get("total_items", sum(len(section.items) for section in sections))),
+        usage_hint=str(data.get("usage_hint") or ContextPack.usage_hint),
+    )
+
+
 __all__ = [
+    "ContextPackCaseResult",
+    "ContextPackEvalCase",
+    "ContextPackEvalReport",
     "ContextPackEvalResult",
     "ContextPackFixture",
+    "context_pack_from_dict",
     "evaluate_context_pack",
+    "get_sample_context_pack_cases",
+    "load_context_pack_cases",
 ]

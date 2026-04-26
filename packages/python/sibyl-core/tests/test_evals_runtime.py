@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from sibyl_core.evals import EvalConfig, EvalQuery, EvalRunner
+from sibyl_core.evals import (
+    ContextPackEvalCase,
+    ContextPackFixture,
+    EvalConfig,
+    EvalQuery,
+    EvalRunner,
+)
 
 
 class _MockResponse:
@@ -109,3 +115,95 @@ async def test_run_query_captures_request_errors() -> None:
     assert result.error == "boom"
     assert result.results == []
     assert result.metrics.mrr == 0.0
+
+
+@pytest.mark.asyncio
+async def test_run_context_pack_case_posts_pack_request() -> None:
+    runner = EvalRunner(EvalConfig(save_results=False))
+    runner._http_client = _MockClient(
+        {
+            "goal": "handoff native memory implementation",
+            "intent": "build",
+            "query": "handoff native memory implementation sibyl",
+            "domain": "sibyl",
+            "project": "project-sibyl",
+            "usage_hint": "use the pack",
+            "total_items": 1,
+            "sections": [
+                {
+                    "facet": "decisions",
+                    "title": "Decisions",
+                    "items": [
+                        {
+                            "id": "decision-source-law",
+                            "type": "decision",
+                            "name": "Raw memory is source law",
+                            "content": "Preserve source IDs before extraction.",
+                            "score": 0.9,
+                            "facet": "decisions",
+                            "reason": "decision records a choice",
+                            "source": "northstar",
+                            "metadata": {"source_id": "northstar"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    result = await runner.run_context_pack_case(
+        ContextPackEvalCase(
+            name="coding-handoff",
+            goal="handoff native memory implementation",
+            domain="sibyl",
+            project="project-sibyl",
+            limit=8,
+            include_related=False,
+            fixture=ContextPackFixture(
+                name="coding-handoff",
+                required_item_ids={"decision-source-law"},
+                require_source_metadata=True,
+            ),
+        )
+    )
+
+    assert result.error is None
+    assert result.result.passed
+    assert runner._http_client.calls == [
+        (
+            "/context/pack",
+            {
+                "goal": "handoff native memory implementation",
+                "intent": "build",
+                "limit": 8,
+                "include_related": False,
+                "related_limit": 3,
+                "domain": "sibyl",
+                "project": "project-sibyl",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_context_pack_case_uses_exception_type_for_blank_errors() -> None:
+    class _BlankFailingClient:
+        async def post(self, endpoint: str, json: dict[str, object]) -> _MockResponse:
+            raise TimeoutError
+
+        async def aclose(self) -> None:
+            return None
+
+    runner = EvalRunner(EvalConfig(save_results=False))
+    runner._http_client = _BlankFailingClient()
+
+    result = await runner.run_context_pack_case(
+        ContextPackEvalCase(
+            name="context-pack-smoke",
+            goal="ship faster",
+            fixture=ContextPackFixture(name="context-pack-smoke"),
+        )
+    )
+
+    assert result.error == "TimeoutError"
+    assert result.result.failures == ["TimeoutError"]

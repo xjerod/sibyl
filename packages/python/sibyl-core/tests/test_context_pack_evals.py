@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Literal
 
 import pytest
 
-from sibyl_core.evals import ContextPackFixture, evaluate_context_pack
+from sibyl_core.evals import (
+    ContextPackCaseResult,
+    ContextPackEvalCase,
+    ContextPackEvalReport,
+    ContextPackFixture,
+    context_pack_from_dict,
+    evaluate_context_pack,
+    load_context_pack_cases,
+)
 from sibyl_core.models.context import (
     ContextFacet,
     ContextIntent,
@@ -258,3 +268,122 @@ def test_context_pack_fixture_reports_missing_source_metadata() -> None:
 
     assert not result.passed
     assert result.failures == ["items missing source metadata: unsourced-memory"]
+
+
+def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
+    path = tmp_path / "context_cases.json"
+    path.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "name": "coding-handoff",
+                        "goal": "handoff native memory implementation",
+                        "intent": "build",
+                        "domain": "sibyl",
+                        "project": "project-sibyl",
+                        "limit": 12,
+                        "include_related": False,
+                        "fixture": {
+                            "required_item_ids": ["decision-source-law"],
+                            "forbidden_item_ids": ["private-health-note"],
+                            "required_facets": ["decisions", "artifacts"],
+                            "required_terms": ["raw memory"],
+                            "max_items": 12,
+                            "max_markdown_chars": 6000,
+                            "require_source_metadata": True,
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cases = load_context_pack_cases(path)
+
+    assert len(cases) == 1
+    assert cases[0].name == "coding-handoff"
+    assert cases[0].goal == "handoff native memory implementation"
+    assert cases[0].fixture.required_item_ids == {"decision-source-law"}
+    assert cases[0].fixture.forbidden_item_ids == {"private-health-note"}
+    assert cases[0].fixture.required_facets == {
+        ContextFacet.DECISIONS,
+        ContextFacet.ARTIFACTS,
+    }
+    assert cases[0].fixture.require_source_metadata is True
+    assert cases[0].include_related is False
+
+
+def test_context_pack_from_dict_parses_api_response() -> None:
+    pack = context_pack_from_dict(
+        {
+            "goal": "ship context packs",
+            "intent": "build",
+            "query": "ship context packs sibyl",
+            "domain": "sibyl",
+            "project": "project-sibyl",
+            "usage_hint": "use the pack",
+            "total_items": 1,
+            "sections": [
+                {
+                    "facet": "decisions",
+                    "title": "Decisions",
+                    "items": [
+                        {
+                            "id": "decision-source-law",
+                            "type": "decision",
+                            "name": "Raw memory is source law",
+                            "content": "Keep raw source provenance.",
+                            "score": 0.91,
+                            "facet": "decisions",
+                            "reason": "decision records a choice",
+                            "source": "architecture doc",
+                            "metadata": {"source_id": "northstar"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert pack.intent == ContextIntent.BUILD
+    assert pack.sections[0].facet == ContextFacet.DECISIONS
+    assert pack.items[0].id == "decision-source-law"
+    assert pack.items[0].metadata["source_id"] == "northstar"
+
+
+def test_context_pack_eval_report_exposes_pass_rate_metrics() -> None:
+    result = evaluate_context_pack(
+        ContextPack(
+            goal="empty smoke",
+            intent=ContextIntent.BUILD,
+            query="empty smoke",
+            domain=None,
+            project=None,
+            sections=[],
+            total_items=0,
+        ),
+        ContextPackFixture(name="empty-smoke", max_items=1),
+    )
+    report = ContextPackEvalReport(
+        cases=[],
+        label="smoke",
+    )
+    report.cases.append(
+        ContextPackCaseResult(
+            case=ContextPackEvalCase(
+                name="empty-smoke",
+                goal="empty smoke",
+                fixture=ContextPackFixture(name="empty-smoke"),
+            ),
+            result=result,
+            latency_ms=5.0,
+        )
+    )
+
+    payload = report.to_dict()
+
+    assert payload["metrics"]["cases"] == 1
+    assert payload["metrics"]["pass_rate"] == 1.0
+    assert payload["per_case"][0]["passed"] is True

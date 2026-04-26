@@ -20,6 +20,7 @@ DEFAULT_METRICS = (
     "recall@5",
     "recall@10",
     "mrr",
+    "pass_rate",
     "latency_ms",
     "elapsed_seconds",
 )
