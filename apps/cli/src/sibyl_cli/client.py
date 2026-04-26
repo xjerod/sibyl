@@ -756,6 +756,26 @@ class SibylClient:
 
         return await self._request("POST", "/search", json=data)
 
+    async def context_pack(
+        self,
+        goal: str,
+        intent: str = "build",
+        domain: str | None = None,
+        project: str | None = None,
+        limit: int = 24,
+    ) -> dict[str, Any]:
+        """Compile a structured context pack for an agent goal."""
+        data: dict[str, Any] = {
+            "goal": goal,
+            "intent": intent,
+            "limit": limit,
+        }
+        if domain:
+            data["domain"] = domain
+        if project:
+            data["project"] = project
+        return await self._request("POST", "/context/pack", json=data)
+
     async def explore(
         self,
         mode: str = "list",

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from sibyl_core.models.context import ContextFacet, ContextIntent
 from sibyl_core.models.entities import EntityType, RelationshipType
 
 # =============================================================================
@@ -241,6 +242,56 @@ class SearchResponse(BaseModel):
     limit: int = Field(default=10, description="Results per page")
     offset: int = Field(default=0, description="Current offset")
     has_more: bool = Field(default=False, description="Whether more results exist")
+
+
+# =============================================================================
+# Context Pack Schemas
+# =============================================================================
+
+
+class ContextPackRequest(BaseModel):
+    """Request for compiling a structured agent context pack."""
+
+    goal: str = Field(..., min_length=1, description="Agent goal or user task")
+    intent: ContextIntent = Field(default=ContextIntent.BUILD, description="How the agent will act")
+    domain: str | None = Field(default=None, description="Domain or category to bias retrieval")
+    project: str | None = Field(default=None, description="Project ID to scope context")
+    limit: int = Field(default=24, ge=1, le=50, description="Maximum total context items")
+
+
+class ContextPackItem(BaseModel):
+    """Single selected memory inside a context pack."""
+
+    id: str
+    type: str
+    name: str
+    content: str
+    score: float
+    facet: ContextFacet
+    reason: str
+    source: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContextPackSection(BaseModel):
+    """Grouped memories for one context facet."""
+
+    facet: ContextFacet
+    title: str
+    items: list[ContextPackItem] = Field(default_factory=list)
+
+
+class ContextPackResponse(BaseModel):
+    """Structured context pack optimized for agent injection."""
+
+    goal: str
+    intent: ContextIntent
+    query: str
+    domain: str | None = None
+    project: str | None = None
+    sections: list[ContextPackSection] = Field(default_factory=list)
+    total_items: int = 0
+    usage_hint: str
 
 
 # =============================================================================

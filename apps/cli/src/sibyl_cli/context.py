@@ -19,6 +19,7 @@ from sibyl_cli.common import (
     console,
     create_table,
     error,
+    handle_client_error,
     info,
     print_json,
     run_async,
@@ -38,6 +39,8 @@ from sibyl_cli.config_store import (
     set_active_context,
     update_context,
 )
+
+CONTEXT_PACK_PREVIEW_CHARS = 320
 
 app = typer.Typer(
     name="context",
@@ -295,6 +298,112 @@ def _show_path_context(project_id: str, json_out: bool) -> None:
                 console.print(f"  {' · '.join(status_parts)}")
 
     console.print()
+
+
+def _format_context_pack_preview(content: str, max_chars: int = CONTEXT_PACK_PREVIEW_CHARS) -> str:
+    preview = " ".join(content.strip().split())
+    if len(preview) <= max_chars:
+        return preview
+
+    cutoff = preview.rfind(" ", 0, max_chars + 1)
+    if cutoff < max_chars // 2:
+        cutoff = max_chars
+    return preview[:cutoff].rstrip() + "…"
+
+
+@app.command("pack")
+def pack_cmd(
+    goal: Annotated[str, typer.Argument(help="Agent goal or user task")],
+    intent: Annotated[
+        str,
+        typer.Option(
+            "--intent",
+            "-i",
+            help="Agent intent: build, plan, ideate, research, debug, decide, learn, general",
+        ),
+    ] = "build",
+    domain: Annotated[
+        str | None,
+        typer.Option("--domain", "-d", help="Domain/category to bias retrieval"),
+    ] = None,
+    project: Annotated[
+        str | None,
+        typer.Option("--project", "-p", help="Project ID to scope context"),
+    ] = None,
+    all_projects: Annotated[
+        bool,
+        typer.Option("--all", "-a", help="Use all accessible projects"),
+    ] = False,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-l", min=1, max=50, help="Maximum total context items"),
+    ] = 24,
+    json_out: Annotated[
+        bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
+    ] = False,
+) -> None:
+    """Compile a precise context pack for an agent."""
+    effective_project = project or (None if all_projects else resolve_project_from_cwd())
+
+    @run_async
+    async def _run() -> None:
+        try:
+            async with get_client() as client:
+                pack = await client.context_pack(
+                    goal=goal,
+                    intent=intent,
+                    domain=domain,
+                    project=effective_project,
+                    limit=limit,
+                )
+        except SibylClientError as e:
+            handle_client_error(e)
+            raise typer.Exit(1) from e
+
+        if json_out:
+            print_json(pack)
+            return
+
+        console.print()
+        console.print(f"  [{ELECTRIC_PURPLE}]Context Pack[/{ELECTRIC_PURPLE}]")
+        console.print(f"  [{NEON_CYAN}]Goal:[/{NEON_CYAN}] {pack.get('goal', goal)}")
+        console.print(f"  [{NEON_CYAN}]Intent:[/{NEON_CYAN}] {pack.get('intent', intent)}")
+        if pack.get("domain"):
+            console.print(f"  [{NEON_CYAN}]Domain:[/{NEON_CYAN}] {pack['domain']}")
+        if pack.get("project"):
+            console.print(f"  [{NEON_CYAN}]Project:[/{NEON_CYAN}] {pack['project']}")
+        console.print(f"  [dim]{pack.get('total_items', 0)} item(s)[/dim]")
+        console.print()
+
+        sections = pack.get("sections", [])
+        if not sections:
+            info("No context found")
+            return
+
+        for section in sections:
+            console.print(
+                f"  [{ELECTRIC_PURPLE}]{section.get('title', 'Context')}[/{ELECTRIC_PURPLE}]"
+            )
+            for item in section.get("items", []):
+                name = item.get("name", "Untitled")
+                item_type = item.get("type", "memory")
+                item_id = item.get("id", "")
+                console.print(
+                    f"    [{NEON_CYAN}]{name}[/{NEON_CYAN}] "
+                    f"[dim]({item_type})[/dim] [{CORAL}]{item_id}[/{CORAL}]"
+                )
+                reason = item.get("reason")
+                if reason:
+                    console.print(f"      [dim]{reason}[/dim]")
+                content = item.get("content")
+                if content:
+                    console.print(f"      {_format_context_pack_preview(content)}", soft_wrap=True)
+            console.print()
+
+        if hint := pack.get("usage_hint"):
+            console.print(f"  [dim]{hint}[/dim]")
+
+    _run()
 
 
 @app.command("list")
