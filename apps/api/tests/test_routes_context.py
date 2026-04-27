@@ -66,11 +66,15 @@ def _pack_with_quality() -> ContextPack:
     )
 
 
+def _ctx() -> SimpleNamespace:
+    return SimpleNamespace(user_id="user-123")
+
+
 class TestContextPackRoute:
     @pytest.mark.asyncio
     async def test_context_pack_scopes_to_accessible_projects(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
-        ctx = SimpleNamespace()
+        ctx = _ctx()
 
         with (
             patch(
@@ -92,6 +96,7 @@ class TestContextPackRoute:
         assert response.markdown is not None
         assert response.markdown.startswith("# Sibyl Context Pack")
         assert compile_context.await_args.kwargs["accessible_projects"] == {"proj_1"}
+        assert compile_context.await_args.kwargs["principal_id"] == "user-123"
         assert compile_context.await_args.kwargs["project"] is None
         assert compile_context.await_args.kwargs["include_related"] is True
         assert compile_context.await_args.kwargs["related_limit"] == 3
@@ -113,7 +118,7 @@ class TestContextPackRoute:
             response = await context_pack(
                 request=ContextPackRequest(goal="ship faster"),
                 org=org,
-                ctx=SimpleNamespace(),
+                ctx=_ctx(),
             )
 
         item = response.sections[0].items[0]
@@ -137,7 +142,7 @@ class TestContextPackRoute:
             await context_pack(
                 request=ContextPackRequest(goal="ship faster", project="proj_1"),
                 org=org,
-                ctx=SimpleNamespace(),
+                ctx=_ctx(),
             )
 
         assert compile_context.await_args.kwargs["project"] == "proj_1"
@@ -158,7 +163,7 @@ class TestContextPackRoute:
             await context_pack(
                 request=ContextPackRequest(goal="ship faster", project="proj_2"),
                 org=org,
-                ctx=SimpleNamespace(),
+                ctx=_ctx(),
             )
 
         compile_context.assert_not_awaited()

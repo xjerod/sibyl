@@ -598,6 +598,7 @@ def _register_tools(mcp: FastMCP) -> None:
             domain=domain,
             project=project,
             accessible_projects=await _resolve_mcp_project_scope(ctx, project),
+            principal_id=ctx.user_id,
             limit=limit,
             include_related=include_related,
             related_limit=related_limit,

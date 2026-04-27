@@ -4,27 +4,25 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
-from importlib import import_module
 from typing import Any
 
 from sibyl_core.models.context import (
     ContextFacet,
     ContextIntent,
     ContextItem,
+    ContextItemQualityMetadata,
     ContextPack,
     ContextRelatedItem,
     ContextSection,
 )
 from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
+from sibyl_core.services.surreal_content import RawMemory, recall_raw_memory
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 from sibyl_core.tools.search import search as default_search
 
-ContextItemQualityMetadata = getattr(
-    import_module("sibyl_core.models.context"), "ContextItemQualityMetadata", None
-)
-
 SearchFn = Callable[..., Awaitable[SearchResponse]]
 RelatedFn = Callable[..., Awaitable[list[ContextRelatedItem]]]
+RawMemoryRecallFn = Callable[..., Awaitable[list[RawMemory]]]
 
 FACET_TITLES = {
     ContextFacet.ACTIVE_WORK: "Active Work",
@@ -226,9 +224,7 @@ def _quality_metadata_from_result(result: SearchResult) -> Any:
         valid_at=_first_metadata_value(metadata, "valid_at", "timestamp", "event_time"),
         project_id=_first_metadata_value(metadata, "project_id", "project"),
     )
-    if ContextItemQualityMetadata is not None:
-        return ContextItemQualityMetadata(**values)
-    return values
+    return ContextItemQualityMetadata(**values)
 
 
 async def _default_related_items(
@@ -285,6 +281,93 @@ def _item_from_result(result: SearchResult, facet: ContextFacet) -> ContextItem:
     else:
         metadata["quality"] = quality
     return ContextItem(**kwargs)
+
+
+def _item_from_raw_memory(memory: RawMemory) -> ContextItem:
+    created_at = memory.captured_at.isoformat() if memory.captured_at else None
+    source = memory.source_id or memory.capture_surface
+    quality_values = dict(
+        origin="raw_memory",
+        source=source,
+        created_at=created_at,
+        updated_at=None,
+        valid_at=created_at,
+        project_id=memory.scope_key if memory.memory_scope.value == "project" else None,
+    )
+    quality = ContextItemQualityMetadata(**quality_values)
+    metadata = {
+        "source_id": memory.source_id,
+        "principal_id": memory.principal_id,
+        "memory_scope": memory.memory_scope.value,
+        "scope_key": memory.scope_key,
+        "capture_surface": memory.capture_surface,
+        "tags": memory.tags,
+        **memory.metadata,
+    }
+    title = memory.title or "Untitled raw memory"
+    return ContextItem(
+        id=f"raw_memory:{memory.id}",
+        type="raw_memory",
+        name=title,
+        content=memory.raw_content,
+        score=memory.score,
+        facet=ContextFacet.RECENT_MEMORY,
+        reason=(
+            f"raw memory matched the goal in {memory.memory_scope.value} scope "
+            "and preserves verbatim source context"
+        ),
+        source=source,
+        quality=quality,
+        metadata=metadata,
+    )
+
+
+async def _compile_raw_memory_section(
+    *,
+    query: str,
+    organization_id: str,
+    principal_id: str | None,
+    project: str | None,
+    limit: int,
+    recall_fn: RawMemoryRecallFn,
+) -> ContextSection | None:
+    if not principal_id or limit <= 0:
+        return None
+
+    memories: list[RawMemory] = []
+    for memory_scope, scope_key in (("private", None), ("project", project)):
+        if memory_scope == "project" and not scope_key:
+            continue
+        remaining = limit - len(memories)
+        if remaining <= 0:
+            break
+        try:
+            memories.extend(
+                await recall_fn(
+                    organization_id=organization_id,
+                    principal_id=principal_id,
+                    query=query,
+                    memory_scope=memory_scope,
+                    scope_key=scope_key,
+                    limit=remaining,
+                )
+            )
+        except Exception:
+            continue
+
+    if not memories:
+        return None
+
+    items = sorted(
+        [_item_from_raw_memory(memory) for memory in memories],
+        key=lambda item: item.score,
+        reverse=True,
+    )[:limit]
+    return ContextSection(
+        facet=ContextFacet.RECENT_MEMORY,
+        title=FACET_TITLES[ContextFacet.RECENT_MEMORY],
+        items=items,
+    )
 
 
 def _dedupe_sections(sections: list[ContextSection], limit: int) -> list[ContextSection]:
@@ -477,12 +560,14 @@ async def compile_context(
     domain: str | None = None,
     project: str | None = None,
     accessible_projects: set[str] | None = None,
+    principal_id: str | None = None,
     organization_id: str | None = None,
     limit: int = 24,
     include_related: bool = False,
     related_limit: int = 3,
     search_fn: SearchFn = default_search,
     related_fn: RelatedFn = _default_related_items,
+    raw_memory_recall_fn: RawMemoryRecallFn = recall_raw_memory,
 ) -> ContextPack:
     """Build a small, structured context pack for an agent goal."""
 
@@ -501,6 +586,14 @@ async def compile_context(
     per_facet_limit = max(2, min(8, (limit + len(facets) - 1) // len(facets)))
 
     sections: list[ContextSection] = []
+    raw_section = await _compile_raw_memory_section(
+        query=query,
+        organization_id=organization_id,
+        principal_id=principal_id,
+        project=project,
+        limit=min(4, limit),
+        recall_fn=raw_memory_recall_fn,
+    )
     for facet in facets:
         response = await search_fn(
             query=query,
@@ -515,6 +608,8 @@ async def compile_context(
             organization_id=organization_id,
         )
         items = [_item_from_result(result, facet) for result in response.results]
+        if raw_section is not None and facet == ContextFacet.RECENT_MEMORY:
+            items = [*raw_section.items, *items]
         if items:
             sections.append(ContextSection(facet=facet, title=FACET_TITLES[facet], items=items))
 

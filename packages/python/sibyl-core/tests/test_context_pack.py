@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import pytest
 
 from sibyl_core.models.context import ContextFacet, ContextIntent, ContextRelatedItem
+from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 from sibyl_core.tools.context import compile_context, context_pack_to_dict, context_pack_to_markdown
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 
@@ -31,6 +33,36 @@ def _result(
         result_origin=result_origin,
         metadata={"entity_type": entity_type, **(metadata or {})},
     )
+
+
+def _raw_memory(
+    memory_id: str,
+    *,
+    memory_scope: MemoryScope = MemoryScope.PRIVATE,
+    scope_key: str | None = None,
+    score: float = 0.7,
+) -> RawMemory:
+    return RawMemory(
+        id=memory_id,
+        organization_id="org-123",
+        source_id=f"source:{memory_id}",
+        principal_id="user-123",
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        title=f"Raw {memory_id}",
+        raw_content=f"Raw {memory_id} content",
+        tags=["raw"],
+        metadata={"source_name": "session"},
+        provenance={"message_id": memory_id},
+        capture_surface="cli",
+        captured_at=datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+        created_at=datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+        score=score,
+    )
+
+
+async def _empty_search_response(**kwargs: Any) -> SearchResponse:
+    return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
 
 
 @pytest.mark.asyncio
@@ -82,6 +114,105 @@ async def test_compile_context_groups_build_context_by_agent_facets() -> None:
     assert all(call["organization_id"] == "org-123" for call in calls)
     assert all(call["category"] == "agent-memory" for call in calls)
     assert all(call["project"] == "sibyl" for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_compile_context_includes_private_and_project_raw_memory() -> None:
+    search_calls: list[dict[str, Any]] = []
+    raw_calls: list[dict[str, Any]] = []
+
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        search_calls.append(kwargs)
+        if kwargs["types"] == ["session", "episode", "note"]:
+            return SearchResponse(
+                results=[_result("session-1", "session", "Graph session", score=0.75)],
+                total=1,
+                query=kwargs["query"],
+                filters={},
+            )
+        return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
+
+    async def fake_raw_recall(**kwargs: Any) -> list[RawMemory]:
+        raw_calls.append(kwargs)
+        if kwargs["memory_scope"] == "private":
+            return [_raw_memory("private-1", score=0.8)]
+        return [
+            _raw_memory(
+                "project-1",
+                memory_scope=MemoryScope.PROJECT,
+                scope_key="project_123",
+                score=0.9,
+            )
+        ]
+
+    pack = await compile_context(
+        "raw context",
+        intent="build",
+        project="project_123",
+        principal_id="user-123",
+        organization_id="org-123",
+        search_fn=fake_search,
+        raw_memory_recall_fn=fake_raw_recall,
+    )
+
+    assert pack.total_items == 3
+    assert pack.sections[0].facet == ContextFacet.RECENT_MEMORY
+    assert [item.id for item in pack.sections[0].items] == [
+        "raw_memory:project-1",
+        "raw_memory:private-1",
+        "session-1",
+    ]
+    assert pack.sections[0].items[0].quality.origin == "raw_memory"
+    assert pack.sections[0].items[0].quality.source == "source:project-1"
+    assert pack.sections[0].items[0].quality.project_id == "project_123"
+    assert "preserves verbatim source context" in pack.sections[0].items[0].reason
+    assert [call["memory_scope"] for call in raw_calls] == ["private", "project"]
+    assert raw_calls[0]["principal_id"] == "user-123"
+    assert raw_calls[1]["scope_key"] == "project_123"
+    assert ["session", "episode", "note"] in [call["types"] for call in search_calls]
+
+
+@pytest.mark.asyncio
+async def test_compile_context_skips_raw_memory_without_principal() -> None:
+    async def fake_raw_recall(**kwargs: Any) -> list[RawMemory]:
+        raise AssertionError("raw recall requires a principal")
+
+    pack = await compile_context(
+        "raw context",
+        intent="build",
+        organization_id="org-123",
+        search_fn=_empty_search_response,
+        raw_memory_recall_fn=fake_raw_recall,
+    )
+
+    assert pack.total_items == 0
+
+
+@pytest.mark.asyncio
+async def test_compile_context_keeps_graph_context_when_raw_memory_fails() -> None:
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        return SearchResponse(
+            results=[_result("decision-1", kwargs["types"][0], "Use layered packs")],
+            total=1,
+            query=kwargs["query"],
+            filters={},
+        )
+
+    async def failing_raw_recall(**kwargs: Any) -> list[RawMemory]:
+        raise RuntimeError("raw memory unavailable")
+
+    pack = await compile_context(
+        "raw context",
+        intent="build",
+        principal_id="user-123",
+        organization_id="org-123",
+        limit=1,
+        search_fn=fake_search,
+        raw_memory_recall_fn=failing_raw_recall,
+    )
+
+    assert pack.total_items == 1
+    assert pack.items[0].id == "decision-1"
 
 
 @pytest.mark.asyncio
