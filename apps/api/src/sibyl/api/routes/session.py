@@ -14,7 +14,14 @@ from sibyl.auth.dependencies import get_auth_context, get_current_organization, 
 from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
-from sibyl_core.session_bundle import derive_query, remember_next, summarize_memory, summarize_task
+from sibyl_core.services.surreal_content import recall_raw_memory
+from sibyl_core.session_bundle import (
+    derive_query,
+    remember_next,
+    summarize_memory,
+    summarize_raw_memory,
+    summarize_task,
+)
 
 log = structlog.get_logger()
 
@@ -53,6 +60,56 @@ def _as_mapping(value: Any) -> dict[str, Any]:
     if is_dataclass(value):
         return asdict(value)
     return dict(getattr(value, "__dict__", {}))
+
+
+def _append_unique_memory(memories: list[dict[str, Any]], memory: dict[str, Any], limit: int) -> None:
+    if len(memories) >= limit:
+        return
+    memory_id = memory.get("id")
+    if memory_id and any(existing.get("id") == memory_id for existing in memories):
+        return
+    memories.append(memory)
+
+
+async def _append_raw_memories(
+    *,
+    memories: list[dict[str, Any]],
+    query: str,
+    organization_id: str,
+    principal_id: str | None,
+    selected_project_ids: list[str],
+    limit: int,
+) -> None:
+    if not principal_id or limit <= 0:
+        return
+
+    scope_requests: list[tuple[str, str | None]] = [("private", None)]
+    scope_requests.extend(("project", project_id) for project_id in selected_project_ids)
+
+    for memory_scope, scope_key in scope_requests:
+        remaining = limit - len(memories)
+        if remaining <= 0:
+            break
+        try:
+            raw_memories = await recall_raw_memory(
+                organization_id=organization_id,
+                principal_id=principal_id,
+                query=query,
+                memory_scope=memory_scope,
+                scope_key=scope_key,
+                limit=remaining,
+            )
+        except Exception as exc:
+            log.warning(
+                "session_raw_memory_lookup_failed",
+                memory_scope=memory_scope,
+                scope_key=scope_key,
+                error=str(exc),
+            )
+            continue
+
+        for raw_memory in raw_memories:
+            _append_unique_memory(memories, summarize_raw_memory(_as_mapping(raw_memory)), limit)
 
 
 @router.get("/bundle", response_model=SessionBundleResponse)
@@ -121,40 +178,51 @@ async def get_session_bundle(
         effective_query = derive_query(query, tasks, project_name=None)
         relevant_entities: list[dict[str, Any]] = []
         if effective_query and memory_limit > 0:
+            await _append_raw_memories(
+                memories=relevant_entities,
+                query=effective_query,
+                organization_id=organization_id,
+                principal_id=getattr(ctx, "user_id", None),
+                selected_project_ids=selected_project_ids,
+                limit=memory_limit,
+            )
             single_project_id = selected_project_ids[0] if len(selected_project_ids) == 1 else None
             search_scope = (
                 None if single_project_id else (selected_project_ids or accessible_projects)
             )
-            search_result = await core_search(
-                query=effective_query,
-                types=_SESSION_MEMORY_TYPES,
-                language=None,
-                category=None,
-                status=None,
-                project=single_project_id,
-                accessible_projects=search_scope,
-                source=None,
-                source_id=None,
-                source_name=None,
-                assignee=None,
-                since=None,
-                limit=memory_limit + len(tasks),
-                offset=0,
-                include_content=True,
-                include_documents=True,
-                include_graph=True,
-                use_enhanced=True,
-                boost_recent=True,
-                organization_id=organization_id,
-            )
-            task_ids = {task["id"] for task in tasks}
-            for result in search_result.results:
-                candidate = _as_mapping(result)
-                if candidate.get("id") in task_ids:
-                    continue
-                relevant_entities.append(summarize_memory(candidate))
-                if len(relevant_entities) >= memory_limit:
-                    break
+            if len(relevant_entities) < memory_limit:
+                search_result = await core_search(
+                    query=effective_query,
+                    types=_SESSION_MEMORY_TYPES,
+                    language=None,
+                    category=None,
+                    status=None,
+                    project=single_project_id,
+                    accessible_projects=search_scope,
+                    source=None,
+                    source_id=None,
+                    source_name=None,
+                    assignee=None,
+                    since=None,
+                    limit=memory_limit + len(tasks),
+                    offset=0,
+                    include_content=True,
+                    include_documents=True,
+                    include_graph=True,
+                    use_enhanced=True,
+                    boost_recent=True,
+                    organization_id=organization_id,
+                )
+                task_ids = {task["id"] for task in tasks}
+                for result in search_result.results:
+                    if len(relevant_entities) >= memory_limit:
+                        break
+                    candidate = _as_mapping(result)
+                    if candidate.get("id") in task_ids:
+                        continue
+                    _append_unique_memory(
+                        relevant_entities, summarize_memory(candidate), memory_limit
+                    )
 
         return SessionBundleResponse(
             context=SessionBundleContext(

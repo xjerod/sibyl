@@ -49,6 +49,23 @@ def summarize_memory(entity: Mapping[str, Any]) -> dict[str, Any]:
         "source": entity.get("source"),
         "preview": format_preview(str(entity.get("content", ""))),
         "document_id": metadata.get("document_id"),
+        "memory_scope": entity.get("memory_scope") or metadata.get("memory_scope"),
+        "scope_key": entity.get("scope_key") or metadata.get("scope_key"),
+    }
+
+
+def summarize_raw_memory(memory: Mapping[str, Any]) -> dict[str, Any]:
+    raw_id = str(memory.get("id", ""))
+    memory_id = raw_id if raw_id.startswith("raw_memory:") else f"raw_memory:{raw_id}"
+    return {
+        "id": memory_id,
+        "name": memory.get("title") or "Untitled raw memory",
+        "entity_type": "raw_memory",
+        "source": memory.get("source_id") or memory.get("capture_surface"),
+        "preview": format_preview(str(memory.get("raw_content", ""))),
+        "document_id": None,
+        "memory_scope": memory.get("memory_scope"),
+        "scope_key": memory.get("scope_key"),
     }
 
 

@@ -82,6 +82,7 @@ def test_session_bundle_json_packages_context_tasks_and_memories(
             ]
         }
     )
+    mock_client.recall_raw_memory = AsyncMock(return_value={"memories": []})
     mock_get_client.return_value = _FakeClientContext(mock_client)
 
     runner = CliRunner()
@@ -120,6 +121,8 @@ def test_session_bundle_json_packages_context_tasks_and_memories(
             "source": None,
             "preview": "Keep session-start thin and call a first-class bundle command.",
             "document_id": None,
+            "memory_scope": None,
+            "scope_key": None,
         }
     ]
 
@@ -131,6 +134,86 @@ def test_session_bundle_json_packages_context_tasks_and_memories(
     mock_get_effective_server_url.assert_called_once_with()
     mock_get_effective_project.assert_called_once_with()
     mock_get_current_context.assert_called_once_with()
+
+
+@patch("sibyl_cli.session.get_effective_server_url", return_value="http://localhost:3334")
+@patch("sibyl_cli.session.get_effective_project", return_value="project_123")
+@patch(
+    "sibyl_cli.session.get_current_context", return_value=("project_123", "/Users/bliss/dev/sibyl")
+)
+@patch("sibyl_cli.session.get_active_context")
+@patch("sibyl_cli.session.get_client")
+def test_session_bundle_json_blends_raw_memory(
+    mock_get_client: MagicMock,
+    mock_get_active_context: MagicMock,
+    mock_get_current_context: MagicMock,
+    mock_get_effective_project: MagicMock,
+    mock_get_effective_server_url: MagicMock,
+) -> None:
+    context = MagicMock()
+    context.name = "local"
+    context.org_slug = "hyper"
+    mock_get_active_context.return_value = context
+
+    mock_client = MagicMock()
+    mock_client.get_entity = AsyncMock(return_value={"id": "project_123", "name": "Sibyl"})
+    mock_client.explore = AsyncMock(
+        return_value={
+            "entities": [
+                {
+                    "id": "task_1",
+                    "name": "Fix session bundle",
+                    "metadata": {"status": "doing", "priority": "high"},
+                }
+            ]
+        }
+    )
+    mock_client.search = AsyncMock(return_value={"results": []})
+    mock_client.recall_raw_memory = AsyncMock(
+        side_effect=[
+            {
+                "memories": [
+                    {
+                        "id": "raw_private",
+                        "title": "Private wake note",
+                        "raw_content": "Remember the private handoff.",
+                        "source_id": "cli:manual",
+                        "memory_scope": "private",
+                        "scope_key": None,
+                    }
+                ]
+            },
+            {
+                "memories": [
+                    {
+                        "id": "raw_project",
+                        "title": "Project wake note",
+                        "raw_content": "Remember the project handoff.",
+                        "source_id": "api:manual",
+                        "memory_scope": "project",
+                        "scope_key": "project_123",
+                    }
+                ]
+            },
+        ]
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["session", "bundle", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert [memory["id"] for memory in payload["relevant_entities"]] == [
+        "raw_memory:raw_private",
+        "raw_memory:raw_project",
+    ]
+    assert payload["relevant_entities"][0]["entity_type"] == "raw_memory"
+    assert payload["relevant_entities"][0]["memory_scope"] == "private"
+    assert payload["relevant_entities"][1]["scope_key"] == "project_123"
+    assert [
+        call.kwargs["memory_scope"] for call in mock_client.recall_raw_memory.await_args_list
+    ] == ["private", "project"]
 
 
 @patch("sibyl_cli.session.get_effective_server_url", return_value="http://localhost:3334")
@@ -148,6 +231,7 @@ def test_session_bundle_without_project_guides_user_to_link_one(
     mock_client = MagicMock()
     mock_client.explore = AsyncMock(return_value={"entities": []})
     mock_client.search = AsyncMock()
+    mock_client.recall_raw_memory = AsyncMock()
     mock_get_client.return_value = _FakeClientContext(mock_client)
 
     runner = CliRunner()
@@ -166,6 +250,7 @@ def test_session_bundle_without_project_guides_user_to_link_one(
 
     mock_client.get_entity.assert_not_called()
     mock_client.search.assert_not_called()
+    mock_client.recall_raw_memory.assert_not_called()
     mock_get_effective_server_url.assert_called_once_with()
     mock_get_effective_project.assert_called_once_with()
     mock_get_current_context.assert_called_once_with()
@@ -216,6 +301,7 @@ def test_session_bundle_renders_human_output(
             ]
         }
     )
+    mock_client.recall_raw_memory = AsyncMock(return_value={"memories": []})
     mock_get_client.return_value = _FakeClientContext(mock_client)
 
     runner = CliRunner()

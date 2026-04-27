@@ -228,6 +228,8 @@ class SessionMemorySummary(BaseModel):
     source: str | None = Field(default=None, description="Source document or path")
     preview: str = Field(default="", description="Short content preview")
     document_id: str | None = Field(default=None, description="Backing document ID")
+    memory_scope: str | None = Field(default=None, description="Memory visibility scope")
+    scope_key: str | None = Field(default=None, description="Project/team/shared scope key")
 
 
 class SessionBundleResponse(BaseModel):

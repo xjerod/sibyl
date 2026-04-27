@@ -29,6 +29,7 @@ from sibyl_cli.config_store import (
 from sibyl_core.session_bundle import (
     derive_query,
     summarize_memory,
+    summarize_raw_memory,
     summarize_task,
 )
 from sibyl_core.session_bundle import (
@@ -42,6 +43,46 @@ app = typer.Typer(
 
 SESSION_TASK_LIMIT = 5
 SESSION_MEMORY_LIMIT = 3
+
+
+def _append_unique_memory(memories: list[dict[str, Any]], memory: dict[str, Any], limit: int) -> None:
+    if len(memories) >= limit:
+        return
+    memory_id = memory.get("id")
+    if memory_id and any(existing.get("id") == memory_id for existing in memories):
+        return
+    memories.append(memory)
+
+
+async def _append_raw_memories(
+    *,
+    client: Any,
+    memories: list[dict[str, Any]],
+    query: str,
+    project: str | None,
+    limit: int,
+) -> None:
+    scope_requests: list[tuple[str, str | None]] = [("private", None)]
+    if project:
+        scope_requests.append(("project", project))
+
+    for memory_scope, scope_key in scope_requests:
+        remaining = limit - len(memories)
+        if remaining <= 0:
+            break
+        try:
+            response = await client.recall_raw_memory(
+                query=query,
+                memory_scope=memory_scope,
+                scope_key=scope_key,
+                limit=remaining,
+            )
+        except SibylClientError:
+            continue
+
+        for memory in response.get("memories", []):
+            if isinstance(memory, dict):
+                _append_unique_memory(memories, summarize_raw_memory(memory), limit)
 
 
 async def _build_session_bundle(
@@ -97,21 +138,29 @@ async def _build_session_bundle(
         effective_query = derive_query(query, tasks, context.get("project_name"))
         relevant_entities: list[dict[str, Any]] = []
         if effective_query and memory_limit > 0:
-            search_response = await client.search(
-                effective_query,
+            await _append_raw_memories(
+                client=client,
+                memories=relevant_entities,
+                query=effective_query,
                 project=None if all_projects else effective_project,
-                limit=memory_limit + len(tasks),
+                limit=memory_limit,
             )
-            task_ids = {task.get("id") for task in tasks}
-            for result in search_response.get("results", []):
-                if result.get("id") in task_ids:
-                    continue
-                entity_type = str(result.get("entity_type") or result.get("type") or "").lower()
-                if entity_type in {"task", "project", "epic"}:
-                    continue
-                relevant_entities.append(summarize_memory(result))
-                if len(relevant_entities) >= memory_limit:
-                    break
+            if len(relevant_entities) < memory_limit:
+                search_response = await client.search(
+                    effective_query,
+                    project=None if all_projects else effective_project,
+                    limit=memory_limit + len(tasks),
+                )
+                task_ids = {task.get("id") for task in tasks}
+                for result in search_response.get("results", []):
+                    if result.get("id") in task_ids:
+                        continue
+                    entity_type = str(
+                        result.get("entity_type") or result.get("type") or ""
+                    ).lower()
+                    if entity_type in {"task", "project", "epic"}:
+                        continue
+                    _append_unique_memory(relevant_entities, summarize_memory(result), memory_limit)
 
     remember_next = build_remember_next(tasks, relevant_entities, bool(context.get("project_id")))
     return {

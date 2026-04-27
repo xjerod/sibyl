@@ -10,6 +10,10 @@ from sibyl.api.routes.session import get_session_bundle
 from sibyl.auth.errors import ProjectAccessDeniedError
 
 
+def _ctx() -> SimpleNamespace:
+    return SimpleNamespace(user_id="user-123")
+
+
 class TestSessionBundleRoute:
     @pytest.mark.asyncio
     async def test_scoped_bundle_packages_tasks_and_memory(self) -> None:
@@ -17,7 +21,7 @@ class TestSessionBundleRoute:
             id=UUID("00000000-0000-0000-0000-000000000111"),
             slug="hyper",
         )
-        ctx = SimpleNamespace()
+        ctx = _ctx()
 
         explore_result = SimpleNamespace(
             entities=[
@@ -61,6 +65,7 @@ class TestSessionBundleRoute:
                 "sibyl_core.tools.core.explore", AsyncMock(return_value=explore_result)
             ) as explore,
             patch("sibyl_core.tools.core.search", AsyncMock(return_value=search_result)) as search,
+            patch("sibyl.api.routes.session.recall_raw_memory", AsyncMock(return_value=[])),
         ):
             response = await get_session_bundle(
                 query=None,
@@ -80,6 +85,7 @@ class TestSessionBundleRoute:
         assert response.relevant_entities[0].preview == (
             "Check the archive queue before you run maintenance."
         )
+        assert response.relevant_entities[0].memory_scope is None
 
         assert explore.await_count == 1
         assert search.await_count == 1
@@ -110,7 +116,7 @@ class TestSessionBundleRoute:
                 memory_limit=3,
                 project_ids=["proj_2"],
                 org=org,
-                ctx=SimpleNamespace(),
+                ctx=_ctx(),
             )
 
         assert exc.value.status_code == 403
@@ -133,6 +139,7 @@ class TestSessionBundleRoute:
                 AsyncMock(return_value=SimpleNamespace(entities=[])),
             ) as explore,
             patch("sibyl_core.tools.core.search", AsyncMock()) as search,
+            patch("sibyl.api.routes.session.recall_raw_memory", AsyncMock()) as recall_raw,
         ):
             response = await get_session_bundle(
                 query=None,
@@ -140,7 +147,7 @@ class TestSessionBundleRoute:
                 memory_limit=3,
                 project_ids=None,
                 org=org,
-                ctx=SimpleNamespace(),
+                ctx=_ctx(),
             )
 
         assert response.context.scope == "all_projects"
@@ -153,3 +160,79 @@ class TestSessionBundleRoute:
         )
         assert explore.await_args.kwargs["accessible_projects"] == ["proj_1"]
         search.assert_not_awaited()
+        recall_raw.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_session_bundle_blends_private_and_project_raw_memory(self) -> None:
+        org = SimpleNamespace(
+            id=UUID("00000000-0000-0000-0000-000000000111"),
+            slug="hyper",
+        )
+        explore_result = SimpleNamespace(
+            entities=[
+                {
+                    "id": "task_1",
+                    "name": "Wake from raw memory",
+                    "metadata": {"status": "doing", "priority": "high"},
+                },
+            ]
+        )
+        search_result = SimpleNamespace(results=[])
+
+        async def fake_raw_recall(**kwargs: object) -> list[SimpleNamespace]:
+            if kwargs["memory_scope"] == "private":
+                return [
+                    SimpleNamespace(
+                        id="raw_private",
+                        title="Private wake note",
+                        raw_content="Remember the private handoff.",
+                        source_id="cli:manual",
+                        capture_surface="cli",
+                        memory_scope="private",
+                        scope_key=None,
+                    )
+                ]
+            return [
+                SimpleNamespace(
+                    id="raw_project",
+                    title="Project wake note",
+                    raw_content="Remember the project handoff.",
+                    source_id="api:manual",
+                    capture_surface="api",
+                    memory_scope="project",
+                    scope_key="proj_1",
+                )
+            ]
+
+        with (
+            patch(
+                "sibyl.api.routes.session.list_accessible_project_graph_ids",
+                AsyncMock(return_value=["proj_1"]),
+            ),
+            patch("sibyl_core.tools.core.explore", AsyncMock(return_value=explore_result)),
+            patch("sibyl_core.tools.core.search", AsyncMock(return_value=search_result)),
+            patch(
+                "sibyl.api.routes.session.recall_raw_memory",
+                AsyncMock(side_effect=fake_raw_recall),
+            ) as recall_raw,
+        ):
+            response = await get_session_bundle(
+                query=None,
+                task_limit=5,
+                memory_limit=3,
+                project_ids=["proj_1"],
+                org=org,
+                ctx=_ctx(),
+            )
+
+        assert [memory.id for memory in response.relevant_entities] == [
+            "raw_memory:raw_private",
+            "raw_memory:raw_project",
+        ]
+        assert response.relevant_entities[0].entity_type == "raw_memory"
+        assert response.relevant_entities[0].memory_scope == "private"
+        assert response.relevant_entities[1].scope_key == "proj_1"
+        assert [call.kwargs["memory_scope"] for call in recall_raw.await_args_list] == [
+            "private",
+            "project",
+        ]
