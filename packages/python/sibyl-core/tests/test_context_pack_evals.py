@@ -539,6 +539,46 @@ def test_context_pack_fixture_reports_missing_source_metadata() -> None:
     assert result.failures == ["items missing source metadata: unsourced-memory"]
 
 
+def test_context_pack_fixture_reports_estimated_token_budget() -> None:
+    item = ContextItem(
+        id="large-memory",
+        type="artifact",
+        name="Large context payload",
+        content="x" * 240,
+        score=0.9,
+        facet=ContextFacet.ARTIFACTS,
+        reason="large artifact matched the goal",
+        source="seeded fixture",
+        metadata={"source_id": "large-fixture"},
+    )
+    pack = ContextPack(
+        goal="evaluate token budget",
+        intent=ContextIntent.BUILD,
+        query="evaluate token budget",
+        domain=None,
+        project=None,
+        sections=[
+            ContextSection(
+                facet=ContextFacet.ARTIFACTS,
+                title="Artifacts",
+                items=[item],
+            )
+        ],
+        total_items=1,
+    )
+
+    result = evaluate_context_pack(
+        pack,
+        ContextPackFixture(name="token-budget", max_estimated_tokens=20),
+    )
+
+    assert not result.passed
+    assert result.failures == [
+        f"estimated tokens too high: {result.metrics['estimated_tokens']} > 20"
+    ]
+    assert result.metrics["estimated_tokens"] > 20
+
+
 def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
     path = tmp_path / "context_cases.json"
     path.write_text(
@@ -570,6 +610,7 @@ def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
                             },
                             "max_items": 12,
                             "max_markdown_chars": 6000,
+                            "max_estimated_tokens": 1200,
                             "max_latency_ms": 250.0,
                             "require_source_metadata": True,
                         },
@@ -598,6 +639,7 @@ def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
         }
     }
     assert cases[0].fixture.max_latency_ms == 250.0
+    assert cases[0].fixture.max_estimated_tokens == 1200
     assert cases[0].fixture.required_facets == {
         ContextFacet.DECISIONS,
         ContextFacet.ARTIFACTS,
@@ -680,6 +722,7 @@ def test_context_pack_eval_report_exposes_pass_rate_metrics() -> None:
     assert payload["metrics"]["cases"] == 1
     assert payload["metrics"]["pass_rate"] == 1.0
     assert payload["per_case"][0]["passed"] is True
+    assert payload["per_case"][0]["metrics"]["estimated_tokens"] > 0
     assert payload["per_case"][0]["intent"] == "build"
     assert payload["per_case"][0]["layer"] == "recall"
     assert payload["per_case"][0]["agent_id"] is None

@@ -20,6 +20,8 @@ from sibyl_core.models.context import (
 )
 from sibyl_core.tools.context import context_pack_to_markdown
 
+APPROX_CHARS_PER_TOKEN = 4
+
 
 @dataclass(frozen=True)
 class ContextPackFixture:
@@ -35,6 +37,7 @@ class ContextPackFixture:
     required_item_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     max_items: int | None = None
     max_markdown_chars: int | None = None
+    max_estimated_tokens: int | None = None
     max_latency_ms: float | None = None
     require_source_metadata: bool = False
 
@@ -194,6 +197,10 @@ def _selected_context_text(pack: ContextPack) -> str:
     return "\n".join(chunks).lower()
 
 
+def _estimate_tokens(text: str) -> int:
+    return (len(text) + APPROX_CHARS_PER_TOKEN - 1) // APPROX_CHARS_PER_TOKEN
+
+
 def evaluate_context_pack(
     pack: ContextPack,
     fixture: ContextPackFixture,
@@ -228,6 +235,12 @@ def evaluate_context_pack(
     if fixture.max_markdown_chars is not None and len(markdown) > fixture.max_markdown_chars:
         failures.append(
             f"markdown too large: {len(markdown)} chars > {fixture.max_markdown_chars}"
+        )
+
+    estimated_tokens = _estimate_tokens(markdown)
+    if fixture.max_estimated_tokens is not None and estimated_tokens > fixture.max_estimated_tokens:
+        failures.append(
+            f"estimated tokens too high: {estimated_tokens} > {fixture.max_estimated_tokens}"
         )
 
     text = _searchable_text(pack)
@@ -272,6 +285,7 @@ def evaluate_context_pack(
         "items": pack.total_items,
         "facets": sorted(facet.value for facet in facets),
         "markdown_chars": len(markdown),
+        "estimated_tokens": estimated_tokens,
         "required_item_coverage": (
             1.0
             if not fixture.required_item_ids
@@ -333,6 +347,7 @@ def _fixture_from_dict(name: str, data: dict[str, Any]) -> ContextPackFixture:
         required_item_metadata=_metadata_requirements(data.get("required_item_metadata")),
         max_items=data.get("max_items"),
         max_markdown_chars=data.get("max_markdown_chars"),
+        max_estimated_tokens=data.get("max_estimated_tokens"),
         max_latency_ms=data.get("max_latency_ms"),
         require_source_metadata=bool(data.get("require_source_metadata", False)),
     )
