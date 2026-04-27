@@ -89,19 +89,31 @@ DEFINE INDEX IF NOT EXISTS idx_document_chunks_embedding ON document_chunks FIEL
 DEFINE TABLE IF NOT EXISTS raw_captures SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON raw_captures TYPE string;
 DEFINE FIELD IF NOT EXISTS organization_id ON raw_captures TYPE string;
+DEFINE FIELD IF NOT EXISTS source_id ON raw_captures TYPE string DEFAULT '';
+DEFINE FIELD IF NOT EXISTS principal_id ON raw_captures TYPE string DEFAULT '';
+DEFINE FIELD IF NOT EXISTS memory_scope ON raw_captures TYPE string DEFAULT 'private';
+DEFINE FIELD IF NOT EXISTS scope_key ON raw_captures TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS entity_id ON raw_captures TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS title ON raw_captures TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS raw_content ON raw_captures TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS entity_type ON raw_captures TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS tags ON raw_captures TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS metadata ON raw_captures TYPE object FLEXIBLE DEFAULT {{}};
+DEFINE FIELD IF NOT EXISTS provenance ON raw_captures TYPE object FLEXIBLE DEFAULT {{}};
 DEFINE FIELD IF NOT EXISTS capture_surface ON raw_captures TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_by_user_id ON raw_captures TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS captured_at ON raw_captures TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS created_at ON raw_captures TYPE datetime DEFAULT time::now();
 
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_uuid ON raw_captures FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_org ON raw_captures FIELDS organization_id;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_source ON raw_captures FIELDS source_id;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_principal ON raw_captures FIELDS principal_id;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_scope ON raw_captures FIELDS organization_id, memory_scope, scope_key;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_entity_id ON raw_captures FIELDS entity_id;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_title_ft ON raw_captures FIELDS title FULLTEXT ANALYZER title_analyzer BM25;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_content_ft ON raw_captures FIELDS raw_content FULLTEXT ANALYZER content_analyzer BM25;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_captured_at ON raw_captures FIELDS captured_at;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_created_at ON raw_captures FIELDS created_at;
 
 DEFINE TABLE IF NOT EXISTS system_settings SCHEMAFULL;

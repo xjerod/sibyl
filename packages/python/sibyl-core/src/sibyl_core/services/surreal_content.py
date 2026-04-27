@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
@@ -18,10 +19,30 @@ _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
 _DELETE_BY_UUID = {
     "crawl_sources": "DELETE FROM crawl_sources WHERE uuid = $uuid;",
     "crawled_documents": "DELETE FROM crawled_documents WHERE uuid = $uuid;",
+    "raw_captures": "DELETE FROM raw_captures WHERE uuid = $uuid;",
 }
 _CREATE_RECORD = {
     "crawl_sources": "CREATE crawl_sources CONTENT $record;",
     "crawled_documents": "CREATE crawled_documents CONTENT $record;",
+    "raw_captures": "CREATE raw_captures CONTENT $record;",
+}
+
+
+class MemoryScope(StrEnum):
+    PRIVATE = "private"
+    DELEGATED = "delegated"
+    PROJECT = "project"
+    TEAM = "team"
+    ORGANIZATION = "organization"
+    SHARED = "shared"
+    PUBLIC = "public"
+
+
+_SCOPES_REQUIRING_SCOPE_KEY = {
+    MemoryScope.DELEGATED,
+    MemoryScope.PROJECT,
+    MemoryScope.TEAM,
+    MemoryScope.SHARED,
 }
 
 
@@ -66,6 +87,25 @@ class ContentChunk:
     embedding: list[float] | None = None
     has_entities: bool = False
     entity_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RawMemory:
+    id: str
+    organization_id: str
+    source_id: str
+    principal_id: str
+    memory_scope: MemoryScope = MemoryScope.PRIVATE
+    scope_key: str | None = None
+    title: str = ""
+    raw_content: str = ""
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    capture_surface: str | None = None
+    captured_at: datetime | None = None
+    created_at: datetime | None = None
+    score: float = 0.0
 
 
 def build_surreal_content_client() -> SurrealContentClient:
@@ -184,6 +224,12 @@ def _coerce_datetime(value: object | None) -> datetime | None:
     return None
 
 
+def _coerce_dict(value: object | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
+
+
 def _coerce_str_list(value: object | None) -> list[str]:
     if isinstance(value, list | tuple):
         return [str(item) for item in value if item is not None]
@@ -209,6 +255,23 @@ def _coerce_float_list(value: object | None) -> list[float] | None:
             continue
         return None
     return out
+
+
+def _coerce_memory_scope(value: object | None) -> MemoryScope:
+    if isinstance(value, MemoryScope):
+        return value
+    if value is None:
+        return MemoryScope.PRIVATE
+    try:
+        return MemoryScope(str(value))
+    except ValueError:
+        return MemoryScope.PRIVATE
+
+
+def _validate_raw_memory_scope(memory_scope: MemoryScope, scope_key: str | None) -> None:
+    if memory_scope in _SCOPES_REQUIRING_SCOPE_KEY and not scope_key:
+        msg = f"{memory_scope.value} raw memory requires a scope_key"
+        raise ValueError(msg)
 
 
 def _utcnow() -> datetime:
@@ -261,6 +324,26 @@ def _chunk_from_record(record: dict[str, Any]) -> ContentChunk:
     )
 
 
+def _raw_memory_from_record(record: dict[str, Any]) -> RawMemory:
+    return RawMemory(
+        id=_coerce_str(record.get("uuid")),
+        organization_id=_coerce_str(record.get("organization_id")),
+        source_id=_coerce_str(record.get("source_id")),
+        principal_id=_coerce_str(record.get("principal_id")),
+        memory_scope=_coerce_memory_scope(record.get("memory_scope")),
+        scope_key=_coerce_optional_str(record.get("scope_key")),
+        title=_coerce_str(record.get("title")),
+        raw_content=_coerce_str(record.get("raw_content")),
+        tags=_coerce_str_list(record.get("tags")),
+        metadata=_coerce_dict(record.get("metadata")),
+        provenance=_coerce_dict(record.get("provenance")),
+        capture_surface=_coerce_optional_str(record.get("capture_surface")),
+        captured_at=_coerce_datetime(record.get("captured_at")),
+        created_at=_coerce_datetime(record.get("created_at")),
+        score=float(record.get("score") or 0.0),
+    )
+
+
 def _source_record(source: ContentSource) -> dict[str, Any]:
     return {
         "uuid": source.id,
@@ -277,6 +360,27 @@ def _source_record(source: ContentSource) -> dict[str, Any]:
         "last_error": source.last_error,
         "created_at": source.created_at,
         "updated_at": source.updated_at,
+    }
+
+
+def _raw_memory_record(memory: RawMemory) -> dict[str, Any]:
+    return {
+        "uuid": memory.id,
+        "organization_id": memory.organization_id,
+        "source_id": memory.source_id,
+        "principal_id": memory.principal_id,
+        "memory_scope": memory.memory_scope.value,
+        "scope_key": memory.scope_key,
+        "title": memory.title,
+        "raw_content": memory.raw_content,
+        "entity_type": "raw_memory",
+        "tags": list(memory.tags),
+        "metadata": dict(memory.metadata),
+        "provenance": dict(memory.provenance),
+        "capture_surface": memory.capture_surface,
+        "created_by_user_id": memory.principal_id,
+        "captured_at": memory.captured_at,
+        "created_at": memory.created_at,
     }
 
 
@@ -384,6 +488,152 @@ async def _load_chunks_for_document_ids(
         )
     chunks = [_chunk_from_record(row) for row in rows]
     return sorted(chunks, key=lambda chunk: (chunk.document_id, chunk.chunk_index, chunk.id))
+
+
+def _memory_scope_where(
+    *,
+    organization_id: str,
+    principal_id: str,
+    memory_scope: MemoryScope,
+    scope_key: str | None,
+) -> tuple[str, dict[str, Any]]:
+    _validate_raw_memory_scope(memory_scope, scope_key)
+    clauses = [
+        "organization_id = $organization_id",
+        "memory_scope = $memory_scope",
+    ]
+    params: dict[str, Any] = {
+        "organization_id": organization_id,
+        "memory_scope": memory_scope.value,
+    }
+    if memory_scope is MemoryScope.PRIVATE:
+        clauses.append("principal_id = $principal_id")
+        params["principal_id"] = principal_id
+    elif scope_key is not None:
+        clauses.append("scope_key = $scope_key")
+        params["scope_key"] = scope_key
+    return " AND ".join(clauses), params
+
+
+async def _recall_raw_memory_lexical(
+    client: SurrealContentClient,
+    *,
+    organization_id: str,
+    principal_id: str,
+    query: str,
+    memory_scope: MemoryScope,
+    scope_key: str | None,
+    limit: int,
+) -> list[RawMemory]:
+    where_clause, params = _memory_scope_where(
+        organization_id=organization_id,
+        principal_id=principal_id,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+    )
+    rows = await _select_many(
+        client,
+        f"SELECT * FROM raw_captures WHERE {where_clause} ORDER BY captured_at DESC LIMIT $limit;",
+        **params,
+        limit=max(limit * 4, limit),
+    )
+    scored: list[RawMemory] = []
+    for row in rows:
+        memory = _raw_memory_from_record(row)
+        memory.score = lexical_score(query, memory.title, memory.raw_content)
+        if memory.score > 0:
+            scored.append(memory)
+    return sorted(scored, key=lambda memory: (-memory.score, memory.captured_at or datetime.min))[
+        :limit
+    ]
+
+
+async def remember_raw_memory(
+    *,
+    organization_id: str,
+    principal_id: str,
+    source_id: str,
+    raw_content: str,
+    title: str = "",
+    memory_scope: MemoryScope | str = MemoryScope.PRIVATE,
+    scope_key: str | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
+    capture_surface: str | None = None,
+) -> RawMemory:
+    now = _utcnow()
+    normalized_scope = _coerce_memory_scope(memory_scope)
+    _validate_raw_memory_scope(normalized_scope, scope_key)
+    memory = RawMemory(
+        id=str(uuid4()),
+        organization_id=organization_id,
+        source_id=source_id,
+        principal_id=principal_id,
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+        title=title,
+        raw_content=raw_content,
+        tags=list(tags or []),
+        metadata=dict(metadata or {}),
+        provenance=dict(provenance or {}),
+        capture_surface=capture_surface,
+        captured_at=now,
+        created_at=now,
+    )
+    async with surreal_content_client() as client:
+        record = await _replace_record(
+            client,
+            "raw_captures",
+            uuid=memory.id,
+            record=_raw_memory_record(memory),
+        )
+    return _raw_memory_from_record(record)
+
+
+async def recall_raw_memory(
+    *,
+    organization_id: str,
+    principal_id: str,
+    query: str,
+    memory_scope: MemoryScope | str = MemoryScope.PRIVATE,
+    scope_key: str | None = None,
+    limit: int = 10,
+) -> list[RawMemory]:
+    normalized_query = query.strip()
+    if not normalized_query or limit <= 0:
+        return []
+
+    normalized_scope = _coerce_memory_scope(memory_scope)
+    where_clause, params = _memory_scope_where(
+        organization_id=organization_id,
+        principal_id=principal_id,
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+    )
+    async with surreal_content_client() as client:
+        try:
+            rows = await _select_many(
+                client,
+                "SELECT *, math::max([search::score(0), search::score(1)]) AS score "
+                f"FROM raw_captures WHERE {where_clause} "
+                "AND (title @0@ $search_query OR raw_content @1@ $search_query) "
+                "ORDER BY score DESC, captured_at DESC LIMIT $limit;",
+                **params,
+                search_query=normalized_query,
+                limit=limit,
+            )
+        except RuntimeError:
+            return await _recall_raw_memory_lexical(
+                client,
+                organization_id=organization_id,
+                principal_id=principal_id,
+                query=normalized_query,
+                memory_scope=normalized_scope,
+                scope_key=scope_key,
+                limit=limit,
+            )
+    return [_raw_memory_from_record(row) for row in rows]
 
 
 async def get_or_create_source(
@@ -554,6 +804,8 @@ __all__ = [
     "ContentChunk",
     "ContentDocument",
     "ContentSource",
+    "MemoryScope",
+    "RawMemory",
     "build_surreal_content_client",
     "get_or_create_source",
     "lexical_score",
@@ -561,6 +813,8 @@ __all__ = [
     "list_source_ids_for_org",
     "list_unlinked_document_chunks",
     "load_search_scope",
+    "recall_raw_memory",
+    "remember_raw_memory",
     "set_source_job_state",
     "source_exists",
     "surreal_content_client",

@@ -7,8 +7,11 @@ from contextlib import asynccontextmanager
 import pytest
 
 from sibyl_core.services.surreal_content import (
+    MemoryScope,
     get_or_create_source,
     list_unlinked_document_chunks,
+    recall_raw_memory,
+    remember_raw_memory,
 )
 
 
@@ -138,3 +141,156 @@ class TestSurrealContentHelpers:
             )
 
         assert [chunk.id for chunk in chunks] == ["chunk-1"]
+
+    @pytest.mark.asyncio
+    async def test_remember_raw_memory_persists_source_scope_and_provenance(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result([]),
+                _query_result(
+                    [
+                        {
+                            "uuid": "memory-1",
+                            "organization_id": "org-1",
+                            "source_id": "source-email-1",
+                            "principal_id": "user-bliss",
+                            "memory_scope": "private",
+                            "title": "Architecture note",
+                            "raw_content": "Surreal stores raw memory before extraction.",
+                            "provenance": {"message_id": "msg-1"},
+                            "capture_surface": "email",
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            memory = await remember_raw_memory(
+                organization_id="org-1",
+                principal_id="user-bliss",
+                source_id="source-email-1",
+                title="Architecture note",
+                raw_content="Surreal stores raw memory before extraction.",
+                provenance={"message_id": "msg-1"},
+                capture_surface="email",
+            )
+
+        assert memory.source_id == "source-email-1"
+        assert memory.principal_id == "user-bliss"
+        assert memory.memory_scope is MemoryScope.PRIVATE
+        assert memory.provenance == {"message_id": "msg-1"}
+        saved_record = fake_client.calls[1][1]["record"]
+        assert saved_record["source_id"] == "source-email-1"
+        assert saved_record["principal_id"] == "user-bliss"
+        assert saved_record["memory_scope"] == "private"
+        assert saved_record["created_by_user_id"] == "user-bliss"
+
+    @pytest.mark.asyncio
+    async def test_recall_raw_memory_scopes_private_memories_to_principal(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "memory-1",
+                            "organization_id": "org-1",
+                            "source_id": "source-chat-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Project habit",
+                            "raw_content": "Bliss likes context packs with source ids.",
+                            "score": 0.93,
+                        }
+                    ]
+                )
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="context packs",
+            )
+
+        query, params = fake_client.calls[0]
+        assert "principal_id = $principal_id" in query
+        assert params["organization_id"] == "org-1"
+        assert params["principal_id"] == "user-a"
+        assert params["memory_scope"] == "private"
+        assert [memory.principal_id for memory in memories] == ["user-a"]
+
+    @pytest.mark.asyncio
+    async def test_recall_raw_memory_falls_back_to_scoped_lexical_search(self) -> None:
+        fake_client = FakeClient(
+            [
+                [{"status": "ERR", "result": "fulltext index unavailable"}],
+                _query_result(
+                    [
+                        {
+                            "uuid": "memory-1",
+                            "organization_id": "org-1",
+                            "source_id": "source-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Planner",
+                            "raw_content": "Context packs should expose rationale and sources.",
+                        },
+                        {
+                            "uuid": "memory-2",
+                            "organization_id": "org-1",
+                            "source_id": "source-2",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Groceries",
+                            "raw_content": "Milk, eggs, tea.",
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="context sources",
+            )
+
+        assert [memory.id for memory in memories] == ["memory-1"]
+        assert memories[0].score == 1.0
+        fallback_query, fallback_params = fake_client.calls[1]
+        assert "principal_id = $principal_id" in fallback_query
+        assert fallback_params["principal_id"] == "user-a"
+
+    @pytest.mark.asyncio
+    async def test_recall_raw_memory_requires_scope_key_for_project_scope(self) -> None:
+        with pytest.raises(ValueError, match="project raw memory requires a scope_key"):
+            await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="context",
+                memory_scope=MemoryScope.PROJECT,
+            )
