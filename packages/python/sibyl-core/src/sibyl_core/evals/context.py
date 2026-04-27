@@ -31,6 +31,7 @@ class ContextPackFixture:
     required_item_ids: set[str] = field(default_factory=set)
     forbidden_item_ids: set[str] = field(default_factory=set)
     required_facets: set[ContextFacet] = field(default_factory=set)
+    required_facet_order: list[ContextFacet] = field(default_factory=list)
     required_layer: ContextLayer | None = None
     required_terms: set[str] = field(default_factory=set)
     forbidden_terms: set[str] = field(default_factory=set)
@@ -223,6 +224,16 @@ def evaluate_context_pack(
     if missing_facets:
         failures.append(f"missing required facets: {', '.join(missing_facets)}")
 
+    facet_order = [section.facet for section in pack.sections]
+    facet_order_matches = (
+        not fixture.required_facet_order
+        or facet_order[: len(fixture.required_facet_order)] == fixture.required_facet_order
+    )
+    if not facet_order_matches:
+        expected = ", ".join(facet.value for facet in fixture.required_facet_order)
+        actual = ", ".join(facet.value for facet in facet_order[: len(fixture.required_facet_order)])
+        failures.append(f"facet order mismatch: expected prefix {expected} got {actual}")
+
     if fixture.required_layer is not None and pack.layer != fixture.required_layer:
         failures.append(
             f"wrong context layer: expected {fixture.required_layer.value} got {pack.layer.value}"
@@ -284,6 +295,8 @@ def evaluate_context_pack(
     metrics = {
         "items": pack.total_items,
         "facets": sorted(facet.value for facet in facets),
+        "facet_order": [facet.value for facet in facet_order],
+        "facet_order_matches": facet_order_matches,
         "markdown_chars": len(markdown),
         "estimated_tokens": estimated_tokens,
         "required_item_coverage": (
@@ -318,6 +331,15 @@ def _facet_set(value: Any) -> set[ContextFacet]:
     return {ContextFacet(item) for item in _string_set(value)}
 
 
+def _facet_list(value: Any) -> list[ContextFacet]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        msg = "expected a list of facets"
+        raise TypeError(msg)
+    return [ContextFacet(str(item)) for item in value]
+
+
 def _metadata_requirements(value: Any) -> dict[str, dict[str, Any]]:
     if value is None:
         return {}
@@ -339,6 +361,7 @@ def _fixture_from_dict(name: str, data: dict[str, Any]) -> ContextPackFixture:
         required_item_ids=_string_set(data.get("required_item_ids")),
         forbidden_item_ids=_string_set(data.get("forbidden_item_ids")),
         required_facets=_facet_set(data.get("required_facets")),
+        required_facet_order=_facet_list(data.get("required_facet_order")),
         required_layer=_layer_from_value(data["required_layer"])
         if data.get("required_layer")
         else None,

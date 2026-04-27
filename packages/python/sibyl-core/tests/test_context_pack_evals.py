@@ -153,6 +153,12 @@ async def test_context_pack_fixture_passes_coding_handoff_requirements() -> None
                 ContextFacet.DECISIONS,
                 ContextFacet.ARTIFACTS,
             },
+            required_facet_order=[
+                ContextFacet.ACTIVE_WORK,
+                ContextFacet.DECISIONS,
+                ContextFacet.GOTCHAS,
+                ContextFacet.ARTIFACTS,
+            ],
             required_terms={"remaining risk", "test_context_pack"},
             max_items=8,
             max_markdown_chars=5000,
@@ -163,6 +169,7 @@ async def test_context_pack_fixture_passes_coding_handoff_requirements() -> None
     assert result.passed, result.failures
     assert result.metrics["required_item_coverage"] == 1.0
     assert result.metrics["items"] == 4
+    assert result.metrics["facet_order_matches"] is True
 
 
 @pytest.mark.asyncio
@@ -539,6 +546,66 @@ def test_context_pack_fixture_reports_missing_source_metadata() -> None:
     assert result.failures == ["items missing source metadata: unsourced-memory"]
 
 
+def test_context_pack_fixture_reports_facet_order_mismatch() -> None:
+    decision = ContextItem(
+        id="decision-1",
+        type="decision",
+        name="Decision first by mistake",
+        content="This decision appears before active work.",
+        score=0.9,
+        facet=ContextFacet.DECISIONS,
+        reason="decision records a choice or rationale the agent should preserve",
+        source="seeded fixture",
+        metadata={"source_id": "decision-fixture"},
+    )
+    task = ContextItem(
+        id="task-1",
+        type="task",
+        name="Active task",
+        content="Current task should lead a build context pack.",
+        score=0.9,
+        facet=ContextFacet.ACTIVE_WORK,
+        reason="task can change what the agent should do next",
+        source="seeded fixture",
+        metadata={"source_id": "task-fixture"},
+    )
+    pack = ContextPack(
+        goal="evaluate context order",
+        intent=ContextIntent.BUILD,
+        query="evaluate context order",
+        domain="sibyl",
+        project="project-sibyl",
+        sections=[
+            ContextSection(
+                facet=ContextFacet.DECISIONS,
+                title="Decisions",
+                items=[decision],
+            ),
+            ContextSection(
+                facet=ContextFacet.ACTIVE_WORK,
+                title="Active Work",
+                items=[task],
+            ),
+        ],
+        total_items=2,
+    )
+
+    result = evaluate_context_pack(
+        pack,
+        ContextPackFixture(
+            name="build-order",
+            required_facet_order=[ContextFacet.ACTIVE_WORK, ContextFacet.DECISIONS],
+        ),
+    )
+
+    assert not result.passed
+    assert result.failures == [
+        "facet order mismatch: expected prefix active_work, decisions got decisions, active_work"
+    ]
+    assert result.metrics["facet_order"] == ["decisions", "active_work"]
+    assert result.metrics["facet_order_matches"] is False
+
+
 def test_context_pack_fixture_reports_estimated_token_budget() -> None:
     item = ContextItem(
         id="large-memory",
@@ -599,6 +666,7 @@ def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
                             "required_item_ids": ["decision-source-law"],
                             "forbidden_item_ids": ["private-health-note"],
                             "required_facets": ["decisions", "artifacts"],
+                            "required_facet_order": ["decisions", "artifacts"],
                             "required_layer": "wake",
                             "required_terms": ["raw memory"],
                             "forbidden_terms": ["private health note"],
@@ -644,6 +712,10 @@ def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
         ContextFacet.DECISIONS,
         ContextFacet.ARTIFACTS,
     }
+    assert cases[0].fixture.required_facet_order == [
+        ContextFacet.DECISIONS,
+        ContextFacet.ARTIFACTS,
+    ]
     assert cases[0].fixture.require_source_metadata is True
     assert cases[0].include_related is False
 
