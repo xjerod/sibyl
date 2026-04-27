@@ -67,6 +67,24 @@ class SurrealQueryError(RuntimeError):
         self.surreal_message = message
 
 
+def _is_connection_closed_error(exc: BaseException) -> bool:
+    class_names = {type(exc).__name__, type(exc).__qualname__}
+    module = type(exc).__module__
+    message = str(exc).lower()
+    return (
+        "ConnectionClosed" in "".join(class_names)
+        or (
+            "websockets" in module
+            and ("closed" in message or "keepalive ping timeout" in message)
+        )
+    )
+
+
+def _can_retry_query(query: str) -> bool:
+    first_token = query.lstrip().split(maxsplit=1)[0].upper() if query.strip() else ""
+    return first_token in {"SELECT", "RETURN", "INFO", "SHOW"}
+
+
 def _namespace_for_group(prefix: str, group_id: str) -> str:
     """Translate a Sibyl group_id (UUID) into a SurrealDB namespace name.
 
@@ -270,10 +288,32 @@ class SurrealDriver(GraphDriver):
     def _requires_auth(self) -> bool:
         return not self._url.startswith(("memory://", "surrealkv://"))
 
+    async def _drop_client(self) -> None:
+        client = self._client
+        self._client = None
+        if client is not None:
+            try:
+                await client.close()
+            except Exception as exc:
+                logger.debug("SurrealDB client close after connection failure failed: %s", exc)
+
     async def execute_query(self, cypher_query_: str, **kwargs: Any) -> Any:
         async with self._query_lock:
             client = await self._ensure_client()
-            result = await client.query(cypher_query_, kwargs if kwargs else None)
+            try:
+                result = await client.query(cypher_query_, kwargs if kwargs else None)
+            except Exception as exc:
+                if not _is_connection_closed_error(exc):
+                    raise
+                await self._drop_client()
+                if not _can_retry_query(cypher_query_):
+                    raise
+                logger.warning(
+                    "SurrealDB connection closed during read; reconnecting and retrying: %s",
+                    exc,
+                )
+                client = await self._ensure_client()
+                result = await client.query(cypher_query_, kwargs if kwargs else None)
         # The surrealdb SDK does not raise on per-statement errors — it returns
         # the error message as a string (single statement) or as `{"status":
         # "ERR", "result": "..."}` (multi-statement). Detect both and raise so

@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from sibyl_core.backends.surreal import SurrealDriver, SurrealDriverSession
-from sibyl_core.backends.surreal.driver import SurrealQueryError, _namespace_for_group
+from sibyl_core.backends.surreal.driver import (
+    SurrealQueryError,
+    _can_retry_query,
+    _is_connection_closed_error,
+    _namespace_for_group,
+)
 from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
 from sibyl_core.graph.surreal.ops.community_edge_ops import SurrealCommunityEdgeOperations
 from sibyl_core.graph.surreal.ops.community_node_ops import SurrealCommunityNodeOperations
@@ -104,6 +110,25 @@ class TestBuildFulltextQuery:
         assert d.build_fulltext_query("   ") == ""
 
 
+class TestConnectionRetry:
+    def test_detects_websocket_connection_closed_errors(self) -> None:
+        ConnectionClosedError = type(
+            "ConnectionClosedError",
+            (RuntimeError,),
+            {"__module__": "websockets.exceptions"},
+        )
+
+        assert _is_connection_closed_error(
+            ConnectionClosedError("sent 1011 keepalive ping timeout")
+        )
+
+    def test_retryable_queries_are_read_only(self) -> None:
+        assert _can_retry_query("SELECT * FROM entity;")
+        assert _can_retry_query(" RETURN true;")
+        assert not _can_retry_query("CREATE entity CONTENT $record;")
+        assert not _can_retry_query("DELETE FROM entity;")
+
+
 @pytest.mark.asyncio
 class TestDriverConnection:
     async def test_execute_query_serializes_shared_client_calls(self, monkeypatch) -> None:
@@ -162,6 +187,48 @@ class TestDriverConnection:
 
         with pytest.raises(SurrealQueryError, match="array<float"):
             await driver.execute_query("CREATE entity SET uuid = $uuid;", uuid="ent-1")
+
+    async def test_execute_query_reconnects_and_retries_closed_read_socket(
+        self, monkeypatch
+    ) -> None:
+        class ConnectionClosedError(RuntimeError):
+            pass
+
+        ConnectionClosedError.__module__ = "websockets.exceptions"
+        clients: list[FakeAsyncSurreal] = []
+
+        class FakeAsyncSurreal:
+            def __init__(self, url: str) -> None:
+                self.url = url
+                self.closed = False
+                clients.append(self)
+
+            async def signin(self, credentials: dict[str, str]) -> None:
+                self.credentials = credentials
+
+            async def use(self, namespace: str, database: str) -> None:
+                self.namespace = namespace
+                self.database = database
+
+            async def query(self, query: str, params: object | None = None) -> list[dict[str, str]]:
+                if len(clients) == 1:
+                    raise ConnectionClosedError("sent 1011 keepalive ping timeout")
+                return [{"ok": "yes"}]
+
+            async def close(self) -> None:
+                self.closed = True
+
+        monkeypatch.setitem(sys.modules, "surrealdb", SimpleNamespace(AsyncSurreal=FakeAsyncSurreal))
+        driver = SurrealDriver("ws://localhost:8000/rpc", username="root", password="root").clone(
+            "org-abc"
+        )
+
+        result = await driver.execute_query("SELECT * FROM entity;")
+
+        assert result == [{"ok": "yes"}]
+        assert len(clients) == 2
+        assert clients[0].closed is True
+        assert clients[1].namespace == "org_orgabc"
 
 
 @pytest.mark.asyncio
