@@ -31,6 +31,7 @@ class ContextPackFixture:
     required_facets: set[ContextFacet] = field(default_factory=set)
     required_layer: ContextLayer | None = None
     required_terms: set[str] = field(default_factory=set)
+    forbidden_terms: set[str] = field(default_factory=set)
     required_item_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     max_items: int | None = None
     max_markdown_chars: int | None = None
@@ -185,6 +186,13 @@ def _searchable_text(pack: ContextPack) -> str:
     return "\n".join(chunks).lower()
 
 
+def _selected_context_text(pack: ContextPack) -> str:
+    chunks: list[str] = []
+    for item in pack.items:
+        chunks.extend([item.name, item.content, item.reason, item.source or ""])
+    return "\n".join(chunks).lower()
+
+
 def evaluate_context_pack(
     pack: ContextPack,
     fixture: ContextPackFixture,
@@ -228,6 +236,13 @@ def evaluate_context_pack(
     if missing_terms:
         failures.append(f"missing required terms: {', '.join(missing_terms)}")
 
+    selected_context_text = _selected_context_text(pack)
+    forbidden_terms = sorted(
+        term for term in fixture.forbidden_terms if term.lower() in selected_context_text
+    )
+    if forbidden_terms:
+        failures.append(f"forbidden terms present: {', '.join(forbidden_terms)}")
+
     if fixture.require_source_metadata:
         unsourced = sorted(item.id for item in pack.items if not _has_source_metadata(item))
         if unsourced:
@@ -265,6 +280,7 @@ def evaluate_context_pack(
         "metadata_requirement_coverage": (
             1.0 if not metadata_checks else metadata_matches / metadata_checks
         ),
+        "forbidden_term_matches": len(forbidden_terms),
     }
     return ContextPackEvalResult(
         fixture=fixture.name,
@@ -312,6 +328,7 @@ def _fixture_from_dict(name: str, data: dict[str, Any]) -> ContextPackFixture:
         if data.get("required_layer")
         else None,
         required_terms=_string_set(data.get("required_terms")),
+        forbidden_terms=_string_set(data.get("forbidden_terms")),
         required_item_metadata=_metadata_requirements(data.get("required_item_metadata")),
         max_items=data.get("max_items"),
         max_markdown_chars=data.get("max_markdown_chars"),

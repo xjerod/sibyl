@@ -374,6 +374,7 @@ async def test_context_pack_fixture_passes_haven_privacy_requirements() -> None:
             name="haven-private-home-routine",
             required_item_ids={"haven-routine-evening"},
             forbidden_item_ids={"private-unrelated-medical-note"},
+            forbidden_terms={"private health note"},
             required_facets={ContextFacet.DOMAIN},
             required_terms={"evening", "hallway lights"},
             max_items=4,
@@ -382,6 +383,70 @@ async def test_context_pack_fixture_passes_haven_privacy_requirements() -> None:
     )
 
     assert result.passed, result.failures
+
+
+def test_context_pack_fixture_reports_forbidden_privacy_terms() -> None:
+    item = ContextItem(
+        id="unrelated-note",
+        type="claim",
+        name="Private unrelated note",
+        content="This private health note must not appear in household recall.",
+        score=0.8,
+        facet=ContextFacet.DOMAIN,
+        reason="claim matched the goal",
+        source="seeded fixture",
+        metadata={"source_id": "private-import"},
+    )
+    pack = ContextPack(
+        goal="what should Haven remember about the evening routine?",
+        intent=ContextIntent.RESEARCH,
+        query="what should Haven remember about the evening routine?",
+        domain="haven",
+        project="project-haven",
+        sections=[
+            ContextSection(
+                facet=ContextFacet.DOMAIN,
+                title="Domain",
+                items=[item],
+            )
+        ],
+        total_items=1,
+    )
+
+    result = evaluate_context_pack(
+        pack,
+        ContextPackFixture(
+            name="haven-private-home-routine",
+            forbidden_terms={"private health note", "medical note"},
+        ),
+    )
+
+    assert not result.passed
+    assert result.failures == ["forbidden terms present: private health note"]
+    assert result.metrics["forbidden_term_matches"] == 1
+
+
+def test_context_pack_fixture_allows_forbidden_terms_in_goal_only() -> None:
+    pack = ContextPack(
+        goal="should private health note ever appear in Haven recall?",
+        intent=ContextIntent.RESEARCH,
+        query="should private health note ever appear in Haven recall?",
+        domain="haven",
+        project="project-haven",
+        sections=[],
+        total_items=0,
+    )
+
+    result = evaluate_context_pack(
+        pack,
+        ContextPackFixture(
+            name="haven-private-home-routine",
+            forbidden_terms={"private health note"},
+        ),
+    )
+
+    assert result.passed, result.failures
+    assert result.metrics["forbidden_term_matches"] == 0
 
 
 @pytest.mark.asyncio
@@ -496,6 +561,7 @@ def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
                             "required_facets": ["decisions", "artifacts"],
                             "required_layer": "wake",
                             "required_terms": ["raw memory"],
+                            "forbidden_terms": ["private health note"],
                             "required_item_metadata": {
                                 "decision-source-law": {
                                     "source_id": "northstar",
@@ -522,6 +588,7 @@ def test_load_context_pack_cases_parses_json_fixture(tmp_path: Path) -> None:
     assert cases[0].agent_id == "nova"
     assert cases[0].fixture.required_item_ids == {"decision-source-law"}
     assert cases[0].fixture.forbidden_item_ids == {"private-health-note"}
+    assert cases[0].fixture.forbidden_terms == {"private health note"}
     assert cases[0].fixture.required_layer == ContextLayer.WAKE
     assert cases[0].fixture.required_item_metadata == {
         "decision-source-law": {
