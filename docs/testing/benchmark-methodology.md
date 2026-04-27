@@ -8,8 +8,9 @@ story.
 
 1. `moon run bench-live -- --label legacy --metadata store=legacy`
 2. `moon run bench-live-smoke`
-3. `moon run bench-retrieval`
-4. `uv run python benchmarks/longmemeval_bench.py /path/to/longmemeval.json --mode hybrid`
+3. `moon run core:bench-context -- --cases path/to/context_cases.json --label context-pack`
+4. `moon run bench-retrieval`
+5. `uv run python benchmarks/longmemeval_bench.py /path/to/longmemeval.json --mode hybrid`
 
 ## What Each Command Measures
 
@@ -36,6 +37,18 @@ This is the fast live health guard.
 - Runs as pytest so it fits normal local and CI-style workflows
 
 Use this when you want a quick “is the live stack behaving sensibly?” signal.
+
+### `moon run core:bench-context`
+
+This is the live context-pack quality guard.
+
+- Talks to the live `/api/context/pack` endpoint
+- Runs seeded dogfood fixtures for coding handoffs, Haven recall, privacy boundaries, and pack shape
+- Measures pass rate, source grounding, facet order, latency, token budget, and forbidden terms
+- Writes the same JSON report shape used by the comparison and gate tools
+
+Use this when changing retrieval, source grounding, prompt hooks, policy checks, or context-pack
+rendering.
 
 ### `moon run bench-retrieval`
 
@@ -76,6 +89,13 @@ The lighter `smoke` profile keeps just the fast guardrails:
 - `success@5 >= 0.20`
 - `latency_ms <= 3000`
 
+The `context-pack` profile gates dogfood context reports:
+
+- `pass_rate >= 1.00`
+- `source_metadata_coverage >= 1.00`
+- `facet_order_match_rate >= 1.00`
+- `forbidden_term_matches <= 0`
+
 Use `--require-metadata store=surreal` or other metadata filters when you need to prove which stack
 produced the artifact. Use `--min-metric` and `--max-metric` to tighten a gate for a specific run
 without forking the script.
@@ -84,6 +104,7 @@ without forking the script.
 
 - Lead with `bench-live` when describing Sibyl’s current runtime behavior.
 - Treat `bench-live-smoke` as a guardrail, not as headline benchmark evidence.
+- Treat `core:bench-context` as a blocking context-quality check for retrieval and policy changes.
 - Treat offline baselines as directional. Do not present them as production latency or runtime
   quality claims.
 - Keep the artifact JSON from `bench-live` whenever you cite a number in docs or PRs.
