@@ -1631,6 +1631,7 @@ class TestEntitySearch:
             "description": "Repository abstraction",
             "content": "Use repositories for data access",
             "metadata": json.dumps({"category": "architecture"}),
+            "search_score": 0.0,
         }
 
         surreal_entity_manager._client.client.search_ = AsyncMock()
@@ -1683,6 +1684,37 @@ class TestEntitySearch:
         assert len(results) == 1
         assert results[0][0].id == "pattern-001"
         assert results[0][1] == 0.65
+
+    @pytest.mark.asyncio
+    async def test_surreal_fallback_sanitizes_fulltext_query(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        matching_record = {
+            "uuid": "pattern-001",
+            "name": "Repository Pattern",
+            "group_id": "test-org-123",
+            "entity_type": "pattern",
+            "created_at": datetime.now(UTC),
+            "description": "Repository abstraction",
+            "content": "Use repositories for data access",
+            "metadata": json.dumps({"category": "architecture"}),
+            "search_score": 0.0,
+        }
+
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            side_effect=[[], [matching_record]]
+        )
+
+        results = await surreal_entity_manager.search(
+            'repository "pattern"\x00',
+            entity_types=[EntityType.PATTERN],
+        )
+
+        assert len(results) == 1
+        fallback_params = surreal_entity_manager._driver.execute_query.await_args_list[1].kwargs
+        assert fallback_params["query_lower"] == 'repository "pattern"\x00'
+        assert fallback_params["search_query"] == "repository pattern"
 
     @pytest.mark.asyncio
     async def test_search_skips_surreal_fallback_when_exact_results_fill_limit(

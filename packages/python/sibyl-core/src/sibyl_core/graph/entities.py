@@ -278,10 +278,16 @@ class EntityManager:
         if limit <= 0 or not query_lower:
             return []
 
+        fulltext_query = query_lower
+        if not exact_name_only:
+            fulltext_query = self._driver.build_fulltext_query(query_lower)
+            if not fulltext_query:
+                return []
+
         params: dict[str, Any] = {
             "group_id": self._group_id,
             "query_lower": query_lower,
-            "search_query": query_lower,
+            "search_query": fulltext_query,
             "query_limit": max(limit, 1),
         }
         where_clauses = ["group_id = $group_id"]
