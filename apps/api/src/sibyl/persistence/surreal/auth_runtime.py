@@ -85,24 +85,16 @@ _OAUTH_DATETIME_FIELDS = {
     "disconnected_at",
     "last_used_at",
 }
-_DELETE_QUERY_BY_TABLE = {
-    "api_keys": "DELETE FROM api_keys WHERE uuid = $uuid;",
-    "device_authorization_requests": "DELETE FROM device_authorization_requests WHERE uuid = $uuid;",
-    "oauth_connections": "DELETE FROM oauth_connections WHERE uuid = $uuid;",
-    "password_reset_tokens": "DELETE FROM password_reset_tokens WHERE uuid = $uuid;",
-    "projects": "DELETE FROM projects WHERE uuid = $uuid;",
-    "user_sessions": "DELETE FROM user_sessions WHERE uuid = $uuid;",
-    "users": "DELETE FROM users WHERE uuid = $uuid;",
-}
-_CREATE_QUERY_BY_TABLE = {
-    "api_keys": "CREATE api_keys CONTENT $record;",
-    "device_authorization_requests": "CREATE device_authorization_requests CONTENT $record;",
-    "login_history": "CREATE login_history CONTENT $record;",
-    "oauth_connections": "CREATE oauth_connections CONTENT $record;",
-    "password_reset_tokens": "CREATE password_reset_tokens CONTENT $record;",
-    "projects": "CREATE projects CONTENT $record;",
-    "user_sessions": "CREATE user_sessions CONTENT $record;",
-    "users": "CREATE users CONTENT $record;",
+_UPSERT_QUERY_BY_TABLE = {
+    "api_keys": "UPSERT api_keys CONTENT $record WHERE uuid = $uuid;",
+    "device_authorization_requests": (
+        "UPSERT device_authorization_requests CONTENT $record WHERE uuid = $uuid;"
+    ),
+    "oauth_connections": "UPSERT oauth_connections CONTENT $record WHERE uuid = $uuid;",
+    "password_reset_tokens": "UPSERT password_reset_tokens CONTENT $record WHERE uuid = $uuid;",
+    "projects": "UPSERT projects CONTENT $record WHERE uuid = $uuid;",
+    "user_sessions": "UPSERT user_sessions CONTENT $record WHERE uuid = $uuid;",
+    "users": "UPSERT users CONTENT $record WHERE uuid = $uuid;",
 }
 
 
@@ -325,13 +317,13 @@ class _SurrealRepository:
     async def replace_record(
         self, table: str, *, uuid: UUID, record: dict[str, Any]
     ) -> dict[str, Any]:
-        delete_query = _DELETE_QUERY_BY_TABLE.get(table)
-        create_query = _CREATE_QUERY_BY_TABLE.get(table)
-        if delete_query is None or create_query is None:
+        query = _UPSERT_QUERY_BY_TABLE.get(table)
+        if query is None:
             msg = f"Unsupported replace table: {table}"
             raise ValueError(msg)
-        await self._client.execute_query(delete_query, uuid=str(uuid))
-        created = _normalize_records(await self._client.execute_query(create_query, record=record))
+        created = _normalize_records(
+            await self._client.execute_query(query, uuid=str(uuid), record=record)
+        )
         if not created:
             msg = f"Failed to write {table} record {uuid}"
             raise RuntimeError(msg)

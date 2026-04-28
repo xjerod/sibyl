@@ -8,6 +8,7 @@ import pytest
 
 from sibyl_core.services.surreal_content import (
     MemoryScope,
+    _replace_record,
     get_or_create_source,
     list_unlinked_document_chunks,
     load_search_scope,
@@ -67,6 +68,24 @@ class FakeClient:
 
 
 class TestSurrealContentHelpers:
+    @pytest.mark.asyncio
+    async def test_replace_record_uses_single_upsert_statement(self) -> None:
+        record = {
+            "uuid": "src-1",
+            "organization_id": "org-1",
+            "name": "Docs",
+        }
+        fake_client = FakeClient([_query_result([record])])
+
+        saved = await _replace_record(fake_client, "crawl_sources", uuid="src-1", record=record)
+
+        assert saved["uuid"] == "src-1"
+        assert len(fake_client.calls) == 1
+        query, params = fake_client.calls[0]
+        assert "UPSERT crawl_sources CONTENT $record WHERE uuid = $uuid" in query
+        assert "DELETE FROM crawl_sources" not in query
+        assert params == {"uuid": "src-1", "record": record}
+
     @pytest.mark.asyncio
     async def test_get_or_create_source_returns_existing_record(self) -> None:
         fake_client = FakeClient(

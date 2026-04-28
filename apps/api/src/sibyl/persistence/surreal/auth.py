@@ -22,15 +22,10 @@ from sibyl_core.backends.surreal import SurrealAuthClient
 
 AUTH_NAMESPACE = "sibyl_auth"
 AUTH_DATABASE = "auth"
-_DELETE_BY_UUID = {
-    "organization_members": "DELETE FROM organization_members WHERE uuid = $uuid;",
-    "organizations": "DELETE FROM organizations WHERE uuid = $uuid;",
-    "users": "DELETE FROM users WHERE uuid = $uuid;",
-}
-_CREATE_RECORD = {
-    "organization_members": "CREATE organization_members CONTENT $record;",
-    "organizations": "CREATE organizations CONTENT $record;",
-    "users": "CREATE users CONTENT $record;",
+_UPSERT_RECORD = {
+    "organization_members": "UPSERT organization_members CONTENT $record WHERE uuid = $uuid;",
+    "organizations": "UPSERT organizations CONTENT $record WHERE uuid = $uuid;",
+    "users": "UPSERT users CONTENT $record WHERE uuid = $uuid;",
 }
 
 
@@ -156,9 +151,12 @@ class _SurrealAuthRepository:
         return _normalize_records(await self._client.execute_query(query, **params))
 
     async def _replace(self, table: str, *, uuid: UUID, record: dict[str, Any]) -> dict[str, Any]:
-        await self._client.execute_query(_DELETE_BY_UUID[table], uuid=str(uuid))
         created = _normalize_records(
-            await self._client.execute_query(_CREATE_RECORD[table], record=record)
+            await self._client.execute_query(
+                _UPSERT_RECORD[table],
+                uuid=str(uuid),
+                record=record,
+            )
         )
         if not created:
             msg = f"Failed to write {table} record {uuid}"

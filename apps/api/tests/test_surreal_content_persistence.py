@@ -18,6 +18,7 @@ from sibyl.db.models import (
 )
 from sibyl.persistence import content_archive
 from sibyl.persistence.content_archive import restore_content_archive_payload
+from sibyl.persistence.surreal import content as surreal_content
 from sibyl.persistence.surreal.backups import (
     attach_backup_job,
     create_backup_record,
@@ -71,6 +72,16 @@ def _normalize_records(result: object) -> list[dict[str, object]]:
     return records
 
 
+class _RecordingContentClient:
+    def __init__(self, response: object) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **kwargs: object) -> object:
+        self.calls.append((query, kwargs))
+        return self.response
+
+
 @pytest_asyncio.fixture
 async def surreal_content_client() -> SurrealContentClient:
     client = SurrealContentClient(url="memory://")
@@ -79,6 +90,31 @@ async def surreal_content_client() -> SurrealContentClient:
         yield client
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_surreal_content_replace_record_uses_single_upsert_statement() -> None:
+    source_id = uuid4()
+    record = {
+        "uuid": str(source_id),
+        "organization_id": str(uuid4()),
+        "name": "Docs",
+    }
+    client = _RecordingContentClient([record])
+
+    saved = await surreal_content._replace_record(
+        client,
+        "crawl_sources",
+        uuid=source_id,
+        record=record,
+    )
+
+    assert saved["uuid"] == str(source_id)
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "UPSERT crawl_sources CONTENT $record WHERE uuid = $uuid" in query
+    assert "DELETE FROM crawl_sources" not in query
+    assert params == {"uuid": str(source_id), "record": record}
 
 
 @pytest.mark.asyncio

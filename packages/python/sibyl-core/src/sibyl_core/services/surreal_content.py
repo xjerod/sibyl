@@ -22,10 +22,10 @@ _DELETE_BY_UUID = {
     "crawled_documents": "DELETE FROM crawled_documents WHERE uuid = $uuid;",
     "raw_captures": "DELETE FROM raw_captures WHERE uuid = $uuid;",
 }
-_CREATE_RECORD = {
-    "crawl_sources": "CREATE crawl_sources CONTENT $record;",
-    "crawled_documents": "CREATE crawled_documents CONTENT $record;",
-    "raw_captures": "CREATE raw_captures CONTENT $record;",
+_UPSERT_RECORD = {
+    "crawl_sources": "UPSERT crawl_sources CONTENT $record WHERE uuid = $uuid;",
+    "crawled_documents": "UPSERT crawled_documents CONTENT $record WHERE uuid = $uuid;",
+    "raw_captures": "UPSERT raw_captures CONTENT $record WHERE uuid = $uuid;",
 }
 AGENT_DIARY_CAPTURE_SURFACE = "agent_diary"
 
@@ -458,8 +458,7 @@ async def _replace_record(
     uuid: str,
     record: dict[str, Any],
 ) -> dict[str, Any]:
-    await _delete_record(client, table, uuid=uuid)
-    rows = await _select_many(client, _CREATE_RECORD[table], record=record)
+    rows = await _select_many(client, _UPSERT_RECORD[table], uuid=uuid, record=record)
     if rows:
         return rows[0]
     created = await _select_one(

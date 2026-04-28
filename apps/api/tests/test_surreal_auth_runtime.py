@@ -22,6 +22,16 @@ class _StaticAuthClientScope:
         return False
 
 
+class _RecordingAuthClient:
+    def __init__(self, response: object) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **kwargs: object) -> object:
+        self.calls.append((query, kwargs))
+        return self.response
+
+
 def test_surreal_auth_runtime_exports_neutral_surface_only() -> None:
     assert "start_device_authorization" in surreal_auth_runtime.__all__
     assert "exchange_device_code" in surreal_auth_runtime.__all__
@@ -56,6 +66,31 @@ def test_surreal_session_repository_accepts_aware_expiry_datetimes() -> None:
 
     assert repo._is_session_active(record) is True
     assert repo._has_refresh_session(record) is True
+
+
+@pytest.mark.asyncio
+async def test_surreal_repository_replace_record_uses_single_upsert_statement() -> None:
+    session_id = uuid4()
+    record = {"uuid": str(session_id), "token_hash": "token"}
+    client = _RecordingAuthClient([record])
+    repo = surreal_auth_runtime._SurrealRepository(client)
+
+    saved = await repo.replace_record("user_sessions", uuid=session_id, record=record)
+
+    assert saved["uuid"] == str(session_id)
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "UPSERT user_sessions CONTENT $record WHERE uuid = $uuid" in query
+    assert "DELETE FROM user_sessions" not in query
+    assert params == {"uuid": str(session_id), "record": record}
+
+
+@pytest.mark.asyncio
+async def test_surreal_repository_replace_record_rejects_unsupported_tables() -> None:
+    repo = surreal_auth_runtime._SurrealRepository(_RecordingAuthClient([]))
+
+    with pytest.raises(ValueError, match="Unsupported replace table: login_history"):
+        await repo.replace_record("login_history", uuid=uuid4(), record={"uuid": "login-1"})
 
 
 @pytest.mark.asyncio

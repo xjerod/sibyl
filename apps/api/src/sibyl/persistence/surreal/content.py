@@ -30,11 +30,11 @@ _DELETE_BY_UUID = {
     "document_chunks": "DELETE FROM document_chunks WHERE uuid = $uuid;",
     "raw_captures": "DELETE FROM raw_captures WHERE uuid = $uuid;",
 }
-_CREATE_RECORD = {
-    "crawl_sources": "CREATE crawl_sources CONTENT $record;",
-    "crawled_documents": "CREATE crawled_documents CONTENT $record;",
-    "document_chunks": "CREATE document_chunks CONTENT $record;",
-    "raw_captures": "CREATE raw_captures CONTENT $record;",
+_UPSERT_RECORD = {
+    "crawl_sources": "UPSERT crawl_sources CONTENT $record WHERE uuid = $uuid;",
+    "crawled_documents": "UPSERT crawled_documents CONTENT $record WHERE uuid = $uuid;",
+    "document_chunks": "UPSERT document_chunks CONTENT $record WHERE uuid = $uuid;",
+    "raw_captures": "UPSERT raw_captures CONTENT $record WHERE uuid = $uuid;",
 }
 
 
@@ -584,15 +584,11 @@ async def _replace_record(
     uuid: UUID | str,
     record: dict[str, Any],
 ) -> dict[str, Any]:
-    delete_result = await client.execute_query(_DELETE_BY_UUID[table], uuid=str(uuid))
-    delete_error = _query_error(delete_result)
-    if delete_error is not None:
-        raise RuntimeError(delete_error)
-    create_result = await client.execute_query(_CREATE_RECORD[table], record=record)
-    create_error = _query_error(create_result)
-    if create_error is not None:
-        raise RuntimeError(create_error)
-    created = _normalize_records(create_result)
+    result = await client.execute_query(_UPSERT_RECORD[table], uuid=str(uuid), record=record)
+    error = _query_error(result)
+    if error is not None:
+        raise RuntimeError(error)
+    created = _normalize_records(result)
     if not created:
         msg = f"Failed to write {table} record {uuid}"
         raise RuntimeError(msg)

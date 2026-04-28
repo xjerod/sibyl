@@ -8,6 +8,7 @@ import pytest_asyncio
 
 from sibyl.persistence import auth_archive
 from sibyl.persistence.auth_archive import restore_auth_archive_payload
+from sibyl.persistence.surreal import auth as surreal_auth
 from sibyl.persistence.surreal.auth import (
     SurrealAuthContextResolver,
     SurrealOrganizationMembershipRepository,
@@ -41,6 +42,16 @@ def _normalize_records(result: object) -> list[dict[str, object]]:
     return records
 
 
+class _RecordingAuthClient:
+    def __init__(self, response: object) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **kwargs: object) -> object:
+        self.calls.append((query, kwargs))
+        return self.response
+
+
 @pytest_asyncio.fixture
 async def surreal_auth_client() -> SurrealAuthClient:
     client = SurrealAuthClient(url="memory://")
@@ -49,6 +60,23 @@ async def surreal_auth_client() -> SurrealAuthClient:
         yield client
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_surreal_auth_repository_replace_uses_single_upsert_statement() -> None:
+    user_id = uuid4()
+    record = {"uuid": str(user_id), "name": "Nova"}
+    client = _RecordingAuthClient([record])
+    repo = surreal_auth._SurrealAuthRepository(client)
+
+    saved = await repo._replace("users", uuid=user_id, record=record)
+
+    assert saved["uuid"] == str(user_id)
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "UPSERT users CONTENT $record WHERE uuid = $uuid" in query
+    assert "DELETE FROM users" not in query
+    assert params == {"uuid": str(user_id), "record": record}
 
 
 @pytest.mark.asyncio
