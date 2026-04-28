@@ -335,7 +335,28 @@ class EntityManager:
             ORDER BY {order_by}
             LIMIT $query_limit;
         """
-        return GraphClient.normalize_result(await self._driver.execute_query(search_query, **params))
+        return await self._execute_surreal_schema_aware_query(search_query, params)
+
+    async def _execute_surreal_schema_aware_query(
+        self,
+        query: str,
+        params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        try:
+            return GraphClient.normalize_result(await self._driver.execute_query(query, **params))
+        except Exception as exc:
+            if not self._is_missing_surreal_fulltext_index(exc):
+                raise
+            log.warning(
+                "surreal_graph_schema_missing_fulltext_index",
+                group_id=self._group_id,
+                error_type=type(exc).__name__,
+            )
+            await self._driver.build_indices_and_constraints()
+            return GraphClient.normalize_result(await self._driver.execute_query(query, **params))
+
+    def _is_missing_surreal_fulltext_index(self, error: Exception) -> bool:
+        return "no suitable index supporting the expression" in str(error).lower()
 
     def _surreal_should_search_entities(
         self,
@@ -413,7 +434,7 @@ class EntityManager:
             ORDER BY search_score DESC, created_at DESC, uuid DESC
             LIMIT $query_limit;
         """
-        return GraphClient.normalize_result(await self._driver.execute_query(search_query, **params))
+        return await self._execute_surreal_schema_aware_query(search_query, params)
 
     async def _surreal_list_entities_direct(
         self,

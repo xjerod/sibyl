@@ -1753,6 +1753,42 @@ class TestEntitySearch:
         assert fallback_params["search_query"] == "repository pattern"
 
     @pytest.mark.asyncio
+    async def test_surreal_fallback_bootstraps_schema_when_fulltext_index_missing(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        matching_record = {
+            "uuid": "pattern-001",
+            "name": "Repository Pattern",
+            "group_id": "test-org-123",
+            "entity_type": "pattern",
+            "created_at": datetime.now(UTC),
+            "description": "Repository abstraction",
+            "content": "Use repositories for data access",
+            "metadata": json.dumps({"category": "architecture"}),
+            "search_score": 0.0,
+        }
+
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            side_effect=[
+                [],
+                RuntimeError("There was no suitable index supporting the expression: name @0@"),
+                [matching_record],
+            ]
+        )
+        surreal_entity_manager._driver.build_indices_and_constraints = AsyncMock()
+
+        results = await surreal_entity_manager.search(
+            "repository",
+            entity_types=[EntityType.PATTERN],
+        )
+
+        assert len(results) == 1
+        assert results[0][0].id == "pattern-001"
+        surreal_entity_manager._driver.build_indices_and_constraints.assert_awaited_once()
+        assert surreal_entity_manager._driver.execute_query.await_count == 3
+
+    @pytest.mark.asyncio
     async def test_surreal_search_exact_episode_reads_episode_table(
         self,
         surreal_entity_manager: EntityManager,
