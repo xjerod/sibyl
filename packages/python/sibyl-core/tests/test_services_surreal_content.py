@@ -336,6 +336,104 @@ class TestSurrealContentHelpers:
         assert source_params["source_name"] == "doc"
 
     @pytest.mark.asyncio
+    async def test_search_document_chunks_sanitizes_query_fulltext_filter(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "src-1",
+                            "organization_id": "org-1",
+                            "name": "Docs",
+                            "url": "https://docs.example.com",
+                        }
+                    ]
+                ),
+                _raw_query_result(
+                    [
+                        {
+                            "uuid": "chunk-lexical",
+                            "document_id": "doc-1",
+                            "chunk_index": 1,
+                            "chunk_type": "text",
+                            "content": "alpha beta lexical match",
+                            "score": 0.42,
+                        }
+                    ]
+                ),
+                _query_result(
+                    [
+                        {
+                            "uuid": "doc-1",
+                            "source_id": "src-1",
+                            "url": "https://docs.example.com/guide",
+                            "title": "Guide",
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            vector_rows, lexical_rows = await search_document_chunks(
+                organization_id="org-1",
+                query_text='alpha "beta"\x00',
+                query_embedding=None,
+                source_id="src-1",
+                limit=5,
+            )
+
+        assert vector_rows == []
+        assert [row[0].id for row in lexical_rows] == ["chunk-lexical"]
+        lexical_query, lexical_params = fake_client.calls[1]
+        assert "content @0@ $search_query" in lexical_query
+        assert lexical_params["search_query"] == "alpha beta"
+
+    @pytest.mark.asyncio
+    async def test_search_document_chunks_empty_query_skips_lexical_search(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "src-1",
+                            "organization_id": "org-1",
+                            "name": "Docs",
+                            "url": "https://docs.example.com",
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            vector_rows, lexical_rows = await search_document_chunks(
+                organization_id="org-1",
+                query_text='"\x00',
+                query_embedding=None,
+                source_id="src-1",
+                limit=5,
+            )
+
+        assert vector_rows == []
+        assert lexical_rows == []
+        assert len(fake_client.calls) == 1
+
+    @pytest.mark.asyncio
     async def test_search_document_chunks_sanitizes_source_name_fulltext_filter(self) -> None:
         fake_client = FakeClient(
             [

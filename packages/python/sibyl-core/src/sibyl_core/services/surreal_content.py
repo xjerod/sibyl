@@ -966,6 +966,7 @@ async def search_document_chunks(
 
     candidate_limit = _document_search_candidate_limit(limit)
     language_clause, language_params = _document_language_clause(language)
+    lexical_query_text = build_fulltext_query(query_text)
     errors: list[str] = []
 
     async with surreal_content_client() as client:
@@ -1008,7 +1009,7 @@ async def search_document_chunks(
                 errors.append(str(exc))
 
         lexical_rows: list[dict[str, Any]] = []
-        if query_text.strip():
+        if lexical_query_text:
             try:
                 lexical_rows = await _select_many_raw(
                     client,
@@ -1022,7 +1023,7 @@ async def search_document_chunks(
                     "AND content @0@ $search_query "
                     "ORDER BY score DESC LIMIT $candidate_limit;",
                     source_ids=source_ids,
-                    search_query=query_text.strip(),
+                    search_query=lexical_query_text,
                     candidate_limit=candidate_limit,
                     **language_params,
                 )
