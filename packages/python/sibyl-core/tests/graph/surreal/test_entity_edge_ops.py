@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from graphiti_core.edges import EntityEdge
@@ -83,8 +84,33 @@ async def _seed_entities(driver: SurrealDriver, uuids: list[str]) -> None:
         await node_ops.save(driver, _make_entity(uuid, driver.group_id, name=uuid))
 
 
+class _RecordingExecutor:
+    def __init__(self) -> None:
+        self.queries: list[tuple[str, dict[str, Any]]] = []
+
+    async def execute_query(self, query: str, **params: Any) -> list[Any]:
+        self.queries.append((query, params))
+        return []
+
+
 @pytest.mark.asyncio
 class TestEntityEdgeOps:
+    async def test_save_uses_single_update_or_relate_statement(self) -> None:
+        ops = SurrealEntityEdgeOperations()
+        executor = _RecordingExecutor()
+
+        await ops.save(executor, _make_edge("edge-1", "group-1"))
+
+        assert len(executor.queries) == 1
+        query, params = executor.queries[0]
+        assert "DELETE FROM relates_to WHERE uuid = $uuid AND (in != $src OR out != $tgt)" in query
+        assert "LET $updated = (UPDATE relates_to SET" in query
+        assert "RELATE $src->$rel->$tgt SET" in query
+        assert "DELETE FROM relates_to WHERE uuid = $uuid;" not in query
+        assert params["uuid"] == "edge-1"
+        assert params["src_uuid"] == "ent-a"
+        assert params["tgt_uuid"] == "ent-b"
+
     async def test_save_full_temporal_payload_round_trips(
         self, surreal_schema: SurrealDriver
     ) -> None:
@@ -175,6 +201,50 @@ class TestEntityEdgeOps:
         fetched = await ops.get_by_uuid(surreal_schema, "edge-1")
         assert fetched.name == "UPDATED"
         assert fetched.fact == "new fact"
+
+    async def test_save_updates_legacy_random_id_row_without_duplicate(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        ops = SurrealEntityEdgeOperations()
+        gid = surreal_schema.group_id
+        await _seed_entities(surreal_schema, ["ent-a", "ent-b", "ent-c"])
+        await surreal_schema.execute_query(
+            """
+            LET $src = (SELECT VALUE id FROM entity WHERE uuid = 'ent-a' LIMIT 1)[0];
+            LET $tgt = (SELECT VALUE id FROM entity WHERE uuid = 'ent-b' LIMIT 1)[0];
+            RELATE $src->relates_to->$tgt SET
+                uuid = 'edge-legacy',
+                name = 'ORIGINAL',
+                fact = 'old fact',
+                group_id = $gid,
+                episodes = [],
+                attributes = {},
+                created_at = time::now();
+            """,
+            gid=gid,
+        )
+
+        await ops.save(
+            surreal_schema,
+            _make_edge(
+                "edge-legacy",
+                gid,
+                source_uuid="ent-a",
+                target_uuid="ent-c",
+                name="UPDATED",
+                fact="new fact",
+            ),
+        )
+
+        rows = await surreal_schema.execute_query(
+            "SELECT uuid, name, fact, in.uuid AS src, out.uuid AS tgt "
+            "FROM relates_to WHERE uuid = 'edge-legacy';"
+        )
+        assert len(rows) == 1
+        assert rows[0]["name"] == "UPDATED"
+        assert rows[0]["fact"] == "new fact"
+        assert rows[0]["src"] == "ent-a"
+        assert rows[0]["tgt"] == "ent-c"
 
     async def test_save_bulk_and_group_query(self, surreal_schema: SurrealDriver) -> None:
         ops = SurrealEntityEdgeOperations()

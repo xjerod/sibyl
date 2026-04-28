@@ -37,6 +37,43 @@ FROM relates_to
 """
 
 
+_ENTITY_EDGE_SAVE = """
+LET $src = (SELECT VALUE id FROM entity WHERE uuid = $src_uuid LIMIT 1)[0];
+LET $tgt = (SELECT VALUE id FROM entity WHERE uuid = $tgt_uuid LIMIT 1)[0];
+LET $rel = type::thing('relates_to', $uuid);
+DELETE FROM relates_to WHERE uuid = $uuid AND (in != $src OR out != $tgt);
+LET $updated = (UPDATE relates_to SET
+    in = $src,
+    out = $tgt,
+    uuid = $uuid,
+    name = $name,
+    fact = $fact,
+    fact_embedding = $fact_embedding,
+    group_id = $group_id,
+    episodes = $episodes,
+    attributes = $attributes,
+    created_at = $created_at,
+    expired_at = $expired_at,
+    valid_at = $valid_at,
+    invalid_at = $invalid_at
+    WHERE uuid = $uuid RETURN id);
+IF array::len($updated) = 0 THEN
+    RELATE $src->$rel->$tgt SET
+        uuid = $uuid,
+        name = $name,
+        fact = $fact,
+        fact_embedding = $fact_embedding,
+        group_id = $group_id,
+        episodes = $episodes,
+        attributes = $attributes,
+        created_at = $created_at,
+        expired_at = $expired_at,
+        valid_at = $valid_at,
+        invalid_at = $invalid_at;
+END;
+"""
+
+
 def _entity_edge_save_payload(edge: EntityEdge) -> dict[str, Any]:
     return {
         "uuid": edge.uuid,
@@ -75,37 +112,10 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
         tx: Transaction | None = None,
     ) -> None:
         payload = _entity_edge_save_payload(edge)
-        # UPSERT via delete-then-RELATE: simpler than DIFF/UPDATE and lets
-        # the DEFAULT time::now() stay sane for brand-new inserts.
         await _run(
             executor,
             tx,
-            "DELETE FROM relates_to WHERE uuid = $uuid;",
-            uuid=payload["uuid"],
-        )
-        # RELATE requires record IDs, not subqueries, between the arrows.
-        # LET blocks resolve src/tgt to concrete record IDs first; the SDK's
-        # multi-statement discard bug (#232) is fine here since save returns
-        # nothing — the final RELATE statement still executes server-side.
-        await _run(
-            executor,
-            tx,
-            """
-            LET $src = (SELECT VALUE id FROM entity WHERE uuid = $src_uuid LIMIT 1)[0];
-            LET $tgt = (SELECT VALUE id FROM entity WHERE uuid = $tgt_uuid LIMIT 1)[0];
-            RELATE $src->relates_to->$tgt SET
-                uuid = $uuid,
-                name = $name,
-                fact = $fact,
-                fact_embedding = $fact_embedding,
-                group_id = $group_id,
-                episodes = $episodes,
-                attributes = $attributes,
-                created_at = $created_at,
-                expired_at = $expired_at,
-                valid_at = $valid_at,
-                invalid_at = $invalid_at;
-            """,
+            _ENTITY_EDGE_SAVE,
             src_uuid=edge.source_node_uuid,
             tgt_uuid=edge.target_node_uuid,
             **payload,

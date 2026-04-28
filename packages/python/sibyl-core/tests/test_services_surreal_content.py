@@ -645,26 +645,18 @@ class TestSurrealContentHelpers:
 
     @pytest.mark.asyncio
     async def test_remember_raw_memory_persists_source_scope_and_provenance(self) -> None:
-        fake_client = FakeClient(
-            [
-                _query_result([]),
-                _query_result(
-                    [
-                        {
-                            "uuid": "memory-1",
-                            "organization_id": "org-1",
-                            "source_id": "source-email-1",
-                            "principal_id": "user-bliss",
-                            "memory_scope": "private",
-                            "title": "Architecture note",
-                            "raw_content": "Surreal stores raw memory before extraction.",
-                            "provenance": {"message_id": "msg-1"},
-                            "capture_surface": "email",
-                        }
-                    ]
-                ),
-            ]
-        )
+        persisted_memory = {
+            "uuid": "memory-1",
+            "organization_id": "org-1",
+            "source_id": "source-email-1",
+            "principal_id": "user-bliss",
+            "memory_scope": "private",
+            "title": "Architecture note",
+            "raw_content": "Surreal stores raw memory before extraction.",
+            "provenance": {"message_id": "msg-1"},
+            "capture_surface": "email",
+        }
+        fake_client = FakeClient([_query_result([persisted_memory])])
 
         @asynccontextmanager
         async def fake_session():
@@ -688,7 +680,7 @@ class TestSurrealContentHelpers:
         assert memory.principal_id == "user-bliss"
         assert memory.memory_scope is MemoryScope.PRIVATE
         assert memory.provenance == {"message_id": "msg-1"}
-        saved_record = fake_client.calls[1][1]["record"]
+        saved_record = fake_client.calls[0][1]["record"]
         assert saved_record["source_id"] == "source-email-1"
         assert saved_record["principal_id"] == "user-bliss"
         assert saved_record["memory_scope"] == "private"
