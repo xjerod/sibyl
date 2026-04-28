@@ -5,6 +5,7 @@ import pytest
 
 from sibyl.api.routes.entities import create_entity
 from sibyl.api.schemas import EntityCreate
+from sibyl.auth.authorization import ProjectRole
 from sibyl_core.models.entities import EntityType
 
 
@@ -44,6 +45,7 @@ async def test_entities_create_passes_task_fields_to_add() -> None:
     with (
         patch("sibyl_core.tools.core.add", AsyncMock(return_value=add_result)) as add,
         patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
+        patch("sibyl.api.routes.entities.verify_entity_project_access", AsyncMock()) as verify_access,
     ):
         resp = await create_entity(
             request=request,
@@ -55,6 +57,12 @@ async def test_entities_create_passes_task_fields_to_add() -> None:
         )
 
     assert resp.id == "task_new"
+    verify_access.assert_awaited_once_with(
+        content_session,
+        ctx,
+        "project_123",
+        required_role=ProjectRole.CONTRIBUTOR,
+    )
     add.assert_awaited_once()
     _, kwargs = add.call_args
     assert kwargs["project"] == "project_123"

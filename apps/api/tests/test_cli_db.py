@@ -193,7 +193,7 @@ def test_restore_graph_payload_prepares_runtime_in_same_async_flow() -> None:
     prepare.assert_awaited_once_with("org-123", clean=True)
 
 
-def test_prepare_graph_runtime_surreal_clears_rows_without_bootstrapping_schema(
+def test_prepare_graph_runtime_surreal_bootstraps_schema_and_clears_rows(
     monkeypatch,
 ) -> None:
     driver = MagicMock()
@@ -205,10 +205,16 @@ def test_prepare_graph_runtime_surreal_clears_rows_without_bootstrapping_schema(
 
     monkeypatch.setattr("sibyl.config.settings.store", "surreal")
 
-    with patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)):
+    bootstrap_schema = AsyncMock()
+
+    with (
+        patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl_core.backends.surreal.schema.bootstrap_schema", bootstrap_schema),
+    ):
         db_cli._prepare_graph_runtime("org-123", clean=True)
 
     client.get_org_driver.assert_called_once_with("org-123")
+    bootstrap_schema.assert_awaited_once_with(driver, reset=True)
     driver.graph_ops.clear_data.assert_awaited_once_with(driver, group_ids=["org-123"])
     driver.build_indices_and_constraints.assert_not_called()
 
