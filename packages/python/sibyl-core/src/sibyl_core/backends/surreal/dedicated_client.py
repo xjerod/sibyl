@@ -17,6 +17,7 @@ from sibyl_core.backends.surreal.observability import (
 )
 
 logger = logging.getLogger(__name__)
+_MAX_CLOSED_CONNECTION_RETRIES = 2
 
 
 class DedicatedSurrealClient:
@@ -55,12 +56,19 @@ class DedicatedSurrealClient:
         from surrealdb import AsyncSurreal
 
         client = AsyncSurreal(self._url)
-        if self._requires_auth():
-            if self._token:
-                await client.authenticate(self._token)
-            elif self._username and self._password:
-                await client.signin({"username": self._username, "password": self._password})
-        await client.use(self._namespace, self._database)
+        try:
+            if self._requires_auth():
+                if self._token:
+                    await client.authenticate(self._token)
+                elif self._username and self._password:
+                    await client.signin({"username": self._username, "password": self._password})
+            await client.use(self._namespace, self._database)
+        except Exception:
+            try:
+                await client.close()
+            except Exception as exc:
+                logger.debug("SurrealDB dedicated client close after setup failure failed: %s", exc)
+            raise
         self._client = client
         return client
 
@@ -91,23 +99,25 @@ class DedicatedSurrealClient:
         started_at = query_start()
         retry_count = 0
         try:
-            client = await self.connect()
-            try:
-                result = await self._send_query(client, query, params=params, raw=raw)
-            except Exception as exc:
-                if not _is_connection_closed_error(exc):
-                    raise
-                await self._drop_client()
-                can_retry = _can_retry_raw_query(query) if raw else _can_retry_query(query)
-                if not can_retry:
-                    raise
-                logger.warning(
-                    "SurrealDB dedicated client connection closed during read; retrying: %s",
-                    exc,
-                )
-                retry_count = 1
-                client = await self.connect()
-                result = await self._send_query(client, query, params=params, raw=raw)
+            while True:
+                try:
+                    client = await self.connect()
+                    result = await self._send_query(client, query, params=params, raw=raw)
+                    break
+                except Exception as exc:
+                    if not _is_connection_closed_error(exc):
+                        raise
+                    await self._drop_client()
+                    can_retry = _can_retry_raw_query(query) if raw else _can_retry_query(query)
+                    if not can_retry or retry_count >= _MAX_CLOSED_CONNECTION_RETRIES:
+                        raise
+                    retry_count += 1
+                    logger.warning(
+                        "SurrealDB dedicated client connection closed during read; retrying "
+                        "attempt=%s error=%s",
+                        retry_count,
+                        exc,
+                    )
         except Exception as exc:
             log_query(
                 query,

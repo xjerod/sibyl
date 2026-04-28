@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 # See module docstring "Provider tag" for rationale.
 _SURREAL_PROVIDER_TAG: GraphProvider = GraphProvider.NEO4J
+_MAX_CLOSED_CONNECTION_RETRIES = 2
 
 
 def _raise_if_surreal_error(query: str, result: Any) -> None:
@@ -258,15 +259,21 @@ class SurrealDriver(GraphDriver):
         from surrealdb import AsyncSurreal
 
         client = AsyncSurreal(self._url)
+        try:
+            if self._requires_auth():
+                if self._token:
+                    await client.authenticate(self._token)
+                elif self._username and self._password:
+                    await client.signin({"username": self._username, "password": self._password})
 
-        if self._requires_auth():
-            if self._token:
-                await client.authenticate(self._token)
-            elif self._username and self._password:
-                await client.signin({"username": self._username, "password": self._password})
-
-        namespace = _namespace_for_group(self._namespace_prefix, self._database)
-        await client.use(namespace, self._default_database)
+            namespace = _namespace_for_group(self._namespace_prefix, self._database)
+            await client.use(namespace, self._default_database)
+        except Exception:
+            try:
+                await client.close()
+            except Exception as exc:
+                logger.debug("SurrealDB client close after setup failure failed: %s", exc)
+            raise
 
         self._client = client
         return client
@@ -289,22 +296,27 @@ class SurrealDriver(GraphDriver):
         namespace = _namespace_for_group(self._namespace_prefix, self._database)
         async with self._query_lock:
             try:
-                client = await self._ensure_client()
-                try:
-                    result = await client.query(cypher_query_, kwargs if kwargs else None)
-                except Exception as exc:
-                    if not _is_connection_closed_error(exc):
-                        raise
-                    await self._drop_client()
-                    if not _can_retry_query(cypher_query_):
-                        raise
-                    logger.warning(
-                        "SurrealDB connection closed during read; reconnecting and retrying: %s",
-                        exc,
-                    )
-                    retry_count = 1
-                    client = await self._ensure_client()
-                    result = await client.query(cypher_query_, kwargs if kwargs else None)
+                while True:
+                    try:
+                        client = await self._ensure_client()
+                        result = await client.query(cypher_query_, kwargs if kwargs else None)
+                        break
+                    except Exception as exc:
+                        if not _is_connection_closed_error(exc):
+                            raise
+                        await self._drop_client()
+                        if (
+                            not _can_retry_query(cypher_query_)
+                            or retry_count >= _MAX_CLOSED_CONNECTION_RETRIES
+                        ):
+                            raise
+                        retry_count += 1
+                        logger.warning(
+                            "SurrealDB connection closed during read; reconnecting and retrying "
+                            "attempt=%s error=%s",
+                            retry_count,
+                            exc,
+                        )
             except Exception as exc:
                 log_query(
                     cypher_query_,

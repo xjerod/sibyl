@@ -190,6 +190,7 @@ async def test_surreal_content_client_retries_closed_raw_let_read(monkeypatch) -
 
     class FakeAsyncSurreal:
         def __init__(self, url: str) -> None:
+            self.closed = False
             clients.append(self)
 
         async def signin(self, credentials: dict[str, str]) -> None:
@@ -220,6 +221,94 @@ async def test_surreal_content_client_retries_closed_raw_let_read(monkeypatch) -
 
     assert result == {"result": [{"status": "OK", "result": None}, {"status": "OK", "result": []}]}
     assert len(clients) == 2
+
+
+@pytest.mark.asyncio
+async def test_surreal_content_client_retries_closed_socket_during_connect(monkeypatch) -> None:
+    class ConnectionClosedError(RuntimeError):
+        pass
+
+    ConnectionClosedError.__module__ = "websockets.exceptions"
+    clients: list[FakeAsyncSurreal] = []
+
+    class FakeAsyncSurreal:
+        def __init__(self, url: str) -> None:
+            clients.append(self)
+
+        async def signin(self, credentials: dict[str, str]) -> None:
+            self.credentials = credentials
+
+        async def use(self, namespace: str, database: str) -> None:
+            self.namespace = namespace
+            self.database = database
+            if len(clients) == 1:
+                raise ConnectionClosedError("sent 1011 keepalive ping timeout")
+
+        async def query_raw(self, query: str, params: object | None = None) -> dict[str, Any]:
+            return {"result": [{"status": "OK", "result": None}, {"status": "OK", "result": []}]}
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(sys.modules, "surrealdb", SimpleNamespace(AsyncSurreal=FakeAsyncSurreal))
+    client = SurrealContentClient(
+        url="ws://localhost:8000/rpc",
+        username="root",
+        password="root",
+    )
+
+    result = await client.execute_query_raw(
+        "LET $document_ids = []; SELECT * FROM document_chunks;",
+    )
+
+    assert result == {"result": [{"status": "OK", "result": None}, {"status": "OK", "result": []}]}
+    assert len(clients) == 2
+    assert clients[0].closed is True
+    assert clients[1].namespace == "sibyl_content"
+
+
+@pytest.mark.asyncio
+async def test_surreal_content_client_allows_two_closed_raw_read_retries(monkeypatch) -> None:
+    class ConnectionClosedError(RuntimeError):
+        pass
+
+    ConnectionClosedError.__module__ = "websockets.exceptions"
+    clients: list[FakeAsyncSurreal] = []
+
+    class FakeAsyncSurreal:
+        def __init__(self, url: str) -> None:
+            clients.append(self)
+
+        async def signin(self, credentials: dict[str, str]) -> None:
+            self.credentials = credentials
+
+        async def use(self, namespace: str, database: str) -> None:
+            self.namespace = namespace
+            self.database = database
+
+        async def query_raw(self, query: str, params: object | None = None) -> dict[str, Any]:
+            if len(clients) <= 2:
+                raise ConnectionClosedError("sent 1011 keepalive ping timeout")
+            return {"result": [{"status": "OK", "result": None}, {"status": "OK", "result": []}]}
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(sys.modules, "surrealdb", SimpleNamespace(AsyncSurreal=FakeAsyncSurreal))
+    client = SurrealContentClient(
+        url="ws://localhost:8000/rpc",
+        username="root",
+        password="root",
+    )
+
+    result = await client.execute_query_raw(
+        "LET $document_ids = []; SELECT * FROM document_chunks;",
+    )
+
+    assert result == {"result": [{"status": "OK", "result": None}, {"status": "OK", "result": []}]}
+    assert len(clients) == 3
+    assert clients[0].closed is True
+    assert clients[1].closed is True
 
 
 @pytest.mark.asyncio
