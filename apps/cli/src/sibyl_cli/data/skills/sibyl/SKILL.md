@@ -318,7 +318,7 @@ sibyl task archive task_a1b2c3d4e5f6 --reason "Superseded by new approach"
 # Direct update (use sparingly - prefer `complete --learnings` for finishing work)
 sibyl task update task_a1b2c3d4e5f6 --status done --priority high
 
-# Add a note DURING work (progress breadcrumbs, NOT for completion)
+# Add progress breadcrumbs, user clarifications, roadmap notes, or review context during work
 sibyl task note task_a1b2c3d4e5f6 "Found the root cause"
 sibyl task note task_a1b2c3d4e5f6 "Implemented fix" --assistant
 
@@ -735,6 +735,10 @@ These are **different things** with different purposes:
 | -------------------------------------------- | ------------- | -------------------- | ------------------------------ |
 | `sibyl task note <id> "..."`                 | During work   | Progress breadcrumbs | Note (task metadata)           |
 | `sibyl task complete <id> --learnings "..."` | At completion | Capture insights     | Episode (searchable knowledge) |
+
+Use task notes for in-flight observations, user clarifications, roadmap breadcrumbs, blockers, and
+review context. Use `task update --description` when intentionally changing the canonical task
+brief.
 
 **Wrong:** Using `task note` when completing a task **Right:** Using `task complete --learnings` -
 this marks done AND creates a searchable episode
