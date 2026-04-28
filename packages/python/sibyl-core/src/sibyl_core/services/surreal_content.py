@@ -846,6 +846,13 @@ def _document_search_candidate_limit(limit: int) -> int:
     return min(max(limit * 5, limit, 1), 100)
 
 
+def _fulltext_query(value: str, *, max_query_length: int = 128) -> str:
+    sanitized = "".join(c for c in value if c.isprintable() and c not in ('"', "'")).strip()
+    if len(sanitized) > max_query_length:
+        return sanitized[:max_query_length]
+    return sanitized
+
+
 def _document_language_clause(language: str | None) -> tuple[str, dict[str, Any]]:
     if not language:
         return "", {}
@@ -885,11 +892,14 @@ def _source_search_scope_clause(
     if source_id is not None:
         clauses.append("uuid = $source_id")
         params["source_id"] = source_id
-    elif source_name:
-        normalized_source_name = source_name.strip().lower()
+    elif source_name is not None:
+        normalized_source_name = _fulltext_query(source_name.lower())
         if normalized_source_name:
-            clauses.append("string::contains(string::lowercase(name ?? ''), $source_name)")
+            clauses.append("name @0@ $source_name")
             params["source_name"] = normalized_source_name
+        else:
+            clauses.append("uuid = $source_name_empty_sentinel")
+            params["source_name_empty_sentinel"] = "__sibyl_empty_source_name__"
     return " AND ".join(clauses), params
 
 

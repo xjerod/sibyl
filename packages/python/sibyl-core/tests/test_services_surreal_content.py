@@ -330,8 +330,71 @@ class TestSurrealContentHelpers:
         assert [row[0].id for row in lexical_rows] == ["chunk-lexical"]
 
         source_query, source_params = fake_client.calls[0]
-        assert "string::contains(string::lowercase(name ?? ''), $source_name)" in source_query
+        assert "name @0@ $source_name" in source_query
+        assert "string::contains" not in source_query
         assert source_params["source_name"] == "doc"
+
+    @pytest.mark.asyncio
+    async def test_search_document_chunks_sanitizes_source_name_fulltext_filter(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result([]),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            vector_rows, lexical_rows = await search_document_chunks(
+                organization_id="org-1",
+                query_text="alpha",
+                query_embedding=None,
+                source_name='DOCS "Portal"\x00',
+                limit=5,
+            )
+
+        assert vector_rows == []
+        assert lexical_rows == []
+        source_query, source_params = fake_client.calls[0]
+        assert "name @0@ $source_name" in source_query
+        assert source_params["source_name"] == "docs portal"
+        assert len(fake_client.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_search_document_chunks_empty_source_name_does_not_broaden_scope(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result([]),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            vector_rows, lexical_rows = await search_document_chunks(
+                organization_id="org-1",
+                query_text="alpha",
+                query_embedding=None,
+                source_name="",
+                limit=5,
+            )
+
+        assert vector_rows == []
+        assert lexical_rows == []
+        source_query, source_params = fake_client.calls[0]
+        assert "uuid = $source_name_empty_sentinel" in source_query
+        assert source_params["source_name_empty_sentinel"] == "__sibyl_empty_source_name__"
+        assert len(fake_client.calls) == 1
 
     @pytest.mark.asyncio
     async def test_search_document_chunks_reports_raw_statement_errors(self) -> None:
