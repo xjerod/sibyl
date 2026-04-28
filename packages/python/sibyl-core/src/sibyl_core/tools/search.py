@@ -24,6 +24,7 @@ from sibyl_core.utils.resilience import TIMEOUTS, with_timeout
 log = structlog.get_logger()
 
 DOCUMENT_SEARCH_TIMEOUT_SECONDS = min(10.0, TIMEOUTS["search"])
+DOCUMENT_SEARCH_GRAPH_JOIN_TIMEOUT_SECONDS = min(2.0, DOCUMENT_SEARCH_TIMEOUT_SECONDS)
 
 
 async def get_graph_runtime(group_id: str):
@@ -520,7 +521,16 @@ async def search(
     # =========================================================================
     if document_search_task is not None:
         try:
-            doc_results = await document_search_task
+            timeout_seconds = (
+                DOCUMENT_SEARCH_GRAPH_JOIN_TIMEOUT_SECONDS
+                if search_graph
+                else DOCUMENT_SEARCH_TIMEOUT_SECONDS
+            )
+            doc_results = await with_timeout(
+                document_search_task,
+                timeout_seconds=timeout_seconds,
+                operation_name="document_search",
+            )
             log.debug("document_search_complete", results=len(doc_results))
         except Exception as e:
             log.warning("document_search_failed", error_type=type(e).__name__)
