@@ -97,6 +97,31 @@ class HybridResult:
         return len(self.results)
 
 
+@dataclass
+class _VectorSearchAttempt:
+    results: list[tuple[Any, float]]
+    completed: bool
+
+
+async def _vector_search_attempt(
+    query: str,
+    entity_manager: EntityManager,
+    entity_types: list[Any] | None = None,
+    limit: int = 20,
+) -> _VectorSearchAttempt:
+    try:
+        results = await entity_manager.search(
+            query=query,
+            entity_types=entity_types,
+            limit=limit,
+        )
+        log.debug("vector_search_complete", query=query[:50], results=len(results))
+        return _VectorSearchAttempt(results=results, completed=True)
+    except Exception as e:
+        log.warning("vector_search_failed", query=query[:50], error=str(e))
+        return _VectorSearchAttempt(results=[], completed=False)
+
+
 async def vector_search(
     query: str,
     entity_manager: EntityManager,
@@ -114,17 +139,14 @@ async def vector_search(
     Returns:
         List of (entity, score) tuples.
     """
-    try:
-        results = await entity_manager.search(
+    return (
+        await _vector_search_attempt(
             query=query,
+            entity_manager=entity_manager,
             entity_types=entity_types,
             limit=limit,
         )
-        log.debug("vector_search_complete", query=query[:50], results=len(results))
-        return results
-    except Exception as e:
-        log.warning("vector_search_failed", query=query[:50], error=str(e))
-        return []
+    ).results
 
 
 async def graph_traversal(
@@ -268,11 +290,12 @@ async def hybrid_search(
 
     # Phase 1: Graphiti node-hybrid seed search
     vector_task = asyncio.create_task(
-        vector_search(query, entity_manager, entity_types, limit=limit * 2)
+        _vector_search_attempt(query, entity_manager, entity_types, limit=limit * 2)
     )
 
     # Get vector results first (we need them for graph seeds)
-    vector_results = await vector_task
+    vector_attempt = await vector_task
+    vector_results = vector_attempt.results
 
     # Phase 2: Graph traversal from top vector results
     graph_results: list[tuple[Any, float]] = []
@@ -306,7 +329,16 @@ async def hybrid_search(
         list_names.append("graph")
 
     if not result_lists:
-        return HybridResult(results=[], metadata={"sources": [], "query": query})
+        return HybridResult(
+            results=[],
+            metadata={
+                "sources": [],
+                "query": query,
+                "entity_manager_search_completed": vector_attempt.completed,
+                "vector_count": len(vector_results),
+                "graph_count": len(graph_results),
+            },
+        )
 
     # Merge with or without metadata
     if include_metadata:
@@ -366,6 +398,7 @@ async def hybrid_search(
     metadata = {
         "query": query,
         "sources": list_names,
+        "entity_manager_search_completed": vector_attempt.completed,
         "vector_count": len(vector_results),
         "graph_count": len(graph_results),
         "merged_count": len(merged),

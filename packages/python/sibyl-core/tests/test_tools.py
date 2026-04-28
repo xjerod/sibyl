@@ -1038,6 +1038,94 @@ class TestSearchTool:
         mock_entity_manager.search_exact_name.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_search_skips_redundant_fallback_after_exhaustive_hybrid_miss(self) -> None:
+        from sibyl_core.retrieval.hybrid import HybridResult
+        from sibyl_core.tools.search import search
+
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.search = AsyncMock(return_value=[])
+        mock_entity_manager.search_exact_name = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "sibyl_core.tools.search.get_graph_runtime",
+                AsyncMock(
+                    return_value=make_graph_runtime(
+                        client=mock_client,
+                        entity_manager=mock_entity_manager,
+                    )
+                ),
+            ),
+            patch(
+                "sibyl_core.tools.search.hybrid_search",
+                new=AsyncMock(
+                    return_value=HybridResult(
+                        results=[],
+                        metadata={"entity_manager_search_completed": True},
+                    )
+                ),
+            ),
+        ):
+            response = await search(
+                query="task notification bzzmrxv82 tool toolu_01s1pyuhrut1ljdyhxcbuxzk",
+                organization_id="org_123",
+                include_documents=False,
+            )
+
+        assert response.graph_count == 0
+        mock_entity_manager.search.assert_not_awaited()
+        mock_entity_manager.search_exact_name.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_overlaps_document_search_with_graph_search(self) -> None:
+        from sibyl_core.retrieval.hybrid import HybridResult
+        from sibyl_core.tools.search import search
+
+        events: list[str] = []
+
+        async def document_search(**_: object) -> list[SearchResult]:
+            events.append("document_start")
+            await asyncio.sleep(0)
+            events.append("document_done")
+            return [
+                SearchResult(
+                    id="doc-1",
+                    type="document",
+                    name="Document",
+                    content="Document result",
+                    score=0.8,
+                    result_origin="document",
+                )
+            ]
+
+        async def graph_search(**_: object) -> HybridResult:
+            events.append("graph_start")
+            await asyncio.sleep(0.02)
+            events.append("graph_done")
+            return HybridResult(
+                results=[],
+                metadata={"entity_manager_search_completed": True},
+            )
+
+        with (
+            patch(
+                "sibyl_core.tools.search.get_graph_runtime",
+                AsyncMock(return_value=make_graph_runtime(entity_manager=AsyncMock())),
+            ),
+            patch("sibyl_core.tools.search._search_documents", document_search),
+            patch("sibyl_core.tools.search.hybrid_search", graph_search),
+        ):
+            response = await search(
+                query="slow graph fast docs",
+                organization_id="org_123",
+                include_documents=True,
+            )
+
+        assert response.document_count == 1
+        assert events.index("document_start") < events.index("graph_done")
+
+    @pytest.mark.asyncio
     async def test_search_uses_exact_title_lookup_when_fallback_search_errors(self) -> None:
         """Exact title lookup should survive fallback graph search failures."""
         from sibyl_core.retrieval.hybrid import HybridResult

@@ -266,6 +266,60 @@ class EntityManager:
 
         return GraphClient.normalize_result(await self._driver.execute_query(query, **params))
 
+    async def _surreal_search_entity_records(
+        self,
+        *,
+        query_lower: str,
+        entity_types: list[EntityType] | None,
+        limit: int,
+        exact_name_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0 or not query_lower:
+            return []
+
+        params: dict[str, Any] = {
+            "group_id": self._group_id,
+            "query_lower": query_lower,
+            "query_limit": max(limit, 1),
+        }
+        where_clauses = ["group_id = $group_id"]
+        if entity_types:
+            where_clauses.append("entity_type IN $entity_types")
+            params["entity_types"] = [entity_type.value for entity_type in entity_types]
+
+        name_expr = "string::lowercase(name ?? '')"
+        description_expr = "string::lowercase(attributes.description ?? summary ?? '')"
+        content_expr = "string::lowercase(attributes.content ?? '')"
+        if exact_name_only:
+            where_clauses.append(f"{name_expr} = $query_lower")
+        else:
+            where_clauses.append(
+                f"""(
+                    string::contains({name_expr}, $query_lower)
+                    OR string::contains({description_expr}, $query_lower)
+                    OR string::contains({content_expr}, $query_lower)
+                )"""
+            )
+
+        search_query = f"""
+            SELECT uuid,
+                   name,
+                   entity_type,
+                   group_id,
+                   summary,
+                   attributes.metadata AS metadata,
+                   attributes.description AS description,
+                   attributes.content AS content,
+                   attributes.source_file AS source_file,
+                   attributes.updated_at AS updated_at,
+                   created_at
+            FROM entity
+            WHERE {" AND ".join(where_clauses)}
+            ORDER BY attributes.updated_at DESC, created_at DESC, uuid DESC
+            LIMIT $query_limit;
+        """
+        return GraphClient.normalize_result(await self._driver.execute_query(search_query, **params))
+
     async def _surreal_list_entities_direct(
         self,
         *,
@@ -802,7 +856,10 @@ class EntityManager:
                 )
                 results = self._merge_ranked_results(exact_name_results, fallback_results, limit)
                 log.info(
-                    "Search completed", query=query, results_count=len(results), mode="surreal_scan"
+                    "Search completed",
+                    query=query,
+                    results_count=len(results),
+                    mode="surreal_direct",
                 )
                 return results
 
@@ -957,13 +1014,21 @@ class EntityManager:
             return []
 
         if self._surreal_entity_node_ops() is not None:
-            exact_results = [
-                (entity, 2.0)
-                for entity in await self._surreal_entities_for_group(include_archived=True)
-                if entity.name.strip().lower() == normalized_query
-                and (not entity_types or entity.entity_type in entity_types)
-            ]
-            return exact_results[:limit]
+            records = await self._surreal_search_entity_records(
+                query_lower=normalized_query,
+                entity_types=entity_types,
+                limit=limit,
+                exact_name_only=True,
+            )
+            exact_results: list[tuple[Entity, float]] = []
+            for record in records:
+                try:
+                    exact_results.append(
+                        (self._coerce_entity(self._record_to_entity(record)), 2.0)
+                    )
+                except Exception as exc:
+                    log.debug("surreal_exact_name_record_failed", error=str(exc))
+            return exact_results
 
         params: dict[str, Any] = {
             "group_id": self._group_id,
@@ -1030,9 +1095,17 @@ class EntityManager:
             return []
 
         if self._surreal_entity_node_ops() is not None:
+            records = await self._surreal_search_entity_records(
+                query_lower=normalized_query,
+                entity_types=entity_types,
+                limit=min(max(limit * 4, 20), 200),
+            )
             fallback_results: list[tuple[Entity, float]] = []
-            for entity in await self._surreal_entities_for_group(include_archived=True):
-                if entity_types and entity.entity_type not in entity_types:
+            for record in records:
+                try:
+                    entity = self._coerce_entity(self._record_to_entity(record))
+                except Exception as exc:
+                    log.debug("surreal_fallback_text_record_failed", error=str(exc))
                     continue
 
                 name = entity.name.strip().lower()

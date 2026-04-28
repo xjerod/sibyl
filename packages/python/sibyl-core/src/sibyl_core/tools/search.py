@@ -1,5 +1,6 @@
 """Search tool for unified semantic search across Sibyl knowledge graph and documentation."""
 
+import asyncio
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
@@ -270,6 +271,23 @@ async def search(
 
     graph_results: list[SearchResult] = []
     doc_results: list[SearchResult] = []
+    document_search_task: asyncio.Task[list[SearchResult]] | None = None
+    if search_documents and query and organization_id:
+        document_search_task = asyncio.create_task(
+            with_timeout(
+                _search_documents(
+                    query=query,
+                    organization_id=organization_id,
+                    source_id=source_id,
+                    source_name=source_name,
+                    language=language,
+                    limit=limit,
+                    include_content=include_content,
+                ),
+                timeout_seconds=DOCUMENT_SEARCH_TIMEOUT_SECONDS,
+                operation_name="document_search",
+            )
+        )
 
     # =========================================================================
     # GRAPH SEARCH - Search knowledge graph entities
@@ -305,6 +323,7 @@ async def search(
             # Perform search - try enhanced hybrid first, then fall back to
             # Graphiti's node-hybrid search directly.
             raw_results: list[tuple[Any, float]] = []
+            enhanced_search_exhausted = False
 
             if use_enhanced:
                 try:
@@ -334,13 +353,16 @@ async def search(
                         operation_name="hybrid_search",
                     )
                     raw_results = hybrid_result.results
+                    enhanced_search_exhausted = bool(
+                        hybrid_result.metadata.get("entity_manager_search_completed")
+                    )
                     log.debug("graph_search_enhanced", results=len(raw_results))
 
                 except Exception as e:
                     log.warning("enhanced_search_failed_fallback", error=str(e))
 
             # Fall back to Graphiti's node-hybrid search
-            if not raw_results:
+            if not raw_results and not enhanced_search_exhausted:
                 try:
                     raw_results = await with_timeout(
                         entity_manager.search(
@@ -360,7 +382,10 @@ async def search(
                     log.warning("fallback_graph_search_failed", error=str(e))
                     raw_results = []
 
-            if not _graph_results_contain_exact_name_match(raw_results, query):
+            if (
+                not enhanced_search_exhausted
+                and not _graph_results_contain_exact_name_match(raw_results, query)
+            ):
                 try:
                     exact_name_results = await with_timeout(
                         entity_manager.search_exact_name(
@@ -492,21 +517,9 @@ async def search(
     # =========================================================================
     # DOCUMENT SEARCH - Search crawled documentation
     # =========================================================================
-    if search_documents and query and organization_id:
+    if document_search_task is not None:
         try:
-            doc_results = await with_timeout(
-                _search_documents(
-                    query=query,
-                    organization_id=organization_id,
-                    source_id=source_id,
-                    source_name=source_name,
-                    language=language,
-                    limit=limit,
-                    include_content=include_content,
-                ),
-                timeout_seconds=DOCUMENT_SEARCH_TIMEOUT_SECONDS,
-                operation_name="document_search",
-            )
+            doc_results = await document_search_task
             log.debug("document_search_complete", results=len(doc_results))
         except Exception as e:
             log.warning("document_search_failed", error=str(e))

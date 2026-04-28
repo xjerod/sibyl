@@ -1618,42 +1618,26 @@ class TestEntitySearch:
     """Test semantic search operations."""
 
     @pytest.mark.asyncio
-    async def test_search_uses_surreal_scan_path_without_graphiti_hybrid_search(
+    async def test_search_uses_surreal_direct_query_without_graphiti_hybrid_search(
         self,
         surreal_entity_manager: EntityManager,
     ) -> None:
-        matching_node = EntityNode(
-            uuid="pattern-001",
-            name="Repository Pattern",
-            group_id="test-org-123",
-            labels=["Entity", "pattern"],
-            created_at=datetime.now(UTC),
-            summary="",
-            attributes={
-                "entity_type": "pattern",
-                "description": "Repository abstraction",
-                "content": "Use repositories for data access",
-                "metadata": json.dumps({"category": "architecture"}),
-            },
-        )
-        other_node = EntityNode(
-            uuid="pattern-002",
-            name="Async Pattern",
-            group_id="test-org-123",
-            labels=["Entity", "pattern"],
-            created_at=datetime.now(UTC),
-            summary="",
-            attributes={
-                "entity_type": "pattern",
-                "description": "Async IO work",
-                "content": "Event loop orchestration",
-                "metadata": json.dumps({}),
-            },
-        )
+        matching_record = {
+            "uuid": "pattern-001",
+            "name": "Repository Pattern",
+            "group_id": "test-org-123",
+            "entity_type": "pattern",
+            "created_at": datetime.now(UTC),
+            "description": "Repository abstraction",
+            "content": "Use repositories for data access",
+            "metadata": json.dumps({"category": "architecture"}),
+        }
 
         surreal_entity_manager._client.client.search_ = AsyncMock()
-        ops = surreal_entity_manager._driver.entity_node_ops
-        ops.get_by_group_ids = AsyncMock(return_value=[matching_node, other_node])
+        surreal_entity_manager._driver.entity_node_ops.get_by_group_ids = AsyncMock()
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            side_effect=[[], [matching_record]]
+        )
 
         results = await surreal_entity_manager.search(
             "repository", entity_types=[EntityType.PATTERN]
@@ -1662,6 +1646,10 @@ class TestEntitySearch:
         assert len(results) == 1
         assert results[0][0].id == "pattern-001"
         surreal_entity_manager._client.client.search_.assert_not_awaited()
+        surreal_entity_manager._driver.entity_node_ops.get_by_group_ids.assert_not_awaited()
+        fallback_query = surreal_entity_manager._driver.execute_query.await_args_list[1].args[0]
+        assert "FROM entity" in fallback_query
+        assert "string::contains" in fallback_query
 
     @pytest.mark.asyncio
     async def test_search_basic(

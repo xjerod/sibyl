@@ -1019,6 +1019,19 @@ class TestHybridSearch:
         assert result.metadata["sources"] == []
 
     @pytest.mark.asyncio
+    async def test_hybrid_search_marks_entity_manager_incomplete_on_vector_failure(
+        self,
+    ) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+        manager.search = AsyncMock(side_effect=RuntimeError("DB error"))  # type: ignore[method-assign]
+
+        result = await hybrid_search("test query", client, manager)  # type: ignore[arg-type]
+
+        assert result.total == 0
+        assert result.metadata["entity_manager_search_completed"] is False
+
+    @pytest.mark.asyncio
     async def test_hybrid_search_vector_only(self) -> None:
         """Hybrid search with only vector results."""
         client = MockGraphClientForHybrid()
