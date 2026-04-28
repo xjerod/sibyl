@@ -54,6 +54,10 @@ class SurrealContentClient:
         client = await self.connect()
         return await client.query(query, params if params else None)
 
+    async def execute_query_raw(self, query: str, **params: Any) -> Any:
+        client = await self.connect()
+        return await client.query_raw(query, params if params else None)
+
     async def close(self) -> None:
         if self._client is not None:
             await self._client.close()

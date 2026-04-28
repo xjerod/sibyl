@@ -162,6 +162,12 @@ def _query_error(result: object) -> str | None:
         return result
     if isinstance(result, dict):
         payload = {str(key): value for key, value in result.items()}
+        if (
+            "result" in payload
+            and "status" not in payload
+            and isinstance(payload.get("result"), list)
+        ):
+            return _query_error(payload["result"])
         status = payload.get("status")
         if isinstance(status, str) and status.upper() == "ERR":
             detail = payload.get("detail") or payload.get("result") or payload
@@ -398,6 +404,38 @@ async def _select_many(
     return _normalize_records(result)
 
 
+def _normalize_raw_statement_records(result: object, *, statement_index: int) -> list[dict[str, Any]]:
+    if isinstance(result, dict):
+        payload = {str(key): value for key, value in result.items()}
+        statements = payload.get("result")
+        if (
+            "status" not in payload
+            and isinstance(statements, list)
+            and statements
+            and all(isinstance(statement, dict) for statement in statements)
+        ):
+            return _normalize_records(statements[statement_index])
+    return _normalize_records(result)
+
+
+async def _select_many_raw(
+    client: SurrealContentClient,
+    query: str,
+    *,
+    statement_index: int = -1,
+    **params: Any,
+) -> list[dict[str, Any]]:
+    execute_query_raw = getattr(client, "execute_query_raw", None)
+    if execute_query_raw is not None:
+        result = await execute_query_raw(query, **params)
+    else:
+        result = await client.execute_query(query, **params)
+    error = _query_error(result)
+    if error is not None:
+        raise RuntimeError(error)
+    return _normalize_raw_statement_records(result, statement_index=statement_index)
+
+
 async def _select_one(
     client: SurrealContentClient, query: str, **params: Any
 ) -> dict[str, Any] | None:
@@ -477,18 +515,18 @@ async def _load_documents_for_source_ids(
     return sorted(documents, key=lambda document: (document.source_id, document.id))
 
 
-async def _load_search_documents_for_source_ids(
+async def _load_search_documents_by_ids(
     client: SurrealContentClient,
-    source_ids: list[str],
+    document_ids: list[str],
 ) -> list[ContentDocument]:
     rows: list[dict[str, Any]] = []
-    for batch in _value_batches(source_ids):
+    for batch in _value_batches(document_ids):
         rows.extend(
             await _select_many(
                 client,
                 "SELECT uuid, source_id, url, title, has_code "
-                "FROM crawled_documents WHERE source_id INSIDE $source_ids;",
-                source_ids=batch,
+                "FROM crawled_documents WHERE uuid INSIDE $document_ids;",
+                document_ids=batch,
             )
         )
     documents = [_document_from_record(row) for row in rows]
@@ -836,6 +874,58 @@ def _hydrate_document_search_rows(
     return hydrated
 
 
+def _source_search_scope_clause(
+    *,
+    organization_id: str,
+    source_id: str | None,
+    source_name: str | None,
+) -> tuple[str, dict[str, Any]]:
+    clauses = ["organization_id = $organization_id"]
+    params: dict[str, Any] = {"organization_id": organization_id}
+    if source_id is not None:
+        clauses.append("uuid = $source_id")
+        params["source_id"] = source_id
+    elif source_name:
+        normalized_source_name = source_name.strip().lower()
+        if normalized_source_name:
+            clauses.append("string::contains(string::lowercase(name ?? ''), $source_name)")
+            params["source_name"] = normalized_source_name
+    return " AND ".join(clauses), params
+
+
+async def _load_search_sources(
+    client: SurrealContentClient,
+    *,
+    organization_id: str,
+    source_id: str | None,
+    source_name: str | None,
+) -> list[ContentSource]:
+    where_clause, params = _source_search_scope_clause(
+        organization_id=organization_id,
+        source_id=source_id,
+        source_name=source_name,
+    )
+    rows = await _select_many(
+        client,
+        "SELECT uuid, organization_id, name, url, source_type, description, crawl_status "
+        f"FROM crawl_sources WHERE {where_clause} ORDER BY name ASC, uuid ASC;",
+        **params,
+    )
+    return [_source_from_record(row) for row in rows]
+
+
+def _document_ids_from_search_rows(
+    *row_groups: list[dict[str, Any]],
+) -> list[str]:
+    document_ids: set[str] = set()
+    for rows in row_groups:
+        for row in rows:
+            document_id = row.get("document_id")
+            if document_id is not None:
+                document_ids.add(str(document_id))
+    return sorted(document_ids)
+
+
 async def search_document_chunks(
     *,
     organization_id: str,
@@ -855,30 +945,26 @@ async def search_document_chunks(
     errors: list[str] = []
 
     async with surreal_content_client() as client:
-        sources = await _load_sources_for_org(client, organization_id=organization_id)
-        if source_id is not None:
-            sources = [source for source in sources if source.id == source_id]
-        elif source_name:
-            needle = source_name.strip().lower()
-            sources = [source for source in sources if needle in source.name.lower()]
+        sources = await _load_search_sources(
+            client,
+            organization_id=organization_id,
+            source_id=source_id,
+            source_name=source_name,
+        )
         if not sources:
             return [], []
 
-        documents = await _load_search_documents_for_source_ids(
-            client, [source.id for source in sources]
-        )
-        if not documents:
-            return [], []
-
-        document_ids = [document.id for document in documents]
+        source_ids = [source.id for source in sources]
         sources_by_id = {source.id: source for source in sources}
-        documents_by_id = {document.id: document for document in documents}
 
         vector_rows: list[dict[str, Any]] = []
         if query_embedding is not None:
             try:
-                vector_rows = await _select_many(
+                vector_rows = await _select_many_raw(
                     client,
+                    "LET $document_ids = ("
+                    "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
+                    ");"
                     "SELECT * FROM ("
                     "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
                     "heading_path, language, has_entities, entity_ids, "
@@ -888,7 +974,7 @@ async def search_document_chunks(
                     f"AND embedding <|{candidate_limit}, 40|> $query_embedding"
                     ") WHERE score >= $similarity_threshold "
                     "ORDER BY score DESC LIMIT $candidate_limit;",
-                    document_ids=document_ids,
+                    source_ids=source_ids,
                     query_embedding=query_embedding,
                     similarity_threshold=similarity_threshold,
                     candidate_limit=candidate_limit,
@@ -900,21 +986,28 @@ async def search_document_chunks(
         lexical_rows: list[dict[str, Any]] = []
         if query_text.strip():
             try:
-                lexical_rows = await _select_many(
+                lexical_rows = await _select_many_raw(
                     client,
+                    "LET $document_ids = ("
+                    "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
+                    ");"
                     "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
                     "heading_path, language, has_entities, entity_ids, search::score(0) AS score "
                     "FROM document_chunks WHERE document_id INSIDE $document_ids"
                     f"{language_clause} "
                     "AND content @0@ $search_query "
                     "ORDER BY score DESC LIMIT $candidate_limit;",
-                    document_ids=document_ids,
+                    source_ids=source_ids,
                     search_query=query_text.strip(),
                     candidate_limit=candidate_limit,
                     **language_params,
                 )
             except RuntimeError as exc:
                 errors.append(str(exc))
+
+        document_ids = _document_ids_from_search_rows(vector_rows, lexical_rows)
+        documents = await _load_search_documents_by_ids(client, document_ids) if document_ids else []
+        documents_by_id = {document.id: document for document in documents}
 
     if errors and not vector_rows and not lexical_rows:
         raise RuntimeError("; ".join(errors))
