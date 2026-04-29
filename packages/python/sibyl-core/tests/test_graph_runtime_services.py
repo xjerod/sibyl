@@ -71,3 +71,88 @@ async def test_execute_graph_query_normalizes_driver_result() -> None:
     client.client.driver.clone.assert_called_once_with("org-123")
     driver.execute_query.assert_awaited_once_with("RETURN $value", value="x")
     client.normalize_result.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_query_rejects_cypher_on_surreal_driver() -> None:
+    client = MagicMock()
+    driver = AsyncMock()
+    driver.execute_query = AsyncMock()
+    client.client = SimpleNamespace(driver=MagicMock())
+    client.client.driver.clone.return_value = driver
+
+    with (
+        patch("sibyl_core.services.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl_core.services.graph_runtime._is_surreal_driver", return_value=True),
+        pytest.raises(ValueError, match="SurrealQL"),
+    ):
+        await execute_graph_query("org-123", "MATCH (n) RETURN n")
+
+    driver.execute_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_query_allows_surrealql_on_surreal_driver() -> None:
+    client = MagicMock()
+    driver = AsyncMock()
+    driver.execute_query = AsyncMock(return_value=({"row": "ignored"},))
+    client.client = SimpleNamespace(driver=MagicMock())
+    client.client.driver.clone.return_value = driver
+    client.normalize_result.return_value = [{"row": "value"}]
+
+    with (
+        patch("sibyl_core.services.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl_core.services.graph_runtime._is_surreal_driver", return_value=True),
+    ):
+        result = await execute_graph_query("org-123", "SELECT * FROM entity")
+
+    assert result == [{"row": "value"}]
+    driver.execute_query.assert_awaited_once_with("SELECT * FROM entity")
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_query_ignores_cypher_tokens_in_strings_and_comments() -> None:
+    client = MagicMock()
+    driver = AsyncMock()
+    driver.execute_query = AsyncMock(return_value=({"row": "ignored"},))
+    client.client = SimpleNamespace(driver=MagicMock())
+    client.client.driver.clone.return_value = driver
+    client.normalize_result.return_value = [{"row": "value"}]
+    query = """
+        SELECT 'MATCH (n)', "CALL db.indexes", `UNWIND`
+        FROM entity
+        WHERE url = 'https://example.com//MATCH'
+        /* UNWIND ignored */
+        -- MATCH ignored
+    """
+
+    with (
+        patch("sibyl_core.services.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl_core.services.graph_runtime._is_surreal_driver", return_value=True),
+    ):
+        result = await execute_graph_query("org-123", query)
+
+    assert result == [{"row": "value"}]
+    driver.execute_query.assert_awaited_once_with(query)
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_query_rejects_token_after_comment_quote() -> None:
+    client = MagicMock()
+    driver = AsyncMock()
+    driver.execute_query = AsyncMock()
+    client.client = SimpleNamespace(driver=MagicMock())
+    client.client.driver.clone.return_value = driver
+    query = """
+        -- stray ' quote in comment
+        MATCH (n) RETURN n
+    """
+
+    with (
+        patch("sibyl_core.services.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl_core.services.graph_runtime._is_surreal_driver", return_value=True),
+        pytest.raises(ValueError, match="SurrealQL"),
+    ):
+        await execute_graph_query("org-123", query)
+
+    driver.execute_query.assert_not_awaited()

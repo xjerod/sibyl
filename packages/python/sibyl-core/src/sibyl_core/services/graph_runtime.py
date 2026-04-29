@@ -1,5 +1,6 @@
 """Graph runtime helpers for higher-level service layers."""
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,29 @@ class ActiveGraphRuntime:
     client: Any
     entity_manager: Any
     relationship_manager: Any
+
+
+def _is_surreal_driver(driver: Any) -> bool:
+    try:
+        from sibyl_core.backends.surreal import SurrealDriver
+    except ImportError:
+        return False
+
+    return isinstance(driver, SurrealDriver)
+
+
+def _query_tokens(query: str) -> set[str]:
+    query = re.sub(r"(?s)/\*.*?\*/", " ", query)
+    query = re.sub(r"(?m)(--|//).*?$", " ", query)
+    query = re.sub(r"""(?s)('([^'\\]|\\.)*'|"([^"\\]|\\.)*"|`([^`\\]|\\.)*`)""", " ", query)
+    return {token.upper() for token in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", query)}
+
+
+def _assert_surreal_query_dialect(driver: Any, query: str) -> None:
+    if not _is_surreal_driver(driver):
+        return
+    if not _query_tokens(query).isdisjoint({"CALL", "MATCH", "UNWIND"}):
+        raise ValueError("Surreal runtime graph queries must use SurrealQL")
 
 
 async def get_graph_client() -> Any:
@@ -117,5 +141,6 @@ async def execute_graph_query(
 
     client = await get_graph_client()
     driver = client.client.driver.clone(group_id)
+    _assert_surreal_query_dialect(driver, query)
     result = await driver.execute_query(query, **params)
     return client.normalize_result(result)
