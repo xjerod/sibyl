@@ -1,7 +1,7 @@
-"""Tests for batch graph operations using UNWIND.
+"""Tests for backend-aware batch graph operations.
 
 Covers the batch utility functions that create, update, and delete
-multiple nodes/relationships in single queries.
+multiple nodes/relationships through the active managers.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class TestBatchCreateNodes:
     """Tests for batch_create_nodes function."""
 
     @pytest.mark.asyncio
-    async def test_creates_nodes_with_unwind(
+    async def test_creates_nodes_through_manager(
         self, mock_client: MagicMock, org_id: str, sample_nodes: list[dict]
     ) -> None:
         """Creates multiple nodes through EntityManager."""
@@ -149,7 +149,7 @@ class TestBatchCreateRelationships:
     """Tests for batch_create_relationships function."""
 
     @pytest.mark.asyncio
-    async def test_creates_relationships_with_unwind(
+    async def test_creates_relationships_through_manager(
         self, mock_client: MagicMock, org_id: str
     ) -> None:
         """Creates multiple relationships through RelationshipManager."""
@@ -229,7 +229,9 @@ class TestBatchUpdateNodes:
     """Tests for batch_update_nodes function."""
 
     @pytest.mark.asyncio
-    async def test_updates_nodes_with_unwind(self, mock_client: MagicMock, org_id: str) -> None:
+    async def test_updates_nodes_through_manager(
+        self, mock_client: MagicMock, org_id: str
+    ) -> None:
         """Updates multiple nodes through EntityManager."""
         updates = [
             {"uuid": "id1", "properties": {"status": "done"}},
@@ -290,7 +292,9 @@ class TestBatchDeleteNodes:
     """Tests for batch_delete_nodes function."""
 
     @pytest.mark.asyncio
-    async def test_deletes_nodes_with_unwind(self, mock_client: MagicMock, org_id: str) -> None:
+    async def test_deletes_nodes_through_manager(
+        self, mock_client: MagicMock, org_id: str
+    ) -> None:
         """Deletes multiple nodes through EntityManager."""
         uuids = ["id1", "id2", "id3"]
         entity_manager = MagicMock()

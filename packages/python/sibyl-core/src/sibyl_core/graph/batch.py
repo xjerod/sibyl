@@ -1,7 +1,7 @@
-"""Batch graph operations using UNWIND for efficient bulk inserts.
+"""Batch graph operations routed through backend-aware managers.
 
-This module provides utilities for creating multiple graph nodes in a single
-query using Cypher's UNWIND, significantly reducing database round-trips.
+This module provides utilities for creating, updating, and deleting multiple
+graph records without exposing callers to the active graph dialect.
 
 Instead of:
     for entity in entities:
@@ -12,7 +12,7 @@ Use:
 
 Performance:
     Sequential: ~100ms per entity = 10s for 100 entities
-    UNWIND batch: ~200ms total for 100 entities (50x faster)
+    Manager-backed batch: backend-specific write path with one public call site
 """
 
 from __future__ import annotations
@@ -42,10 +42,7 @@ async def batch_create_nodes(
     label: str = "Entity",
     return_ids: bool = True,
 ) -> list[str]:
-    """Create multiple graph nodes in a single UNWIND query.
-
-    Uses Cypher UNWIND to batch-insert nodes with one database round-trip
-    instead of one per node. Dramatically improves bulk insert performance.
+    """Create multiple graph nodes through the active EntityManager.
 
     Args:
         client: GraphClient instance.
@@ -103,7 +100,7 @@ async def batch_create_episodic_nodes(
     *,
     return_ids: bool = True,
 ) -> list[str]:
-    """Create multiple Episodic nodes in a single UNWIND query.
+    """Create multiple Episodic nodes through the active EntityManager.
 
     Specialized batch create for Episodic nodes (used by add_episode).
 
@@ -132,7 +129,7 @@ async def batch_create_relationships(
     *,
     rel_type: str = "RELATES_TO",
 ) -> int:
-    """Create multiple relationships in a single UNWIND query.
+    """Create multiple relationships through the active RelationshipManager.
 
     Args:
         client: GraphClient instance.
@@ -201,7 +198,7 @@ async def batch_update_nodes(
     *,
     label: str | None = None,
 ) -> int:
-    """Update multiple nodes in a single UNWIND query.
+    """Update multiple nodes through the active EntityManager.
 
     Args:
         client: GraphClient instance.
@@ -273,14 +270,14 @@ async def batch_delete_nodes(
     label: str | None = None,
     detach: bool = True,
 ) -> int:
-    """Delete multiple nodes in a single UNWIND query.
+    """Delete multiple nodes through the active EntityManager.
 
     Args:
         client: GraphClient instance.
         organization_id: Org UUID for graph scoping.
         uuids: List of node UUIDs to delete.
         label: Optional label filter.
-        detach: If True, also delete relationships (DETACH DELETE).
+        detach: Kept for API compatibility; manager-backed deletes decide cascade behavior.
 
     Returns:
         Number of nodes deleted.
@@ -319,14 +316,14 @@ async def batch_delete_nodes(
 
 
 def _serialize_node(node: dict[str, Any], group_id: str) -> dict[str, Any]:
-    """Serialize a node dict for Cypher parameter passing.
+    """Serialize a node dict for legacy batch payload compatibility.
 
     Args:
         node: Node dictionary with properties.
         group_id: Organization ID to set as group_id.
 
     Returns:
-        Serialized node dict safe for Cypher parameters.
+        Serialized node dict with JSON-safe values.
     """
     result: dict[str, Any] = {
         "group_id": group_id,
@@ -432,28 +429,25 @@ def _coerce_datetime(value: Any) -> datetime:
 
 
 def _serialize_properties(props: dict[str, Any]) -> dict[str, Any]:
-    """Serialize a properties dict for Cypher parameter passing.
+    """Serialize a properties dict for legacy batch payload compatibility.
 
     Args:
         props: Properties dictionary.
 
     Returns:
-        Serialized properties safe for Cypher parameters.
+        Serialized properties with JSON-safe values.
     """
     return {key: _serialize_value(value) for key, value in props.items()}
 
 
 def _serialize_value(value: Any) -> Any:
-    """Serialize a single value for Cypher parameter passing.
-
-    Cypher parameters can only contain primitives, lists of primitives,
-    or maps of primitives. Nested objects must be JSON-serialized.
+    """Serialize a single value for legacy batch payload compatibility.
 
     Args:
         value: Value to serialize.
 
     Returns:
-        Serialized value safe for Cypher parameters.
+        Serialized JSON-safe value.
     """
     if value is None:
         return None
