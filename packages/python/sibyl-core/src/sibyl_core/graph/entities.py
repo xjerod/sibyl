@@ -45,6 +45,11 @@ TEnum = TypeVar("TEnum", bound=Enum)
 # RediSearch special characters that need escaping in fulltext queries
 # Includes / which appears in paths like "create/cleanup" or local file paths
 _REDISEARCH_SPECIAL_CHARS = re.compile(r"[|&\-@()~$:*\\/]")
+_NON_EPISODIC_ID_PREFIXES = tuple(
+    f"{entity_type.value}_"
+    for entity_type in EntityType
+    if entity_type not in {EntityType.EPISODE}
+)
 
 
 def sanitize_search_query(query: str) -> str:
@@ -54,6 +59,10 @@ def sanitize_search_query(query: str) -> str:
     When these appear in document titles or content, they cause syntax errors.
     """
     return _REDISEARCH_SPECIAL_CHARS.sub(r" ", query)
+
+
+def _should_try_episodic_lookup(entity_id: str) -> bool:
+    return not entity_id.startswith(_NON_EPISODIC_ID_PREFIXES)
 
 
 def _metadata_json_contains_params(
@@ -903,11 +912,14 @@ class EntityManager:
             except Exception as e:
                 _t1 = _time.perf_counter()
                 log.debug(
-                    "EntityNode lookup failed, trying EpisodicNode",
+                    "EntityNode lookup failed",
                     entity_id=entity_id,
                     error=str(e),
                     ms=round((_t1 - _t0) * 1000),
                 )
+
+            if not _should_try_episodic_lookup(entity_id):
+                raise EntityNotFoundError("Entity", entity_id)
 
             # Try EpisodicNode (nodes created via add_episode)
             try:

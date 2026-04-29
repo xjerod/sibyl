@@ -112,25 +112,7 @@ This is bigger than an env var flip, but it is still a contained Phase 1 change.
 
 These still matter, but they are not all the same class of blocker.
 
-### 1. `get_by_uuid` misses are too expensive and too fuzzy
-
-**Where:** `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_node_ops.py`
-
-Under pressure, the miss path becomes noisy:
-
-- try `EntityNode`
-- fall back to `EpisodicNode`
-- fall back to document-chunk lookup
-
-For real misses, that is a lot of wasted work. For flaky embedded-store reads, it also turns a stale
-read into a slow stale read.
-
-Recommended follow-up:
-
-- short-circuit obvious non-document IDs like task, project, and epic IDs
-- keep the fallback chain for the cases where it is actually useful
-
-### 2. Bulk archive mode still lacks per-ID failure detail
+### 1. Bulk archive mode still lacks per-ID failure detail
 
 **Where:** CLI archive bulk mode with `--stdin`
 
@@ -186,6 +168,11 @@ nonexistent `sibyl logs search` command.
 `_update_project_progress` now has regression coverage proving that completion and archive flows
 still return the updated task when project rollup reads fail after the primary status write lands.
 
+### Missing entity reads skip impossible fallbacks
+
+Typed graph IDs like `task_*`, `project_*`, and `epic_*` now skip the EpisodicNode fallback after an
+EntityNode miss, and the HTTP entity route only checks document chunks for UUID-shaped IDs.
+
 ---
 
 ## Burn-down Outcome
@@ -216,9 +203,8 @@ The session was messy, but not wasted. The remaining work looks tractable.
 ## Recommended Next Steps
 
 1. Move local SurrealDB to server mode and wire `api` plus `worker` to it.
-2. Tighten the `get_by_uuid` miss path so obvious misses do less work.
-3. Add per-ID output for bulk archive results.
-4. Re-run the burn-down after server mode and verify list, explore, graph, and archive behavior in
+2. Add per-ID output for bulk archive results.
+3. Re-run the burn-down after server mode and verify list, explore, graph, and archive behavior in
    one pass.
 
 If we do that in order, Phase 1 stops looking like "death by a thousand bugs" and starts looking

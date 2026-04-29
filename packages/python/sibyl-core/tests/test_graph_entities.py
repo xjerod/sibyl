@@ -509,6 +509,25 @@ class TestEntityGet:
         get_entity_type.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_get_skips_surreal_episode_lookup_for_typed_graph_ids(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        entity_ops = surreal_entity_manager._driver.entity_node_ops
+        episode_ops = surreal_entity_manager._driver.episode_node_ops
+        entity_ops.get_by_uuid = AsyncMock(side_effect=Exception("Not found"))
+        episode_ops.get_by_uuid = AsyncMock()
+
+        with pytest.raises(EntityNotFoundError):
+            await surreal_entity_manager.get("project_abc123")
+
+        entity_ops.get_by_uuid.assert_awaited_once_with(
+            surreal_entity_manager._driver,
+            "project_abc123",
+        )
+        episode_ops.get_by_uuid.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_get_entity_node_success(
         self,
         entity_manager: EntityManager,

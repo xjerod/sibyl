@@ -5,10 +5,40 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
+from fastapi import HTTPException
 
-from sibyl.api.routes.entities import get_entity
+from sibyl.api.routes.entities import _should_fallback_to_document_entity, get_entity
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.storage import EntityBundle
+
+
+class _AsyncContext:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    async def __aenter__(self) -> object:
+        return self.value
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "expected"),
+    [
+        ("00000000-0000-0000-0000-000000000111", True),
+        ("deadbeef", True),
+        ("task_deadbeef", False),
+        ("project_deadbeef", False),
+        ("epic_deadbeef", False),
+        ("not-a-chunk-id", False),
+    ],
+)
+def test_should_fallback_to_document_entity_requires_chunk_id_shape(
+    entity_id: str,
+    expected: bool,
+) -> None:
+    assert _should_fallback_to_document_entity(entity_id) is expected
 
 
 @pytest.mark.asyncio
@@ -127,6 +157,83 @@ async def test_get_entity_graph_mode_skips_bundle_loading() -> None:
     service.get_entity.assert_awaited_once_with("task-1")
     service.get_entity_bundle.assert_not_awaited()
     get_entity_graph_runtime.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_entity_skips_document_fallback_for_typed_graph_ids() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    service = AsyncMock()
+    service.get_entity_bundle.return_value = None
+
+    with (
+        patch("sibyl.api.routes.entities.get_content_read_session") as read_session,
+        patch(
+            "sibyl.api.routes.entities.content_runtime.resolve_document_entity",
+            AsyncMock(),
+        ) as resolve_document_entity,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await get_entity("task_deadbeef", org=org, service=service)
+
+    assert exc_info.value.status_code == 404
+    read_session.assert_not_called()
+    resolve_document_entity.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_entity_keeps_document_fallback_for_uuid_shaped_ids() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    chunk_id = UUID("11111111-1111-1111-1111-111111111111")
+    document_id = UUID("22222222-2222-2222-2222-222222222222")
+    source_id = UUID("33333333-3333-3333-3333-333333333333")
+    service = AsyncMock()
+    service.get_entity_bundle.return_value = None
+    record = SimpleNamespace(
+        chunk=SimpleNamespace(
+            id=chunk_id,
+            document_id=document_id,
+            heading_path=["Guide", "Install"],
+            chunk_type=None,
+            language="python",
+            chunk_index=2,
+            created_at=None,
+            updated_at=None,
+        ),
+        document=SimpleNamespace(
+            id=document_id,
+            source_id=source_id,
+            title="Install Guide",
+            url="https://example.test/install",
+        ),
+        source=SimpleNamespace(
+            id=source_id,
+            name="Docs",
+            url="https://example.test",
+        ),
+        content="Use the Surreal runtime.",
+    )
+    session = object()
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_content_read_session",
+            return_value=_AsyncContext(session),
+        ),
+        patch(
+            "sibyl.api.routes.entities.content_runtime.resolve_document_entity",
+            AsyncMock(return_value=record),
+        ) as resolve_document_entity,
+    ):
+        response = await get_entity(str(chunk_id), org=org, service=service)
+
+    assert response.entity_type == EntityType.DOCUMENT
+    assert response.id == str(chunk_id)
+    assert response.name == "Install Guide"
+    resolve_document_entity.assert_awaited_once_with(
+        session,
+        organization_id=org.id,
+        entity_id=str(chunk_id),
+    )
 
 
 @pytest.mark.asyncio

@@ -111,7 +111,14 @@ def _entity_is_archived(entity: Any) -> bool:
 
 
 def _should_fallback_to_document_entity(entity_id: str) -> bool:
-    return not any(entity_id.startswith(f"{prefix}_") for prefix in GRAPH_ENTITY_ID_PREFIXES)
+    if any(entity_id.startswith(f"{prefix}_") for prefix in GRAPH_ENTITY_ID_PREFIXES):
+        return False
+    try:
+        UUID(entity_id)
+        return True
+    except ValueError:
+        normalized = entity_id.lower().replace("-", "")
+        return len(normalized) >= 4 and all(char in "0123456789abcdef" for char in normalized)
 
 
 async def _archive_raw_capture(
