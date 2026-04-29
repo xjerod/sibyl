@@ -14,6 +14,7 @@ from sibyl_core.services import (
     get_graph_client,
     get_graph_runtime,
 )
+from sibyl_core.services import graph_runtime as graph_runtime_module
 
 
 @pytest.mark.asyncio
@@ -40,6 +41,57 @@ async def test_get_graph_runtime_binds_active_store_managers() -> None:
     assert runtime.relationship_manager is relationship_manager
     entity_ctor.assert_called_once_with(client, group_id="org-123")
     relationship_ctor.assert_called_once_with(client, group_id="org-123")
+
+
+@pytest.mark.asyncio
+async def test_get_graph_runtime_prepares_surreal_schema_once() -> None:
+    client = MagicMock()
+    driver = MagicMock()
+    driver.build_indices_and_constraints = AsyncMock()
+    client.get_org_driver.return_value = driver
+    entity_manager = object()
+    relationship_manager = object()
+
+    graph_runtime_module._SURREAL_SCHEMA_PREPARED_GROUPS.clear()
+    with (
+        patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl_core.services.graph_runtime._is_surreal_driver", return_value=True),
+        patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager),
+        patch(
+            "sibyl_core.graph.relationships.RelationshipManager",
+            return_value=relationship_manager,
+        ),
+    ):
+        await get_graph_runtime("org-surreal")
+        await get_graph_runtime("org-surreal")
+
+    driver.build_indices_and_constraints.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_graph_runtime_survives_surreal_schema_prepare_failure() -> None:
+    client = MagicMock()
+    driver = MagicMock()
+    driver.build_indices_and_constraints = AsyncMock(side_effect=RuntimeError("boom"))
+    client.get_org_driver.return_value = driver
+    entity_manager = object()
+    relationship_manager = object()
+
+    graph_runtime_module._SURREAL_SCHEMA_PREPARED_GROUPS.clear()
+    with (
+        patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl_core.services.graph_runtime._is_surreal_driver", return_value=True),
+        patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager),
+        patch(
+            "sibyl_core.graph.relationships.RelationshipManager",
+            return_value=relationship_manager,
+        ),
+    ):
+        runtime = await get_graph_runtime("org-surreal")
+
+    assert runtime.entity_manager is entity_manager
+    driver.build_indices_and_constraints.assert_awaited_once()
+    assert "org-surreal" not in graph_runtime_module._SURREAL_SCHEMA_PREPARED_GROUPS
 
 
 def test_services_package_exports_only_neutral_graph_helpers() -> None:

@@ -1,11 +1,18 @@
 """Graph runtime helpers for higher-level service layers."""
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
+
+import structlog
 
 from sibyl_core.graph.client import GraphClient
 from sibyl_core.models.entities import EntityType
 from sibyl_core.utils.query import upper_query_tokens
+
+log = structlog.get_logger()
+_SURREAL_SCHEMA_PREPARED_GROUPS: set[str] = set()
+_SURREAL_SCHEMA_PREPARE_LOCK = asyncio.Lock()
 
 
 @dataclass(frozen=True)
@@ -52,11 +59,39 @@ async def get_graph_runtime(group_id: str) -> ActiveGraphRuntime:
     from sibyl_core.graph.relationships import RelationshipManager
 
     client = await get_graph_client()
+    await _prepare_surreal_graph_schema(client, group_id)
     return ActiveGraphRuntime(
         client=client,
         entity_manager=EntityManager(client, group_id=group_id),
         relationship_manager=RelationshipManager(client, group_id=group_id),
     )
+
+
+async def _prepare_surreal_graph_schema(client: Any, group_id: str) -> None:
+    if group_id in _SURREAL_SCHEMA_PREPARED_GROUPS:
+        return
+
+    get_org_driver = getattr(client, "get_org_driver", None)
+    if get_org_driver is None:
+        return
+
+    driver = get_org_driver(group_id)
+    if not _is_surreal_driver(driver):
+        return
+
+    async with _SURREAL_SCHEMA_PREPARE_LOCK:
+        if group_id in _SURREAL_SCHEMA_PREPARED_GROUPS:
+            return
+        try:
+            await driver.build_indices_and_constraints()
+        except Exception as exc:
+            log.warning(
+                "surreal_graph_schema_prepare_failed",
+                group_id=group_id,
+                error_type=type(exc).__name__,
+            )
+            return
+        _SURREAL_SCHEMA_PREPARED_GROUPS.add(group_id)
 
 
 async def count_entities_by_type(
