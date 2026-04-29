@@ -14,8 +14,10 @@ from uuid import uuid4
 from sibyl_core.backends.surreal import SurrealContentClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.config import settings
+from sibyl_core.utils.resilience import with_timeout
 
 _DEFAULT_BATCH_SIZE = 128
+_DIRECT_SEARCH_QUERY_TIMEOUT_SECONDS = 3.0
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
 _DELETE_BY_UUID = {
     "crawl_sources": "DELETE FROM crawl_sources WHERE uuid = $uuid;",
@@ -984,49 +986,60 @@ async def search_document_chunks(
         vector_rows: list[dict[str, Any]] = []
         if query_embedding is not None:
             try:
-                vector_rows = await _select_many_raw(
-                    client,
-                    "LET $document_ids = ("
-                    "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
-                    ");"
-                    "SELECT * FROM ("
-                    "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-                    "heading_path, language, has_entities, entity_ids, "
-                    "(1 - vector::distance::knn()) AS score "
-                    "FROM document_chunks WHERE document_id INSIDE $document_ids"
-                    f"{language_clause} "
-                    f"AND embedding <|{candidate_limit}, 40|> $query_embedding"
-                    ") WHERE score >= $similarity_threshold "
-                    "ORDER BY score DESC LIMIT $candidate_limit;",
-                    source_ids=source_ids,
-                    query_embedding=query_embedding,
-                    similarity_threshold=similarity_threshold,
-                    candidate_limit=candidate_limit,
-                    **language_params,
+                vector_rows = await with_timeout(
+                    _select_many_raw(
+                        client,
+                        "LET $document_ids = ("
+                        "SELECT VALUE uuid FROM crawled_documents "
+                        "WHERE source_id INSIDE $source_ids"
+                        ");"
+                        "SELECT * FROM ("
+                        "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
+                        "heading_path, language, has_entities, entity_ids, "
+                        "(1 - vector::distance::knn()) AS score "
+                        "FROM document_chunks WHERE document_id INSIDE $document_ids"
+                        f"{language_clause} "
+                        f"AND embedding <|{candidate_limit}, 40|> $query_embedding"
+                        ") WHERE score >= $similarity_threshold "
+                        "ORDER BY score DESC LIMIT $candidate_limit;",
+                        source_ids=source_ids,
+                        query_embedding=query_embedding,
+                        similarity_threshold=similarity_threshold,
+                        candidate_limit=candidate_limit,
+                        **language_params,
+                    ),
+                    timeout_seconds=_DIRECT_SEARCH_QUERY_TIMEOUT_SECONDS,
+                    operation_name="surreal_document_vector_search",
                 )
-            except RuntimeError as exc:
+            except (RuntimeError, TimeoutError) as exc:
                 errors.append(str(exc))
 
         lexical_rows: list[dict[str, Any]] = []
         if lexical_query_text:
             try:
-                lexical_rows = await _select_many_raw(
-                    client,
-                    "LET $document_ids = ("
-                    "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
-                    ");"
-                    "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-                    "heading_path, language, has_entities, entity_ids, search::score(0) AS score "
-                    "FROM document_chunks WHERE document_id INSIDE $document_ids"
-                    f"{language_clause} "
-                    "AND content @0@ $search_query "
-                    "ORDER BY score DESC LIMIT $candidate_limit;",
-                    source_ids=source_ids,
-                    search_query=lexical_query_text,
-                    candidate_limit=candidate_limit,
-                    **language_params,
+                lexical_rows = await with_timeout(
+                    _select_many_raw(
+                        client,
+                        "LET $document_ids = ("
+                        "SELECT VALUE uuid FROM crawled_documents "
+                        "WHERE source_id INSIDE $source_ids"
+                        ");"
+                        "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
+                        "heading_path, language, has_entities, entity_ids, "
+                        "search::score(0) AS score "
+                        "FROM document_chunks WHERE document_id INSIDE $document_ids"
+                        f"{language_clause} "
+                        "AND content @0@ $search_query "
+                        "ORDER BY score DESC LIMIT $candidate_limit;",
+                        source_ids=source_ids,
+                        search_query=lexical_query_text,
+                        candidate_limit=candidate_limit,
+                        **language_params,
+                    ),
+                    timeout_seconds=_DIRECT_SEARCH_QUERY_TIMEOUT_SECONDS,
+                    operation_name="surreal_document_lexical_search",
                 )
-            except RuntimeError as exc:
+            except (RuntimeError, TimeoutError) as exc:
                 errors.append(str(exc))
 
         document_ids = _document_ids_from_search_rows(vector_rows, lexical_rows)

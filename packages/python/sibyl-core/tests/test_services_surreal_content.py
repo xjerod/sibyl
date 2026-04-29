@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 import pytest
@@ -642,6 +643,78 @@ class TestSurrealContentHelpers:
                 )
 
         assert len(fake_client.calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_search_document_chunks_keeps_lexical_results_after_vector_timeout(
+        self,
+    ) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "src-1",
+                            "organization_id": "org-1",
+                            "name": "Docs",
+                            "url": "https://docs.example.com",
+                        }
+                    ]
+                ),
+                _query_result(
+                    [
+                        {
+                            "uuid": "doc-1",
+                            "source_id": "src-1",
+                            "url": "https://docs.example.com/auth",
+                            "title": "Auth",
+                            "has_code": False,
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        raw_call_count = 0
+
+        async def slow_then_lexical(*_: object, **__: object) -> list[dict[str, object]]:
+            nonlocal raw_call_count
+            raw_call_count += 1
+            if raw_call_count == 1:
+                await asyncio.sleep(0.05)
+                return []
+            return [
+                {
+                    "uuid": "chunk-1",
+                    "document_id": "doc-1",
+                    "chunk_index": 0,
+                    "chunk_type": "text",
+                    "content": "literal auth",
+                    "score": 0.44,
+                }
+            ]
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            monkeypatch.setattr(content_service, "_select_many_raw", slow_then_lexical)
+            monkeypatch.setattr(content_service, "_DIRECT_SEARCH_QUERY_TIMEOUT_SECONDS", 0.01)
+            vector_rows, lexical_rows = await search_document_chunks(
+                organization_id="org-1",
+                query_text="auth",
+                query_embedding=[1.0, 0.0],
+                source_id="src-1",
+                limit=5,
+            )
+
+        assert vector_rows == []
+        assert len(lexical_rows) == 1
+        assert lexical_rows[0][0].id == "chunk-1"
+        assert lexical_rows[0][4] == 0.44
 
     @pytest.mark.asyncio
     async def test_remember_raw_memory_persists_source_scope_and_provenance(self) -> None:
