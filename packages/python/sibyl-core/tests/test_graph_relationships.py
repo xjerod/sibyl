@@ -988,7 +988,74 @@ class TestListAll:
         ops.get_by_group_ids.assert_awaited_once_with(
             surreal_relationship_manager._driver,
             [surreal_relationship_manager._group_id],
+            limit=100,
+            offset=0,
         )
+
+    @pytest.mark.asyncio
+    async def test_list_all_uses_surreal_edge_ops_with_offset(
+        self,
+        surreal_relationship_manager: RelationshipManager,
+        sample_entity_edge: EntityEdge,
+    ) -> None:
+        ops = surreal_relationship_manager._driver.entity_edge_ops
+        ops.get_by_group_ids = AsyncMock(return_value=[sample_entity_edge])
+
+        results = await surreal_relationship_manager.list_all(limit=5, offset=10)
+
+        assert len(results) == 1
+        ops.get_by_group_ids.assert_awaited_once_with(
+            surreal_relationship_manager._driver,
+            [surreal_relationship_manager._group_id],
+            limit=5,
+            offset=10,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_all_surreal_type_filter_pages_until_enough_matches(
+        self,
+        surreal_relationship_manager: RelationshipManager,
+        sample_entity_edge: EntityEdge,
+    ) -> None:
+        skipped_edge = sample_entity_edge.model_copy(
+            update={"uuid": "edge-200", "name": RelationshipType.BLOCKS.value}
+        )
+        matching_edge = sample_entity_edge.model_copy(
+            update={"uuid": "edge-199", "name": RelationshipType.DEPENDS_ON.value}
+        )
+        first_page = [skipped_edge, matching_edge]
+        first_page.extend(
+            sample_entity_edge.model_copy(
+                update={"uuid": f"edge-{198 - index:03d}", "name": RelationshipType.BLOCKS.value}
+            )
+            for index in range(98)
+        )
+        second_matching_edge = sample_entity_edge.model_copy(
+            update={"uuid": "edge-001", "name": RelationshipType.DEPENDS_ON.value}
+        )
+        ops = surreal_relationship_manager._driver.entity_edge_ops
+        ops.get_by_group_ids = AsyncMock(
+            side_effect=[
+                first_page,
+                [second_matching_edge],
+            ]
+        )
+
+        results = await surreal_relationship_manager.list_all(
+            relationship_types=[RelationshipType.DEPENDS_ON],
+            limit=1,
+            offset=1,
+        )
+
+        assert [relationship.id for relationship in results] == ["edge-001"]
+        assert ops.get_by_group_ids.await_args_list[0].kwargs == {
+            "limit": 100,
+            "uuid_cursor": None,
+        }
+        assert ops.get_by_group_ids.await_args_list[1].kwargs == {
+            "limit": 100,
+            "uuid_cursor": "edge-101",
+        }
 
     @pytest.mark.asyncio
     async def test_list_all_refuses_surreal_cypher_fallback(

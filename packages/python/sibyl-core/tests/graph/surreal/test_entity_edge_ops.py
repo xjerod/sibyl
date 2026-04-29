@@ -281,6 +281,17 @@ class TestEntityEdgeOps:
         second_page = await ops.get_by_group_ids(surreal_schema, [gid], limit=3, uuid_cursor=cursor)
         assert [e.uuid for e in second_page] == ["edge-02", "edge-01", "edge-00"]
 
+    async def test_get_by_group_ids_respects_offset(self, surreal_schema: SurrealDriver) -> None:
+        ops = SurrealEntityEdgeOperations()
+        gid = surreal_schema.group_id
+        await _seed_entities(surreal_schema, ["ent-a", "ent-b"])
+
+        for i in range(6):
+            await ops.save(surreal_schema, _make_edge(f"edge-{i:02d}", gid))
+
+        page = await ops.get_by_group_ids(surreal_schema, [gid], limit=2, offset=2)
+        assert [e.uuid for e in page] == ["edge-03", "edge-02"]
+
     async def test_delete_and_delete_by_uuids(self, surreal_schema: SurrealDriver) -> None:
         ops = SurrealEntityEdgeOperations()
         gid = surreal_schema.group_id

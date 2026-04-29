@@ -868,13 +868,46 @@ class RelationshipManager:
         try:
             surreal_edge_ops = self._surreal_entity_edge_ops()
             if surreal_edge_ops is not None:
-                edges = await surreal_edge_ops.get_by_group_ids(self._driver, [self._group_id])
+                safe_offset = _sanitize_pagination(offset, max_value=100000)
+                safe_limit = _sanitize_pagination(limit, max_value=100000)
+
                 if relationship_types:
                     allowed = {relationship_type.value for relationship_type in relationship_types}
-                    edges = [edge for edge in edges if edge.name in allowed]
+                    page_size = min(max(safe_limit, 100), 1000)
+                    skipped = 0
+                    selected_edges = []
+                    cursor = None
+                    while len(selected_edges) < safe_limit:
+                        batch = await surreal_edge_ops.get_by_group_ids(
+                            self._driver,
+                            [self._group_id],
+                            limit=page_size,
+                            uuid_cursor=cursor,
+                        )
+                        if not batch:
+                            break
+                        for edge in batch:
+                            if edge.name not in allowed:
+                                continue
+                            if skipped < safe_offset:
+                                skipped += 1
+                                continue
+                            selected_edges.append(edge)
+                            if len(selected_edges) >= safe_limit:
+                                break
+                        if len(batch) < page_size:
+                            break
+                        cursor = batch[-1].uuid
+                    edges = selected_edges
+                else:
+                    edges = await surreal_edge_ops.get_by_group_ids(
+                        self._driver,
+                        [self._group_id],
+                        limit=safe_limit,
+                        offset=safe_offset,
+                    )
 
-                selected = edges[offset : offset + limit]
-                relationships = [self._from_graphiti_edge(edge) for edge in selected]
+                relationships = [self._from_graphiti_edge(edge) for edge in edges]
                 log.debug("Listed relationships via Surreal edge ops", count=len(relationships))
                 return relationships
 

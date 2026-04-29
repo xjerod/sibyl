@@ -181,15 +181,19 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
         group_ids: list[str],
         limit: int | None = None,
         uuid_cursor: str | None = None,
+        offset: int | None = None,
     ) -> list[EntityEdge]:
         cursor_clause = "AND uuid < $cursor" if uuid_cursor else ""
         limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
+        offset_clause = f"START {max(int(offset), 0)}" if offset else ""
         query = (
             _ENTITY_EDGE_SELECT
             + " WHERE group_id IN $group_ids "
             + cursor_clause
             + " ORDER BY uuid DESC "
             + limit_clause
+            + " "
+            + offset_clause
             + ";"
         )
         records = normalize_records(
