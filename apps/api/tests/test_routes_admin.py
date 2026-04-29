@@ -147,6 +147,22 @@ async def test_debug_query_allows_keywords_inside_string_literals() -> None:
 
 
 @pytest.mark.asyncio
+async def test_debug_query_blocks_cypher_after_unbalanced_quote_in_comment() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    request = DebugQueryRequest(cypher="-- stray ' quote\nMATCH (n) RETURN n LIMIT 1")
+
+    with (
+        patch("sibyl.api.routes.admin.execute_debug_query", AsyncMock()) as mock_execute,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await debug_query(request=request, org=org)
+
+    assert exc_info.value.status_code == 400
+    assert "Surreal runtime" in str(exc_info.value.detail)
+    mock_execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "query",
     [

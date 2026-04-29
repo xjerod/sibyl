@@ -1,6 +1,5 @@
 """Admin endpoints for health, stats, backup, and restore."""
 
-import re
 from typing import Any
 
 import structlog
@@ -34,6 +33,7 @@ from sibyl.persistence.graph_runtime import (
     get_graph_stats_payload,
 )
 from sibyl_core.utils import fingerprint_text
+from sibyl_core.utils.query import upper_query_tokens
 
 log = structlog.get_logger()
 
@@ -255,10 +255,7 @@ _OWNER_ONLY = (OrganizationRole.OWNER,)
 
 
 def _query_tokens(query: str) -> set[str]:
-    query = re.sub(r"""(?s)('([^'\\]|\\.)*'|"([^"\\]|\\.)*"|`([^`\\]|\\.)*`)""", " ", query)
-    query = re.sub(r"(?s)/\*.*?\*/", " ", query)
-    query = re.sub(r"(?m)(--|//).*?$", " ", query)
-    return {token.upper() for token in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", query)}
+    return upper_query_tokens(query)
 
 
 def _is_read_only(query: str) -> bool:

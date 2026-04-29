@@ -1,11 +1,11 @@
 """Graph runtime helpers for higher-level service layers."""
 
-import re
 from dataclasses import dataclass
 from typing import Any
 
 from sibyl_core.graph.client import GraphClient
 from sibyl_core.models.entities import EntityType
+from sibyl_core.utils.query import upper_query_tokens
 
 
 @dataclass(frozen=True)
@@ -27,10 +27,7 @@ def _is_surreal_driver(driver: Any) -> bool:
 
 
 def _query_tokens(query: str) -> set[str]:
-    query = re.sub(r"(?s)/\*.*?\*/", " ", query)
-    query = re.sub(r"(?m)(--|//).*?$", " ", query)
-    query = re.sub(r"""(?s)('([^'\\]|\\.)*'|"([^"\\]|\\.)*"|`([^`\\]|\\.)*`)""", " ", query)
-    return {token.upper() for token in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", query)}
+    return upper_query_tokens(query)
 
 
 def _assert_surreal_query_dialect(driver: Any, query: str) -> None:

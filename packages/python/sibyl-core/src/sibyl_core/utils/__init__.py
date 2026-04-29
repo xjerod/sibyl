@@ -10,6 +10,7 @@ from sibyl_core.utils.metadata import (
     safe_attr,
     safe_meta,
 )
+from sibyl_core.utils.query import query_tokens, upper_query_tokens
 from sibyl_core.utils.resilience import (
     GRAPH_RETRY,
     SEARCH_RETRY,
@@ -34,10 +35,12 @@ __all__ = [
     "has_meta",
     "match_meta",
     "query_log_fields",
+    "query_tokens",
     "retry",
     "safe_attr",
     "safe_meta",
     "text_log_fields",
     "timeout",
+    "upper_query_tokens",
     "with_timeout",
 ]
