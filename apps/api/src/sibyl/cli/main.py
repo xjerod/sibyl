@@ -325,7 +325,7 @@ def _check_falkordb_services(settings: Any) -> bool:
 
 
 def _check_runtime_services(settings: Any) -> bool:
-    store = resolve_object_store(settings, default="legacy")
+    store = resolve_object_store(settings, default="surreal")
     all_good = True
 
     if store == "legacy":

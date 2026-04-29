@@ -1111,7 +1111,7 @@ class DevStatusResponse(BaseModel):
     # Component health
     api_healthy: bool = Field(description="API server is healthy")
     worker_healthy: bool = Field(description="Worker process is running")
-    graph_healthy: bool = Field(description="FalkorDB is reachable")
+    graph_healthy: bool = Field(description="Graph runtime is reachable")
     queue_healthy: bool = Field(description="Job queue is healthy")
     coordination_backend: str = Field(description="Resolved coordination backend")
     coordination_status: str = Field(description="Coordination subsystem status")
