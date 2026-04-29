@@ -104,6 +104,20 @@ class RelationshipManager:
             return self._driver.entity_node_ops
         return None
 
+    def _is_surreal_driver(self) -> bool:
+        try:
+            from sibyl_core.backends.surreal import SurrealDriver
+        except ImportError:
+            return False
+
+        return isinstance(self._driver, SurrealDriver)
+
+    def _assert_legacy_fallback_allowed(self, operation: str) -> None:
+        if self._is_surreal_driver():
+            raise RuntimeError(
+                f"SurrealDB relationship {operation} requires native edge operations"
+            )
+
     def _to_graphiti_edge(self, relationship: Relationship) -> EntityEdge:
         """Convert our Relationship model to Graphiti's EntityEdge.
 
@@ -252,6 +266,8 @@ class RelationshipManager:
                 log.info("Created relationship", relationship_id=edge.uuid)
                 return edge.uuid
 
+            self._assert_legacy_fallback_allowed("create")
+
             # Check for existing relationship
             existing = await EntityEdge.get_between_nodes(
                 self._client.driver,
@@ -354,6 +370,8 @@ class RelationshipManager:
             log.info("Bulk create complete", created=created, failed=failed)
             return created, failed
 
+        self._assert_legacy_fallback_allowed("create_bulk")
+
         groups: dict[str, list[Relationship]] = defaultdict(list)
         for relationship in relationships:
             groups[relationship.relationship_type.value].append(relationship)
@@ -447,6 +465,8 @@ class RelationshipManager:
                     count=len(relationships),
                 )
                 return relationships
+
+            self._assert_legacy_fallback_allowed("get_for_entity")
 
             # Build direction-aware query
             if direction == "outgoing":
@@ -654,6 +674,8 @@ class RelationshipManager:
                 log.info("Deleted relationship", relationship_id=relationship_id)
                 return True
 
+            self._assert_legacy_fallback_allowed("delete")
+
             # Use direct Cypher to delete by UUID (consistent with create/get)
             query = """
                 MATCH ()-[r {uuid: $relationship_id}]-()
@@ -729,6 +751,8 @@ class RelationshipManager:
                 )
                 return len(to_delete)
 
+            self._assert_legacy_fallback_allowed("delete_between")
+
             query = f"""
                 MATCH (s {{uuid: $source_id}})-[r:{rel_type}]->(t {{uuid: $target_id}})
                 WHERE r.group_id = $group_id
@@ -793,6 +817,8 @@ class RelationshipManager:
                 )
                 return len(scoped_edges)
 
+            self._assert_legacy_fallback_allowed("delete_for_entity")
+
             # Use direct Cypher to delete all relationships for entity
             query = """
                 MATCH (n {uuid: $entity_id})-[r]-()
@@ -851,6 +877,8 @@ class RelationshipManager:
                 relationships = [self._from_graphiti_edge(edge) for edge in selected]
                 log.debug("Listed relationships via Surreal edge ops", count=len(relationships))
                 return relationships
+
+            self._assert_legacy_fallback_allowed("list_all")
 
             # Sanitize pagination to prevent injection
             # Note: max_value for limit increased to support backup exports
