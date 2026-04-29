@@ -123,7 +123,7 @@ def create_combined_app(  # noqa: PLR0915
 
         if settings.store == "surreal" and settings.uses_relational_auth:
             log.info(
-                "Surreal store mode enabled; bootstrapping remaining relational sidecar services"
+                "Surreal store mode enabled; bootstrapping relational auth sidecar"
             )
 
         if settings.requires_relational_support:

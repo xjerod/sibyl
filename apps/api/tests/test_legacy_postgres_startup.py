@@ -125,3 +125,43 @@ async def test_bootstrap_relational_sidecar_support_is_disabled_in_fully_surreal
     run_migrations.assert_not_awaited()
     recover_sources.assert_not_awaited()
     load_api_keys.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_relational_sidecar_support_skips_content_startup_in_surreal_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    check_connection = AsyncMock()
+    run_migrations = AsyncMock()
+    recover_sources = AsyncMock()
+    load_api_keys = AsyncMock()
+
+    monkeypatch.setattr(
+        relational_sidecar_startup,
+        "check_relational_sidecar_connection",
+        check_connection,
+    )
+    monkeypatch.setattr(
+        relational_sidecar_startup,
+        "run_relational_sidecar_migrations",
+        run_migrations,
+    )
+    monkeypatch.setattr(
+        relational_sidecar_startup,
+        "recover_relational_sidecar_sources",
+        recover_sources,
+    )
+    monkeypatch.setattr(
+        relational_sidecar_startup,
+        "load_relational_sidecar_api_keys",
+        load_api_keys,
+    )
+    monkeypatch.setattr(relational_sidecar_startup.settings, "store", "surreal")
+    monkeypatch.setattr(relational_sidecar_startup.settings, "auth_store", "postgres")
+
+    assert await relational_sidecar_startup.bootstrap_relational_sidecar_support() is True
+
+    check_connection.assert_awaited_once()
+    run_migrations.assert_awaited_once()
+    recover_sources.assert_not_awaited()
+    load_api_keys.assert_not_awaited()

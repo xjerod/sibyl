@@ -58,6 +58,14 @@ async def bootstrap_relational_sidecar_support() -> bool:
         log.exception("Database migration failed")
         raise
 
+    if settings.store != "legacy":
+        log.info(
+            "Relational content startup skipped in surreal store mode",
+            store=settings.store,
+            auth_store=settings.auth_store,
+        )
+        return True
+
     try:
         await recover_relational_sidecar_sources()
     except Exception as exc:
