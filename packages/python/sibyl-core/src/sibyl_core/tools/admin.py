@@ -259,6 +259,10 @@ async def _cast_name_embeddings_to_vecf32(
     batch_size: int,
     max_entities: int,
 ) -> int:
+    if settings.store == "surreal":
+        log.info("Skipping Vectorf32 embedding cast in Surreal runtime")
+        return 0
+
     entities_updated = 0
     offset = 0
     scanned = 0
@@ -309,6 +313,10 @@ async def _clear_mismatched_name_embedding_dimensions(
     batch_size: int,
     max_entities: int,
 ) -> int:
+    if settings.store == "surreal":
+        log.info("Skipping Falkor embedding dimension cleanup in Surreal runtime")
+        return 0
+
     embeddings_cleared = 0
     offset = 0
     scanned = 0

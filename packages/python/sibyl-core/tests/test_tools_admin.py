@@ -18,6 +18,7 @@ from sibyl_core.tools.admin import (
     create_backup,
     get_stats,
     health_check,
+    migrate_fix_name_embedding_types,
     rebuild_indices,
     restore_backup,
 )
@@ -53,6 +54,30 @@ class TestRebuildIndices:
         assert result.success is False
         assert result.indices_rebuilt == []
         assert "requested target: all" in result.message.lower()
+
+
+class TestEmbeddingMaintenance:
+    """Embedding maintenance should not run Falkor-only Cypher in Surreal mode."""
+
+    @pytest.mark.asyncio
+    async def test_name_embedding_migration_noops_in_surreal_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        driver = AsyncMock()
+        graph_client = SimpleNamespace(driver=driver)
+
+        monkeypatch.setattr(admin_module.settings, "store", "surreal")
+        monkeypatch.setattr(
+            admin_module,
+            "get_graph_client",
+            AsyncMock(return_value=graph_client),
+        )
+
+        result = await migrate_fix_name_embedding_types()
+
+        assert result.success is True
+        assert result.entities_updated == 0
+        driver.execute_query.assert_not_called()
 
 
 class TestBackupInventory:
