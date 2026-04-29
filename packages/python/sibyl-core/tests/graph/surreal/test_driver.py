@@ -15,7 +15,7 @@ from sibyl_core.backends.surreal.driver import (
     _is_connection_closed_error,
     _namespace_for_group,
 )
-from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
+from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES, bootstrap_schema
 from sibyl_core.graph.surreal.ops.community_edge_ops import SurrealCommunityEdgeOperations
 from sibyl_core.graph.surreal.ops.community_node_ops import SurrealCommunityNodeOperations
 from sibyl_core.graph.surreal.ops.entity_edge_ops import SurrealEntityEdgeOperations
@@ -447,9 +447,37 @@ class TestSchemaBootstrap:
         await surreal_driver.build_indices_and_constraints()
         await surreal_driver.build_indices_and_constraints()
 
+    async def test_bootstrap_upgrades_existing_schemaless_tables(
+        self, surreal_driver: SurrealDriver
+    ) -> None:
+        await surreal_driver.execute_query("DEFINE TABLE entity SCHEMALESS;")
+        await surreal_driver.build_indices_and_constraints()
+        await surreal_driver.build_indices_and_constraints()
+
+    async def test_bootstrap_continues_when_unique_index_hits_dirty_duplicates(
+        self,
+    ) -> None:
+        class FakeDriver:
+            group_id = "org-dirty"
+            _url = "ws://127.0.0.1:8000/rpc"
+
+            def __init__(self) -> None:
+                self.statements: list[str] = []
+
+            async def execute_query(self, statement: str) -> None:
+                self.statements.append(statement)
+                if "idx_episode_uuid" in statement:
+                    raise RuntimeError(
+                        "Database index `idx_episode_uuid` already contains 'episode-1'"
+                    )
+
+        driver = FakeDriver()
+        await bootstrap_schema(driver)  # type: ignore[arg-type]
+
+        assert any("idx_episode_group" in statement for statement in driver.statements)
+
     async def test_bootstrap_without_group_id_raises(self) -> None:
         d = SurrealDriver("memory://")
-        from sibyl_core.backends.surreal.schema import bootstrap_schema
 
         with pytest.raises(ValueError, match="group_id"):
             await bootstrap_schema(d)

@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import structlog
+
 from sibyl_core.config import core_config
+from sibyl_core.utils.log_safety import fingerprint_text
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.driver import SurrealDriver
+
+log = structlog.get_logger()
 
 
 # Graph node embeddings (entity/community/relationship facts) come from Graphiti's
@@ -29,6 +34,7 @@ DEFINE ANALYZER IF NOT EXISTS content_analyzer
 
 NODE_DEFINITIONS = f"""
 DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
+ALTER TABLE IF EXISTS entity SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON entity TYPE string;
 DEFINE FIELD IF NOT EXISTS name ON entity TYPE string;
 DEFINE FIELD IF NOT EXISTS entity_type ON entity TYPE string;
@@ -51,6 +57,7 @@ DEFINE INDEX IF NOT EXISTS idx_entity_embedding ON entity FIELDS name_embedding
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32 EFC 150 M 12;
 
 DEFINE TABLE IF NOT EXISTS episode SCHEMAFULL;
+ALTER TABLE IF EXISTS episode SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON episode TYPE string;
 DEFINE FIELD IF NOT EXISTS name ON episode TYPE string;
 DEFINE FIELD IF NOT EXISTS source ON episode TYPE string;
@@ -68,6 +75,7 @@ DEFINE INDEX IF NOT EXISTS idx_episode_created ON episode FIELDS created_at;
 DEFINE INDEX IF NOT EXISTS idx_episode_content_ft ON episode FIELDS content FULLTEXT ANALYZER content_analyzer BM25;
 
 DEFINE TABLE IF NOT EXISTS community SCHEMAFULL;
+ALTER TABLE IF EXISTS community SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON community TYPE string;
 DEFINE FIELD IF NOT EXISTS name ON community TYPE string;
 DEFINE FIELD IF NOT EXISTS summary ON community TYPE option<string>;
@@ -82,6 +90,7 @@ DEFINE INDEX IF NOT EXISTS idx_community_embedding ON community FIELDS name_embe
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32;
 
 DEFINE TABLE IF NOT EXISTS saga SCHEMAFULL;
+ALTER TABLE IF EXISTS saga SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON saga TYPE string;
 DEFINE FIELD IF NOT EXISTS name ON saga TYPE string;
 DEFINE FIELD IF NOT EXISTS labels ON saga TYPE array<string> DEFAULT [];
@@ -95,6 +104,7 @@ DEFINE INDEX IF NOT EXISTS idx_saga_group ON saga FIELDS group_id;
 
 EDGE_DEFINITIONS = f"""
 DEFINE TABLE IF NOT EXISTS relates_to TYPE RELATION IN entity OUT entity SCHEMAFULL;
+ALTER TABLE IF EXISTS relates_to SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON relates_to TYPE string;
 DEFINE FIELD IF NOT EXISTS name ON relates_to TYPE string;
 DEFINE FIELD IF NOT EXISTS fact ON relates_to TYPE string;
@@ -114,6 +124,7 @@ DEFINE INDEX IF NOT EXISTS idx_relates_fact_embedding ON relates_to FIELDS fact_
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32 EFC 150 M 12;
 
 DEFINE TABLE IF NOT EXISTS mentions TYPE RELATION IN episode OUT entity SCHEMAFULL;
+ALTER TABLE IF EXISTS mentions SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON mentions TYPE string;
 DEFINE FIELD IF NOT EXISTS group_id ON mentions TYPE string;
 DEFINE FIELD IF NOT EXISTS created_at ON mentions TYPE datetime DEFAULT time::now();
@@ -122,6 +133,7 @@ DEFINE INDEX IF NOT EXISTS idx_mentions_uuid ON mentions FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_mentions_group ON mentions FIELDS group_id;
 
 DEFINE TABLE IF NOT EXISTS has_episode TYPE RELATION IN saga OUT episode SCHEMAFULL;
+ALTER TABLE IF EXISTS has_episode SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON has_episode TYPE string;
 DEFINE FIELD IF NOT EXISTS group_id ON has_episode TYPE string;
 DEFINE FIELD IF NOT EXISTS created_at ON has_episode TYPE datetime DEFAULT time::now();
@@ -129,6 +141,7 @@ DEFINE FIELD IF NOT EXISTS created_at ON has_episode TYPE datetime DEFAULT time:
 DEFINE INDEX IF NOT EXISTS idx_has_ep_uuid ON has_episode FIELDS uuid UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS next_episode TYPE RELATION IN episode OUT episode SCHEMAFULL;
+ALTER TABLE IF EXISTS next_episode SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON next_episode TYPE string;
 DEFINE FIELD IF NOT EXISTS group_id ON next_episode TYPE string;
 DEFINE FIELD IF NOT EXISTS created_at ON next_episode TYPE datetime DEFAULT time::now();
@@ -136,6 +149,7 @@ DEFINE FIELD IF NOT EXISTS created_at ON next_episode TYPE datetime DEFAULT time
 DEFINE INDEX IF NOT EXISTS idx_next_ep_uuid ON next_episode FIELDS uuid UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS has_member TYPE RELATION IN community OUT entity | community SCHEMAFULL;
+ALTER TABLE IF EXISTS has_member SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON has_member TYPE string;
 DEFINE FIELD IF NOT EXISTS group_id ON has_member TYPE string;
 DEFINE FIELD IF NOT EXISTS created_at ON has_member TYPE datetime DEFAULT time::now();
@@ -172,6 +186,12 @@ def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
     return sql.replace("FULLTEXT ANALYZER", f"{fulltext_keyword} ANALYZER")
 
 
+def _is_duplicate_unique_index_error(statement: str, error: Exception) -> bool:
+    if " UNIQUE" not in statement.upper():
+        return False
+    return "already contains" in str(error).lower()
+
+
 async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> None:
     if not driver.group_id:
         msg = "bootstrap_schema requires driver.clone(group_id) first"
@@ -188,7 +208,18 @@ async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> Non
     )
     for block in compatible_blocks:
         for statement in _split_statements(block):
-            await driver.execute_query(statement)
+            try:
+                await driver.execute_query(statement)
+            except Exception as exc:
+                if not _is_duplicate_unique_index_error(statement, exc):
+                    raise
+                log.warning(
+                    "surreal_graph_unique_index_skipped",
+                    group_id=driver.group_id,
+                    statement_hash=fingerprint_text(statement),
+                    error_hash=fingerprint_text(str(exc)),
+                    error_type=type(exc).__name__,
+                )
 
 
 async def drop_all_indexes(driver: SurrealDriver) -> None:
