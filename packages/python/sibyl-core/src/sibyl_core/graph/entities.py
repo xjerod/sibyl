@@ -13,9 +13,10 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, TypeVar
+from uuid import uuid4
 
 import structlog
-from graphiti_core.nodes import EntityNode, EpisodicNode
+from graphiti_core.nodes import EntityNode, EpisodeType, EpisodicNode
 from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
 from pydantic import BaseModel
 
@@ -937,6 +938,27 @@ class EntityManager:
             raise last_error
         raise RuntimeError("Retry logic error in add_episode")
 
+    async def _create_surreal_episode_direct(self, entity: Entity) -> str:
+        episode_ops = self._surreal_episode_node_ops()
+        if episode_ops is None:
+            msg = "Surreal episode ops are unavailable"
+            raise RuntimeError(msg)
+
+        episode_id = entity.id or str(uuid4())
+        node = EpisodicNode(
+            uuid=episode_id,
+            name=f"{entity.entity_type.value}:{entity.name}",
+            group_id=self._group_id,
+            labels=[EntityType.EPISODE.value],
+            source=EpisodeType.text,
+            source_description=entity.description or entity.source_file or "Sibyl episode",
+            content=entity.content or entity.description or entity.name,
+            valid_at=entity.created_at or datetime.now(UTC),
+            entity_edges=[],
+        )
+        await episode_ops.save(self._driver, node)
+        return episode_id
+
     async def create(self, entity: Entity) -> str:
         """Create a new entity in the graph.
 
@@ -949,6 +971,12 @@ class EntityManager:
         log.info("Creating entity", entity_type=entity.entity_type, name=entity.name)
 
         try:
+            if (
+                self._surreal_episode_node_ops() is not None
+                and entity.entity_type == EntityType.EPISODE
+            ):
+                return await self._create_surreal_episode_direct(entity)
+
             if (
                 self._surreal_entity_node_ops() is not None
                 and entity.entity_type != EntityType.EPISODE

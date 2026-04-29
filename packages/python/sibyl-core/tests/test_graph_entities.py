@@ -226,7 +226,7 @@ class TestEntityCreate:
         surreal_entity_manager._client.client.add_episode.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_create_surreal_episode_uses_graphiti_add_episode(
+    async def test_create_surreal_episode_uses_episode_ops(
         self,
         surreal_entity_manager: EntityManager,
     ) -> None:
@@ -237,12 +237,8 @@ class TestEntityCreate:
             description="Captured from a session",
             content="Graphiti should write the raw episode.",
         )
-        mock_episode = MagicMock()
-        mock_episode.uuid = "generated-episode"
-        mock_result = MagicMock()
-        mock_result.episode = mock_episode
-        surreal_entity_manager._client.client.add_episode.return_value = mock_result
-        surreal_entity_manager._driver.execute_query = AsyncMock()
+        episode_ops = surreal_entity_manager._driver.episode_node_ops
+        episode_ops.save = AsyncMock()
 
         with patch.object(
             surreal_entity_manager,
@@ -253,13 +249,13 @@ class TestEntityCreate:
 
         assert result == "episode-001"
         create_direct.assert_not_awaited()
-        surreal_entity_manager._client.client.add_episode.assert_awaited_once()
-        query = surreal_entity_manager._driver.execute_query.await_args.args[0]
-        assert "UPDATE episode SET uuid = $desired_id" in query
-        assert surreal_entity_manager._driver.execute_query.await_args.kwargs == {
-            "created_uuid": "generated-episode",
-            "desired_id": "episode-001",
-        }
+        surreal_entity_manager._client.client.add_episode.assert_not_awaited()
+        episode_ops.save.assert_awaited_once()
+        saved_episode = episode_ops.save.await_args.args[1]
+        assert saved_episode.uuid == "episode-001"
+        assert saved_episode.name == "episode:Surreal lesson"
+        assert saved_episode.content == "Graphiti should write the raw episode."
+        assert saved_episode.source.value == "text"
 
     @pytest.mark.asyncio
     async def test_create_entity_success(
