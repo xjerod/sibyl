@@ -7,6 +7,7 @@ import pytest
 
 from sibyl.api.dependencies import get_graph_store, get_knowledge_read_service
 from sibyl.api.routes.graph import get_graph_stats
+from sibyl.persistence.graph_runtime import GraphEntityStore, GraphRelationshipStore
 from sibyl.persistence.legacy.graph import (
     LegacyEntityStore,
     LegacyGraphQueryAdapter,
@@ -153,6 +154,66 @@ async def test_legacy_search_index_aggregates_graph_stats_via_surreal_queries() 
             ),
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_graph_entity_count_uses_surreal_select_when_driver_detected() -> None:
+    driver = MagicMock()
+    driver.execute_query = AsyncMock(return_value=[{"cnt": 7}])
+    store = GraphEntityStore(MagicMock(), driver=driver, group_id="org-1")
+
+    with patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=object()):
+        assert await store.count() == 7
+
+    query = driver.execute_query.await_args.args[0]
+    assert "FROM entity" in query
+    assert "MATCH" not in query
+
+
+@pytest.mark.asyncio
+async def test_graph_relationship_count_uses_surreal_select_when_driver_detected() -> None:
+    driver = MagicMock()
+    driver.execute_query = AsyncMock(return_value=[{"cnt": 3}])
+    store = GraphRelationshipStore(MagicMock(), driver=driver, group_id="org-1")
+
+    with patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=object()):
+        assert await store.count() == 3
+
+    query = driver.execute_query.await_args.args[0]
+    assert "FROM relates_to" in query
+    assert "MATCH" not in query
+
+
+@pytest.mark.asyncio
+async def test_graph_relationship_get_rejects_surreal_legacy_query_fallback() -> None:
+    driver = MagicMock()
+    driver.execute_query = AsyncMock()
+    store = GraphRelationshipStore(MagicMock(), driver=driver, group_id="org-1")
+
+    with (
+        patch("sibyl.persistence.graph_runtime._surreal_entity_edge_ops_for", return_value=None),
+        patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=object()),
+        pytest.raises(RuntimeError, match="relationship get"),
+    ):
+        await store.get("rel-1")
+
+    driver.execute_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_graph_relationship_find_between_rejects_surreal_legacy_query_fallback() -> None:
+    driver = MagicMock()
+    driver.execute_query = AsyncMock()
+    store = GraphRelationshipStore(MagicMock(), driver=driver, group_id="org-1")
+
+    with (
+        patch("sibyl.persistence.graph_runtime._surreal_entity_edge_ops_for", return_value=None),
+        patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=object()),
+        pytest.raises(RuntimeError, match="relationship find_between"),
+    ):
+        await store.find_between("source-1", "target-1")
+
+    driver.execute_query.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -320,6 +381,7 @@ async def test_legacy_graph_query_adapter_proxies_scoped_reads() -> None:
     client.execute_read_org.assert_awaited_once_with(
         "RETURN 1 AS value",
         "org-1",
+        allow_surreal=False,
         group_id="org-1",
         now_iso="2026-04-17T00:00:00+00:00",
     )

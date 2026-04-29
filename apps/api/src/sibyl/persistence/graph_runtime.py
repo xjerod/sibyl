@@ -120,12 +120,17 @@ def _surreal_driver_for(driver: Any) -> Any | None:
 
 def _surreal_entity_node_ops_for(driver: Any) -> Any | None:
     surreal_driver = _surreal_driver_for(driver)
-    return surreal_driver.entity_node_ops if surreal_driver is not None else None
+    return getattr(surreal_driver, "entity_node_ops", None) if surreal_driver is not None else None
 
 
 def _surreal_entity_edge_ops_for(driver: Any) -> Any | None:
     surreal_driver = _surreal_driver_for(driver)
-    return surreal_driver.entity_edge_ops if surreal_driver is not None else None
+    return getattr(surreal_driver, "entity_edge_ops", None) if surreal_driver is not None else None
+
+
+def _assert_legacy_graph_query_allowed(driver: Any, operation: str) -> None:
+    if _surreal_driver_for(driver) is not None:
+        raise RuntimeError(f"SurrealDB {operation} requires native graph operations")
 
 
 async def _list_surreal_entity_nodes(
@@ -337,7 +342,7 @@ class GraphEntityStore(EntityStore):
         return self._manager.node_to_entity(node)
 
     async def count(self) -> int:
-        if _surreal_entity_node_ops_for(self._driver) is not None:
+        if _surreal_driver_for(self._driver) is not None:
             rows = GraphClient.normalize_result(
                 await self._driver.execute_query(
                     """
@@ -391,6 +396,8 @@ class GraphRelationshipStore(RelationshipStore):
                 return None
             return _relationship_from_edge(edge)
 
+        _assert_legacy_graph_query_allowed(self._driver, "relationship get")
+
         rows = GraphClient.normalize_result(
             await self._driver.execute_query(
                 """
@@ -415,14 +422,17 @@ class GraphRelationshipStore(RelationshipStore):
     async def upsert(self, relationship: Relationship) -> Relationship:
         existing = await self.get(relationship.id)
         surreal_edge_ops = _surreal_entity_edge_ops_for(self._driver)
-        if surreal_edge_ops is not None and existing is not None:
-            edge = _relationship_to_edge(relationship, self._group_id)
-            await surreal_edge_ops.save(self._driver, edge)
-            refreshed = await self.get(edge.uuid)
-            if refreshed is None:
-                msg = f"Relationship not found after update: {edge.uuid}"
-                raise LookupError(msg)
-            return refreshed
+        if surreal_edge_ops is not None:
+            if existing is not None:
+                edge = _relationship_to_edge(relationship, self._group_id)
+                await surreal_edge_ops.save(self._driver, edge)
+                refreshed = await self.get(edge.uuid)
+                if refreshed is None:
+                    msg = f"Relationship not found after update: {edge.uuid}"
+                    raise LookupError(msg)
+                return refreshed
+        else:
+            _assert_legacy_graph_query_allowed(self._driver, "relationship upsert")
 
         if existing is not None:
             patch = RelationshipPatch(weight=relationship.weight, metadata=relationship.metadata)
@@ -499,6 +509,8 @@ class GraphRelationshipStore(RelationshipStore):
 
             return list(matches.values())
 
+        _assert_legacy_graph_query_allowed(self._driver, "relationship find_between")
+
         rows = GraphClient.normalize_result(
             await self._driver.execute_query(
                 """
@@ -522,7 +534,7 @@ class GraphRelationshipStore(RelationshipStore):
         return [rel for rel in relationships if rel.relationship_type == relationship_type]
 
     async def count(self) -> int:
-        if _surreal_entity_edge_ops_for(self._driver) is not None:
+        if _surreal_driver_for(self._driver) is not None:
             rows = GraphClient.normalize_result(
                 await self._driver.execute_query(
                     """
