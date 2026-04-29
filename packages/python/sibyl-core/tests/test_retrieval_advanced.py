@@ -995,6 +995,53 @@ class TestGraphTraversal:
         assert client.read_org_calls == []
 
     @pytest.mark.asyncio
+    async def test_graph_traversal_batches_relationship_frontiers(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Graph traversal batches each frontier when the manager supports it."""
+        import sibyl_core.graph.relationships as relationships_module
+
+        client = MockGraphClientForHybrid()
+        calls: list[tuple[list[str], int]] = []
+        near = make_entity_for_test("near", name="Near Entity")
+        far = make_entity_for_test("far", name="Far Entity")
+
+        class BatchRelationshipManager:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                pass
+
+            async def get_related_entities_batch(
+                self,
+                entity_ids: list[str],
+                *,
+                limit_per_entity: int,
+            ) -> dict[str, list[tuple[Entity, object]]]:
+                calls.append((entity_ids, limit_per_entity))
+                return {
+                    "seed": [(near, object())],
+                    "near": [(far, object())],
+                }
+
+        monkeypatch.setattr(
+            relationships_module,
+            "RelationshipManager",
+            BatchRelationshipManager,
+        )
+
+        results = await graph_traversal(
+            ["seed"],
+            client,
+            depth=2,
+            limit=10,
+            group_id="org-123",
+        )  # type: ignore[arg-type]
+
+        assert [entity.id for entity, _score in results] == ["near", "far"]
+        assert calls == [(["seed"], 50), (["near"], 50)]
+        assert client.query_history == []
+
+    @pytest.mark.asyncio
     async def test_graph_traversal_requires_group_id(self) -> None:
         """Graph traversal fails closed without org scope."""
         client = MockGraphClientForHybrid()

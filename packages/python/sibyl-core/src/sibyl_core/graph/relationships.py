@@ -6,6 +6,7 @@ using Graphiti's native edge system rather than custom Cypher queries.
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -653,6 +654,120 @@ class RelationshipManager:
                 entity_id=entity_id,
             )
             return []
+
+    async def get_related_entities_batch(
+        self,
+        entity_ids: list[str],
+        relationship_types: list[RelationshipType] | None = None,
+        limit_per_entity: int = 50,
+    ) -> dict[str, list[tuple[Entity, Relationship]]]:
+        """Get one-hop related entities for multiple seeds."""
+        from sibyl_core.graph.entities import EntityManager
+
+        seed_ids = list(dict.fromkeys(entity_id for entity_id in entity_ids if entity_id))
+        if not seed_ids:
+            return {}
+
+        try:
+            surreal_edge_ops = self._surreal_entity_edge_ops()
+            if surreal_edge_ops is None:
+                results: dict[str, list[tuple[Entity, Relationship]]] = {}
+                for entity_id in seed_ids:
+                    results[entity_id] = await self.get_related_entities(
+                        entity_id,
+                        relationship_types=relationship_types,
+                        max_depth=1,
+                        limit=limit_per_entity,
+                    )
+                return results
+
+            edges = await surreal_edge_ops.get_by_node_uuids(
+                self._driver,
+                seed_ids,
+                group_ids=[self._group_id],
+            )
+
+            type_values = {t.value for t in relationship_types} if relationship_types else None
+            seed_set = set(seed_ids)
+            relationships_by_seed: dict[str, list[Relationship]] = {
+                seed_id: [] for seed_id in seed_ids
+            }
+
+            for edge in edges:
+                if edge.group_id != self._group_id:
+                    continue
+                if type_values and edge.name not in type_values:
+                    continue
+
+                relationship = self._from_graphiti_edge(edge)
+                touched_seed_ids = (
+                    endpoint
+                    for endpoint in (relationship.source_id, relationship.target_id)
+                    if endpoint in seed_set
+                )
+                for seed_id in touched_seed_ids:
+                    if len(relationships_by_seed[seed_id]) < limit_per_entity:
+                        relationships_by_seed[seed_id].append(relationship)
+
+            related_ids = list(
+                dict.fromkeys(
+                    relationship.target_id
+                    if relationship.source_id == seed_id
+                    else relationship.source_id
+                    for seed_id, relationships in relationships_by_seed.items()
+                    for relationship in relationships
+                )
+            )
+            if not related_ids:
+                return {seed_id: [] for seed_id in seed_ids}
+
+            entity_manager = EntityManager(self._client, group_id=self._group_id)
+            surreal_node_ops = self._surreal_entity_node_ops()
+            entities_by_id: dict[str, Entity] = {}
+            if surreal_node_ops is not None:
+                nodes = await surreal_node_ops.get_by_uuids(self._driver, related_ids)
+                for node in nodes:
+                    if node.group_id == self._group_id:
+                        entities_by_id[node.uuid] = entity_manager.node_to_entity(node)
+            else:
+                fetched = await asyncio.gather(
+                    *(entity_manager.get(entity_id) for entity_id in related_ids),
+                    return_exceptions=True,
+                )
+                entities_by_id = {
+                    entity_id: entity
+                    for entity_id, entity in zip(related_ids, fetched, strict=True)
+                    if isinstance(entity, Entity)
+                }
+
+            results: dict[str, list[tuple[Entity, Relationship]]] = {}
+            for seed_id, relationships in relationships_by_seed.items():
+                seed_results = []
+                for relationship in relationships:
+                    other_id = (
+                        relationship.target_id
+                        if relationship.source_id == seed_id
+                        else relationship.source_id
+                    )
+                    if entity := entities_by_id.get(other_id):
+                        seed_results.append((entity, relationship))
+                results[seed_id] = seed_results
+
+            log.debug(
+                "Retrieved related entities batch",
+                seeds=len(seed_ids),
+                relationships=sum(len(v) for v in relationships_by_seed.values()),
+                entities=len(entities_by_id),
+            )
+            return results
+
+        except Exception as e:
+            log.warning(
+                "Failed to get related entities batch, returning empty lists",
+                error=str(e),
+                seeds=len(seed_ids),
+            )
+            return {seed_id: [] for seed_id in seed_ids}
 
     async def delete(self, relationship_id: str) -> bool:
         """Delete a relationship by ID.

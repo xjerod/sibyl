@@ -377,6 +377,41 @@ class TestEntityEdgeOps:
         scoped = await ops.get_by_node_uuid(surreal_schema, "ent-a", group_ids=[gid], limit=10)
         assert {e.uuid for e in scoped} == {"edge-ab", "edge-ca"}
 
+    async def test_get_by_node_uuids_matches_any_endpoint(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        ops = SurrealEntityEdgeOperations()
+        gid = surreal_schema.group_id
+        await _seed_entities(surreal_schema, ["ent-a", "ent-b", "ent-c", "ent-d"])
+
+        await ops.save(
+            surreal_schema,
+            _make_edge("edge-ab", gid, source_uuid="ent-a", target_uuid="ent-b"),
+        )
+        await ops.save(
+            surreal_schema,
+            _make_edge("edge-cd", gid, source_uuid="ent-c", target_uuid="ent-d"),
+        )
+        await ops.save(
+            surreal_schema,
+            _make_edge("edge-bd", gid, source_uuid="ent-b", target_uuid="ent-d"),
+        )
+
+        touching_seeds = await ops.get_by_node_uuids(surreal_schema, ["ent-a", "ent-c"])
+        assert {e.uuid for e in touching_seeds} == {"edge-ab", "edge-cd"}
+
+        await ops.save(
+            surreal_schema,
+            _make_edge("edge-other-group", "other-group", source_uuid="ent-a", target_uuid="ent-d"),
+        )
+        scoped = await ops.get_by_node_uuids(
+            surreal_schema,
+            ["ent-a", "ent-c"],
+            group_ids=[gid],
+            limit=10,
+        )
+        assert {e.uuid for e in scoped} == {"edge-ab", "edge-cd"}
+
     async def test_load_embeddings_single_and_bulk(self, surreal_schema: SurrealDriver) -> None:
         ops = SurrealEntityEdgeOperations()
         gid = surreal_schema.group_id

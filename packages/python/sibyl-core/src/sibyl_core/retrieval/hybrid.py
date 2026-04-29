@@ -211,12 +211,23 @@ async def _graph_traversal_via_relationship_manager(
             break
 
         next_frontier: list[str] = []
-        for entity_id in frontier:
-            related = await relationship_manager.get_related_entities(
-                entity_id=entity_id,
-                max_depth=1,
-                limit=max(limit * 2, 50),
+        batch_method = getattr(type(relationship_manager), "get_related_entities_batch", None)
+        if batch_method is not None:
+            related_by_seed = await relationship_manager.get_related_entities_batch(
+                frontier,
+                limit_per_entity=max(limit * 2, 50),
             )
+        else:
+            related_by_seed = {}
+            for entity_id in frontier:
+                related_by_seed[entity_id] = await relationship_manager.get_related_entities(
+                    entity_id=entity_id,
+                    max_depth=1,
+                    limit=max(limit * 2, 50),
+                )
+
+        for entity_id in frontier:
+            related = related_by_seed.get(entity_id, [])
             for entity, _relationship in related:
                 if not entity.id or entity.id in seed_id_set or entity.id in visited:
                     continue

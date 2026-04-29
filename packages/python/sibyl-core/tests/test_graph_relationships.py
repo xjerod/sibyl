@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from graphiti_core.edges import EntityEdge
+from graphiti_core.nodes import EntityNode
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.errors import ConventionsMCPError
@@ -1281,6 +1282,73 @@ class TestGetRelatedEntities:
 
         # Result should be limited (or empty if entity batch fetch returns empty)
         assert len(results) <= 5
+
+    @pytest.mark.asyncio
+    async def test_get_related_entities_batch_uses_surreal_batch_ops(
+        self,
+        surreal_relationship_manager: RelationshipManager,
+        sample_entity_edge: EntityEdge,
+    ) -> None:
+        """get_related_entities_batch() collapses Surreal edge and node reads."""
+        edge_ops = surreal_relationship_manager._driver.entity_edge_ops
+        node_ops = surreal_relationship_manager._driver.entity_node_ops
+        incoming = EntityEdge(
+            uuid="edge-002",
+            group_id="test-org-123",
+            source_node_uuid="entity-004",
+            target_node_uuid="entity-003",
+            name="RELATED_TO",
+            fact="RELATED_TO relationship",
+            created_at=datetime.now(UTC),
+            valid_at=datetime.now(UTC),
+            fact_embedding=None,
+            episodes=[],
+            expired_at=None,
+            invalid_at=None,
+            attributes={"weight": 1.0},
+        )
+        edge_ops.get_by_node_uuids = AsyncMock(return_value=[sample_entity_edge, incoming])
+        node_ops.get_by_uuids = AsyncMock(
+            return_value=[
+                EntityNode(
+                    uuid="entity-002",
+                    name="Entity Two",
+                    group_id="test-org-123",
+                    summary="",
+                    labels=["Entity"],
+                    attributes={"entity_type": "topic"},
+                    name_embedding=None,
+                    created_at=datetime.now(UTC),
+                ),
+                EntityNode(
+                    uuid="entity-004",
+                    name="Entity Four",
+                    group_id="test-org-123",
+                    summary="",
+                    labels=["Entity"],
+                    attributes={"entity_type": "topic"},
+                    name_embedding=None,
+                    created_at=datetime.now(UTC),
+                ),
+            ]
+        )
+
+        results = await surreal_relationship_manager.get_related_entities_batch(
+            ["entity-001", "entity-003"],
+            limit_per_entity=5,
+        )
+
+        edge_ops.get_by_node_uuids.assert_awaited_once_with(
+            surreal_relationship_manager._driver,
+            ["entity-001", "entity-003"],
+            group_ids=["test-org-123"],
+        )
+        node_ops.get_by_uuids.assert_awaited_once_with(
+            surreal_relationship_manager._driver,
+            ["entity-002", "entity-004"],
+        )
+        assert [entity.id for entity, _ in results["entity-001"]] == ["entity-002"]
+        assert [entity.id for entity, _ in results["entity-003"]] == ["entity-004"]
 
 
 # =============================================================================

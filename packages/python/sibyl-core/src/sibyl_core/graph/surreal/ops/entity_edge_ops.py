@@ -253,6 +253,31 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
         )
         return [entity_edge_from_record(r) for r in records]
 
+    async def get_by_node_uuids(
+        self,
+        executor: QueryExecutor,
+        node_uuids: list[str],
+        group_ids: list[str] | None = None,
+        limit: int | None = None,
+    ) -> list[EntityEdge]:
+        if not node_uuids:
+            return []
+        group_clause = "AND group_id IN $group_ids" if group_ids else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
+        records = normalize_records(
+            await executor.execute_query(
+                _ENTITY_EDGE_SELECT
+                + " WHERE (in.uuid IN $node_uuids OR out.uuid IN $node_uuids) "
+                + group_clause
+                + " ORDER BY uuid DESC "
+                + limit_clause
+                + ";",
+                node_uuids=node_uuids,
+                group_ids=group_ids,
+            )
+        )
+        return [entity_edge_from_record(r) for r in records]
+
     async def load_embeddings(
         self,
         executor: QueryExecutor,
