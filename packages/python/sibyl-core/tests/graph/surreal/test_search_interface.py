@@ -8,6 +8,7 @@ import pytest
 from graphiti_core.edges import EntityEdge, EpisodicEdge
 from graphiti_core.nodes import CommunityNode, EntityNode, EpisodeType, EpisodicNode
 from graphiti_core.search.search_filters import ComparisonOperator, DateFilter, SearchFilters
+from graphiti_core.search.search_utils import get_embeddings_for_edges, get_embeddings_for_nodes
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
@@ -262,6 +263,48 @@ class TestSurrealSearchInterfaceIntegration:
         assert blank_fulltext == []
         assert blank_similarity == []
         assert wrong_group == []
+
+    @pytest.mark.asyncio
+    async def test_graphiti_model_methods_use_surreal_graph_operations_interface(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        gid = surreal_schema.group_id
+        source = _entity("graphiti-source", gid, name="Graphiti Source", summary="source")
+        target = _entity("graphiti-target", gid, name="Graphiti Target", summary="target")
+        edge = _edge(
+            "graphiti-edge",
+            gid,
+            "graphiti-source",
+            "graphiti-target",
+            fact="Graphiti native operation edge",
+        )
+        episode = _episode(
+            "graphiti-episode",
+            gid,
+            content="Graphiti native operation episode",
+        )
+
+        await source.save(surreal_schema)
+        await target.save(surreal_schema)
+        await edge.save(surreal_schema)
+        await episode.save(surreal_schema)
+
+        loaded_source = await EntityNode.get_by_uuid(surreal_schema, "graphiti-source")
+        loaded_edge = await EntityEdge.get_by_uuid(surreal_schema, "graphiti-edge")
+        recent_episodes = await surreal_schema.graph_operations_interface.retrieve_episodes(
+            surreal_schema,
+            datetime.now(UTC),
+            1,
+            [gid],
+        )
+        node_embeddings = await get_embeddings_for_nodes(surreal_schema, [loaded_source])
+        edge_embeddings = await get_embeddings_for_edges(surreal_schema, [loaded_edge])
+
+        assert loaded_source.uuid == "graphiti-source"
+        assert loaded_edge.uuid == "graphiti-edge"
+        assert [episode.uuid for episode in recent_episodes] == ["graphiti-episode"]
+        assert node_embeddings["graphiti-source"] == [0.1] * EMBEDDING_DIM
+        assert edge_embeddings["graphiti-edge"] == [0.1] * EMBEDDING_DIM
 
     @pytest.mark.asyncio
     async def test_bfs_and_rerankers_use_native_surreal_queries(

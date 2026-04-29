@@ -22,6 +22,9 @@ from sibyl_core.graph.surreal.ops.entity_edge_ops import SurrealEntityEdgeOperat
 from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
 from sibyl_core.graph.surreal.ops.episode_node_ops import SurrealEpisodeNodeOperations
 from sibyl_core.graph.surreal.ops.episodic_edge_ops import SurrealEpisodicEdgeOperations
+from sibyl_core.graph.surreal.ops.graph_operations_interface import (
+    SurrealGraphOperationsInterface,
+)
 from sibyl_core.graph.surreal.ops.graph_ops import SurrealGraphMaintenanceOperations
 from sibyl_core.graph.surreal.ops.has_episode_edge_ops import SurrealHasEpisodeEdgeOperations
 from sibyl_core.graph.surreal.ops.next_episode_edge_ops import SurrealNextEpisodeEdgeOperations
@@ -89,6 +92,7 @@ class TestDriverConstruction:
         assert isinstance(d.has_episode_edge_ops, SurrealHasEpisodeEdgeOperations)
         assert isinstance(d.next_episode_edge_ops, SurrealNextEpisodeEdgeOperations)
         assert isinstance(d.graph_ops, SurrealGraphMaintenanceOperations)
+        assert isinstance(d.graph_operations_interface, SurrealGraphOperationsInterface)
 
 
 class TestBuildFulltextQuery:

@@ -195,8 +195,12 @@ class SurrealDriver(GraphDriver):
         self._client: Any | None = None
         self._query_lock = asyncio.Lock()
         from sibyl_core.graph.search_interface import SurrealSearchInterface
+        from sibyl_core.graph.surreal.ops.graph_operations_interface import (
+            SurrealGraphOperationsInterface,
+        )
 
         self.search_interface = SurrealSearchInterface()
+        self.graph_operations_interface = SurrealGraphOperationsInterface()
 
     @property
     def namespace_prefix(self) -> str:
