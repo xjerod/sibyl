@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -177,3 +178,32 @@ async def test_get_graph_snapshot_merges_surreal_episodic_edges(
     assert relationship.source_id == "episode-1"
     assert relationship.target_id == "task-1"
     assert relationship.relationship_type == RelationshipType.MENTIONS
+
+
+@pytest.mark.asyncio
+async def test_get_graph_snapshot_fetches_entities_and_edges_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entities_started = asyncio.Event()
+    relationships_started = asyncio.Event()
+
+    async def fake_list_all_entities(*args, **kwargs) -> list[Entity]:
+        entities_started.set()
+        await relationships_started.wait()
+        return [_entity("task-1", EntityType.TASK)]
+
+    async def fake_list_all_relationships(*args, **kwargs) -> list[Relationship]:
+        relationships_started.set()
+        await entities_started.wait()
+        return []
+
+    communities.GRAPH_SNAPSHOT_CACHE.clear()
+    monkeypatch.setattr(communities, "_list_all_entities", fake_list_all_entities)
+    monkeypatch.setattr(communities, "_list_all_relationships", fake_list_all_relationships)
+
+    snapshot = await asyncio.wait_for(
+        communities._get_graph_snapshot(object(), "org-concurrent"),
+        timeout=1,
+    )
+
+    assert [entity.id for entity in snapshot.entities] == ["task-1"]

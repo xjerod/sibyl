@@ -6,6 +6,7 @@ GraphRAG-style retrieval and summarization.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
 from collections import Counter
@@ -243,9 +244,11 @@ async def _get_graph_snapshot(
             log.debug("graph_snapshot_cache_hit", org_id=organization_id)
             return snapshot
 
-    entities = await _list_all_entities(client, organization_id)
+    entities, relationships = await asyncio.gather(
+        _list_all_entities(client, organization_id),
+        _list_all_relationships(client, organization_id),
+    )
     entity_by_id = _entity_index(entities)
-    relationships = await _list_all_relationships(client, organization_id)
     episodic_relationships = await _list_surreal_episodic_relationships(
         client,
         organization_id,
