@@ -157,6 +157,8 @@ class TestRelationshipCreate:
             surreal_relationship_manager._driver,
             sample_relationship.source_id,
             sample_relationship.target_id,
+            group_ids=[surreal_relationship_manager._group_id],
+            limit=1000,
         )
         ops.save.assert_awaited_once()
 
@@ -467,6 +469,8 @@ class TestGetForEntity:
         ops.get_by_node_uuid.assert_awaited_once_with(
             surreal_relationship_manager._driver,
             "entity-001",
+            group_ids=[surreal_relationship_manager._group_id],
+            limit=1000,
         )
 
     @pytest.mark.asyncio

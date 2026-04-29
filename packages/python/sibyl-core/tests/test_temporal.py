@@ -608,6 +608,12 @@ class TestGetEntityHistory:
         assert response.total == 1
         assert response.edges[0].source_name == "Test Entity"
         assert response.edges[0].target_name == "Other Entity"
+        context[1].get_by_node_uuid.assert_awaited_once_with(
+            context[0],
+            "entity_123",
+            group_ids=["org_123"],
+            limit=200,
+        )
 
 
 class TestGetEntityTimeline:
@@ -722,6 +728,12 @@ class TestGetEntityTimeline:
         assert response.total == 2
         assert response.edges[0].id == "edge_old"
         assert response.edges[1].id == "edge_new"
+        context[1].get_by_node_uuid.assert_awaited_once_with(
+            context[0],
+            "task_1",
+            group_ids=["org_123"],
+            limit=100,
+        )
 
 
 class TestFindConflicts:
@@ -769,7 +781,12 @@ class TestFindConflicts:
                 entity_id="specific_entity",
             )
         assert response.entity_id == "specific_entity"
-        context[1].get_by_node_uuid.assert_awaited_once_with(context[0], "specific_entity")
+        context[1].get_by_node_uuid.assert_awaited_once_with(
+            context[0],
+            "specific_entity",
+            group_ids=["org_123"],
+            limit=200,
+        )
 
     @pytest.mark.asyncio
     async def test_conflicts_handles_query_error(self) -> None:

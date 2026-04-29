@@ -252,6 +252,8 @@ class RelationshipManager:
                     self._driver,
                     relationship.source_id,
                     relationship.target_id,
+                    group_ids=[self._group_id],
+                    limit=1000,
                 )
                 for edge in existing:
                     if edge.name == relationship.relationship_type.value:
@@ -444,7 +446,12 @@ class RelationshipManager:
         try:
             surreal_edge_ops = self._surreal_entity_edge_ops()
             if surreal_edge_ops is not None:
-                edges = await surreal_edge_ops.get_by_node_uuid(self._driver, entity_id)
+                edges = await surreal_edge_ops.get_by_node_uuid(
+                    self._driver,
+                    entity_id,
+                    group_ids=[self._group_id],
+                    limit=1000,
+                )
                 relationships = []
                 type_values = {t.value for t in relationship_types} if relationship_types else None
 
@@ -738,7 +745,13 @@ class RelationshipManager:
 
             surreal_edge_ops = self._surreal_entity_edge_ops()
             if surreal_edge_ops is not None:
-                edges = await surreal_edge_ops.get_between_nodes(self._driver, source_id, target_id)
+                edges = await surreal_edge_ops.get_between_nodes(
+                    self._driver,
+                    source_id,
+                    target_id,
+                    group_ids=[self._group_id],
+                    limit=1000,
+                )
                 to_delete = [edge for edge in edges if edge.name == rel_type]
                 for edge in to_delete:
                     await surreal_edge_ops.delete(self._driver, edge)
@@ -805,7 +818,12 @@ class RelationshipManager:
         try:
             surreal_edge_ops = self._surreal_entity_edge_ops()
             if surreal_edge_ops is not None:
-                edges = await surreal_edge_ops.get_by_node_uuid(self._driver, entity_id)
+                edges = await surreal_edge_ops.get_by_node_uuid(
+                    self._driver,
+                    entity_id,
+                    group_ids=[self._group_id],
+                    limit=1000,
+                )
                 scoped_edges = [edge for edge in edges if edge.group_id == self._group_id]
                 for edge in scoped_edges:
                     await surreal_edge_ops.delete(self._driver, edge)

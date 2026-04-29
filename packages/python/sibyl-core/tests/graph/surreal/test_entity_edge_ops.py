@@ -334,6 +334,19 @@ class TestEntityEdgeOps:
         reverse = await ops.get_between_nodes(surreal_schema, "ent-b", "ent-a")
         assert reverse == []
 
+        await ops.save(
+            surreal_schema,
+            _make_edge("edge-other-group", "other-group", source_uuid="ent-a", target_uuid="ent-b"),
+        )
+        scoped = await ops.get_between_nodes(
+            surreal_schema,
+            "ent-a",
+            "ent-b",
+            group_ids=[gid],
+            limit=10,
+        )
+        assert {e.uuid for e in scoped} == {"edge-ab1", "edge-ab2"}
+
     async def test_get_by_node_uuid_matches_either_endpoint(
         self, surreal_schema: SurrealDriver
     ) -> None:
@@ -356,6 +369,13 @@ class TestEntityEdgeOps:
 
         touching_a = await ops.get_by_node_uuid(surreal_schema, "ent-a")
         assert {e.uuid for e in touching_a} == {"edge-ab", "edge-ca"}
+
+        await ops.save(
+            surreal_schema,
+            _make_edge("edge-other-group", "other-group", source_uuid="ent-a", target_uuid="ent-c"),
+        )
+        scoped = await ops.get_by_node_uuid(surreal_schema, "ent-a", group_ids=[gid], limit=10)
+        assert {e.uuid for e in scoped} == {"edge-ab", "edge-ca"}
 
     async def test_load_embeddings_single_and_bulk(self, surreal_schema: SurrealDriver) -> None:
         ops = SurrealEntityEdgeOperations()

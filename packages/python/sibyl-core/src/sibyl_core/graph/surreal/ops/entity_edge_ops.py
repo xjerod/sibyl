@@ -210,12 +210,22 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
         executor: QueryExecutor,
         source_node_uuid: str,
         target_node_uuid: str,
+        group_ids: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[EntityEdge]:
+        group_clause = "AND group_id IN $group_ids" if group_ids else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
         records = normalize_records(
             await executor.execute_query(
-                _ENTITY_EDGE_SELECT + " WHERE in.uuid = $src_uuid AND out.uuid = $tgt_uuid;",
+                _ENTITY_EDGE_SELECT
+                + " WHERE in.uuid = $src_uuid AND out.uuid = $tgt_uuid "
+                + group_clause
+                + " ORDER BY uuid DESC "
+                + limit_clause
+                + ";",
                 src_uuid=source_node_uuid,
                 tgt_uuid=target_node_uuid,
+                group_ids=group_ids,
             )
         )
         return [entity_edge_from_record(r) for r in records]
@@ -224,12 +234,21 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
         self,
         executor: QueryExecutor,
         node_uuid: str,
+        group_ids: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[EntityEdge]:
-        # Graphiti's contract matches either endpoint (undirected for retrieval).
+        group_clause = "AND group_id IN $group_ids" if group_ids else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
         records = normalize_records(
             await executor.execute_query(
-                _ENTITY_EDGE_SELECT + " WHERE in.uuid = $node_uuid OR out.uuid = $node_uuid;",
+                _ENTITY_EDGE_SELECT
+                + " WHERE (in.uuid = $node_uuid OR out.uuid = $node_uuid) "
+                + group_clause
+                + " ORDER BY uuid DESC "
+                + limit_clause
+                + ";",
                 node_uuid=node_uuid,
+                group_ids=group_ids,
             )
         )
         return [entity_edge_from_record(r) for r in records]

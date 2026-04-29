@@ -165,7 +165,12 @@ async def get_entity_history(
 
     try:
         driver, edge_ops, node_ops = context
-        edges = await edge_ops.get_by_node_uuid(driver, entity_id)
+        edges = await edge_ops.get_by_node_uuid(
+            driver,
+            entity_id,
+            group_ids=[organization_id],
+            limit=min(max(limit * 4, 100), 1000),
+        )
         filtered = _filter_history_edges(edges, as_of=as_of, include_expired=include_expired)
         filtered.sort(key=_created_at_sort_key, reverse=True)
         temporal_edges = await _graphiti_edges_to_temporal_edges(
@@ -221,7 +226,12 @@ async def get_entity_timeline(
 
     try:
         driver, edge_ops, node_ops = context
-        edges = await edge_ops.get_by_node_uuid(driver, entity_id)
+        edges = await edge_ops.get_by_node_uuid(
+            driver,
+            entity_id,
+            group_ids=[organization_id],
+            limit=min(max(limit, 100), 1000),
+        )
         edges.sort(key=_created_at_sort_key)
         temporal_edges = await _graphiti_edges_to_temporal_edges(
             driver,
@@ -397,7 +407,12 @@ async def _load_surreal_conflict_edges(
     limit: int,
 ) -> list[Any]:
     if entity_id:
-        edges = await edge_ops.get_by_node_uuid(driver, entity_id)
+        edges = await edge_ops.get_by_node_uuid(
+            driver,
+            entity_id,
+            group_ids=[organization_id],
+            limit=min(max(limit * 4, 100), 1000),
+        )
     else:
         edges = []
         cursor: str | None = None

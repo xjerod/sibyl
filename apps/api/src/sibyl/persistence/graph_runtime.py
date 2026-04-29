@@ -486,6 +486,8 @@ class GraphRelationshipStore(RelationshipStore):
                 self._driver,
                 source_id,
                 target_id,
+                group_ids=[self._group_id],
+                limit=1000,
             )
             if source_id != target_id:
                 candidate_edges.extend(
@@ -493,6 +495,8 @@ class GraphRelationshipStore(RelationshipStore):
                         self._driver,
                         target_id,
                         source_id,
+                        group_ids=[self._group_id],
+                        limit=1000,
                     )
                 )
 
