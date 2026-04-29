@@ -50,6 +50,24 @@ _NON_EPISODIC_ID_PREFIXES = tuple(
     for entity_type in EntityType
     if entity_type not in {EntityType.EPISODE}
 )
+_SEARCH_TERM_RE = re.compile(r"[a-z0-9_]{2,}")
+_SEARCH_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "for",
+    "from",
+    "in",
+    "is",
+    "of",
+    "on",
+    "or",
+    "the",
+    "this",
+    "to",
+    "with",
+}
 
 
 def sanitize_search_query(query: str) -> str:
@@ -63,6 +81,45 @@ def sanitize_search_query(query: str) -> str:
 
 def _should_try_episodic_lookup(entity_id: str) -> bool:
     return not entity_id.startswith(_NON_EPISODIC_ID_PREFIXES)
+
+
+def _search_terms(query: str) -> list[str]:
+    seen: set[str] = set()
+    terms: list[str] = []
+    for term in _SEARCH_TERM_RE.findall(query.lower()):
+        if term in _SEARCH_STOP_WORDS or term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return terms
+
+
+def _token_recall_score(
+    *,
+    terms: list[str],
+    name: str,
+    description: str,
+    content: str,
+) -> float | None:
+    if not terms:
+        return None
+
+    text = f"{name} {description} {content}"
+    matched = [term for term in terms if term in text]
+    if not matched:
+        return None
+
+    coverage = len(matched) / len(terms)
+    required_matches = len(terms) if len(terms) <= 2 else min(3, len(terms))
+    if len(matched) < required_matches and coverage < 0.6:
+        return None
+
+    score = 0.45 + (coverage * 0.25)
+    if any(term in name for term in matched):
+        score += 0.1
+    if any(term in description for term in matched):
+        score += 0.05
+    return min(score, 0.82)
 
 
 def _metadata_json_contains_params(
@@ -444,6 +501,69 @@ class EntityManager:
             LIMIT $query_limit;
         """
         return await self._execute_surreal_schema_aware_query(search_query, params)
+
+    async def _surreal_scan_recent_entity_records(
+        self,
+        *,
+        entity_types: list[EntityType] | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+
+        if not entity_types:
+            return await self._surreal_select_entity_records(
+                entity_type=None,
+                limit=limit,
+                offset=0,
+            )
+
+        records: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for entity_type in entity_types:
+            if entity_type == EntityType.EPISODE:
+                continue
+            for record in await self._surreal_select_entity_records(
+                entity_type=entity_type,
+                limit=limit,
+                offset=0,
+            ):
+                record_uuid = record.get("uuid")
+                if not isinstance(record_uuid, str) or record_uuid in seen:
+                    continue
+                seen.add(record_uuid)
+                records.append(record)
+                if len(records) >= limit:
+                    return records
+        return records
+
+    async def _surreal_scan_recent_episode_records(
+        self,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        query = """
+            SELECT uuid,
+                   name,
+                   group_id,
+                   content,
+                   source_description,
+                   created_at,
+                   valid_at
+            FROM episode
+            WHERE group_id = $group_id
+            ORDER BY created_at DESC, uuid DESC
+            LIMIT $query_limit;
+        """
+        return GraphClient.normalize_result(
+            await self._driver.execute_query(
+                query,
+                group_id=self._group_id,
+                query_limit=limit,
+            )
+        )
 
     async def _surreal_list_entities_direct(
         self,
@@ -1282,7 +1402,21 @@ class EntityManager:
                     )
                 )
 
+            found_fulltext_records = bool(records)
+            if not found_fulltext_records and self._surreal_should_search_entities(entity_types):
+                records.extend(
+                    await self._surreal_scan_recent_entity_records(
+                        entity_types=entity_types,
+                        limit=candidate_limit,
+                    )
+                )
+            if not found_fulltext_records and self._surreal_should_search_episodes(entity_types):
+                records.extend(
+                    await self._surreal_scan_recent_episode_records(limit=candidate_limit)
+                )
+
             fallback_results: list[tuple[Entity, float]] = []
+            query_terms = _search_terms(normalized_query)
             for record in records:
                 try:
                     if "entity_type" in record:
@@ -1312,7 +1446,15 @@ class EntityManager:
                 elif "search_score" in record:
                     score = 0.65
                 else:
-                    continue
+                    recall_score = _token_recall_score(
+                        terms=query_terms,
+                        name=name,
+                        description=description,
+                        content=content,
+                    )
+                    if recall_score is None:
+                        continue
+                    score = recall_score
                 fallback_results.append((entity, score))
 
             fallback_results.sort(

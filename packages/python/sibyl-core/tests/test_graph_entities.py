@@ -1741,6 +1741,111 @@ class TestEntitySearch:
         assert results[0][1] == 0.65
 
     @pytest.mark.asyncio
+    async def test_surreal_fallback_scans_recent_records_for_token_recall(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        matching_record = {
+            "uuid": "pattern-001",
+            "name": "Graph search recall",
+            "group_id": "test-org-123",
+            "entity_type": "pattern",
+            "created_at": datetime.now(UTC),
+            "description": "Sibyl graph queries should find knowledge entities",
+            "content": "Graph memory search should not disappear behind documents.",
+            "metadata": json.dumps({"category": "search"}),
+        }
+        unrelated_record = {
+            "uuid": "pattern-002",
+            "name": "Auth refresh guard",
+            "group_id": "test-org-123",
+            "entity_type": "pattern",
+            "created_at": datetime.now(UTC),
+            "description": "Refresh token validation",
+            "content": "Malformed claims are rejected.",
+            "metadata": json.dumps({"category": "auth"}),
+        }
+
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            side_effect=[[], [], [matching_record, unrelated_record]]
+        )
+
+        results = await surreal_entity_manager.search(
+            "sibyl search graph",
+            entity_types=[EntityType.PATTERN],
+        )
+
+        assert len(results) == 1
+        assert results[0][0].id == "pattern-001"
+        assert results[0][1] > 0.5
+        scan_query = surreal_entity_manager._driver.execute_query.await_args_list[2].args[0]
+        assert "FROM entity" in scan_query
+        assert "@0@ $search_query" not in scan_query
+
+    @pytest.mark.asyncio
+    async def test_surreal_fallback_scan_includes_episodes_after_entity_scan_misses(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        unrelated_entity = {
+            "uuid": "pattern-002",
+            "name": "Auth refresh guard",
+            "group_id": "test-org-123",
+            "entity_type": "pattern",
+            "created_at": datetime.now(UTC),
+            "description": "Refresh token validation",
+            "content": "Malformed claims are rejected.",
+            "metadata": json.dumps({"category": "auth"}),
+        }
+        matching_episode = {
+            "uuid": "episode-001",
+            "name": "Graph search diary",
+            "group_id": "test-org-123",
+            "created_at": datetime.now(UTC),
+            "source_description": "Sibyl memory",
+            "content": "A graph search diary about finding memories.",
+        }
+
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            side_effect=[[], [], [], [], [unrelated_entity], [matching_episode]]
+        )
+
+        results = await surreal_entity_manager.search("graph search diary")
+
+        assert len(results) == 1
+        assert results[0][0].id == "episode-001"
+        assert results[0][0].entity_type == EntityType.EPISODE
+        episode_scan_query = surreal_entity_manager._driver.execute_query.await_args_list[5].args[0]
+        assert "FROM episode" in episode_scan_query
+
+    @pytest.mark.asyncio
+    async def test_surreal_token_recall_rejects_single_term_match_for_short_query(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        partial_record = {
+            "uuid": "pattern-001",
+            "name": "Search tuning",
+            "group_id": "test-org-123",
+            "entity_type": "pattern",
+            "created_at": datetime.now(UTC),
+            "description": "Search recall tuning",
+            "content": "Only one query term appears here.",
+            "metadata": json.dumps({"category": "search"}),
+        }
+
+        surreal_entity_manager._driver.execute_query = AsyncMock(
+            side_effect=[[], [], [partial_record]]
+        )
+
+        results = await surreal_entity_manager.search(
+            "graph search",
+            entity_types=[EntityType.PATTERN],
+        )
+
+        assert results == []
+
+    @pytest.mark.asyncio
     async def test_surreal_fallback_sanitizes_fulltext_query(
         self,
         surreal_entity_manager: EntityManager,
