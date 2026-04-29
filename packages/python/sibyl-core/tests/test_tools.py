@@ -1499,23 +1499,15 @@ class TestSearchTool:
         ]
 
     @pytest.mark.asyncio
-    async def test_search_uses_exact_title_lookup_when_fallback_search_errors(self) -> None:
-        """Exact title lookup should survive fallback graph search failures."""
+    async def test_search_skips_redundant_probes_when_fallback_search_errors(self) -> None:
+        """Graph search failures should not trigger more graph probes for the same query."""
         from sibyl_core.retrieval.hybrid import HybridResult
         from sibyl_core.tools.search import search
-
-        exact = MockEntity(
-            id="pattern_exact",
-            entity_type=EntityType.PATTERN,
-            name="Searchable E2E e2e-1234",
-            description="Fresh exact match",
-            content="Unique searchable content e2e-1234 for verification",
-        )
 
         mock_client = AsyncMock()
         mock_entity_manager = AsyncMock()
         mock_entity_manager.search = AsyncMock(side_effect=RuntimeError("graph search blew up"))
-        mock_entity_manager.search_exact_name = AsyncMock(return_value=[(exact, 2.0)])
+        mock_entity_manager.search_exact_name = AsyncMock(return_value=[])
 
         with (
             patch(
@@ -1539,10 +1531,47 @@ class TestSearchTool:
                 include_documents=False,
             )
 
-        assert response.graph_count == 1
-        assert [result.id for result in response.results] == ["pattern_exact"]
+        assert response.graph_count == 0
         mock_entity_manager.search.assert_awaited_once()
-        mock_entity_manager.search_exact_name.assert_awaited_once()
+        mock_entity_manager.search_exact_name.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_skips_untyped_retry_when_typed_fallback_errors(self) -> None:
+        """Typed search failures should not immediately retry the same backend untyped."""
+        from sibyl_core.retrieval.hybrid import HybridResult
+        from sibyl_core.tools.search import search
+
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.search = AsyncMock(side_effect=RuntimeError("graph search blew up"))
+        mock_entity_manager.search_exact_name = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "sibyl_core.tools.search.get_graph_runtime",
+                AsyncMock(
+                    return_value=make_graph_runtime(
+                        client=mock_client,
+                        entity_manager=mock_entity_manager,
+                    )
+                ),
+            ),
+            patch(
+                "sibyl_core.tools.search.hybrid_search",
+                new=AsyncMock(return_value=HybridResult(results=[])),
+            ),
+        ):
+            response = await search(
+                query="remember project scoped",
+                types=["decision"],
+                project="project_123",
+                organization_id="org_123",
+                include_documents=False,
+            )
+
+        assert response.graph_count == 0
+        mock_entity_manager.search.assert_awaited_once()
+        mock_entity_manager.search_exact_name.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_search_retries_untyped_when_typed_backend_misses(self) -> None:

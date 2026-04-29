@@ -541,6 +541,7 @@ async def search(
             # Graphiti's node-hybrid search directly.
             raw_results: list[tuple[Any, float]] = []
             enhanced_search_exhausted = False
+            graph_search_failed = False
 
             if query and use_enhanced:
                 try:
@@ -597,12 +598,13 @@ async def search(
                         raw_results = temporal_boost(raw_results, decay_days=decay)
                 except Exception as e:
                     log.warning("fallback_graph_search_failed", error_type=type(e).__name__)
+                    graph_search_failed = True
                     raw_results = []
 
             if (
                 query
-                and
-                not enhanced_search_exhausted
+                and not graph_search_failed
+                and not enhanced_search_exhausted
                 and not _graph_results_contain_exact_name_match(raw_results, query)
             ):
                 try:
@@ -649,7 +651,7 @@ async def search(
             else:
                 typed_results = raw_results
 
-            if query and not typed_results and requested_graph_types:
+            if query and not typed_results and requested_graph_types and not graph_search_failed:
                 try:
                     fallback_results = await with_timeout(
                         entity_manager.search(
