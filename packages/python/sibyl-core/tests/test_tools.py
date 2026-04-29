@@ -295,7 +295,7 @@ class TestGetProjectTags:
 
     @pytest.mark.asyncio
     async def test_falls_back_to_surreal_client_queries(self) -> None:
-        """Project tag lookup uses SurrealQL when a Surreal client is passed directly."""
+        """Project tag lookup avoids the unscoped base Surreal driver fallback."""
 
         class FakeSurrealDriver:
             __module__ = "sibyl_core.backends.surreal.driver"
@@ -305,15 +305,11 @@ class TestGetProjectTags:
 
         client = MagicMock()
         client.driver = FakeSurrealDriver()
-        client.normalize_result.return_value = [{"tags": ["backend", "api"]}]
 
         tags = await get_project_tags(client, "project-123")
 
-        assert tags == ["api", "backend"]
-        query = client.driver.execute_query.await_args.args[0]
-        assert "SELECT tags" in query
-        assert "FROM entity" in query
-        assert "MATCH" not in query
+        assert tags == []
+        client.driver.execute_query.assert_not_awaited()
 
     def test_build_metadata_with_status_enum(self) -> None:
         """Serializes status enum to string."""

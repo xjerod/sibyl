@@ -392,15 +392,9 @@ async def get_project_tags(runtime_or_client: Any, project_id: str) -> list[str]
             )
             driver = getattr(client, "driver", None)
             if _is_surreal_driver(driver):
-                query = """
-                SELECT tags
-                FROM entity
-                WHERE entity_type = 'task'
-                  AND project_id = $project_id
-                  AND tags != NONE
-                """
-            else:
-                query = """
+                return []
+
+            query = """
                 MATCH (n)
                 WHERE (n:Episodic OR n:Entity)
                   AND n.entity_type = 'task'
