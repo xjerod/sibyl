@@ -24,6 +24,7 @@ from graphiti_core.helpers import parse_db_date
 from sibyl_core.graph.surreal.ops._common import (
     build_relation_save_query,
     normalize_records,
+    relation_record_id,
     run_query,
 )
 
@@ -75,6 +76,7 @@ class SurrealCommunityEdgeOperations(CommunityEdgeOperations):
             executor,
             tx,
             _COMMUNITY_EDGE_SAVE,
+            rel=relation_record_id("has_member", edge.uuid),
             src_uuid=edge.source_node_uuid,
             tgt_uuid=edge.target_node_uuid,
             uuid=edge.uuid,

@@ -20,6 +20,7 @@ from graphiti_core.helpers import parse_db_date
 from sibyl_core.graph.surreal.ops._common import (
     build_relation_save_query,
     normalize_records,
+    relation_record_id,
     resolve_record_id,
     run_query,
 )
@@ -68,6 +69,7 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
             executor,
             tx,
             _EDGE_SAVE,
+            rel=relation_record_id(EDGE_TABLE, edge.uuid),
             src=src_id,
             tgt=tgt_id,
             uuid=edge.uuid,

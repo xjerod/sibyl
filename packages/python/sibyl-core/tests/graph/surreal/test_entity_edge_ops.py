@@ -9,6 +9,7 @@ import pytest
 from graphiti_core.edges import EntityEdge
 from graphiti_core.errors import EdgeNotFoundError
 from graphiti_core.nodes import EntityNode
+from surrealdb import RecordID
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
@@ -103,10 +104,14 @@ class TestEntityEdgeOps:
 
         assert len(executor.queries) == 1
         query, params = executor.queries[0]
+        assert "type::" not in query
         assert "DELETE FROM relates_to WHERE uuid = $uuid AND (in != $src OR out != $tgt)" in query
         assert "LET $updated = (UPDATE relates_to SET" in query
         assert "RELATE $src->$rel->$tgt SET" in query
         assert "DELETE FROM relates_to WHERE uuid = $uuid;" not in query
+        assert isinstance(params["rel"], RecordID)
+        assert params["rel"].table_name == "relates_to"
+        assert params["rel"].id == "edge-1"
         assert params["uuid"] == "edge-1"
         assert params["src_uuid"] == "ent-a"
         assert params["tgt_uuid"] == "ent-b"

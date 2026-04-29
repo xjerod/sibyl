@@ -21,6 +21,7 @@ from graphiti_core.errors import EdgeNotFoundError
 from sibyl_core.graph.surreal.ops._common import (
     build_relation_save_query,
     normalize_records,
+    relation_record_id,
     run_query,
 )
 
@@ -91,6 +92,7 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
             executor,
             tx,
             _ENTITY_EDGE_SAVE,
+            rel=relation_record_id("relates_to", edge.uuid),
             src_uuid=edge.source_node_uuid,
             tgt_uuid=edge.target_node_uuid,
             **payload,

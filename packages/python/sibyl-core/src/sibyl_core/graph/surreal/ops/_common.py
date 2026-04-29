@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
+from surrealdb import RecordID
 
 
 def _check_identifier(value: str) -> str:
@@ -73,8 +74,7 @@ def build_relation_save_query(
     bindings_text = "\n".join(bindings)
     if bindings_text:
         bindings_text += "\n"
-    return f"""{bindings_text}LET $rel = type::thing('{table}', $uuid);
-DELETE FROM {table} WHERE uuid = $uuid AND (in != $src OR out != $tgt);
+    return f"""{bindings_text}DELETE FROM {table} WHERE uuid = $uuid AND (in != $src OR out != $tgt);
 LET $updated = (UPDATE {table} SET
     {update_fields}
     WHERE uuid = $uuid RETURN id);
@@ -83,6 +83,10 @@ IF array::len($updated) = 0 THEN
         {relate_fields};
 END;
 """
+
+
+def relation_record_id(table: str, uuid: str) -> RecordID:
+    return RecordID(_check_identifier(table), uuid)
 
 
 def build_node_upsert_query(table: str, fields: Sequence[str]) -> str:
@@ -158,6 +162,7 @@ __all__ = [
     "build_relation_save_query",
     "normalize_record",
     "normalize_records",
+    "relation_record_id",
     "resolve_record_id",
     "run_query",
 ]
