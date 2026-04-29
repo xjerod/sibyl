@@ -136,6 +136,22 @@ def _validate_task_id(task_id: str) -> str:
     return task_id
 
 
+def _archive_error_detail(result: dict) -> str:
+    detail = result.get("message") or result.get("error") or "Unknown error"
+    return str(detail)
+
+
+def _archive_bulk_payload(results: list[dict], archived: int, failed: int) -> dict:
+    failed_results = [result for result in results if not result.get("success")]
+    return {
+        "total": len(results),
+        "archived": archived,
+        "failed": failed,
+        "failed_ids": [str(result.get("id", "")) for result in failed_results],
+        "results": results,
+    }
+
+
 def _apply_task_filters(
     entities: list[dict],
     status: str | None,
@@ -719,7 +735,7 @@ def archive_task(
         # Read from stdin
         for line in sys.stdin:
             line = line.strip()
-            if line and line.startswith("task_"):
+            if line:
                 task_ids.append(line)
         if not task_ids:
             error("No task IDs found on stdin")
@@ -756,7 +772,11 @@ def archive_task(
                 failed += 1
 
         if json_out:
-            print_json(results if len(results) > 1 else results[0])
+            print_json(
+                _archive_bulk_payload(results, archived, failed)
+                if len(results) > 1
+                else results[0]
+            )
             return
 
         # Table output
@@ -764,13 +784,14 @@ def archive_task(
             if results[0].get("success"):
                 success(f"Task archived: {results[0]['id']}")
             else:
-                error(f"Failed: {results[0].get('message', results[0].get('error', 'Unknown'))}")
+                error(f"Failed: {_archive_error_detail(results[0])}")
         else:
             success(f"Archived {archived} task(s)")
             if failed:
                 error(f"Failed: {failed} task(s)")
-                for result in [result for result in results if not result.get("success")][:10]:
-                    detail = result.get("message") or result.get("error") or "Unknown error"
+                failed_results = [result for result in results if not result.get("success")]
+                for result in failed_results:
+                    detail = _archive_error_detail(result)
                     console.print(f"  [{CORAL}]{result['id']}[/{CORAL}] {detail}")
 
     _archive()
