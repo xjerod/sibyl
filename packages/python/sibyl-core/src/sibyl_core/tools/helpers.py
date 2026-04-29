@@ -51,6 +51,11 @@ def _build_entity_metadata(entity: Any) -> dict[str, Any]:
     return {**entity.metadata, **{k: v for k, v in extra.items() if v is not None}}
 
 
+def _is_surreal_driver(driver: Any) -> bool:
+    driver_class = driver.__class__
+    return driver_class.__module__.startswith("sibyl_core.backends.surreal")
+
+
 def _generate_id(prefix: str, *parts: str) -> str:
     """Generate a deterministic entity ID."""
     combined = ":".join(str(p)[:100] for p in parts)
@@ -380,16 +385,32 @@ async def get_project_tags(runtime_or_client: Any, project_id: str) -> list[str]
             )
             rows = [_get_field(task, "tags", []) for task in tasks]
         else:
-            client = runtime_or_client
-            result = await client.driver.execute_query(
+            client = (
+                state.get("client", runtime_or_client)
+                if isinstance(state, dict)
+                else runtime_or_client
+            )
+            driver = getattr(client, "driver", None)
+            if _is_surreal_driver(driver):
+                query = """
+                SELECT tags
+                FROM entity
+                WHERE entity_type = 'task'
+                  AND project_id = $project_id
+                  AND tags != NONE
                 """
+            else:
+                query = """
                 MATCH (n)
                 WHERE (n:Episodic OR n:Entity)
                   AND n.entity_type = 'task'
                   AND n.project_id = $project_id
                   AND n.tags IS NOT NULL
                 RETURN DISTINCT n.tags as tags
-                """,
+                """
+
+            result = await client.driver.execute_query(
+                query,
                 project_id=project_id,
             )
             normalized_rows = client.normalize_result(result)
