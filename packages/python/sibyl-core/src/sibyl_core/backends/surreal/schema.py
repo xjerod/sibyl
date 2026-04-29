@@ -4,15 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import structlog
-
+from sibyl_core.backends.surreal.schema_helpers import execute_schema_statement, split_statements
 from sibyl_core.config import core_config
-from sibyl_core.utils.log_safety import fingerprint_text
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.driver import SurrealDriver
-
-log = structlog.get_logger()
 
 
 # Graph node embeddings (entity/community/relationship facts) come from Graphiti's
@@ -162,34 +158,9 @@ GRAPH_TABLES = ("entity", "episode", "community", "saga")
 GRAPH_EDGES = ("relates_to", "mentions", "has_episode", "next_episode", "has_member")
 
 
-def _split_statements(sql: str) -> list[str]:
-    statements: list[str] = []
-    buffer: list[str] = []
-    for raw_line in sql.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("--"):
-            continue
-        buffer.append(raw_line)
-        if line.endswith(";"):
-            stmt = "\n".join(buffer).strip()
-            if stmt.rstrip(";").strip():
-                statements.append(stmt)
-            buffer = []
-    trailing = "\n".join(buffer).strip()
-    if trailing:
-        statements.append(trailing)
-    return statements
-
-
 def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
     fulltext_keyword = "SEARCH" if url.startswith(_EMBEDDED_SURREAL_SCHEMES) else "FULLTEXT"
     return sql.replace("FULLTEXT ANALYZER", f"{fulltext_keyword} ANALYZER")
-
-
-def _is_duplicate_unique_index_error(statement: str, error: Exception) -> bool:
-    if " UNIQUE" not in statement.upper():
-        return False
-    return "already contains" in str(error).lower()
 
 
 async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> None:
@@ -207,19 +178,13 @@ async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> Non
         render_fulltext_compatible_sql(EDGE_DEFINITIONS, url=driver._url),
     )
     for block in compatible_blocks:
-        for statement in _split_statements(block):
-            try:
-                await driver.execute_query(statement)
-            except Exception as exc:
-                if not _is_duplicate_unique_index_error(statement, exc):
-                    raise
-                log.warning(
-                    "surreal_graph_unique_index_skipped",
-                    group_id=driver.group_id,
-                    statement_hash=fingerprint_text(statement),
-                    error_hash=fingerprint_text(str(exc)),
-                    error_type=type(exc).__name__,
-                )
+        for statement in split_statements(block):
+            await execute_schema_statement(
+                driver.execute_query,
+                statement,
+                scope="graph",
+                group_id=driver.group_id,
+            )
 
 
 async def drop_all_indexes(driver: SurrealDriver) -> None:

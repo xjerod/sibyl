@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sibyl_core.backends.surreal.schema import render_fulltext_compatible_sql
+from sibyl_core.backends.surreal.schema_helpers import execute_schema_statement, split_statements
 from sibyl_core.config import core_config
 
 # Document chunks use the OpenAI embedder dimension (text-embedding-3-small = 1536),
@@ -38,25 +39,6 @@ CONTENT_ANALYZER_DEFINITIONS = _load_schema_file("01_analyzers.surql")
 CONTENT_SCHEMA_DEFINITIONS = _load_schema_file("10_tables.surql")
 
 
-def _split_statements(sql: str) -> list[str]:
-    statements: list[str] = []
-    buffer: list[str] = []
-    for raw_line in sql.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("--"):
-            continue
-        buffer.append(raw_line)
-        if line.endswith(";"):
-            statement = "\n".join(buffer).strip()
-            if statement.rstrip(";").strip():
-                statements.append(statement)
-            buffer = []
-    trailing = "\n".join(buffer).strip()
-    if trailing:
-        statements.append(trailing)
-    return statements
-
-
 async def bootstrap_content_schema(client: SurrealContentClient, *, reset: bool = False) -> None:
     if reset:
         for table in CONTENT_TABLES:
@@ -67,8 +49,8 @@ async def bootstrap_content_schema(client: SurrealContentClient, *, reset: bool 
         url=getattr(client, "_url", ""),
     )
     for block in (CONTENT_ANALYZER_DEFINITIONS, compatible_schema):
-        for statement in _split_statements(block):
-            await client.execute_query(statement)
+        for statement in split_statements(block):
+            await execute_schema_statement(client.execute_query, statement, scope="content")
 
 
 __all__ = [

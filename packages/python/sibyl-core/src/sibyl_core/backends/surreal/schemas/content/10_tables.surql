@@ -1,4 +1,5 @@
 DEFINE TABLE IF NOT EXISTS crawl_sources SCHEMAFULL;
+ALTER TABLE IF EXISTS crawl_sources SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON crawl_sources TYPE string;
 DEFINE FIELD IF NOT EXISTS organization_id ON crawl_sources TYPE string;
 DEFINE FIELD IF NOT EXISTS name ON crawl_sources TYPE string DEFAULT '';
@@ -29,6 +30,7 @@ DEFINE INDEX IF NOT EXISTS idx_crawl_sources_status ON crawl_sources FIELDS craw
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_name_ft ON crawl_sources FIELDS name FULLTEXT ANALYZER title_analyzer BM25;
 
 DEFINE TABLE IF NOT EXISTS crawled_documents SCHEMAFULL;
+ALTER TABLE IF EXISTS crawled_documents SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON crawled_documents TYPE string;
 DEFINE FIELD IF NOT EXISTS source_id ON crawled_documents TYPE string;
 DEFINE FIELD IF NOT EXISTS url ON crawled_documents TYPE string DEFAULT '';
@@ -60,6 +62,7 @@ DEFINE INDEX IF NOT EXISTS idx_crawled_documents_title_ft ON crawled_documents F
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_content_ft ON crawled_documents FIELDS content FULLTEXT ANALYZER content_analyzer BM25;
 
 DEFINE TABLE IF NOT EXISTS document_chunks SCHEMAFULL;
+ALTER TABLE IF EXISTS document_chunks SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON document_chunks TYPE string;
 DEFINE FIELD IF NOT EXISTS document_id ON document_chunks TYPE string;
 DEFINE FIELD IF NOT EXISTS chunk_index ON document_chunks TYPE int DEFAULT 0;
@@ -87,6 +90,7 @@ DEFINE INDEX IF NOT EXISTS idx_document_chunks_embedding ON document_chunks FIEL
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32 EFC 150 M 12;
 
 DEFINE TABLE IF NOT EXISTS raw_captures SCHEMAFULL;
+ALTER TABLE IF EXISTS raw_captures SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON raw_captures TYPE string;
 DEFINE FIELD IF NOT EXISTS organization_id ON raw_captures TYPE string;
 DEFINE FIELD IF NOT EXISTS source_id ON raw_captures TYPE string DEFAULT '';
@@ -117,6 +121,7 @@ DEFINE INDEX IF NOT EXISTS idx_raw_captures_captured_at ON raw_captures FIELDS c
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_created_at ON raw_captures FIELDS created_at;
 
 DEFINE TABLE IF NOT EXISTS system_settings SCHEMAFULL;
+ALTER TABLE IF EXISTS system_settings SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS key ON system_settings TYPE string;
 DEFINE FIELD IF NOT EXISTS value ON system_settings TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS is_secret ON system_settings TYPE bool DEFAULT false;
@@ -127,6 +132,7 @@ DEFINE FIELD IF NOT EXISTS updated_at ON system_settings TYPE datetime DEFAULT t
 DEFINE INDEX IF NOT EXISTS idx_system_settings_key ON system_settings FIELDS key UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS backup_settings SCHEMAFULL;
+ALTER TABLE IF EXISTS backup_settings SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON backup_settings TYPE string;
 DEFINE FIELD IF NOT EXISTS organization_id ON backup_settings TYPE string;
 DEFINE FIELD IF NOT EXISTS enabled ON backup_settings TYPE bool DEFAULT true;
@@ -143,6 +149,7 @@ DEFINE INDEX IF NOT EXISTS idx_backup_settings_uuid ON backup_settings FIELDS uu
 DEFINE INDEX IF NOT EXISTS idx_backup_settings_org ON backup_settings FIELDS organization_id UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS backups SCHEMAFULL;
+ALTER TABLE IF EXISTS backups SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON backups TYPE string;
 DEFINE FIELD IF NOT EXISTS organization_id ON backups TYPE string;
 DEFINE FIELD IF NOT EXISTS backup_id ON backups TYPE string DEFAULT '';

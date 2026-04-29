@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sibyl_core.backends.surreal.schema_helpers import execute_schema_statement, split_statements
+
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.auth_client import SurrealAuthClient
 
@@ -29,6 +31,7 @@ AUTH_TABLES = (*RUNTIME_AUTH_TABLES, *ARCHIVE_ONLY_AUTH_TABLES)
 
 AUTH_SCHEMA_DEFINITIONS = """
 DEFINE TABLE IF NOT EXISTS users SCHEMAFULL;
+ALTER TABLE IF EXISTS users SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON users TYPE string;
 DEFINE FIELD IF NOT EXISTS github_id ON users TYPE option<int>;
 DEFINE FIELD IF NOT EXISTS email ON users TYPE option<string>;
@@ -51,6 +54,7 @@ DEFINE INDEX IF NOT EXISTS idx_users_email ON users FIELDS email UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_users_github_id ON users FIELDS github_id UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS organizations SCHEMAFULL;
+ALTER TABLE IF EXISTS organizations SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON organizations TYPE string;
 DEFINE FIELD IF NOT EXISTS name ON organizations TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS slug ON organizations TYPE string DEFAULT '';
@@ -63,6 +67,7 @@ DEFINE INDEX IF NOT EXISTS idx_organizations_uuid ON organizations FIELDS uuid U
 DEFINE INDEX IF NOT EXISTS idx_organizations_slug ON organizations FIELDS slug UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS organization_members SCHEMAFULL;
+ALTER TABLE IF EXISTS organization_members SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON organization_members TYPE string;
 DEFINE FIELD IF NOT EXISTS organization_id ON organization_members TYPE string;
 DEFINE FIELD IF NOT EXISTS user_id ON organization_members TYPE string;
@@ -105,38 +110,19 @@ DEFINE INDEX IF NOT EXISTS idx_team_projects_org
 """
 
 
-def _split_statements(sql: str) -> list[str]:
-    statements: list[str] = []
-    buffer: list[str] = []
-    for raw_line in sql.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("--"):
-            continue
-        buffer.append(raw_line)
-        if line.endswith(";"):
-            statement = "\n".join(buffer).strip()
-            if statement.rstrip(";").strip():
-                statements.append(statement)
-            buffer = []
-    trailing = "\n".join(buffer).strip()
-    if trailing:
-        statements.append(trailing)
-    return statements
-
-
 async def bootstrap_auth_schema(client: SurrealAuthClient, *, reset: bool = False) -> None:
     if reset:
         for table in AUTH_TABLES:
             await client.execute_query(f"REMOVE TABLE IF EXISTS {table};")
 
-    for statement in _split_statements(AUTH_SCHEMA_DEFINITIONS):
+    for statement in split_statements(AUTH_SCHEMA_DEFINITIONS):
+        await execute_schema_statement(client.execute_query, statement, scope="auth")
+
+    for statement in split_statements(ARCHIVE_ONLY_TABLE_DEFINITIONS):
         await client.execute_query(statement)
 
-    for statement in _split_statements(ARCHIVE_ONLY_TABLE_DEFINITIONS):
-        await client.execute_query(statement)
-
-    for statement in _split_statements(ARCHIVE_RUNTIME_INDEX_DEFINITIONS):
-        await client.execute_query(statement)
+    for statement in split_statements(ARCHIVE_RUNTIME_INDEX_DEFINITIONS):
+        await execute_schema_statement(client.execute_query, statement, scope="auth")
 
 
 __all__ = [
