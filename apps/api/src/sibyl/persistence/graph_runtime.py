@@ -930,6 +930,35 @@ class GraphQueryAdapter:
         if not scoped_entity_ids:
             return []
 
+        if _surreal_driver_for(self._driver) is not None:
+            type_clause = "AND name IN $relationship_types" if relationship_types else ""
+            rows = GraphClient.normalize_result(
+                await self._driver.execute_query(
+                    f"""
+                    SELECT
+                        uuid,
+                        name,
+                        in.uuid AS source_id,
+                        out.uuid AS target_id,
+                        attributes AS metadata
+                    FROM relates_to
+                    WHERE group_id = $group_id
+                      AND in.uuid IN $entity_ids
+                      AND out.uuid IN $entity_ids
+                      {type_clause}
+                    ORDER BY uuid DESC
+                    LIMIT $limit
+                    START $offset;
+                    """,  # noqa: S608
+                    group_id=self._group_id,
+                    entity_ids=sorted(scoped_entity_ids),
+                    relationship_types=[rel.value for rel in relationship_types or []],
+                    limit=limit,
+                    offset=max(offset, 0),
+                )
+            )
+            return [_coerce_relationship(row) for row in rows]
+
         remaining_offset = max(offset, 0)
         page_offset = 0
         page_size = max(200, min(max(limit, 1) * 2, 1000))

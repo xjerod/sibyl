@@ -245,23 +245,29 @@ class TestGraphRoutes:
                     ]
                 )
             ),
-            relationship_manager=SimpleNamespace(
-                list_all=AsyncMock(
-                    return_value=[
-                        SimpleNamespace(
-                            id="rel-1",
-                            source_id="task-1",
-                            target_id="project-1",
-                            relationship_type=RelationshipType.BELONGS_TO,
-                        )
-                    ]
-                )
-            ),
+        )
+        adapter = SimpleNamespace(
+            list_relationships_for_entities=AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        id="rel-1",
+                        source_id="task-1",
+                        target_id="project-1",
+                        relationship_type=RelationshipType.BELONGS_TO,
+                    )
+                ]
+            )
         )
 
-        with patch(
-            "sibyl.api.routes.graph.get_entity_graph_runtime",
-            AsyncMock(return_value=runtime),
+        with (
+            patch(
+                "sibyl.api.routes.graph.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.graph.get_graph_query_adapter",
+                AsyncMock(return_value=adapter),
+            ),
         ):
             result = await graph_routes.get_full_graph(
                 org=_org(),
@@ -277,10 +283,9 @@ class TestGraphRoutes:
             offset=0,
             include_archived=True,
         )
-        runtime.relationship_manager.list_all.assert_awaited_once_with(
-            relationship_types=None,
-            limit=200,
-            offset=0,
+        adapter.list_relationships_for_entities.assert_awaited_once_with(
+            {"task-1", "project-1"},
+            limit=75,
         )
 
     @pytest.mark.asyncio

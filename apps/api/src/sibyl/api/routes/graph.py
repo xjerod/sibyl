@@ -1,7 +1,5 @@
 """Graph visualization data endpoints."""
 
-from collections.abc import Sequence
-
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -14,7 +12,7 @@ from sibyl.persistence.graph_runtime import (
     get_graph_query_adapter as _service_get_graph_query_adapter,
 )
 from sibyl_core.errors import EntityNotFoundError
-from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.models.entities import Entity, EntityType, RelationshipType
 from sibyl_core.services import KnowledgeReadService
 
 log = structlog.get_logger()
@@ -192,87 +190,6 @@ async def _get_graph_entity(entity_manager: object, entity_id: str) -> Entity | 
         return None
 
 
-async def _list_graph_relationships_for_entities(
-    relationship_manager: object,
-    entity_ids: Sequence[str],
-    *,
-    relationship_types: list[RelationshipType] | None = None,
-    limit: int = 100,
-    offset: int = 0,
-) -> list[Relationship]:
-    scoped_entity_ids = {entity_id for entity_id in entity_ids if entity_id}
-    if not scoped_entity_ids:
-        return []
-
-    relationships: list[Relationship] = []
-    remaining_offset = max(offset, 0)
-    page_offset = 0
-    page_size = max(200, min(max(limit, 1) * 2, 1000))
-
-    while len(relationships) < limit:
-        batch = await relationship_manager.list_all(
-            relationship_types=relationship_types,
-            limit=page_size,
-            offset=page_offset,
-        )
-        if not batch:
-            break
-
-        page_offset += len(batch)
-        for relationship in batch:
-            if (
-                relationship.source_id not in scoped_entity_ids
-                or relationship.target_id not in scoped_entity_ids
-            ):
-                continue
-            if remaining_offset:
-                remaining_offset -= 1
-                continue
-            relationships.append(relationship)
-            if len(relationships) >= limit:
-                break
-        if len(batch) < page_size:
-            break
-
-    return relationships
-
-
-async def _get_connection_counts(
-    relationship_manager: object,
-    entity_ids: Sequence[str],
-    *,
-    relationship_types: list[RelationshipType] | None = None,
-) -> dict[str, int]:
-    scoped_entity_ids = {entity_id for entity_id in entity_ids if entity_id}
-    if not scoped_entity_ids:
-        return {}
-
-    counts = dict.fromkeys(scoped_entity_ids, 0)
-    page_offset = 0
-    page_size = 1000
-
-    while True:
-        batch = await relationship_manager.list_all(
-            relationship_types=relationship_types,
-            limit=page_size,
-            offset=page_offset,
-        )
-        if not batch:
-            break
-
-        page_offset += len(batch)
-        for relationship in batch:
-            if relationship.source_id in counts:
-                counts[relationship.source_id] += 1
-            if (
-                relationship.target_id in counts
-                and relationship.target_id != relationship.source_id
-            ):
-                counts[relationship.target_id] += 1
-
-    return counts
-
-
 @router.get("/nodes", response_model=list[GraphNode])
 async def get_all_nodes(
     org: Organization = Depends(get_current_organization),
@@ -386,6 +303,7 @@ async def get_full_graph(
     try:
         group_id = str(org.id)
         runtime = await get_entity_graph_runtime(group_id)
+        adapter = await get_graph_query_adapter(group_id)
 
         entities = await _list_graph_entities(
             runtime.entity_manager,
@@ -414,8 +332,7 @@ async def get_full_graph(
                 )
             )
 
-        relationships = await _list_graph_relationships_for_entities(
-            runtime.relationship_manager,
+        relationships = await adapter.list_relationships_for_entities(
             node_ids,
             limit=max_edges,
         )

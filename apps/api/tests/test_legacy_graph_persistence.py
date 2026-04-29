@@ -529,6 +529,61 @@ async def test_graph_query_adapter_counts_connections_with_surreal_query() -> No
 
 
 @pytest.mark.asyncio
+async def test_graph_query_adapter_lists_scoped_relationships_with_surreal_query() -> None:
+    driver = MagicMock()
+    driver.execute_query = AsyncMock(
+        return_value=[
+            {
+                "uuid": "rel-1",
+                "name": "BELONGS_TO",
+                "source_id": "task-1",
+                "target_id": "project-1",
+                "metadata": {"confidence": 0.9},
+            }
+        ]
+    )
+    relationships = AsyncMock()
+    relationships.list_all = AsyncMock()
+    client = MagicMock()
+    client.get_org_driver.return_value = driver
+
+    with (
+        patch("sibyl.persistence.legacy.graph.EntityManager", return_value=AsyncMock()),
+        patch("sibyl.persistence.legacy.graph.RelationshipManager", return_value=relationships),
+        patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=driver),
+    ):
+        adapter = LegacyGraphQueryAdapter(client, "org-1")
+        result = await adapter.list_relationships_for_entities(
+            {"task-1", "project-1"},
+            relationship_types=[RelationshipType.BELONGS_TO],
+            limit=25,
+            offset=5,
+        )
+
+    relationships.list_all.assert_not_awaited()
+    assert len(result) == 1
+    assert result[0].id == "rel-1"
+    assert result[0].source_id == "task-1"
+    assert result[0].target_id == "project-1"
+    assert result[0].relationship_type is RelationshipType.BELONGS_TO
+    assert result[0].metadata == {"confidence": 0.9}
+    query = driver.execute_query.await_args.args[0]
+    assert "FROM relates_to" in query
+    assert "in.uuid IN $entity_ids" in query
+    assert "out.uuid IN $entity_ids" in query
+    assert "name IN $relationship_types" in query
+    assert "LIMIT $limit" in query
+    assert "START $offset" in query
+    assert driver.execute_query.await_args.kwargs == {
+        "group_id": "org-1",
+        "entity_ids": ["project-1", "task-1"],
+        "relationship_types": ["BELONGS_TO"],
+        "limit": 25,
+        "offset": 5,
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_legacy_graph_query_adapter_uses_graph_client() -> None:
     client = MagicMock()
 
