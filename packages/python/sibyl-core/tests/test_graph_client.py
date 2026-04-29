@@ -8,6 +8,7 @@ from graphiti_core.driver.falkordb_driver import FalkorDriver
 import sibyl_core.graph.cached_embedder as cached_embedder
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.config import CoreConfig
+from sibyl_core.errors import GraphConnectionError
 from sibyl_core.graph import client as _graph_client
 from sibyl_core.graph.client import GraphClient
 from sibyl_core.graph.search_interface import FalkorDBSearchInterface
@@ -160,6 +161,43 @@ def test_get_org_driver_reuses_same_clone_for_same_org() -> None:
     assert first is org_driver
     assert second is org_driver
     base_driver.clone.assert_called_once_with("org-123")
+
+
+@pytest.mark.asyncio
+async def test_default_execute_read_refuses_surreal_store() -> None:
+    client = GraphClient()
+    client._store = "surreal"
+    client._client = SimpleNamespace(driver=MagicMock())
+    client._connected = True
+
+    with pytest.raises(GraphConnectionError, match="org-scoped"):
+        await client.execute_read("SELECT * FROM entity")
+
+
+@pytest.mark.asyncio
+async def test_default_execute_write_refuses_surreal_store() -> None:
+    client = GraphClient()
+    client._store = "surreal"
+    client._client = SimpleNamespace(driver=MagicMock())
+    client._connected = True
+
+    with pytest.raises(GraphConnectionError, match="org-scoped"):
+        await client.execute_write("DELETE FROM entity")
+
+
+@pytest.mark.asyncio
+async def test_default_execute_read_remains_available_for_legacy_store() -> None:
+    driver = MagicMock()
+    driver.execute_query = AsyncMock(return_value=([{"ok": True}], None, None))
+    client = GraphClient()
+    client._store = "legacy"
+    client._client = SimpleNamespace(driver=driver)
+    client._connected = True
+
+    rows = await client.execute_read("MATCH (n) RETURN n")
+
+    assert rows == [{"ok": True}]
+    driver.execute_query.assert_awaited_once_with("MATCH (n) RETURN n")
 
 
 @pytest.mark.asyncio

@@ -448,6 +448,12 @@ class GraphClient:
             self._org_drivers[organization_id] = self.client.driver.clone(organization_id)
         return self._org_drivers[organization_id]
 
+    def _assert_default_query_allowed(self, operation: str) -> None:
+        if self._store == "surreal":
+            raise GraphConnectionError(
+                f"{operation} is unavailable with SurrealDB; use org-scoped graph operations"
+            )
+
     async def ensure_indexes(self, organization_id: str) -> None:
         """Ensure required indexes exist for an organization's graph.
 
@@ -514,6 +520,7 @@ class GraphClient:
         Returns:
             List of result records as dicts
         """
+        self._assert_default_query_allowed("execute_read")
         result = await self.client.driver.execute_query(query, **params)
         return self.normalize_result(result)
 
@@ -536,6 +543,7 @@ class GraphClient:
         Raises:
             Exception: If query execution fails
         """
+        self._assert_default_query_allowed("execute_write")
         result = await self.client.driver.execute_query(query, **params)
         return self.normalize_result(result)
 
