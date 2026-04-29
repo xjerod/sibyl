@@ -33,6 +33,19 @@ app = typer.Typer(
 )
 
 
+def _first_count(rows: object) -> int:
+    if not isinstance(rows, list) or not rows:
+        return 0
+    row = rows[0]
+    if isinstance(row, dict):
+        value = row.get("count") or row.get("deleted")
+        return value if isinstance(value, int) else 0
+    if isinstance(row, list | tuple) and row:
+        value = row[0]
+        return value if isinstance(value, int) else 0
+    return 0
+
+
 def _coerce_graph_backup_data(payload: dict[str, object], org_id: str):
     """Normalize graph backup payloads from backup and export commands."""
     from sibyl_core.tools.admin import BackupData
@@ -225,8 +238,16 @@ def restore_db(
 @app.command("clear")
 def clear_db(
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
+    org_id: Annotated[
+        str,
+        typer.Option("--org-id", help="Organization UUID (required for graph operations)"),
+    ] = "",
 ) -> None:
     """Clear all data from the database. USE WITH CAUTION!"""
+    if not org_id:
+        error("--org-id is required for graph operations")
+        raise typer.Exit(code=1)
+
     if not yes:
         console.print(
             f"\n[{ERROR_RED}]WARNING: This will DELETE ALL DATA from the graph![/{ERROR_RED}]\n"
@@ -243,12 +264,16 @@ def clear_db(
 
     @run_async
     async def _clear() -> None:
+        from sibyl.config import settings
         from sibyl_core.graph.client import get_graph_client
 
         try:
             client = await get_graph_client()
-            # Delete all nodes and relationships
-            await client.execute_write("MATCH (n) DETACH DELETE n")
+            if settings.store == "surreal":
+                driver = client.get_org_driver(org_id)
+                await driver.graph_ops.clear_data(driver, group_ids=[org_id])
+            else:
+                await client.execute_write_org("MATCH (n) DETACH DELETE n", org_id)
 
             success("Database cleared")
             warn("All data has been deleted")
@@ -261,28 +286,70 @@ def clear_db(
 
 
 @app.command("stats")
-def db_stats() -> None:
+def db_stats(
+    org_id: Annotated[
+        str,
+        typer.Option("--org-id", help="Organization UUID (required for graph operations)"),
+    ] = "",
+) -> None:
     """Show detailed database statistics."""
+    if not org_id:
+        error("--org-id is required for graph operations")
+        raise typer.Exit(code=1)
 
     @run_async
     async def _stats() -> None:
+        from sibyl.config import settings
         from sibyl_core.graph.client import get_graph_client
 
         try:
             client = await get_graph_client()
 
-            # Get node count
-            node_rows = await client.execute_read("MATCH (n) RETURN count(n) as count")
-            node_count = node_rows[0][0] if node_rows else 0
+            if settings.store == "surreal":
+                from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
 
-            # Get relationship count
-            rel_rows = await client.execute_read("MATCH ()-[r]->() RETURN count(r) as count")
-            rel_count = rel_rows[0][0] if rel_rows else 0
+                driver = client.get_org_driver(org_id)
+                node_count = 0
+                rel_count = 0
+                for table in GRAPH_TABLES:
+                    rows = await driver.execute_query(
+                        f"SELECT count() AS count FROM {table} WHERE group_id = $group_id GROUP ALL;",  # noqa: S608
+                        group_id=org_id,
+                    )
+                    node_count += _first_count(rows)
+                for table in GRAPH_EDGES:
+                    rows = await driver.execute_query(
+                        f"SELECT count() AS count FROM {table} WHERE group_id = $group_id GROUP ALL;",  # noqa: S608
+                        group_id=org_id,
+                    )
+                    rel_count += _first_count(rows)
+                type_rows = await driver.execute_query(
+                    """
+                    SELECT entity_type AS type, count() AS count
+                    FROM entity
+                    WHERE group_id = $group_id
+                    GROUP BY entity_type
+                    ORDER BY count DESC;
+                    """,
+                    group_id=org_id,
+                )
+            else:
+                node_rows = await client.execute_read_org(
+                    "MATCH (n) RETURN count(n) as count",
+                    org_id,
+                )
+                node_count = _first_count(node_rows)
 
-            # Get node types
-            type_rows = await client.execute_read(
-                "MATCH (n) RETURN n.entity_type as type, count(*) as count ORDER BY count DESC"
-            )
+                rel_rows = await client.execute_read_org(
+                    "MATCH ()-[r]->() RETURN count(r) as count",
+                    org_id,
+                )
+                rel_count = _first_count(rel_rows)
+
+                type_rows = await client.execute_read_org(
+                    "MATCH (n) RETURN n.entity_type as type, count(*) as count ORDER BY count DESC",
+                    org_id,
+                )
 
             console.print(f"\n[{NEON_CYAN}]Database Statistics[/{NEON_CYAN}]\n")
             console.print(f"  Total Nodes: {node_count}")
@@ -291,8 +358,14 @@ def db_stats() -> None:
             if type_rows:
                 console.print("\n  [dim]By Entity Type:[/dim]")
                 for row in type_rows:
-                    if row[0]:
-                        console.print(f"    {row[0]}: {row[1]}")
+                    if isinstance(row, dict):
+                        row_type = row.get("type")
+                        row_count = row.get("count")
+                    else:
+                        row_type = row[0] if row else None
+                        row_count = row[1] if len(row) > 1 else 0
+                    if row_type:
+                        console.print(f"    {row_type}: {row_count}")
 
         except Exception as e:
             error(f"Failed to get stats: {e}")

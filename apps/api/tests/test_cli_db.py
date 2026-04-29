@@ -14,6 +14,43 @@ from sibyl.cli import db as db_cli
 runner = CliRunner()
 
 
+def test_first_count_handles_dict_and_tuple_rows() -> None:
+    assert db_cli._first_count([{"count": 3}]) == 3
+    assert db_cli._first_count([{"deleted": 2}]) == 2
+    assert db_cli._first_count([(4,)]) == 4
+    assert db_cli._first_count([]) == 0
+
+
+def test_clear_requires_org_id() -> None:
+    result = runner.invoke(db_cli.app, ["clear", "--yes"])
+
+    assert result.exit_code == 1
+    assert "--org-id is required for graph operations" in result.output
+
+
+def test_clear_surreal_uses_org_scoped_graph_ops(monkeypatch) -> None:
+    driver = MagicMock()
+    driver.graph_ops = SimpleNamespace(clear_data=AsyncMock())
+    client = MagicMock()
+    client.get_org_driver.return_value = driver
+
+    monkeypatch.setattr("sibyl.config.settings.store", "surreal")
+
+    with patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)):
+        result = runner.invoke(db_cli.app, ["clear", "--yes", "--org-id", "org-123"])
+
+    assert result.exit_code == 0
+    client.get_org_driver.assert_called_once_with("org-123")
+    driver.graph_ops.clear_data.assert_awaited_once_with(driver, group_ids=["org-123"])
+
+
+def test_stats_requires_org_id() -> None:
+    result = runner.invoke(db_cli.app, ["stats"])
+
+    assert result.exit_code == 1
+    assert "--org-id is required for graph operations" in result.output
+
+
 def test_restore_accepts_graph_export_payload(tmp_path: Path) -> None:
     graph_file = tmp_path / "graph-export.json"
     graph_file.write_text(
