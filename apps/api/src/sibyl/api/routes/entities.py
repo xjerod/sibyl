@@ -232,6 +232,155 @@ async def _list_entities_by_type_paginated(
     return entities
 
 
+def _entity_project_id(entity: Any) -> str | None:
+    return getattr(entity, "project_id", None) or (
+        entity.metadata.get("project_id") if getattr(entity, "metadata", None) else None
+    )
+
+
+def _entity_matches_project_filter(
+    entity: Any,
+    *,
+    project_ids: list[str] | None,
+    real_project_ids: list[str],
+    has_unassigned: bool,
+) -> bool:
+    if not project_ids:
+        return True
+
+    entity_project = _entity_project_id(entity)
+    if entity_project:
+        if real_project_ids and entity_project not in real_project_ids:
+            return False
+        return not (has_unassigned and not real_project_ids)
+    return bool(has_unassigned)
+
+
+def _entity_matches_list_filters(
+    entity: Any,
+    *,
+    project_ids: list[str] | None,
+    real_project_ids: list[str],
+    has_unassigned: bool,
+    language: str | None,
+    category: str | None,
+    search: str | None,
+) -> bool:
+    if _entity_is_archived(entity):
+        return False
+
+    if not _entity_matches_project_filter(
+        entity,
+        project_ids=project_ids,
+        real_project_ids=real_project_ids,
+        has_unassigned=has_unassigned,
+    ):
+        return False
+
+    if language:
+        entity_langs = getattr(entity, "languages", []) or []
+        if language.lower() not in [lang.lower() for lang in entity_langs]:
+            return False
+
+    if category:
+        entity_cat = getattr(entity, "category", "") or ""
+        if category.lower() not in entity_cat.lower():
+            return False
+
+    if search:
+        search_lower = search.lower()
+        name = (getattr(entity, "name", "") or "").lower()
+        description = (getattr(entity, "description", "") or "").lower()
+        if search_lower not in name and search_lower not in description:
+            return False
+
+    return True
+
+
+def _can_use_bounded_entity_list(
+    entity_manager: Any,
+    *,
+    language: str | None,
+    category: str | None,
+    search: str | None,
+    sort_by: SortField,
+    sort_order: SortOrder,
+) -> bool:
+    surreal_ops = getattr(entity_manager, "_surreal_entity_node_ops", None)
+    return (
+        callable(surreal_ops)
+        and surreal_ops() is not None
+        and not language
+        and not category
+        and not search
+        and sort_by == SortField.UPDATED_AT
+        and sort_order == SortOrder.DESC
+    )
+
+
+async def _list_entities_bounded(
+    entity_manager: Any,
+    *,
+    entity_type: EntityType | None,
+    page: int,
+    page_size: int,
+    project_ids: list[str] | None,
+    real_project_ids: list[str],
+    has_unassigned: bool,
+    single_project_id: str | None,
+) -> tuple[list[Any], int, bool]:
+    start = (page - 1) * page_size
+    target = start + page_size + 1
+    batch_size = LIST_BY_TYPE_PAGE_SIZE if entity_type else LIST_ALL_PAGE_SIZE
+    matched: list[Any] = []
+    offset = 0
+    exhausted = False
+
+    while len(matched) < target:
+        if entity_type:
+            list_kwargs: dict[str, Any] = {
+                "limit": batch_size,
+                "offset": offset,
+                "include_archived": True,
+            }
+            if single_project_id:
+                list_kwargs["project_id"] = single_project_id
+            batch = await entity_manager.list_by_type(entity_type, **list_kwargs)
+        else:
+            batch = await entity_manager.list_all(
+                limit=batch_size,
+                offset=offset,
+                include_archived=True,
+            )
+        if not batch:
+            exhausted = True
+            break
+
+        for entity in batch:
+            if _entity_matches_list_filters(
+                entity,
+                project_ids=project_ids,
+                real_project_ids=real_project_ids,
+                has_unassigned=has_unassigned,
+                language=None,
+                category=None,
+                search=None,
+            ):
+                matched.append(entity)
+                if len(matched) >= target:
+                    break
+
+        offset += len(batch)
+        if len(batch) < batch_size:
+            exhausted = True
+            break
+
+    page_entities = matched[start : start + page_size]
+    has_more = len(matched) > start + page_size or not exhausted
+    total = len(matched) if exhausted else start + len(page_entities) + int(has_more)
+    return page_entities, total, has_more
+
+
 async def _enrich_entity_with_related(
     entity: Any,
     entity_id: str,
@@ -537,80 +686,68 @@ async def list_entities(
             else None
         )
 
-        if entity_type:
-            all_entities = await _list_entities_by_type_paginated(
-                entity_manager,
-                entity_type,
-                project_id=single_project_id,
-            )
-        else:
-            all_entities = await _list_all_entities_paginated(entity_manager)
-
-        # Apply filters
-        filtered = []
-
-        # Prepare project filter
         has_unassigned = project_ids and unassigned_marker in project_ids
 
-        for entity in all_entities:
-            # Project filter
-            if project_ids:
-                entity_project = getattr(entity, "project_id", None) or (
-                    entity.metadata.get("project_id") if entity.metadata else None
+        if _can_use_bounded_entity_list(
+            entity_manager,
+            language=language,
+            category=category,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        ):
+            page_entities, total, has_more = await _list_entities_bounded(
+                entity_manager,
+                entity_type=entity_type,
+                page=page,
+                page_size=page_size,
+                project_ids=project_ids,
+                real_project_ids=real_project_ids,
+                has_unassigned=bool(has_unassigned),
+                single_project_id=single_project_id,
+            )
+        else:
+            if entity_type:
+                all_entities = await _list_entities_by_type_paginated(
+                    entity_manager,
+                    entity_type,
+                    project_id=single_project_id,
                 )
-                # Check if entity matches filter criteria
-                if entity_project:
-                    # Entity has a project - check if it's in the filter list
-                    if real_project_ids and entity_project not in real_project_ids:
-                        continue
-                    # If only unassigned is selected, skip entities with projects
-                    if has_unassigned and not real_project_ids:
-                        continue
-                elif not has_unassigned:
-                    # Entity has no project - only include if unassigned is selected
-                    continue
+            else:
+                all_entities = await _list_all_entities_paginated(entity_manager)
 
-            # Language filter
-            if language:
-                entity_langs = getattr(entity, "languages", []) or []
-                if language.lower() not in [lang.lower() for lang in entity_langs]:
-                    continue
+            filtered = [
+                entity
+                for entity in all_entities
+                if _entity_matches_list_filters(
+                    entity,
+                    project_ids=project_ids,
+                    real_project_ids=real_project_ids,
+                    has_unassigned=bool(has_unassigned),
+                    language=language,
+                    category=category,
+                    search=search,
+                )
+            ]
 
-            # Category filter
-            if category:
-                entity_cat = getattr(entity, "category", "") or ""
-                if category.lower() not in entity_cat.lower():
-                    continue
+            def get_sort_key(e: Any) -> Any:
+                if sort_by == SortField.NAME:
+                    return (getattr(e, "name", "") or "").lower()
+                if sort_by == SortField.CREATED_AT:
+                    return getattr(e, "created_at", None) or datetime.min.replace(tzinfo=UTC)
+                if sort_by == SortField.UPDATED_AT:
+                    return getattr(e, "updated_at", None) or datetime.min.replace(tzinfo=UTC)
+                if sort_by == SortField.ENTITY_TYPE:
+                    return getattr(e, "entity_type", "") or ""
+                return ""
 
-            # Search filter (name and description)
-            if search:
-                search_lower = search.lower()
-                name = (getattr(entity, "name", "") or "").lower()
-                description = (getattr(entity, "description", "") or "").lower()
-                if search_lower not in name and search_lower not in description:
-                    continue
+            filtered.sort(key=get_sort_key, reverse=(sort_order == SortOrder.DESC))
 
-            filtered.append(entity)
-
-        # Sort entities
-        def get_sort_key(e: Any) -> Any:
-            if sort_by == SortField.NAME:
-                return (getattr(e, "name", "") or "").lower()
-            if sort_by == SortField.CREATED_AT:
-                return getattr(e, "created_at", None) or datetime.min.replace(tzinfo=UTC)
-            if sort_by == SortField.UPDATED_AT:
-                return getattr(e, "updated_at", None) or datetime.min.replace(tzinfo=UTC)
-            if sort_by == SortField.ENTITY_TYPE:
-                return getattr(e, "entity_type", "") or ""
-            return ""
-
-        filtered.sort(key=get_sort_key, reverse=(sort_order == SortOrder.DESC))
-
-        # Paginate
-        total = len(filtered)
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_entities = filtered[start:end]
+            total = len(filtered)
+            start = (page - 1) * page_size
+            end = start + page_size
+            page_entities = filtered[start:end]
+            has_more = end < total
 
         # Convert to response models
         response_entities = [
@@ -638,7 +775,7 @@ async def list_entities(
             total=total,
             page=page,
             page_size=page_size,
-            has_more=end < total,
+            has_more=has_more,
         )
 
     except Exception as e:

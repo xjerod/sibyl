@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import UUID
@@ -43,6 +44,7 @@ class TestListEntitiesRoute:
     async def test_single_project_entities_push_project_filter_into_graph_query(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
         manager = MagicMock()
+        manager._surreal_entity_node_ops.return_value = object()
         manager.list_by_type = AsyncMock(
             side_effect=[
                 [
@@ -77,13 +79,6 @@ class TestListEntitiesRoute:
                 EntityType.TASK,
                 limit=1000,
                 offset=0,
-                include_archived=True,
-                project_id="proj-1",
-            ),
-            call(
-                EntityType.TASK,
-                limit=1000,
-                offset=1000,
                 include_archived=True,
                 project_id="proj-1",
             ),
@@ -132,12 +127,6 @@ class TestListEntitiesRoute:
                 EntityType.TASK,
                 limit=1000,
                 offset=0,
-                include_archived=True,
-            ),
-            call(
-                EntityType.TASK,
-                limit=1000,
-                offset=1000,
                 include_archived=True,
             ),
         ]
@@ -206,12 +195,100 @@ class TestListEntitiesRoute:
             call(EntityType.TASK, limit=2, offset=0, include_archived=True),
             call(EntityType.TASK, limit=2, offset=2, include_archived=True),
             call(EntityType.TASK, limit=2, offset=4, include_archived=True),
-            call(EntityType.TASK, limit=2, offset=6, include_archived=True),
         ]
         manager.list_all.assert_not_awaited()
         assert [entity.id for entity in response.entities] == ["ent-1", "ent-2", "ent-3"]
         assert response.total == 3
         assert response.has_more is False
+
+    @pytest.mark.asyncio
+    async def test_default_surreal_entity_query_stops_after_page_has_more_probe(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        manager = MagicMock()
+        manager._surreal_entity_node_ops.return_value = object()
+        manager.list_by_type = AsyncMock(
+            return_value=[
+                _entity("ent-1", project_id="proj-1", name="One"),
+                _entity("ent-2", project_id="proj-1", name="Two"),
+            ]
+        )
+        manager.list_all = AsyncMock()
+        runtime = SimpleNamespace(entity_manager=manager)
+
+        with (
+            patch.object(entities_routes, "LIST_BY_TYPE_PAGE_SIZE", 2),
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+        ):
+            response = await list_entities(
+                org=org,
+                entity_type=EntityType.TASK,
+                language=None,
+                category=None,
+                search=None,
+                project_ids=["proj-1"],
+                page=1,
+                page_size=1,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        manager.list_by_type.assert_awaited_once_with(
+            EntityType.TASK,
+            limit=2,
+            offset=0,
+            include_archived=True,
+            project_id="proj-1",
+        )
+        manager.list_all.assert_not_awaited()
+        assert [entity.id for entity in response.entities] == ["ent-1"]
+        assert response.total == 2
+        assert response.has_more is True
+
+    @pytest.mark.asyncio
+    async def test_default_legacy_entity_query_keeps_exhaustive_sorting(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        manager = MagicMock()
+        manager._surreal_entity_node_ops.return_value = None
+        older = _entity("older-returned-first", project_id=None, name="Older")
+        newer = _entity("newer-returned-second", project_id=None, name="Newer")
+        older.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
+        newer.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
+        manager.list_by_type = AsyncMock(
+            side_effect=[
+                [older],
+                [newer],
+                [],
+            ]
+        )
+        manager.list_all = AsyncMock()
+        runtime = SimpleNamespace(entity_manager=manager)
+
+        with (
+            patch.object(entities_routes, "LIST_BY_TYPE_PAGE_SIZE", 1),
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+        ):
+            response = await list_entities(
+                org=org,
+                entity_type=EntityType.TASK,
+                language=None,
+                category=None,
+                search=None,
+                project_ids=None,
+                page=1,
+                page_size=1,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        assert [entity.id for entity in response.entities] == ["newer-returned-second"]
+        assert response.total == 2
+        assert response.has_more is True
 
     @pytest.mark.asyncio
     async def test_untyped_project_filters_skip_archived_only_pages(self) -> None:
