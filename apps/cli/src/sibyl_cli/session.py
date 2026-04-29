@@ -150,6 +150,8 @@ async def _build_session_bundle(
                     effective_query,
                     project=None if all_projects else effective_project,
                     limit=memory_limit + len(tasks),
+                    include_documents=False,
+                    include_graph=True,
                 )
                 task_ids = {task.get("id") for task in tasks}
                 for result in search_response.get("results", []):

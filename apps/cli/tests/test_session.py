@@ -130,6 +130,8 @@ def test_session_bundle_json_packages_context_tasks_and_memories(
         "Fix session bundle | Audit raw capture",
         project="project_123",
         limit=5,
+        include_documents=False,
+        include_graph=True,
     )
     mock_get_effective_server_url.assert_called_once_with()
     mock_get_effective_project.assert_called_once_with()
