@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -319,6 +320,191 @@ class TestDriverConnection:
         assert "MATCH" not in query
         assert "FROM has_episode" in query
         assert "FROM saga" in query
+
+    async def test_execute_query_translates_graphiti_saga_lookup(self, monkeypatch) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [
+                {
+                    "uuid": "saga-1",
+                    "name": "daily",
+                    "group_id": "org-abc",
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        records, _, _ = await driver.execute_query(
+            """
+            MATCH (s:Saga {name: $name, group_id: $group_id})
+            RETURN s.uuid AS uuid, s.name AS name, s.group_id AS group_id, s.created_at AS created_at
+            """,
+            name="daily",
+            group_id="org-abc",
+            routing_="r",
+        )
+
+        query, params = calls[0]
+        assert "MATCH" not in query
+        assert "FROM saga" in query
+        assert "WHERE name = $name AND group_id = $group_id" in query
+        assert isinstance(params, dict)
+        assert params["name"] == "daily"
+        assert records[0]["uuid"] == "saga-1"
+
+    async def test_execute_query_translates_graphiti_previous_saga_episode_lookup(
+        self, monkeypatch
+    ) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [{"uuid": "episode-prev"}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        records, _, _ = await driver.execute_query(
+            """
+            MATCH (s:Saga {uuid: $saga_uuid})-[:HAS_EPISODE]->(e:Episodic)
+            WHERE e.uuid <> $current_episode_uuid
+            RETURN e.uuid AS uuid
+            ORDER BY e.valid_at DESC, e.created_at DESC
+            LIMIT 1
+            """,
+            saga_uuid="saga-1",
+            current_episode_uuid="episode-current",
+            routing_="r",
+        )
+
+        query, params = calls[0]
+        assert "MATCH" not in query
+        assert "FROM has_episode" in query
+        assert "FROM saga" in query
+        assert "out.uuid != $current_episode_uuid" in query
+        assert isinstance(params, dict)
+        assert params["saga_uuid"] == "saga-1"
+        assert records[0]["uuid"] == "episode-prev"
+
+    async def test_execute_query_graphiti_previous_saga_episode_lookup_roundtrips(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        created = datetime(2026, 1, 1, tzinfo=UTC)
+        older = datetime(2026, 1, 2, tzinfo=UTC)
+        newer = datetime(2026, 1, 3, tzinfo=UTC)
+
+        await surreal_schema.execute_query(
+            """
+            UPSERT saga:saga_live SET
+                uuid = 'saga-live',
+                name = 'daily',
+                group_id = $group_id,
+                created_at = $created;
+            UPSERT episode:episode_old SET
+                uuid = 'episode-old',
+                name = 'Old episode',
+                source = 'message',
+                content = 'old',
+                group_id = $group_id,
+                created_at = $created,
+                valid_at = $older;
+            UPSERT episode:episode_new SET
+                uuid = 'episode-new',
+                name = 'New episode',
+                source = 'message',
+                content = 'new',
+                group_id = $group_id,
+                created_at = $created,
+                valid_at = $newer;
+            RELATE saga:saga_live->has_episode->episode:episode_old SET
+                uuid = 'has-old',
+                group_id = $group_id,
+                created_at = $created;
+            RELATE saga:saga_live->has_episode->episode:episode_new SET
+                uuid = 'has-new',
+                group_id = $group_id,
+                created_at = $created;
+            """,
+            group_id=surreal_schema.group_id,
+            created=created,
+            older=older,
+            newer=newer,
+        )
+
+        records, _, _ = await surreal_schema.execute_query(
+            """
+            MATCH (s:Saga {uuid: $saga_uuid})-[:HAS_EPISODE]->(e:Episodic)
+            WHERE e.uuid <> $current_episode_uuid
+            RETURN e.uuid AS uuid
+            ORDER BY e.valid_at DESC, e.created_at DESC
+            LIMIT 1
+            """,
+            saga_uuid="saga-live",
+            current_episode_uuid="episode-new",
+        )
+
+        assert records[0]["uuid"] == "episode-old"
+
+    async def test_execute_query_does_not_translate_other_saga_queries(self, monkeypatch) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [{"count": 1}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        await driver.execute_query(
+            """
+            MATCH (s:Saga {name: $name, group_id: $group_id})
+            RETURN count(s) AS count
+            """,
+            name="daily",
+            group_id="org-abc",
+        )
+
+        query, _params = calls[0]
+        assert "MATCH (s:Saga" in query
+
+    async def test_execute_query_does_not_translate_other_saga_episode_queries(
+        self, monkeypatch
+    ) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [{"content": "episode content"}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        await driver.execute_query(
+            """
+            MATCH (s:Saga {uuid: $saga_uuid})-[:HAS_EPISODE]->(e:Episodic)
+            RETURN e.content AS content
+            """,
+            saga_uuid="saga-1",
+        )
+
+        query, _params = calls[0]
+        assert "MATCH (s:Saga" in query
 
     async def test_execute_query_translates_graphiti_node_fulltext_call(self, monkeypatch) -> None:
         driver = SurrealDriver("memory://").clone("org-abc")

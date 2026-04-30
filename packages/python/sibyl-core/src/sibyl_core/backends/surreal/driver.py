@@ -111,6 +111,8 @@ def _graphiti_retrieve_episodes_query(
     normalized = " ".join(query.split()).upper()
     if "RETURN E.UUID AS UUID" not in normalized:
         return None
+    if "reference_time" not in params or "num_episodes" not in params:
+        return None
 
     source_clause = "AND source = $source" if params.get("source") is not None else ""
     if "MATCH (S:SAGA" in normalized and "HAS_EPISODE" in normalized:
@@ -146,6 +148,56 @@ def _graphiti_retrieve_episodes_query(
         "LIMIT $num_episodes;",
         params,
     )
+
+
+def _graphiti_saga_query(
+    query: str,
+    params: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | None:
+    normalized = " ".join(query.split()).upper()
+    if (
+        "MATCH (S:SAGA {NAME: $NAME, GROUP_ID: $GROUP_ID})" in normalized
+        and "RETURN S.UUID AS UUID" in normalized
+        and "S.NAME AS NAME" in normalized
+        and "S.GROUP_ID AS GROUP_ID" in normalized
+        and "S.CREATED_AT AS CREATED_AT" in normalized
+    ):
+        return (
+            """
+            SELECT uuid, name, group_id, created_at
+            FROM saga
+            WHERE name = $name AND group_id = $group_id
+            LIMIT 1;
+            """,
+            params,
+        )
+
+    if (
+        "MATCH (S:SAGA {UUID: $SAGA_UUID})-[:HAS_EPISODE]->(E:EPISODIC)" in normalized
+        and "RETURN E.UUID AS UUID" in normalized
+        and "ORDER BY E.VALID_AT DESC" in normalized
+        and "LIMIT 1" in normalized
+    ):
+        current_episode_clause = (
+            "AND out.uuid != $current_episode_uuid"
+            if params.get("current_episode_uuid") is not None
+            else ""
+        )
+        return (
+            """
+            SELECT out.uuid AS uuid, out.valid_at AS valid_at, out.created_at AS created_at
+            FROM has_episode
+            WHERE in IN (SELECT VALUE id FROM saga WHERE uuid = $saga_uuid LIMIT 1)
+            """
+            + current_episode_clause
+            + """
+            ORDER BY out.valid_at DESC, out.created_at DESC
+            LIMIT 1;
+            """,
+            params,
+        )
+
+    return None
 
 
 def _group_filter_clause(params: dict[str, Any]) -> str:
@@ -271,6 +323,10 @@ def _graphiti_compat_query(
     episode_query = _graphiti_retrieve_episodes_query(query, params)
     if episode_query is not None:
         return episode_query[0], episode_query[1], "episode_records"
+
+    saga_query = _graphiti_saga_query(query, params)
+    if saga_query is not None:
+        return saga_query[0], saga_query[1], "records"
 
     fulltext_query = _graphiti_fulltext_query(query, params)
     if fulltext_query is not None:
