@@ -113,6 +113,16 @@ class TestDeviceAuthEnumerationPrevention:
 class TestDeviceAuthorizationManagerSecurity:
     """Security tests for DeviceAuthorizationManager."""
 
+    def test_device_token_error_traceback_can_be_assigned(self) -> None:
+        """DeviceTokenError must behave like a normal Exception during async unwinding."""
+        from sibyl.auth.device_authorization import DeviceTokenError
+
+        error = DeviceTokenError("authorization_pending", "Authorization pending")
+
+        error.__traceback__ = None
+
+        assert error.error == "authorization_pending"
+
     def test_device_code_is_hashed(self) -> None:
         """Device codes should be stored as hashes, not plaintext."""
         from sibyl.auth.device_authorization import _hash_device_code

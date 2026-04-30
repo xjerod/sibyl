@@ -45,7 +45,7 @@ def normalize_user_code(value: str | None) -> str | None:
     return cleaned[:4] + "-" + cleaned[4:]
 
 
-@dataclass(frozen=True)
+@dataclass
 class DeviceTokenError(Exception):
     error: str
     error_description: str | None = None
