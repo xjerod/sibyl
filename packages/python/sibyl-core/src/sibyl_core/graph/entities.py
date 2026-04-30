@@ -217,6 +217,14 @@ class EntityManager:
         if self._is_surreal_driver():
             raise RuntimeError(f"SurrealDB entity {operation} requires native node operations")
 
+    def _raise_if_surreal_fallback_guard(self, error: Exception) -> None:
+        if (
+            self._is_surreal_driver()
+            and isinstance(error, RuntimeError)
+            and "requires native node operations" in str(error)
+        ):
+            raise error
+
     def _build_entity_node_attributes(
         self,
         entity: Entity,
@@ -1861,6 +1869,7 @@ class EntityManager:
                     log.info("Entity deleted via EntityNode", entity_id=entity_id)
                     return True
             except Exception as e:
+                self._raise_if_surreal_fallback_guard(e)
                 log.debug(
                     "EntityNode delete failed, trying EpisodicNode",
                     entity_id=entity_id,
@@ -1882,6 +1891,7 @@ class EntityManager:
                     log.info("Entity deleted via EpisodicNode", entity_id=entity_id)
                     return True
             except Exception as e:
+                self._raise_if_surreal_fallback_guard(e)
                 log.debug("EpisodicNode delete failed", entity_id=entity_id, error=str(e))
 
             raise EntityNotFoundError("Entity", entity_id)
@@ -1889,6 +1899,7 @@ class EntityManager:
         except EntityNotFoundError:
             raise
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.exception("Failed to delete entity", entity_id=entity_id, error=str(e))
             return False
 
@@ -2254,6 +2265,7 @@ class EntityManager:
             return sliced_entities
 
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.exception("Failed to list all entities", error=str(e))
             return []
 

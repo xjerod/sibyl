@@ -1005,6 +1005,22 @@ class TestEntityDelete:
         ):
             await entity_manager.delete("nonexistent")
 
+    @pytest.mark.asyncio
+    async def test_delete_refuses_surreal_legacy_fallback(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        surreal_entity_manager._driver.execute_query = AsyncMock()
+
+        with (
+            patch.object(surreal_entity_manager, "_surreal_entity_node_ops", return_value=None),
+            patch.object(surreal_entity_manager, "_surreal_episode_node_ops", return_value=None),
+            pytest.raises(RuntimeError, match="native node operations"),
+        ):
+            await surreal_entity_manager.delete("entity-001")
+
+        surreal_entity_manager._driver.execute_query.assert_not_awaited()
+
 
 # =============================================================================
 # Entity List/Query Tests
@@ -1777,6 +1793,21 @@ class TestEntityListAll:
         assert "entity_type = $entity_type" not in query
         assert surreal_entity_manager._driver.execute_query.await_args.kwargs["query_limit"] == 2
         assert surreal_entity_manager._driver.execute_query.await_args.kwargs["query_offset"] == 0
+
+    @pytest.mark.asyncio
+    async def test_list_all_refuses_surreal_legacy_fallback(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        surreal_entity_manager._driver.execute_query = AsyncMock()
+
+        with (
+            patch.object(surreal_entity_manager, "_surreal_entity_node_ops", return_value=None),
+            pytest.raises(RuntimeError, match="native node operations"),
+        ):
+            await surreal_entity_manager.list_all()
+
+        surreal_entity_manager._driver.execute_query.assert_not_awaited()
 
 
 # =============================================================================
