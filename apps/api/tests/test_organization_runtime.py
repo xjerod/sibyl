@@ -605,6 +605,182 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
 
 
 @pytest.mark.asyncio
+async def test_surreal_list_org_members_batches_user_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor_id = uuid4()
+    organization = SimpleNamespace(id=uuid4())
+    user_a_id = uuid4()
+    user_b_id = uuid4()
+    created_at = datetime.now(UTC)
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "FROM users" in query:
+                return [
+                    {
+                        "uuid": str(user_a_id),
+                        "github_id": 123,
+                        "email": "a@example.com",
+                        "name": "A",
+                        "avatar_url": "https://example.com/a.png",
+                    },
+                    {
+                        "uuid": str(user_b_id),
+                        "github_id": None,
+                        "email": "b@example.com",
+                        "name": "B",
+                        "avatar_url": None,
+                    },
+                ]
+            return []
+
+    fake_client = FakeClient()
+
+    @asynccontextmanager
+    async def fake_scope():
+        yield fake_client
+
+    org_repo = SimpleNamespace(get_by_slug=AsyncMock(return_value=organization))
+    membership_repo = SimpleNamespace(
+        get_for_user=AsyncMock(return_value=SimpleNamespace(role=OrganizationRole.OWNER)),
+        list_for_org=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    user_id=user_a_id,
+                    role=OrganizationRole.OWNER,
+                    created_at=created_at,
+                ),
+                SimpleNamespace(
+                    user_id=user_b_id,
+                    role=OrganizationRole.MEMBER,
+                    created_at=created_at,
+                ),
+            ]
+        ),
+    )
+
+    monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
+    monkeypatch.setattr(
+        surreal_organization_runtime.SurrealOrganizationRepository,
+        "from_client",
+        lambda _client: org_repo,
+    )
+    monkeypatch.setattr(
+        surreal_organization_runtime.SurrealOrganizationMembershipRepository,
+        "from_client",
+        lambda _client: membership_repo,
+    )
+
+    rows = await surreal_organization_runtime.list_org_members(
+        slug="team",
+        actor_id=actor_id,
+    )
+
+    assert [row["user"]["email"] for row in rows] == ["a@example.com", "b@example.com"]
+    assert len(fake_client.calls) == 1
+    assert "FROM users" in fake_client.calls[0][0]
+    assert fake_client.calls[0][1] == {"user_ids": [str(user_a_id), str(user_b_id)]}
+
+
+@pytest.mark.asyncio
+async def test_surreal_list_project_members_batches_user_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor = SimpleNamespace(id=uuid4())
+    org_id = uuid4()
+    owner_id = uuid4()
+    member_id = uuid4()
+    project = SimpleNamespace(
+        id=uuid4(),
+        owner_user_id=owner_id,
+        created_at=datetime.now(UTC),
+    )
+    member_created_at = datetime.now(UTC)
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "FROM project_members" in query:
+                return [
+                    {
+                        "uuid": str(uuid4()),
+                        "project_id": str(project.id),
+                        "user_id": str(owner_id),
+                        "role": ProjectRole.MAINTAINER.value,
+                        "created_at": member_created_at,
+                    },
+                    {
+                        "uuid": str(uuid4()),
+                        "project_id": str(project.id),
+                        "user_id": str(member_id),
+                        "role": ProjectRole.CONTRIBUTOR.value,
+                        "created_at": member_created_at,
+                    },
+                    {
+                        "uuid": str(uuid4()),
+                        "project_id": str(project.id),
+                        "user_id": str(member_id),
+                        "role": ProjectRole.VIEWER.value,
+                        "created_at": member_created_at,
+                    },
+                ]
+            if "FROM users" in query:
+                return [
+                    {
+                        "uuid": str(owner_id),
+                        "email": "owner@example.com",
+                        "name": "Owner",
+                        "avatar_url": None,
+                    },
+                    {
+                        "uuid": str(member_id),
+                        "email": "member@example.com",
+                        "name": "Member",
+                        "avatar_url": None,
+                    },
+                ]
+            return []
+
+    fake_client = FakeClient()
+
+    @asynccontextmanager
+    async def fake_scope():
+        yield fake_client
+
+    monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
+    monkeypatch.setattr(
+        surreal_organization_runtime,
+        "_get_project_and_user_role",
+        AsyncMock(return_value=(project, ProjectRole.OWNER)),
+    )
+
+    result = await surreal_organization_runtime.list_project_members(
+        project_id="project_123",
+        actor=actor,
+        org_id=org_id,
+    )
+
+    assert [row["user"]["email"] for row in result.members] == [
+        "owner@example.com",
+        "member@example.com",
+    ]
+    assert result.members[0]["is_owner"] is True
+    assert result.members[1]["role"] == ProjectRole.CONTRIBUTOR.value
+    assert len(fake_client.calls) == 2
+    assert "FROM project_members" in fake_client.calls[0][0]
+    assert "FROM users" in fake_client.calls[1][0]
+    assert fake_client.calls[1][1] == {"user_ids": [str(owner_id), str(member_id)]}
+
+
+@pytest.mark.asyncio
 async def test_surreal_add_project_member_rejects_existing_membership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

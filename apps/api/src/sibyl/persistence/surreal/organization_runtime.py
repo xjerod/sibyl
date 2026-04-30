@@ -125,6 +125,44 @@ def _coerce_datetime(value: object | None) -> datetime | None:
     return None
 
 
+async def _list_user_records_by_id(
+    client: Any,
+    user_ids: list[UUID],
+) -> dict[UUID, dict[str, Any]]:
+    user_id_strings: list[str] = []
+    seen_ids: set[str] = set()
+    for user_id in user_ids:
+        user_id_string = str(user_id)
+        if user_id_string in seen_ids:
+            continue
+        seen_ids.add(user_id_string)
+        user_id_strings.append(user_id_string)
+    if not user_id_strings:
+        return {}
+
+    records = _normalize_records(
+        await client.execute_query(
+            "SELECT * FROM users WHERE uuid IN $user_ids;",
+            user_ids=user_id_strings,
+        )
+    )
+    return {
+        _coerce_uuid(record.get("uuid"), field_name="user.uuid"): record for record in records
+    }
+
+
+def _member_user_payload(record: dict[str, Any], *, include_github_id: bool = False) -> dict[str, Any]:
+    payload = {
+        "id": str(_coerce_uuid(record.get("uuid"), field_name="user.uuid")),
+        "email": record.get("email"),
+        "name": record.get("name"),
+        "avatar_url": record.get("avatar_url"),
+    }
+    if include_github_id:
+        payload["github_id"] = record.get("github_id")
+    return payload
+
+
 def _invitation_from_record(
     record: dict[str, Any], *, include_accept_url: bool = False
 ) -> InvitationRecord:
@@ -614,7 +652,6 @@ async def list_org_members(*, slug: str, actor_id: UUID) -> list[dict[str, objec
     async with _auth_client_scope() as client:
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
-        users = SurrealUserRepository.from_client(client)
 
         organization = await orgs.get_by_slug(slug)
         if organization is None:
@@ -624,20 +661,18 @@ async def list_org_members(*, slug: str, actor_id: UUID) -> list[dict[str, objec
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
         records = await memberships.list_for_org(organization.id)
+        users_by_id = await _list_user_records_by_id(
+            client,
+            [membership.user_id for membership in records],
+        )
         rows: list[dict[str, object]] = []
         for membership in records:
-            user = await users.get_by_id(membership.user_id)
+            user = users_by_id.get(membership.user_id)
             if user is None:
                 continue
             rows.append(
                 {
-                    "user": {
-                        "id": str(user.id),
-                        "github_id": user.github_id,
-                        "email": user.email,
-                        "name": user.name,
-                        "avatar_url": user.avatar_url,
-                    },
+                    "user": _member_user_payload(user, include_github_id=True),
                     "role": membership.role.value,
                     "created_at": membership.created_at,
                 }
@@ -1055,7 +1090,6 @@ async def list_project_members(
     org_id: UUID,
 ) -> ProjectMembersResult:
     async with _auth_client_scope() as client:
-        users = SurrealUserRepository.from_client(client)
         project, user_role = await _get_project_and_user_role(
             client=client,
             project_id=project_id,
@@ -1063,29 +1097,35 @@ async def list_project_members(
             org_id=org_id,
         )
 
-        rows: list[dict[str, object]] = []
-        owner = await users.get_by_id(project.owner_user_id)
-        if owner is not None:
-            rows.append(
-                {
-                    "user": {
-                        "id": str(owner.id),
-                        "email": owner.email,
-                        "name": owner.name,
-                        "avatar_url": owner.avatar_url,
-                    },
-                    "role": ProjectRole.OWNER.value,
-                    "is_owner": True,
-                    "created_at": getattr(project, "created_at", None),
-                }
-            )
-
         member_records = _normalize_records(
             await client.execute_query(
                 "SELECT * FROM project_members WHERE project_id = $project_id ORDER BY created_at ASC;",
                 project_id=str(project.id),
             )
         )
+        member_user_ids: list[UUID] = []
+        for membership_record in member_records:
+            member_user_id = _coerce_uuid(membership_record.get("user_id"), field_name="user_id")
+            if member_user_id == project.owner_user_id or member_user_id in member_user_ids:
+                continue
+            member_user_ids.append(member_user_id)
+        users_by_id = await _list_user_records_by_id(
+            client,
+            [project.owner_user_id, *member_user_ids],
+        )
+
+        rows: list[dict[str, object]] = []
+        owner = users_by_id.get(project.owner_user_id)
+        if owner is not None:
+            rows.append(
+                {
+                    "user": _member_user_payload(owner),
+                    "role": ProjectRole.OWNER.value,
+                    "is_owner": True,
+                    "created_at": getattr(project, "created_at", None),
+                }
+            )
+
         seen_member_ids: set[UUID] = set()
         for membership_record in member_records:
             member_user_id = _coerce_uuid(membership_record.get("user_id"), field_name="user_id")
@@ -1094,17 +1134,12 @@ async def list_project_members(
             if member_user_id in seen_member_ids:
                 continue
             seen_member_ids.add(member_user_id)
-            user = await users.get_by_id(member_user_id)
+            user = users_by_id.get(member_user_id)
             if user is None:
                 continue
             rows.append(
                 {
-                    "user": {
-                        "id": str(user.id),
-                        "email": user.email,
-                        "name": user.name,
-                        "avatar_url": user.avatar_url,
-                    },
+                    "user": _member_user_payload(user),
                     "role": str(membership_record.get("role") or ProjectRole.CONTRIBUTOR.value),
                     "is_owner": False,
                     "created_at": membership_record.get("created_at"),
