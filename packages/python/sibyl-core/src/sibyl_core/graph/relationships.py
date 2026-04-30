@@ -119,6 +119,14 @@ class RelationshipManager:
                 f"SurrealDB relationship {operation} requires native edge operations"
             )
 
+    def _raise_if_surreal_fallback_guard(self, error: Exception) -> None:
+        if (
+            self._is_surreal_driver()
+            and isinstance(error, RuntimeError)
+            and "requires native edge operations" in str(error)
+        ):
+            raise error
+
     def _to_graphiti_edge(self, relationship: Relationship) -> EntityEdge:
         """Convert our Relationship model to Graphiti's EntityEdge.
 
@@ -582,6 +590,7 @@ class RelationshipManager:
             return relationships
 
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.warning(
                 "Failed to fetch relationships, returning empty list",
                 error=str(e),
@@ -648,6 +657,7 @@ class RelationshipManager:
             return results
 
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.warning(
                 "Failed to get related entities, returning empty list",
                 error=str(e),
@@ -762,6 +772,7 @@ class RelationshipManager:
             return results
 
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.warning(
                 "Failed to get related entities batch, returning empty lists",
                 error=str(e),
@@ -911,6 +922,7 @@ class RelationshipManager:
             return deleted
 
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.warning(
                 "Failed to delete relationships between entities",
                 error=str(e),
@@ -977,6 +989,7 @@ class RelationshipManager:
             return deleted
 
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.warning("Failed to delete relationships for entity", error=str(e))
             return 0
 
@@ -1103,5 +1116,6 @@ class RelationshipManager:
             return relationships
 
         except Exception as e:
+            self._raise_if_surreal_fallback_guard(e)
             log.warning("Failed to list relationships", error=str(e))
             return []

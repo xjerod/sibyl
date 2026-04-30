@@ -481,12 +481,12 @@ class TestGetForEntity:
     ) -> None:
         surreal_relationship_manager._driver.execute_query = AsyncMock()
 
-        with patch.object(
-            surreal_relationship_manager, "_surreal_entity_edge_ops", return_value=None
+        with (
+            patch.object(surreal_relationship_manager, "_surreal_entity_edge_ops", return_value=None),
+            pytest.raises(RuntimeError, match="native edge operations"),
         ):
-            results = await surreal_relationship_manager.get_for_entity("entity-001")
+            await surreal_relationship_manager.get_for_entity("entity-001")
 
-        assert results == []
         surreal_relationship_manager._driver.execute_query.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -969,6 +969,21 @@ class TestDeleteForEntity:
         # Should return 0, not raise
         assert result == 0
 
+    @pytest.mark.asyncio
+    async def test_delete_for_entity_refuses_surreal_cypher_fallback(
+        self,
+        surreal_relationship_manager: RelationshipManager,
+    ) -> None:
+        surreal_relationship_manager._driver.execute_query = AsyncMock()
+
+        with (
+            patch.object(surreal_relationship_manager, "_surreal_entity_edge_ops", return_value=None),
+            pytest.raises(RuntimeError, match="native edge operations"),
+        ):
+            await surreal_relationship_manager.delete_for_entity("entity-001")
+
+        surreal_relationship_manager._driver.execute_query.assert_not_awaited()
+
 
 # =============================================================================
 # List All Relationships Tests
@@ -1069,12 +1084,12 @@ class TestListAll:
     ) -> None:
         surreal_relationship_manager._driver.execute_query = AsyncMock()
 
-        with patch.object(
-            surreal_relationship_manager, "_surreal_entity_edge_ops", return_value=None
+        with (
+            patch.object(surreal_relationship_manager, "_surreal_entity_edge_ops", return_value=None),
+            pytest.raises(RuntimeError, match="native edge operations"),
         ):
-            results = await surreal_relationship_manager.list_all()
+            await surreal_relationship_manager.list_all()
 
-        assert results == []
         surreal_relationship_manager._driver.execute_query.assert_not_awaited()
 
     @pytest.mark.asyncio
