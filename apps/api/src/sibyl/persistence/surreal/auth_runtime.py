@@ -160,6 +160,31 @@ def _normalize_records(result: Any) -> list[dict[str, Any]]:
     return records
 
 
+def _query_error(result: object) -> str | None:
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        payload = {str(key): value for key, value in result.items()}
+        if (
+            "result" in payload
+            and "status" not in payload
+            and isinstance(payload.get("result"), list)
+        ):
+            return _query_error(payload["result"])
+        status = payload.get("status")
+        if isinstance(status, str) and status.upper() == "ERR":
+            detail = payload.get("detail") or payload.get("result") or payload
+            return str(detail)
+        return None
+    if not isinstance(result, list):
+        return None
+    for item in result:
+        error = _query_error(item)
+        if error is not None:
+            return error
+    return None
+
+
 def _coerce_uuid(value: object | None, *, field_name: str) -> UUID:
     if isinstance(value, UUID):
         return value
@@ -260,6 +285,29 @@ def _session_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
         record,
         uuid_fields={"uuid", "user_id", "organization_id"},
         datetime_fields=_SESSION_DATETIME_FIELDS,
+    )
+
+
+def _auth_session_namespace(session: AuthSession | None) -> SimpleNamespace | None:
+    if session is None:
+        return None
+    return SimpleNamespace(
+        id=session.id,
+        uuid=session.id,
+        user_id=session.user_id,
+        organization_id=session.organization_id,
+        expires_at=session.expires_at,
+        refresh_token_expires_at=session.refresh_token_expires_at,
+        revoked_at=session.revoked_at,
+        last_active_at=session.last_active_at,
+        is_current=session.is_current,
+        device_name=session.device_name,
+        device_type=session.device_type,
+        browser=session.browser,
+        os=session.os,
+        ip_address=session.ip_address,
+        user_agent=session.user_agent,
+        location=session.location,
     )
 
 
@@ -501,6 +549,22 @@ class SurrealSessionRepository(_SurrealRepository):
             return False
         updated = {**record, "revoked_at": _utcnow(), "updated_at": _utcnow()}
         await self.replace_record("user_sessions", uuid=session_id, record=updated)
+        return True
+
+    async def revoke_loaded_session(self, session: AuthSession) -> bool:
+        if session.revoked_at is not None:
+            return False
+        now = _utcnow()
+        result = await self._client.execute_query(
+            "UPDATE user_sessions SET revoked_at = $revoked_at, updated_at = $updated_at "
+            "WHERE uuid = $uuid;",
+            uuid=str(session.id),
+            revoked_at=now,
+            updated_at=now,
+        )
+        error = _query_error(result)
+        if error is not None:
+            raise RuntimeError(error)
         return True
 
     async def revoke_all_sessions(
@@ -881,24 +945,14 @@ async def create_session_record(
             user_agent=user_agent,
             location=location,
         )
-        record = await _SurrealRepository(client).select_one(
-            "SELECT * FROM user_sessions WHERE uuid = $uuid LIMIT 1;",
-            uuid=str(session.id),
-        )
-        return _session_namespace(record)
+        return _auth_session_namespace(session)
 
 
 async def load_refresh_session_record(refresh_token: str):
     async with _auth_client_scope() as client:
         sessions = SurrealSessionRepository.from_client(client)
         session = await sessions.get_session_by_refresh_token(refresh_token)
-        if session is None:
-            return None
-        record = await _SurrealRepository(client).select_one(
-            "SELECT * FROM user_sessions WHERE uuid = $uuid LIMIT 1;",
-            uuid=str(session.id),
-        )
-        return _session_namespace(record)
+        return _auth_session_namespace(session)
 
 
 async def rotate_refresh_session_record(
@@ -921,11 +975,7 @@ async def rotate_refresh_session_record(
             new_refresh_token=new_refresh_token,
             new_refresh_expires_at=new_refresh_expires_at,
         )
-        record = await _SurrealRepository(client).select_one(
-            "SELECT * FROM user_sessions WHERE uuid = $uuid LIMIT 1;",
-            uuid=str(rotated.id),
-        )
-        return _session_namespace(record)
+        return _auth_session_namespace(rotated)
 
 
 async def revoke_refresh_session_record(refresh_token: str) -> None:
@@ -934,15 +984,7 @@ async def revoke_refresh_session_record(refresh_token: str) -> None:
         existing = await sessions.get_session_by_refresh_token(refresh_token)
         if existing is None:
             return
-        repo = _SurrealRepository(client)
-        record = await repo.select_one(
-            "SELECT * FROM user_sessions WHERE uuid = $uuid LIMIT 1;",
-            uuid=str(existing.id),
-        )
-        if record is None:
-            return
-        updated = {**record, "revoked_at": _utcnow(), "updated_at": _utcnow()}
-        await repo.replace_record("user_sessions", uuid=existing.id, record=updated)
+        await sessions.revoke_loaded_session(existing)
 
 
 async def login_github_identity(*, identity, request) -> IssuedAuthSession:
@@ -1444,19 +1486,11 @@ async def rotate_refresh_exchange(
 
 async def revoke_access_session(token: str) -> None:
     async with _auth_client_scope() as client:
-        repo = _SurrealRepository(client)
         sessions = SurrealSessionRepository.from_client(client)
         existing = await sessions.get_session_by_token(token)
         if existing is None:
             return
-        record = await repo.select_one(
-            "SELECT * FROM user_sessions WHERE uuid = $uuid LIMIT 1;",
-            uuid=str(existing.id),
-        )
-        if record is None:
-            return
-        updated = {**record, "revoked_at": _utcnow(), "updated_at": _utcnow()}
-        await repo.replace_record("user_sessions", uuid=existing.id, record=updated)
+        await sessions.revoke_loaded_session(existing)
 
 
 async def log_audit_event(

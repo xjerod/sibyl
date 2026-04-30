@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from sibyl.auth.primitives import DeviceTokenError
 from sibyl.db.models import ProjectRole
 from sibyl.persistence.surreal import auth as surreal_auth, auth_runtime as surreal_auth_runtime
+from sibyl_core.auth import AuthSession
 
 
 class _StaticAuthClientScope:
@@ -32,6 +33,19 @@ class _RecordingAuthClient:
     async def execute_query(self, query: str, **kwargs: object) -> object:
         self.calls.append((query, kwargs))
         return self.response
+
+
+def _auth_session(*, organization_id=None) -> AuthSession:
+    return AuthSession(
+        id=uuid4(),
+        user_id=uuid4(),
+        organization_id=organization_id,
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        refresh_token_expires_at=datetime.now(UTC) + timedelta(days=30),
+        last_active_at=datetime.now(UTC),
+        device_name="mcp_oauth",
+        device_type="mcp",
+    )
 
 
 @pytest.mark.asyncio
@@ -102,6 +116,85 @@ def test_surreal_session_repository_accepts_aware_expiry_datetimes() -> None:
 
     assert repo._is_session_active(record) is True
     assert repo._has_refresh_session(record) is True
+
+
+@pytest.mark.asyncio
+async def test_session_record_helpers_return_repository_session_without_reload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session(organization_id=uuid4())
+    sessions = SimpleNamespace(
+        create_session=AsyncMock(return_value=session),
+        get_session_by_refresh_token=AsyncMock(return_value=session),
+        rotate_tokens=AsyncMock(return_value=session),
+    )
+    select_one = AsyncMock(side_effect=AssertionError("unexpected session reload"))
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+    monkeypatch.setattr(surreal_auth_runtime._SurrealRepository, "select_one", select_one)
+
+    created = await surreal_auth_runtime.create_session_record(
+        user_id=session.user_id,
+        organization_id=session.organization_id,
+        token="access-token",
+        expires_at=session.expires_at,
+    )
+    loaded = await surreal_auth_runtime.load_refresh_session_record("refresh-token")
+    rotated = await surreal_auth_runtime.rotate_refresh_session_record(
+        "refresh-token",
+        new_access_token="new-access",
+        new_access_expires_at=session.expires_at,
+        new_refresh_token="new-refresh",
+        new_refresh_expires_at=session.refresh_token_expires_at,
+    )
+
+    assert created.id == session.id
+    assert loaded.id == session.id
+    assert rotated.id == session.id
+    assert created.user_id == session.user_id
+    assert created.organization_id == session.organization_id
+    select_one.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_token_revoke_helpers_revoke_loaded_session_without_reload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session()
+    sessions = SimpleNamespace(
+        get_session_by_token=AsyncMock(return_value=session),
+        get_session_by_refresh_token=AsyncMock(return_value=session),
+        revoke_loaded_session=AsyncMock(return_value=True),
+    )
+    select_one = AsyncMock(side_effect=AssertionError("unexpected session reload"))
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+    monkeypatch.setattr(surreal_auth_runtime._SurrealRepository, "select_one", select_one)
+
+    await surreal_auth_runtime.revoke_access_session("access-token")
+    await surreal_auth_runtime.revoke_refresh_session_record("refresh-token")
+
+    assert sessions.revoke_loaded_session.await_count == 2
+    sessions.revoke_loaded_session.assert_any_await(session)
+    select_one.assert_not_awaited()
 
 
 @pytest.mark.asyncio
