@@ -153,17 +153,25 @@ async def build_auth_context(
     This is the core implementation used by both FastAPI dependency injection
     and direct calls from other auth modules (e.g., rls.py).
     """
+    if session is None:
+        cached = getattr(request.state, "auth_context", None)
+        if cached is not None:
+            return cached
+
     claims = await resolve_claims(request)
     if not claims:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
-        return await resolve_auth_context(claims=claims, session=session)
+        ctx = await resolve_auth_context(claims=claims, session=session)
     except InvalidAuthClaimsError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from e
     except UserNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         ) from e
+    if session is None:
+        request.state.auth_context = ctx
+    return ctx
 
 
 async def get_auth_context(

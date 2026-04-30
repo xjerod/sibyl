@@ -9,6 +9,7 @@ import pytest
 from starlette.requests import Request
 
 from sibyl.auth import dependencies, rls
+from sibyl.db.models import OrganizationRole
 
 
 def _make_request(*, user_id: str, org_id: str) -> Request:
@@ -51,6 +52,61 @@ async def test_build_auth_context_uses_surreal_resolver_without_postgres(
     resolve_auth_context.assert_awaited_once_with(
         claims={"sub": str(user_id), "org": str(org_id)},
         session=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_auth_context_is_cached_across_request_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    request = _make_request(user_id=str(user_id), org_id=str(org_id))
+    expected_ctx = SimpleNamespace(
+        user=SimpleNamespace(id=user_id),
+        organization=SimpleNamespace(id=org_id),
+        org_role=OrganizationRole.MEMBER,
+    )
+    resolve_auth_context = AsyncMock(return_value=expected_ctx)
+
+    monkeypatch.setattr(dependencies.settings, "auth_store", "surreal")
+    monkeypatch.setattr(dependencies, "resolve_auth_context", resolve_auth_context)
+
+    role = await dependencies.get_current_org_role(request)
+    organization = await dependencies.get_current_organization(request)
+    ctx = await dependencies.get_auth_context(request)
+
+    assert role is OrganizationRole.MEMBER
+    assert organization is expected_ctx.organization
+    assert ctx is expected_ctx
+    resolve_auth_context.assert_awaited_once_with(
+        claims={"sub": str(user_id), "org": str(org_id)},
+        session=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_auth_context_does_not_reuse_cache_for_explicit_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    request = _make_request(user_id=str(user_id), org_id=str(org_id))
+    cached_ctx = SimpleNamespace(user=SimpleNamespace(id=user_id))
+    session_ctx = SimpleNamespace(user=SimpleNamespace(id=user_id), session_scoped=True)
+    session = object()
+    resolve_auth_context = AsyncMock(return_value=session_ctx)
+    request.state.auth_context = cached_ctx
+
+    monkeypatch.setattr(dependencies.settings, "auth_store", "postgres")
+    monkeypatch.setattr(dependencies, "resolve_auth_context", resolve_auth_context)
+
+    result = await dependencies.build_auth_context(request, session)
+
+    assert result is session_ctx
+    resolve_auth_context.assert_awaited_once_with(
+        claims={"sub": str(user_id), "org": str(org_id)},
+        session=session,
     )
 
 
