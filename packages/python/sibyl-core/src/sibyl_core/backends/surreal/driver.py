@@ -98,6 +98,12 @@ def _graphiti_episode_records(result: Any) -> list[dict[str, Any]]:
     return records
 
 
+def _graphiti_records(result: Any) -> list[dict[str, Any]]:
+    from sibyl_core.graph.surreal.ops._common import normalize_records
+
+    return normalize_records(result)
+
+
 def _graphiti_retrieve_episodes_query(
     query: str,
     params: dict[str, Any],
@@ -140,6 +146,137 @@ def _graphiti_retrieve_episodes_query(
         "LIMIT $num_episodes;",
         params,
     )
+
+
+def _group_filter_clause(params: dict[str, Any]) -> str:
+    return "group_id IN $group_ids" if params.get("group_ids") else "true"
+
+
+def _graphiti_fulltext_query(
+    query: str,
+    params: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | None:
+    normalized = " ".join(query.split())
+    upper = normalized.upper()
+    fulltext_kind: str | None = None
+    if 'CALL DB.INDEX.FULLTEXT.QUERYNODES("NODE_NAME_AND_SUMMARY"' in upper:
+        fulltext_kind = "node"
+    elif 'CALL DB.INDEX.FULLTEXT.QUERYRELATIONSHIPS("EDGE_NAME_AND_FACT"' in upper:
+        fulltext_kind = "edge"
+    elif 'CALL DB.INDEX.FULLTEXT.QUERYNODES("EPISODE_CONTENT"' in upper:
+        fulltext_kind = "episode"
+    elif 'CALL DB.INDEX.FULLTEXT.QUERYNODES("COMMUNITY_NAME"' in upper:
+        fulltext_kind = "community"
+    else:
+        return None
+
+    search_query = build_fulltext_query(str(params.get("query") or ""))
+    next_params = dict(params)
+    next_params["query"] = search_query
+    raw_limit = params.get("limit")
+    next_params["limit"] = max(int(raw_limit if raw_limit is not None else 100), 1)
+
+    if not search_query:
+        return "RETURN [];", next_params
+
+    if fulltext_kind == "node":
+        return (
+            """
+            SELECT uuid, name, group_id, created_at, summary, labels, attributes,
+                   math::max([
+                       search::score(0),
+                       search::score(1),
+                       search::score(2),
+                       search::score(3)
+                   ]) AS score
+            FROM entity
+            WHERE """
+            + _group_filter_clause(next_params)
+            + """
+              AND (
+                  name @0@ $query
+                  OR summary @1@ $query
+                  OR attributes.description @2@ $query
+                  OR attributes.content @3@ $query
+              )
+            ORDER BY score DESC, created_at DESC, uuid DESC
+            LIMIT $limit;
+            """,
+            next_params,
+        )
+
+    if fulltext_kind == "edge":
+        edge_filters = [_group_filter_clause(next_params), "fact @0@ $query"]
+        if params.get("edge_types"):
+            edge_filters.append("name IN $edge_types")
+        if params.get("edge_uuids"):
+            edge_filters.append("uuid IN $edge_uuids")
+        return (
+            """
+            SELECT uuid, name, fact, fact_embedding, group_id,
+                   episodes, attributes,
+                   created_at, expired_at, valid_at, invalid_at,
+                   in.uuid AS source_node_uuid,
+                   out.uuid AS target_node_uuid,
+                   search::score(0) AS score
+            FROM relates_to
+            WHERE """
+            + " AND ".join(edge_filters)
+            + """
+            ORDER BY score DESC, created_at DESC, uuid DESC
+            LIMIT $limit;
+            """,
+            next_params,
+        )
+
+    if fulltext_kind == "episode":
+        return (
+            """
+            SELECT uuid, name, group_id, created_at, source, source_description,
+                   content, valid_at, entity_edges, search::score(0) AS score
+            FROM episode
+            WHERE """
+            + _group_filter_clause(next_params)
+            + """
+              AND content @0@ $query
+            ORDER BY score DESC, created_at DESC, uuid DESC
+            LIMIT $limit;
+            """,
+            next_params,
+        )
+
+    if fulltext_kind == "community":
+        return (
+            """
+            SELECT uuid, group_id, name, created_at, summary, name_embedding,
+                   search::score(0) AS score
+            FROM community
+            WHERE """
+            + _group_filter_clause(next_params)
+            + """
+              AND (name @0@ $query OR summary @1@ $query)
+            ORDER BY score DESC, created_at DESC, uuid DESC
+            LIMIT $limit;
+            """,
+            next_params,
+        )
+
+    return None
+
+
+def _graphiti_compat_query(
+    query: str,
+    params: dict[str, Any],
+) -> tuple[str, dict[str, Any], str] | None:
+    episode_query = _graphiti_retrieve_episodes_query(query, params)
+    if episode_query is not None:
+        return episode_query[0], episode_query[1], "episode_records"
+
+    fulltext_query = _graphiti_fulltext_query(query, params)
+    if fulltext_query is not None:
+        return fulltext_query[0], fulltext_query[1], "records"
+
+    return None
 
 
 class SurrealDriverSession(GraphDriverSession):
@@ -360,9 +497,10 @@ class SurrealDriver(GraphDriver):
         started_at = query_start()
         retry_count = 0
         namespace = _namespace_for_group(self._namespace_prefix, self._database)
-        compat_query = _graphiti_retrieve_episodes_query(cypher_query_, kwargs)
+        compat_query = _graphiti_compat_query(cypher_query_, kwargs)
         query = compat_query[0] if compat_query is not None else cypher_query_
         params = compat_query[1] if compat_query is not None else kwargs
+        compat_kind = compat_query[2] if compat_query is not None else None
         async with self._query_lock:
             try:
                 while True:
@@ -425,8 +563,10 @@ class SurrealDriver(GraphDriver):
             elapsed=elapsed_ms(started_at),
             retry_count=retry_count,
         )
-        if compat_query is not None:
+        if compat_kind == "episode_records":
             return _graphiti_episode_records(result), None, None
+        if compat_kind == "records":
+            return _graphiti_records(result), None, None
         return result
 
     def session(self, database: str | None = None) -> GraphDriverSession:

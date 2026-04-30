@@ -320,6 +320,170 @@ class TestDriverConnection:
         assert "FROM has_episode" in query
         assert "FROM saga" in query
 
+    async def test_execute_query_translates_graphiti_node_fulltext_call(self, monkeypatch) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [
+                {
+                    "uuid": "node-1",
+                    "name": "Surreal memory",
+                    "group_id": "org-abc",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "summary": "native fulltext",
+                    "labels": ["Entity"],
+                    "attributes": {},
+                }
+            ]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        records, _, _ = await driver.execute_query(
+            """
+            CALL db.index.fulltext.queryNodes("node_name_and_summary", $query, {limit: $limit})
+            YIELD node AS n, score
+            RETURN n.uuid AS uuid
+            """,
+            query="surreal memory",
+            group_ids=["org-abc"],
+            limit=5,
+        )
+
+        query, params = calls[0]
+        assert "CALL" not in query
+        assert "MATCH" not in query
+        assert "FROM entity" in query
+        assert "name @0@ $query" in query
+        assert isinstance(params, dict)
+        assert params["query"] == "surreal memory"
+        assert params["group_ids"] == ["org-abc"]
+        assert records[0]["uuid"] == "node-1"
+
+    async def test_execute_query_translates_graphiti_relationship_fulltext_call(
+        self, monkeypatch
+    ) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [
+                {
+                    "uuid": "edge-1",
+                    "name": "RELATES_TO",
+                    "fact": "Surreal search",
+                    "group_id": "org-abc",
+                    "episodes": [],
+                    "attributes": {},
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "expired_at": None,
+                    "valid_at": "2026-01-01T00:00:00Z",
+                    "invalid_at": None,
+                    "source_node_uuid": "source-1",
+                    "target_node_uuid": "target-1",
+                }
+            ]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        records, _, _ = await driver.execute_query(
+            """
+            CALL db.index.fulltext.queryRelationships("edge_name_and_fact", $query, {limit: $limit})
+            YIELD relationship AS rel, score
+            RETURN rel.uuid AS uuid
+            """,
+            query="surreal search",
+            group_ids=["org-abc"],
+            edge_uuids=["edge-1"],
+            limit=5,
+        )
+
+        query, params = calls[0]
+        assert "CALL" not in query
+        assert "MATCH" not in query
+        assert "FROM relates_to" in query
+        assert "fact @0@ $query" in query
+        assert "uuid IN $edge_uuids" in query
+        assert isinstance(params, dict)
+        assert params["edge_uuids"] == ["edge-1"]
+        assert records[0]["uuid"] == "edge-1"
+
+    async def test_execute_query_translates_graphiti_episode_fulltext_call(
+        self, monkeypatch
+    ) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [{"uuid": "episode-1", "content": "Surreal raw memory"}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        records, _, _ = await driver.execute_query(
+            """
+            CALL db.index.fulltext.queryNodes("episode_content", $query, {limit: $limit})
+            YIELD node AS episode, score
+            RETURN episode.uuid AS uuid
+            """,
+            query="raw memory",
+            group_ids=["org-abc"],
+            limit=5,
+        )
+
+        query, _params = calls[0]
+        assert "CALL" not in query
+        assert "MATCH" not in query
+        assert "FROM episode" in query
+        assert "content @0@ $query" in query
+        assert records[0]["uuid"] == "episode-1"
+
+    async def test_execute_query_translates_graphiti_community_fulltext_call(
+        self, monkeypatch
+    ) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [{"uuid": "community-1", "name": "Surreal community"}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        records, _, _ = await driver.execute_query(
+            """
+            CALL db.index.fulltext.queryNodes("community_name", $query, {limit: $limit})
+            YIELD node AS c, score
+            RETURN c.uuid AS uuid
+            """,
+            query="community",
+            group_ids=["org-abc"],
+            limit=0,
+        )
+
+        query, params = calls[0]
+        assert "CALL" not in query
+        assert "MATCH" not in query
+        assert "FROM community" in query
+        assert "name @0@ $query" in query
+        assert isinstance(params, dict)
+        assert params["limit"] == 1
+        assert records[0]["uuid"] == "community-1"
+
     async def test_execute_query_does_not_retry_closed_write_socket(self, monkeypatch) -> None:
         class ConnectionClosedError(RuntimeError):
             pass
