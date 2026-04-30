@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -8,7 +10,7 @@ import pytest_asyncio
 
 from sibyl.persistence import auth_archive
 from sibyl.persistence.auth_archive import restore_auth_archive_payload
-from sibyl.persistence.surreal import auth as surreal_auth
+from sibyl.persistence.surreal import auth as surreal_auth, auth_runtime as surreal_auth_runtime
 from sibyl.persistence.surreal.auth import (
     SurrealAuthContextResolver,
     SurrealOrganizationMembershipRepository,
@@ -307,6 +309,94 @@ async def test_surreal_auth_context_resolver_batches_request_context_reads() -> 
         "user_id": str(user_id),
         "organization_id": str(organization_id),
     }
+
+
+@pytest.mark.asyncio
+async def test_surreal_accessible_projects_batch_query_runs_against_memory_backend(
+    surreal_auth_client: SurrealAuthClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid4()
+    user_id = uuid4()
+    visible_project_id = uuid4()
+    direct_project_id = uuid4()
+    team_project_id = uuid4()
+    hidden_project_id = uuid4()
+    team_id = uuid4()
+
+    for record in [
+        {
+            "uuid": str(visible_project_id),
+            "organization_id": str(organization_id),
+            "graph_project_id": "project_visible",
+            "visibility": "org",
+        },
+        {
+            "uuid": str(direct_project_id),
+            "organization_id": str(organization_id),
+            "graph_project_id": "project_direct",
+            "visibility": "private",
+        },
+        {
+            "uuid": str(team_project_id),
+            "organization_id": str(organization_id),
+            "graph_project_id": "project_team",
+            "visibility": "private",
+        },
+        {
+            "uuid": str(hidden_project_id),
+            "organization_id": str(organization_id),
+            "graph_project_id": "project_hidden",
+            "visibility": "private",
+        },
+    ]:
+        await surreal_auth_client.execute_query("CREATE projects CONTENT $record;", record=record)
+
+    await surreal_auth_client.execute_query(
+        "CREATE project_members CONTENT $record;",
+        record={
+            "uuid": str(uuid4()),
+            "organization_id": str(organization_id),
+            "project_id": str(direct_project_id),
+            "user_id": str(user_id),
+            "role": "viewer",
+        },
+    )
+    await surreal_auth_client.execute_query(
+        "CREATE team_members CONTENT $record;",
+        record={
+            "uuid": str(uuid4()),
+            "organization_id": str(organization_id),
+            "team_id": str(team_id),
+            "user_id": str(user_id),
+        },
+    )
+    await surreal_auth_client.execute_query(
+        "CREATE team_projects CONTENT $record;",
+        record={
+            "uuid": str(uuid4()),
+            "organization_id": str(organization_id),
+            "team_id": str(team_id),
+            "project_id": str(team_project_id),
+            "role": "viewer",
+        },
+    )
+
+    @asynccontextmanager
+    async def scope():
+        yield surreal_auth_client
+
+    monkeypatch.setattr(surreal_auth_runtime, "_auth_client_scope", scope)
+
+    accessible = await surreal_auth_runtime.list_accessible_project_graph_ids(
+        SimpleNamespace(
+            organization=SimpleNamespace(id=organization_id),
+            user=SimpleNamespace(id=user_id),
+            org_role=OrganizationRole.MEMBER,
+        )
+    )
+
+    assert accessible == {"project_visible", "project_direct", "project_team"}
 
 
 @pytest.mark.asyncio

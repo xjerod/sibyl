@@ -2194,14 +2194,42 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
     if ctx.organization is None:
         return set()
     async with _auth_client_scope() as client:
-        repo = _SurrealRepository(client)
         org_id = str(ctx.organization.id)
         org_role = _role_value(ctx.org_role)
         user_id = str(ctx.user.id)
-        project_records = await repo.select_many(
-            "SELECT * FROM projects WHERE organization_id = $organization_id ORDER BY created_at ASC;",
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    projects: (
+                        SELECT * FROM projects
+                        WHERE organization_id = $organization_id
+                        ORDER BY created_at ASC
+                    ),
+                    direct_memberships: (
+                        SELECT * FROM project_members
+                        WHERE organization_id = $organization_id AND user_id = $user_id
+                        ORDER BY created_at ASC
+                    ),
+                    team_members: (
+                        SELECT * FROM team_members
+                        WHERE user_id = $user_id
+                        ORDER BY created_at ASC
+                    ),
+                    team_projects: (
+                        SELECT * FROM team_projects
+                        WHERE team_id IN (
+                            SELECT VALUE team_id FROM team_members WHERE user_id = $user_id
+                        )
+                        ORDER BY created_at ASC
+                    ),
+                };
+            """,
             organization_id=org_id,
+            user_id=user_id,
         )
+        if not isinstance(payload, dict):
+            payload = {}
+        project_records = _normalize_records(payload.get("projects"))
         if not project_records:
             if ctx.org_role is None:
                 return set()
@@ -2227,13 +2255,7 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
             and str(record.get("graph_project_id") or "").strip()
         }
         accessible.update(org_visible.values())
-        direct_memberships = await repo.select_many(
-            "SELECT * FROM project_members "
-            "WHERE organization_id = $organization_id AND user_id = $user_id "
-            "ORDER BY created_at ASC;",
-            organization_id=org_id,
-            user_id=user_id,
-        )
+        direct_memberships = _normalize_records(payload.get("direct_memberships"))
         direct_project_ids = {
             str(record["project_id"])
             for record in direct_memberships
@@ -2245,27 +2267,18 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
             if str(record.get("uuid")) in direct_project_ids
             and str(record.get("graph_project_id") or "").strip()
         )
-        team_members = await repo.select_many(
-            "SELECT * FROM team_members WHERE user_id = $user_id ORDER BY created_at ASC;",
-            user_id=user_id,
+        team_projects = _normalize_records(payload.get("team_projects"))
+        granted_project_ids = {
+            str(record["project_id"])
+            for record in team_projects
+            if str(record.get("project_id") or "").strip()
+        }
+        accessible.update(
+            str(record["graph_project_id"])
+            for record in project_records
+            if str(record.get("uuid")) in granted_project_ids
+            and str(record.get("graph_project_id") or "").strip()
         )
-        team_ids = [str(record["team_id"]) for record in team_members if record.get("team_id")]
-        for team_id in team_ids:
-            team_projects = await repo.select_many(
-                "SELECT * FROM team_projects WHERE team_id = $team_id ORDER BY created_at ASC;",
-                team_id=team_id,
-            )
-            granted_project_ids = {
-                str(record["project_id"])
-                for record in team_projects
-                if str(record.get("project_id") or "").strip()
-            }
-            accessible.update(
-                str(record["graph_project_id"])
-                for record in project_records
-                if str(record.get("uuid")) in granted_project_ids
-                and str(record.get("graph_project_id") or "").strip()
-            )
         return accessible
 
 

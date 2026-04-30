@@ -128,6 +128,70 @@ async def test_surreal_repository_replace_record_rejects_unsupported_tables() ->
 
 
 @pytest.mark.asyncio
+async def test_list_accessible_project_graph_ids_batches_project_grants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    visible_project_id = uuid4()
+    direct_project_id = uuid4()
+    team_project_id = uuid4()
+    hidden_project_id = uuid4()
+    client = _RecordingAuthClient(
+        {
+            "projects": [
+                {
+                    "uuid": str(visible_project_id),
+                    "graph_project_id": "project_visible",
+                    "visibility": "org",
+                },
+                {
+                    "uuid": str(direct_project_id),
+                    "graph_project_id": "project_direct",
+                    "visibility": "private",
+                },
+                {
+                    "uuid": str(team_project_id),
+                    "graph_project_id": "project_team",
+                    "visibility": "private",
+                },
+                {
+                    "uuid": str(hidden_project_id),
+                    "graph_project_id": "project_hidden",
+                    "visibility": "private",
+                },
+            ],
+            "direct_memberships": [{"project_id": str(direct_project_id)}],
+            "team_members": [{"team_id": "team_a"}],
+            "team_projects": [{"team_id": "team_a", "project_id": str(team_project_id)}],
+        }
+    )
+    ctx = SimpleNamespace(
+        organization=SimpleNamespace(id=org_id),
+        user=SimpleNamespace(id=user_id),
+        org_role="member",
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    accessible = await surreal_auth_runtime.list_accessible_project_graph_ids(ctx)
+
+    assert accessible == {"project_visible", "project_direct", "project_team"}
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "RETURN" in query
+    assert "FROM projects" in query
+    assert "FROM project_members" in query
+    assert "FROM team_members" in query
+    assert "FROM team_projects" in query
+    assert params == {"organization_id": str(org_id), "user_id": str(user_id)}
+
+
+@pytest.mark.asyncio
 async def test_start_device_authorization_uses_shared_device_code_primitives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
