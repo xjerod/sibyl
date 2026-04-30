@@ -256,6 +256,60 @@ async def test_surreal_auth_context_resolver_uses_surreal_repositories(
 
 
 @pytest.mark.asyncio
+async def test_surreal_auth_context_resolver_batches_request_context_reads() -> None:
+    user_id = uuid4()
+    organization_id = uuid4()
+    membership_id = uuid4()
+    client = _RecordingAuthClient(
+        {
+            "user": {
+                "uuid": str(user_id),
+                "email": "batched@example.com",
+                "name": "Batched",
+                "is_admin": False,
+            },
+            "organization": {
+                "uuid": str(organization_id),
+                "name": "Batched Org",
+                "slug": "batched-org",
+                "is_personal": False,
+                "settings": {},
+            },
+            "membership": {
+                "uuid": str(membership_id),
+                "organization_id": str(organization_id),
+                "user_id": str(user_id),
+                "role": OrganizationRole.MEMBER.value,
+            },
+        }
+    )
+    resolver = SurrealAuthContextResolver.from_client(client)  # type: ignore[arg-type]
+
+    ctx = await resolver.resolve(
+        {
+            "sub": str(user_id),
+            "org": str(organization_id),
+            "scopes": ["api:read"],
+        }
+    )
+
+    assert ctx.user.id == user_id
+    assert ctx.organization is not None
+    assert ctx.organization.id == organization_id
+    assert ctx.org_role is OrganizationRole.MEMBER
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "RETURN" in query
+    assert "FROM users" in query
+    assert "FROM organizations" in query
+    assert "FROM organization_members" in query
+    assert params == {
+        "user_id": str(user_id),
+        "organization_id": str(organization_id),
+    }
+
+
+@pytest.mark.asyncio
 async def test_auth_archive_restore_accepts_full_user_rows(
     surreal_auth_client: SurrealAuthClient,
 ) -> None:

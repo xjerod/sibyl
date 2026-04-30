@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,8 +13,13 @@ from uuid import UUID, uuid4
 from sibyl import config as config_module
 from sibyl.auth.passwords import PasswordError, hash_password, verify_password
 from sibyl.auth.primitives import slugify
-from sibyl.persistence.auth_common import RepositoryAuthContextResolver
+from sibyl.persistence.auth_common import (
+    InvalidAuthClaimsError,
+    RepositoryAuthContextResolver,
+    UserNotFoundError,
+)
 from sibyl_core.auth import (
+    AuthContext,
     AuthMembership,
     AuthOrganization,
     AuthUser,
@@ -643,10 +648,83 @@ class SurrealOrganizationMembershipRepository(_SurrealAuthRepository):
 class SurrealAuthContextResolver(RepositoryAuthContextResolver):
     """Build AuthContext using the Surreal-backed repositories."""
 
+    def __init__(
+        self,
+        *,
+        client: SurrealAuthClient,
+        users: SurrealUserRepository,
+        organizations: SurrealOrganizationRepository,
+        memberships: SurrealOrganizationMembershipRepository,
+    ) -> None:
+        super().__init__(
+            users=users,
+            organizations=organizations,
+            memberships=memberships,
+        )
+        self._client = client
+
     @classmethod
     def from_client(cls, client: SurrealAuthClient) -> Self:
         return cls(
+            client=client,
             users=SurrealUserRepository.from_client(client),
             organizations=SurrealOrganizationRepository.from_client(client),
             memberships=SurrealOrganizationMembershipRepository.from_client(client),
+        )
+
+    async def resolve(self, claims: Mapping[str, Any]) -> AuthContext:
+        try:
+            user_id = UUID(str(claims.get("sub", "")))
+        except ValueError as e:
+            raise InvalidAuthClaimsError("Invalid token") from e
+
+        organization_id = self._parse_optional_uuid(claims.get("org"))
+        params: dict[str, str] = {"user_id": str(user_id)}
+
+        if organization_id is None:
+            query = """
+                RETURN {
+                    user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                    organization: NONE,
+                    membership: NONE,
+                };
+            """
+        else:
+            params["organization_id"] = str(organization_id)
+            query = """
+                RETURN {
+                    user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                    organization: (
+                        SELECT * FROM organizations WHERE uuid = $organization_id LIMIT 1
+                    )[0],
+                    membership: (
+                        SELECT * FROM organization_members
+                        WHERE organization_id = $organization_id AND user_id = $user_id
+                        LIMIT 1
+                    )[0],
+                };
+            """
+
+        payload = await self._client.execute_query(query, **params)
+        if not isinstance(payload, dict):
+            payload = {}
+
+        user_record = _normalize_record(payload.get("user"))
+        if user_record is None:
+            msg = f"User not found: {user_id}"
+            raise UserNotFoundError(msg)
+
+        organization_record = _normalize_record(payload.get("organization"))
+        membership_record = _normalize_record(payload.get("membership"))
+        scopes = frozenset(str(scope) for scope in claims.get("scopes", []))
+
+        return AuthContext(
+            user=_user_from_record(user_record),
+            organization=_organization_from_record(organization_record)
+            if organization_record is not None
+            else None,
+            org_role=_membership_from_record(membership_record).role
+            if membership_record is not None
+            else None,
+            scopes=scopes,
         )
