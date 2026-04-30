@@ -194,6 +194,41 @@ class TestDriverConnection:
         with pytest.raises(SurrealQueryError, match="array<float"):
             await driver.execute_query("CREATE entity SET uuid = $uuid;", uuid="ent-1")
 
+    async def test_execute_query_rejects_untranslated_cypher_before_client(
+        self, monkeypatch
+    ) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            raise AssertionError("unsupported Cypher should not reach Surreal client")
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        with pytest.raises(SurrealQueryError, match="Unsupported Graphiti/Cypher query"):
+            await driver.execute_query("MATCH (n) RETURN n LIMIT 1")
+
+    async def test_execute_query_allows_surreal_keywords_inside_literals(
+        self, monkeypatch
+    ) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[str] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append(query)
+            return [{"ok": True}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        result = await driver.execute_query(
+            "SELECT 'MATCH (n)', \"CALL db.index\", `UNWIND` FROM entity LIMIT 1"
+        )
+
+        assert result == [{"ok": True}]
+        assert len(calls) == 1
+
     async def test_execute_query_reconnects_and_retries_closed_read_socket(
         self, monkeypatch
     ) -> None:
@@ -457,54 +492,40 @@ class TestDriverConnection:
 
     async def test_execute_query_does_not_translate_other_saga_queries(self, monkeypatch) -> None:
         driver = SurrealDriver("memory://").clone("org-abc")
-        calls: list[tuple[str, object | None]] = []
-
-        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
-            calls.append((query, params))
-            return [{"count": 1}]
 
         async def fake_ensure_client() -> SimpleNamespace:
-            return SimpleNamespace(query=fake_query)
+            raise AssertionError("unsupported saga Cypher should not reach Surreal client")
 
         monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
 
-        await driver.execute_query(
-            """
-            MATCH (s:Saga {name: $name, group_id: $group_id})
-            RETURN count(s) AS count
-            """,
-            name="daily",
-            group_id="org-abc",
-        )
-
-        query, _params = calls[0]
-        assert "MATCH (s:Saga" in query
+        with pytest.raises(SurrealQueryError, match="Unsupported Graphiti/Cypher query"):
+            await driver.execute_query(
+                """
+                MATCH (s:Saga {name: $name, group_id: $group_id})
+                RETURN count(s) AS count
+                """,
+                name="daily",
+                group_id="org-abc",
+            )
 
     async def test_execute_query_does_not_translate_other_saga_episode_queries(
         self, monkeypatch
     ) -> None:
         driver = SurrealDriver("memory://").clone("org-abc")
-        calls: list[tuple[str, object | None]] = []
-
-        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
-            calls.append((query, params))
-            return [{"content": "episode content"}]
 
         async def fake_ensure_client() -> SimpleNamespace:
-            return SimpleNamespace(query=fake_query)
+            raise AssertionError("unsupported saga episode Cypher should not reach Surreal client")
 
         monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
 
-        await driver.execute_query(
-            """
-            MATCH (s:Saga {uuid: $saga_uuid})-[:HAS_EPISODE]->(e:Episodic)
-            RETURN e.content AS content
-            """,
-            saga_uuid="saga-1",
-        )
-
-        query, _params = calls[0]
-        assert "MATCH (s:Saga" in query
+        with pytest.raises(SurrealQueryError, match="Unsupported Graphiti/Cypher query"):
+            await driver.execute_query(
+                """
+                MATCH (s:Saga {uuid: $saga_uuid})-[:HAS_EPISODE]->(e:Episodic)
+                RETURN e.content AS content
+                """,
+                saga_uuid="saga-1",
+            )
 
     async def test_execute_query_translates_graphiti_episode_count(self, monkeypatch) -> None:
         driver = SurrealDriver("memory://").clone("org-abc")

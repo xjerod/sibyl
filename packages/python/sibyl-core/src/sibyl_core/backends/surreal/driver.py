@@ -42,12 +42,14 @@ from graphiti_core.driver.driver import (
 from sibyl_core.backends.surreal.connection import _can_retry_query, _is_connection_closed_error
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.backends.surreal.observability import elapsed_ms, log_query, query_start
+from sibyl_core.utils.query import upper_query_tokens
 
 logger = logging.getLogger(__name__)
 
 # See module docstring "Provider tag" for rationale.
 _SURREAL_PROVIDER_TAG: GraphProvider = GraphProvider.NEO4J
 _MAX_CLOSED_CONNECTION_RETRIES = 2
+_UNSUPPORTED_GRAPHITI_TOKENS = frozenset({"CALL", "MATCH", "UNWIND"})
 
 
 def _raise_if_surreal_error(query: str, result: Any) -> None:
@@ -60,6 +62,16 @@ def _raise_if_surreal_error(query: str, result: Any) -> None:
         for entry in result:
             if isinstance(entry, dict) and entry.get("status") == "ERR":
                 raise SurrealQueryError(query, str(entry.get("result", entry)))
+
+
+def _raise_if_unsupported_graphiti_query(query: str) -> None:
+    unsupported_tokens = upper_query_tokens(query) & _UNSUPPORTED_GRAPHITI_TOKENS
+    if unsupported_tokens:
+        tokens = ", ".join(sorted(unsupported_tokens))
+        raise SurrealQueryError(
+            query,
+            f"Unsupported Graphiti/Cypher query for SurrealDB driver ({tokens})",
+        )
 
 
 class SurrealQueryError(RuntimeError):
@@ -651,6 +663,21 @@ class SurrealDriver(GraphDriver):
         retry_count = 0
         namespace = _namespace_for_group(self._namespace_prefix, self._database)
         compat_query = _graphiti_compat_query(cypher_query_, kwargs)
+        if compat_query is None:
+            try:
+                _raise_if_unsupported_graphiti_query(cypher_query_)
+            except Exception as exc:
+                log_query(
+                    cypher_query_,
+                    client_kind="graph",
+                    namespace=namespace,
+                    database=self._default_database,
+                    raw=False,
+                    elapsed=elapsed_ms(started_at),
+                    retry_count=retry_count,
+                    error=exc,
+                )
+                raise
         query = compat_query[0] if compat_query is not None else cypher_query_
         params = compat_query[1] if compat_query is not None else kwargs
         compat_kind = compat_query[2] if compat_query is not None else None
