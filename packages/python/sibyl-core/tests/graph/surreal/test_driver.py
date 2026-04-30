@@ -506,6 +506,88 @@ class TestDriverConnection:
         query, _params = calls[0]
         assert "MATCH (s:Saga" in query
 
+    async def test_execute_query_translates_graphiti_episode_count(self, monkeypatch) -> None:
+        driver = SurrealDriver("memory://").clone("org-abc")
+        calls: list[tuple[str, object | None]] = []
+
+        async def fake_query(query: str, params: object | None = None) -> list[dict[str, object]]:
+            calls.append((query, params))
+            return [{"episode_count": 2}]
+
+        async def fake_ensure_client() -> SimpleNamespace:
+            return SimpleNamespace(query=fake_query)
+
+        monkeypatch.setattr(driver, "_ensure_client", fake_ensure_client)
+
+        records, _, _ = await driver.execute_query(
+            """
+            MATCH (e:Episodic)-[:MENTIONS]->(n:Entity {uuid: $uuid})
+            RETURN count(*) AS episode_count
+            """,
+            uuid="entity-1",
+            routing_="r",
+        )
+
+        query, params = calls[0]
+        assert "MATCH" not in query
+        assert "FROM mentions" in query
+        assert "GROUP BY out.uuid" in query
+        assert isinstance(params, dict)
+        assert params["uuid"] == "entity-1"
+        assert records[0]["episode_count"] == 2
+
+    async def test_execute_query_graphiti_episode_count_roundtrips(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        created = datetime(2026, 1, 1, tzinfo=UTC)
+
+        await surreal_schema.execute_query(
+            """
+            UPSERT entity:entity_count SET
+                uuid = 'entity-count',
+                name = 'Counted entity',
+                entity_type = 'concept',
+                group_id = $group_id,
+                created_at = $created;
+            UPSERT episode:episode_count_one SET
+                uuid = 'episode-count-one',
+                name = 'First episode',
+                source = 'message',
+                content = 'first',
+                group_id = $group_id,
+                created_at = $created,
+                valid_at = $created;
+            UPSERT episode:episode_count_two SET
+                uuid = 'episode-count-two',
+                name = 'Second episode',
+                source = 'message',
+                content = 'second',
+                group_id = $group_id,
+                created_at = $created,
+                valid_at = $created;
+            RELATE episode:episode_count_one->mentions->entity:entity_count SET
+                uuid = 'mention-count-one',
+                group_id = $group_id,
+                created_at = $created;
+            RELATE episode:episode_count_two->mentions->entity:entity_count SET
+                uuid = 'mention-count-two',
+                group_id = $group_id,
+                created_at = $created;
+            """,
+            group_id=surreal_schema.group_id,
+            created=created,
+        )
+
+        records, _, _ = await surreal_schema.execute_query(
+            """
+            MATCH (e:Episodic)-[:MENTIONS]->(n:Entity {uuid: $uuid})
+            RETURN count(*) AS episode_count
+            """,
+            uuid="entity-count",
+        )
+
+        assert records[0]["episode_count"] == 2
+
     async def test_execute_query_translates_graphiti_node_fulltext_call(self, monkeypatch) -> None:
         driver = SurrealDriver("memory://").clone("org-abc")
         calls: list[tuple[str, object | None]] = []

@@ -200,6 +200,28 @@ def _graphiti_saga_query(
     return None
 
 
+def _graphiti_episode_count_query(
+    query: str,
+    params: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | None:
+    normalized = " ".join(query.split()).upper()
+    if (
+        "MATCH (E:EPISODIC)-[:MENTIONS]->(N:ENTITY {UUID: $UUID})" not in normalized
+        or "RETURN COUNT(*) AS EPISODE_COUNT" not in normalized
+    ):
+        return None
+
+    return (
+        """
+        SELECT out.uuid AS uuid, count() AS episode_count
+        FROM mentions
+        WHERE out.uuid = $uuid
+        GROUP BY out.uuid;
+        """,
+        params,
+    )
+
+
 def _group_filter_clause(params: dict[str, Any]) -> str:
     return "group_id IN $group_ids" if params.get("group_ids") else "true"
 
@@ -327,6 +349,10 @@ def _graphiti_compat_query(
     saga_query = _graphiti_saga_query(query, params)
     if saga_query is not None:
         return saga_query[0], saga_query[1], "records"
+
+    episode_count_query = _graphiti_episode_count_query(query, params)
+    if episode_count_query is not None:
+        return episode_count_query[0], episode_count_query[1], "records"
 
     fulltext_query = _graphiti_fulltext_query(query, params)
     if fulltext_query is not None:
