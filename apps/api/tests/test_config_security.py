@@ -104,7 +104,7 @@ class TestProductionPasswordSecurity:
                 environment="production",
                 store="legacy",
                 auth_store="postgres",
-                falkordb_password="conventions",
+                falkordb_password="sibyl_dev",
                 postgres_password="secure_pw",
             )
 
@@ -124,7 +124,7 @@ class TestProductionPasswordSecurity:
             environment="production",
             store="surreal",
             auth_store="surreal",
-            falkordb_password="conventions",
+            falkordb_password="sibyl_dev",
             postgres_password="sibyl_dev",
             surreal_url="ws://surrealdb:8000/rpc",
         )
@@ -135,10 +135,10 @@ class TestProductionPasswordSecurity:
         """Default passwords should be allowed in development."""
         settings = Settings(
             environment="development",
-            falkordb_password="conventions",
+            falkordb_password="sibyl_dev",
             postgres_password="sibyl_dev",
         )
-        assert settings.falkordb_password == "conventions"
+        assert settings.falkordb_password == "sibyl_dev"
 
     def test_secure_passwords_work_in_production(self) -> None:
         """Non-default passwords should work in production."""

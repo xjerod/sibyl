@@ -13,7 +13,7 @@ class EntityType(StrEnum):
     PATTERN = "pattern"
     RULE = "rule"
     TEMPLATE = "template"
-    CONVENTION = "convention"  # Coding conventions, style guides, best practices
+    GUIDE = "convention"
     TOOL = "tool"
     LANGUAGE = "language"
     TOPIC = "topic"
@@ -162,7 +162,7 @@ class Tool(Entity):
 
 
 class Language(Entity):
-    """A programming language with its conventions."""
+    """A programming language with its ecosystem metadata."""
 
     entity_type: EntityType = EntityType.LANGUAGE
     ecosystem: str = Field(default="", description="Package ecosystem (npm, pip, cargo, etc.)")

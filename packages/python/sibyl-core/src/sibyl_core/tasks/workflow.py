@@ -730,7 +730,7 @@ class TaskWorkflowEngine:
             task: Task to generate branch for
 
         Returns:
-            Branch name following convention
+            Generated branch name
         """
         # Use first 8 chars of task ID
         task_num = task.id[:8]

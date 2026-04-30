@@ -417,7 +417,7 @@ class TestJaccardSimilarity:
         assert sim == pytest.approx(1 / 3)
 
     def test_jaccard_empty_strings(self) -> None:
-        """Both empty returns 1.0 (by convention)."""
+        """Both empty returns 1.0."""
         assert jaccard_similarity("", "") == 1.0
 
     def test_jaccard_one_empty(self) -> None:

@@ -70,7 +70,7 @@ PATTERN_TEMPLATES = {
     "Observability": [
         ("Structured Logging", "Use JSON logs with consistent field names across services"),
         ("Distributed Tracing", "Propagate trace IDs across service boundaries"),
-        ("Metric Naming", "Use namespace_subsystem_metric_unit naming convention"),
+        ("Metric Naming", "Use namespace_subsystem_metric_unit naming pattern"),
         ("Alert Thresholds", "Set alerts based on SLOs, not arbitrary thresholds"),
         ("Dashboard Layout", "Golden signals (latency, traffic, errors, saturation) first"),
     ],

@@ -97,9 +97,9 @@ class Settings(BaseSettings):
                     "CRITICAL: disable_auth=True is forbidden in production environment. "
                     "Set SIBYL_ENVIRONMENT=development to use disable_auth for testing."
                 )
-            if self.store == "legacy" and self.falkordb_password == "conventions":  # noqa: S105
+            if self.store == "legacy" and self.falkordb_password == "sibyl_dev":  # noqa: S105
                 raise ValueError(
-                    "CRITICAL: Default FalkorDB password 'conventions' is forbidden in production. "
+                    "CRITICAL: Default FalkorDB password 'sibyl_dev' is forbidden in production. "
                     "Set SIBYL_FALKORDB_PASSWORD to a secure value."
                 )
             if (
@@ -218,7 +218,7 @@ class Settings(BaseSettings):
     # FalkorDB configuration
     falkordb_host: str = Field(default="localhost", description="FalkorDB host")
     falkordb_port: int = Field(default=6380, description="FalkorDB port")
-    falkordb_password: str = Field(default="conventions", description="FalkorDB password")
+    falkordb_password: str = Field(default="sibyl_dev", description="FalkorDB password")
     redis_jobs_db: int = Field(
         default=1,
         description="Redis database number for job queue",
@@ -365,13 +365,13 @@ class Settings(BaseSettings):
         description="Graphiti concurrent LLM operations limit (controls SEMAPHORE_LIMIT)",
     )
 
-    # Conventions repository configuration
-    conventions_repo_path: Path = Field(
+    # Knowledge repository configuration
+    knowledge_repo_path: Path = Field(
         default=Path(__file__).parent.parent.parent.parent,
-        description="Path to conventions repository root",
+        description="Path to knowledge repository root",
     )
 
-    # Content paths (relative to conventions_repo_path)
+    # Content paths (relative to knowledge_repo_path)
     wisdom_path: str = Field(
         default="docs/wisdom",
         description="Path to wisdom documentation",

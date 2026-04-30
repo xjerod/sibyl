@@ -6,7 +6,7 @@ Create Date: 2026-01-05
 
 Adds `is_shared` column to projects table and creates a shared project
 for each existing organization. The shared project holds org-wide knowledge
-like conventions, crawled docs, and learnings not tied to a specific project.
+like crawled docs and learnings not tied to a specific project.
 
 Graph backfill (reassigning orphan entities) is handled separately via:
     sibyld db backfill-shared-projects
@@ -27,7 +27,7 @@ depends_on: str | Sequence[str] | None = None
 # Shared project constants (must match sibyl_core.models.projects)
 SHARED_PROJECT_SLUG = "_shared"
 SHARED_PROJECT_NAME = "Shared"
-SHARED_PROJECT_DESCRIPTION = "Org-wide knowledge: conventions, crawled docs, and shared learnings"
+SHARED_PROJECT_DESCRIPTION = "Org-wide knowledge: crawled docs and shared learnings"
 
 
 def upgrade() -> None:

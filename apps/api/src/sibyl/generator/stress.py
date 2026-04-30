@@ -60,7 +60,7 @@ STRESS_TEMPLATES = {
             "Rule {n}: Input validation",
             "Rule {n}: Error handling",
             "Rule {n}: Logging standard",
-            "Rule {n}: Naming convention",
+            "Rule {n}: Naming pattern",
         ],
         "severities": ["error", "warning", "info"],
     },

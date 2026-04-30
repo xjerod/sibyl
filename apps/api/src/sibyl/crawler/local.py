@@ -1,7 +1,7 @@
 """Local file system crawler for markdown directories.
 
 This module provides local file ingestion support, allowing Sibyl to
-ingest markdown files from local directories (like ~/dev/conventions).
+ingest markdown files from local directories.
 """
 
 from collections.abc import AsyncIterator

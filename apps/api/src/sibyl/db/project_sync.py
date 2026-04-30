@@ -227,7 +227,7 @@ async def get_shared_project(
     """Get the shared project for an organization.
 
     Each org has exactly one shared project (is_shared=True) that holds
-    org-wide knowledge like conventions, crawled docs, and shared learnings.
+    org-wide knowledge like crawled docs and shared learnings.
 
     Returns:
         The shared project, or None if not yet created.

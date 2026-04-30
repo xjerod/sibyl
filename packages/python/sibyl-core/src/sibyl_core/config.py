@@ -47,7 +47,7 @@ class CoreConfig(BaseSettings):
     # FalkorDB configuration
     falkordb_host: str = Field(default="localhost", description="FalkorDB host")
     falkordb_port: int = Field(default=6380, description="FalkorDB port")
-    falkordb_password: str = Field(default="conventions", description="FalkorDB password")
+    falkordb_password: str = Field(default="sibyl_dev", description="FalkorDB password")
 
     # SurrealDB configuration
     surreal_url: str = Field(

@@ -269,11 +269,11 @@ class IngestionPipeline:
 
         return stats
 
-    async def _create_convention_entity(
+    async def _create_guidance_entity(
         self,
         document: CrawledDocument,
     ) -> str | None:
-        """Create a convention entity in the knowledge graph for a local file.
+        """Create a guidance entity in the knowledge graph for a local file.
 
         Args:
             document: The crawled document from a local directory
@@ -282,7 +282,7 @@ class IngestionPipeline:
             Entity ID if created, None otherwise
         """
         if not self._entity_manager:
-            log.debug("Skipping convention entity - entity manager not available")
+            log.debug("Skipping guidance entity - entity manager not available")
             return None
 
         try:
@@ -296,9 +296,9 @@ class IngestionPipeline:
                 description = description[:497] + "..."
 
             entity = Entity(
-                id=f"convention:{document.id!s}",
+                id=f"guidance:{document.id!s}",
                 name=file_name,
-                entity_type=EntityType.CONVENTION,
+                entity_type=EntityType.GUIDE,
                 description=description,
                 content=document.content,
                 source_file=file_path,
@@ -311,12 +311,12 @@ class IngestionPipeline:
             )
 
             entity_id = await self._entity_manager.create_direct(entity)
-            log.debug("Created convention entity", entity_id=entity_id, name=file_name)
+            log.debug("Created guidance entity", entity_id=entity_id, name=file_name)
             return entity_id
 
         except Exception as e:
             log.warning(
-                "Failed to create convention entity",
+                "Failed to create guidance entity",
                 url=document.url,
                 error=str(e),
             )
@@ -378,7 +378,7 @@ class IngestionPipeline:
         Args:
             document: Document to process
             stats: Stats to update
-            source_type: Type of source (LOCAL for convention entities)
+            source_type: Type of source (LOCAL creates guidance entities)
         """
         db_chunks: list[DocumentChunk] = []
         stored_document = document
@@ -493,9 +493,9 @@ class IngestionPipeline:
                     error=str(e),
                 )
 
-        # Create convention entity for local sources
+        # Create guidance entity for local sources
         if source_type == SourceType.LOCAL:
-            await self._create_convention_entity(stored_document)
+            await self._create_guidance_entity(stored_document)
 
         log.debug(
             "Processed document",

@@ -1,4 +1,4 @@
-"""Main ingestion pipeline for the conventions knowledge graph."""
+"""Main ingestion pipeline for the Sibyl knowledge graph."""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -70,7 +70,7 @@ class IngestionResult:
 
 
 class IngestionPipeline:
-    """Main pipeline for ingesting knowledge from the conventions repository.
+    """Main pipeline for ingesting knowledge from a repository.
 
     Pipeline stages:
     1. Parse markdown files into structured documents
@@ -90,7 +90,7 @@ class IngestionPipeline:
         """Initialize the pipeline.
 
         Args:
-            repo_root: Root path of the conventions repository.
+            repo_root: Root path of the knowledge repository.
             wisdom_patterns: Glob patterns for wisdom docs (default: docs/wisdom/**/*.md).
             group_id: Organization ID for multi-tenant graph operations.
         """
@@ -364,7 +364,7 @@ async def run_ingestion(repo_root: Path, *, group_id: str) -> IngestionResult:
     """Convenience function to run the full ingestion pipeline.
 
     Args:
-        repo_root: Root path of the conventions repository.
+        repo_root: Root path of the knowledge repository.
         group_id: Organization ID for multi-tenant graph operations.
 
     Returns:

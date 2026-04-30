@@ -508,7 +508,7 @@ async def _auto_discover_links(
         EntityType.PATTERN,
         EntityType.RULE,
         EntityType.TEMPLATE,
-        EntityType.CONVENTION,
+        EntityType.GUIDE,
         EntityType.TOPIC,
     ]
 

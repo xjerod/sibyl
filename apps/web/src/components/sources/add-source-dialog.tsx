@@ -832,7 +832,7 @@ export function AddSourceDialog({
                               type="text"
                               value={localPath}
                               onChange={e => setLocalPath(e.target.value)}
-                              placeholder="~/dev/conventions or /absolute/path"
+                              placeholder="~/dev/knowledge or /absolute/path"
                               required
                               className="w-full pl-10 pr-4 py-2.5 bg-sc-bg-dark border border-sc-fg-subtle/20 rounded-xl text-sc-fg-primary font-mono text-sm placeholder:text-sc-fg-subtle focus:border-sc-yellow focus:outline-none focus:ring-1 focus:ring-sc-yellow/30 transition-colors"
                             />
@@ -921,7 +921,7 @@ export function AddSourceDialog({
                           </div>
                           {/* Suggested tags for local */}
                           <div className="flex flex-wrap gap-1.5 mt-2">
-                            {['conventions', 'patterns', 'local', 'notes']
+                            {['guides', 'patterns', 'local', 'notes']
                               .filter(t => !localTags.includes(t))
                               .map(tag => (
                                 <button

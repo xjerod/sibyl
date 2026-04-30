@@ -1,4 +1,4 @@
-"""Template and config file cataloger for the conventions repository."""
+"""Template and config file cataloger for a knowledge repository."""
 
 import re
 from dataclasses import dataclass, field
@@ -49,7 +49,7 @@ class CatalogedSlashCommand:
 
 
 class TemplateCataloger:
-    """Catalogs templates, configs, and slash commands from the conventions repo.
+    """Catalogs templates, configs, and slash commands from a knowledge repo.
 
     Scans language-specific directories and extracts metadata
     for searchable indexing.
@@ -93,7 +93,7 @@ class TemplateCataloger:
         """Initialize the cataloger.
 
         Args:
-            repo_root: Root path of the conventions repository.
+            repo_root: Root path of the knowledge repository.
         """
         self.repo_root = repo_root
 

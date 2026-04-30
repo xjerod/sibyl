@@ -827,7 +827,7 @@ class TestBranchNameGeneration:
         self,
         workflow_engine: TaskWorkflowEngine,
     ) -> None:
-        """Branch name follows convention: prefix/id-slug."""
+        """Branch name includes prefix and task slug."""
         task = make_task(
             task_id="abcd1234-5678-90ab-cdef",
             title="Add login form",

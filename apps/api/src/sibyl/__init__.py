@@ -1,7 +1,7 @@
 """Sibyl API Server.
 
 Graphiti-powered knowledge graph and task workflow for development
-conventions, patterns, templates, and hard-won wisdom.
+patterns, templates, and hard-won wisdom.
 """
 
 from pathlib import Path
