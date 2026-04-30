@@ -15,7 +15,7 @@ import structlog
 from graphiti_core.edges import EntityEdge
 from graphiti_core.errors import EdgeNotFoundError
 
-from sibyl_core.errors import ConventionsMCPError
+from sibyl_core.errors import GraphError
 from sibyl_core.graph.client import GraphClient
 from sibyl_core.models.entities import Entity, Relationship, RelationshipType
 
@@ -245,7 +245,7 @@ class RelationshipManager:
             The ID of the created relationship.
 
         Raises:
-            ConventionsMCPError: If relationship creation fails.
+            GraphError: If relationship creation fails.
         """
         log.info(
             "Creating relationship",
@@ -334,7 +334,7 @@ class RelationshipManager:
 
         except Exception as e:
             log.exception("Failed to create relationship", error=str(e))
-            raise ConventionsMCPError(
+            raise GraphError(
                 f"Failed to create relationship: {e}",
                 details={
                     "source_id": relationship.source_id,
@@ -820,7 +820,7 @@ class RelationshipManager:
             True if deleted successfully.
 
         Raises:
-            ConventionsMCPError: If deletion fails.
+            GraphError: If deletion fails.
         """
         log.info("Deleting relationship", relationship_id=relationship_id)
 
@@ -868,7 +868,7 @@ class RelationshipManager:
 
         except Exception as e:
             log.exception("Failed to delete relationship", error=str(e))
-            raise ConventionsMCPError(
+            raise GraphError(
                 f"Failed to delete relationship: {e}",
                 details={"relationship_id": relationship_id},
             ) from e

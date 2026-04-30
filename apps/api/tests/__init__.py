@@ -1,1 +1,1 @@
-"""Tests for the Conventions MCP Server."""
+"""Tests for Sibyl."""

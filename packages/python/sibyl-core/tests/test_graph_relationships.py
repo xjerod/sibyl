@@ -10,7 +10,7 @@ from graphiti_core.edges import EntityEdge
 from graphiti_core.nodes import EntityNode
 
 from sibyl_core.backends.surreal import SurrealDriver
-from sibyl_core.errors import ConventionsMCPError
+from sibyl_core.errors import GraphError
 from sibyl_core.graph.relationships import (
     VALID_RELATIONSHIP_TYPES,
     RelationshipManager,
@@ -173,7 +173,7 @@ class TestRelationshipCreate:
 
         with (
             patch.object(surreal_relationship_manager, "_surreal_entity_edge_ops", return_value=None),
-            pytest.raises(ConventionsMCPError, match="native edge operations"),
+            pytest.raises(GraphError, match="native edge operations"),
         ):
             await surreal_relationship_manager.create(sample_relationship)
 
@@ -319,7 +319,7 @@ class TestRelationshipCreate:
         sample_relationship: Relationship,
         mock_driver: MagicMock,
     ) -> None:
-        """create() raises ConventionsMCPError on failure."""
+        """create() raises GraphError on failure."""
         with (
             patch.object(
                 EntityEdge,
@@ -327,7 +327,7 @@ class TestRelationshipCreate:
                 new_callable=AsyncMock,
                 side_effect=Exception("DB connection failed"),
             ),
-            pytest.raises(ConventionsMCPError, match="Failed to create relationship"),
+            pytest.raises(GraphError, match="Failed to create relationship"),
         ):
             await relationship_manager.create(sample_relationship)
 
@@ -1019,10 +1019,10 @@ class TestRelationshipDelete:
         relationship_manager: RelationshipManager,
         mock_driver: MagicMock,
     ) -> None:
-        """delete() raises ConventionsMCPError on failure."""
+        """delete() raises GraphError on failure."""
         mock_driver.execute_query.side_effect = Exception("DB error")
 
-        with pytest.raises(ConventionsMCPError, match="Failed to delete relationship"):
+        with pytest.raises(GraphError, match="Failed to delete relationship"):
             await relationship_manager.delete("rel-001")
 
 

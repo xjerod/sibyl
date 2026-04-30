@@ -1,4 +1,4 @@
-"""Admin tools for the Conventions MCP Server.
+"""Admin tools for Sibyl.
 
 Provides maintenance and diagnostic capabilities.
 """

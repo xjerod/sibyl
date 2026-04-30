@@ -248,13 +248,13 @@ class TestCreate:
         relationship_manager: RelationshipManager,
         sample_relationship: Relationship,
     ) -> None:
-        """Should raise ConventionsMCPError on failure."""
-        from sibyl_core.errors import ConventionsMCPError
+        """Should raise GraphError on failure."""
+        from sibyl_core.errors import GraphError
 
         with patch.object(EntityEdge, "get_between_nodes", new_callable=AsyncMock) as mock_get:
             mock_get.side_effect = RuntimeError("Connection failed")
 
-            with pytest.raises(ConventionsMCPError):
+            with pytest.raises(GraphError):
                 await relationship_manager.create(sample_relationship)
 
 
@@ -512,14 +512,14 @@ class TestDelete:
         self,
         relationship_manager: RelationshipManager,
     ) -> None:
-        """Should raise ConventionsMCPError on failure."""
-        from sibyl_core.errors import ConventionsMCPError
+        """Should raise GraphError on failure."""
+        from sibyl_core.errors import GraphError
 
         relationship_manager._driver.execute_query = AsyncMock(
             side_effect=RuntimeError("Connection failed")
         )
 
-        with pytest.raises(ConventionsMCPError):
+        with pytest.raises(GraphError):
             await relationship_manager.delete("rel_123")
 
 

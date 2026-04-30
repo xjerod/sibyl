@@ -65,7 +65,3 @@ class InvalidTransitionError(SibylError):
                 "allowed_transitions": allowed or [],
             },
         )
-
-
-# Legacy alias - retained for backwards compatibility
-ConventionsMCPError = SibylError
