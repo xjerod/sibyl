@@ -234,6 +234,7 @@ async def verify_entity_project_access(
     entity_project_id: str | None,
     *,
     required_role: ProjectRole = ProjectRole.VIEWER,
+    require_existing_project: bool = False,
 ) -> ProjectRole | None:
     """Verify access to an entity's project.
 
@@ -257,6 +258,7 @@ async def verify_entity_project_access(
         ctx=ctx,
         entity_project_id=entity_project_id,
         required_role=required_role,
+        require_existing_project=require_existing_project,
     )
 
 

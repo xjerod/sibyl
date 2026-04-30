@@ -15,7 +15,6 @@ from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole, ProjectRole
-from sibyl.persistence.auth_runtime import get_project_record_by_graph_id
 from sibyl_core.services.surreal_content import (
     AGENT_DIARY_CAPTURE_SURFACE,
     RawMemory,
@@ -47,7 +46,6 @@ def _is_org_admin(ctx: AuthContext) -> bool:
 
 async def _authorize_scope(
     *,
-    org: Organization,
     ctx: AuthContext,
     memory_scope: str,
     scope_key: str | None,
@@ -56,15 +54,12 @@ async def _authorize_scope(
     if memory_scope == "project":
         if not scope_key:
             return
-        await get_project_record_by_graph_id(
-            organization_id=org.id,
-            graph_project_id=scope_key,
-        )
         await verify_entity_project_access(
             None,
             ctx,
             scope_key,
             required_role=required_project_role,
+            require_existing_project=True,
         )
         return
 
@@ -77,22 +72,18 @@ async def _authorize_scope(
 
 async def _authorize_project_filter(
     *,
-    org: Organization,
     ctx: AuthContext,
     project_id: str | None,
     required_project_role: ProjectRole,
 ) -> None:
     if not project_id:
         return
-    await get_project_record_by_graph_id(
-        organization_id=org.id,
-        graph_project_id=project_id,
-    )
     await verify_entity_project_access(
         None,
         ctx,
         project_id,
         required_role=required_project_role,
+        require_existing_project=True,
     )
 
 
@@ -170,13 +161,11 @@ async def remember_raw(
             memory_scope=request.memory_scope,
         )
         await _authorize_project_filter(
-            org=org,
             ctx=ctx,
             project_id=request.project_id,
             required_project_role=ProjectRole.CONTRIBUTOR,
         )
         await _authorize_scope(
-            org=org,
             ctx=ctx,
             memory_scope=request.memory_scope,
             scope_key=request.scope_key,
@@ -233,14 +222,12 @@ async def recall_raw(
             memory_scope=request.memory_scope,
         )
         await _authorize_scope(
-            org=org,
             ctx=ctx,
             memory_scope=request.memory_scope,
             scope_key=request.scope_key,
             required_project_role=ProjectRole.VIEWER,
         )
         await _authorize_project_filter(
-            org=org,
             ctx=ctx,
             project_id=request.project_id,
             required_project_role=ProjectRole.VIEWER,

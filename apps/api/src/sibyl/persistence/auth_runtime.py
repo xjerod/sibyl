@@ -385,12 +385,14 @@ async def verify_entity_project_access(
     ctx: Any,
     entity_project_id: str | None,
     required_role: Any,
+    require_existing_project: bool = False,
 ) -> Any:
     return await _call_runtime_helper(
         "verify_entity_project_access",
         ctx=ctx,
         entity_project_id=entity_project_id,
         required_role=required_role,
+        require_existing_project=require_existing_project,
     )
 
 

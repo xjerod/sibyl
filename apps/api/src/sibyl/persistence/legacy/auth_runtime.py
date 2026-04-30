@@ -277,6 +277,8 @@ async def _verify_entity_project_access(
     ctx: Any,
     entity_project_id: str | None,
     required_role: ProjectRole,
+    *,
+    require_existing_project: bool = False,
 ) -> ProjectRole | None:
     from sibyl.auth.authorization import ProjectAuthorizationError
 
@@ -305,6 +307,8 @@ async def _verify_entity_project_access(
     )
 
     if project is None:
+        if require_existing_project:
+            raise HTTPException(status_code=404, detail=f"Project not found: {entity_project_id}")
         if ctx.org_role in _ORG_ADMIN_ROLES:
             return ProjectRole.OWNER
         if ctx.org_role is not None and required_role == ProjectRole.VIEWER:
@@ -339,6 +343,7 @@ async def verify_legacy_entity_project_access(
     ctx: Any,
     entity_project_id: str | None,
     required_role: ProjectRole,
+    require_existing_project: bool = False,
 ) -> ProjectRole | None:
     async with get_session() as session:
         return await _verify_entity_project_access(
@@ -346,6 +351,7 @@ async def verify_legacy_entity_project_access(
             ctx,
             entity_project_id,
             required_role,
+            require_existing_project=require_existing_project,
         )
 
 

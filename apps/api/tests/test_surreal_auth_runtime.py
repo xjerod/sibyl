@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from sibyl.auth.primitives import DeviceTokenError
 from sibyl.db.models import ProjectRole
@@ -246,6 +247,43 @@ async def test_verify_entity_project_access_batches_project_grants(
         "graph_project_id": "project_team",
         "user_id": str(user_id),
     }
+
+
+@pytest.mark.asyncio
+async def test_verify_entity_project_access_can_require_existing_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    client = _RecordingAuthClient(
+        {
+            "project": None,
+            "direct_membership": None,
+            "team_projects": [],
+        }
+    )
+    ctx = SimpleNamespace(
+        organization=SimpleNamespace(id=org_id),
+        user=SimpleNamespace(id=user_id),
+        org_role="member",
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await surreal_auth_runtime.verify_entity_project_access(
+            ctx=ctx,
+            entity_project_id="missing_project",
+            required_role=ProjectRole.VIEWER,
+            require_existing_project=True,
+        )
+
+    assert getattr(exc.value, "status_code", None) == 404
+    assert len(client.calls) == 1
 
 
 @pytest.mark.asyncio

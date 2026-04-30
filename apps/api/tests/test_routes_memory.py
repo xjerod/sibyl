@@ -91,7 +91,6 @@ async def test_remember_raw_diary_sets_agent_metadata_and_surface() -> None:
     org = _org()
     ctx = _ctx()
     with (
-        patch("sibyl.api.routes.memory.get_project_record_by_graph_id", AsyncMock()) as get_project,
         patch("sibyl.api.routes.memory.verify_entity_project_access", AsyncMock()) as verify,
         patch(
             "sibyl.api.routes.memory.remember_raw_memory",
@@ -121,15 +120,12 @@ async def test_remember_raw_diary_sets_agent_metadata_and_surface() -> None:
             ctx=ctx,
         )
 
-    get_project.assert_awaited_once_with(
-        organization_id=org.id,
-        graph_project_id="project_123",
-    )
     verify.assert_awaited_once_with(
         None,
         ctx,
         "project_123",
         required_role=ProjectRole.CONTRIBUTOR,
+        require_existing_project=True,
     )
     remember.assert_awaited_once_with(
         organization_id=str(org.id),
@@ -211,7 +207,6 @@ async def test_remember_raw_verifies_project_scope_write_access() -> None:
     org = _org()
     ctx = _ctx()
     with (
-        patch("sibyl.api.routes.memory.get_project_record_by_graph_id", AsyncMock()) as get_project,
         patch("sibyl.api.routes.memory.verify_entity_project_access", AsyncMock()) as verify,
         patch(
             "sibyl.api.routes.memory.remember_raw_memory",
@@ -228,15 +223,12 @@ async def test_remember_raw_verifies_project_scope_write_access() -> None:
             ctx=ctx,
         )
 
-    get_project.assert_awaited_once_with(
-        organization_id=org.id,
-        graph_project_id="project_123",
-    )
     verify.assert_awaited_once_with(
         None,
         ctx,
         "project_123",
         required_role=ProjectRole.CONTRIBUTOR,
+        require_existing_project=True,
     )
 
 
@@ -273,7 +265,6 @@ async def test_recall_raw_diary_filters_agent_and_project() -> None:
     org = _org()
     ctx = _ctx()
     with (
-        patch("sibyl.api.routes.memory.get_project_record_by_graph_id", AsyncMock()) as get_project,
         patch("sibyl.api.routes.memory.verify_entity_project_access", AsyncMock()) as verify,
         patch("sibyl.api.routes.memory.recall_raw_memory", AsyncMock(return_value=[])) as recall,
     ):
@@ -288,15 +279,12 @@ async def test_recall_raw_diary_filters_agent_and_project() -> None:
             ctx=ctx,
         )
 
-    get_project.assert_awaited_once_with(
-        organization_id=org.id,
-        graph_project_id="project_123",
-    )
     verify.assert_awaited_once_with(
         None,
         ctx,
         "project_123",
         required_role=ProjectRole.VIEWER,
+        require_existing_project=True,
     )
     recall.assert_awaited_once_with(
         organization_id=str(org.id),
@@ -353,7 +341,6 @@ async def test_recall_raw_verifies_project_scope_read_access() -> None:
     org = _org()
     ctx = _ctx()
     with (
-        patch("sibyl.api.routes.memory.get_project_record_by_graph_id", AsyncMock()) as get_project,
         patch("sibyl.api.routes.memory.verify_entity_project_access", AsyncMock()) as verify,
         patch("sibyl.api.routes.memory.recall_raw_memory", AsyncMock(return_value=[])),
     ):
@@ -367,15 +354,12 @@ async def test_recall_raw_verifies_project_scope_read_access() -> None:
             ctx=ctx,
         )
 
-    get_project.assert_awaited_once_with(
-        organization_id=org.id,
-        graph_project_id="project_123",
-    )
     verify.assert_awaited_once_with(
         None,
         ctx,
         "project_123",
         required_role=ProjectRole.VIEWER,
+        require_existing_project=True,
     )
 
 

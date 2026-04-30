@@ -322,4 +322,5 @@ async def test_auth_runtime_dispatches_entity_project_access_to_postgres_helper(
         ctx=ctx,
         entity_project_id="project_alpha",
         required_role=ProjectRole.CONTRIBUTOR,
+        require_existing_project=False,
     )
