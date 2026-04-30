@@ -101,7 +101,13 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
     async def node_save(self, node: EntityNode, driver: Any) -> None:
         await driver.entity_node_ops.save(driver, node)
 
-    async def node_delete(self, node: EntityNode, driver: Any) -> None:
+    async def node_delete(self, node: EntityNode | EpisodicNode | CommunityNode, driver: Any) -> None:
+        if isinstance(node, EpisodicNode):
+            await driver.episode_node_ops.delete(driver, node)
+            return
+        if isinstance(node, CommunityNode):
+            await driver.community_node_ops.delete(driver, node)
+            return
         await driver.entity_node_ops.delete(driver, node)
 
     async def node_save_bulk(

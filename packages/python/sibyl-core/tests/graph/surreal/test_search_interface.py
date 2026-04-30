@@ -417,6 +417,71 @@ class TestSurrealSearchInterfaceIntegration:
         assert len(saga_edges) == 1
 
     @pytest.mark.asyncio
+    async def test_graphiti_remove_episode_uses_surreal_native_ops(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        gid = surreal_schema.group_id
+        graph = Graphiti(
+            graph_driver=surreal_schema,
+            llm_client=MockLLMClient(),
+            embedder=_FakeEmbedder(),
+            cross_encoder=_FakeCrossEncoder(),
+        )
+        await surreal_schema.episode_node_ops.save(
+            surreal_schema,
+            _episode("remove-episode", gid, content="removal regression"),
+        )
+        await surreal_schema.execute_query(
+            "UPDATE episode SET entity_edges = ['remove-edge'] WHERE uuid = 'remove-episode';"
+        )
+        for node in (
+            _entity("remove-node", gid, name="Remove", summary="mentioned once"),
+            _entity("keep-node", gid, name="Keep", summary="edge target"),
+        ):
+            await surreal_schema.entity_node_ops.save(surreal_schema, node)
+        await surreal_schema.entity_edge_ops.save(
+            surreal_schema,
+            _edge(
+                "remove-edge",
+                gid,
+                "remove-node",
+                "keep-node",
+                fact="episode-created edge",
+            ),
+        )
+        await surreal_schema.execute_query(
+            "UPDATE relates_to SET episodes = ['remove-episode'] WHERE uuid = 'remove-edge';"
+        )
+        await surreal_schema.episodic_edge_ops.save(
+            surreal_schema,
+            _mention("remove-mention", gid, "remove-episode", "remove-node"),
+        )
+
+        await graph.remove_episode("remove-episode")
+
+        episodes = await surreal_schema.execute_query(
+            "SELECT uuid FROM episode WHERE uuid = 'remove-episode';"
+        )
+        removed_nodes = await surreal_schema.execute_query(
+            "SELECT uuid FROM entity WHERE uuid = 'remove-node';"
+        )
+        kept_nodes = await surreal_schema.execute_query(
+            "SELECT uuid FROM entity WHERE uuid = 'keep-node';"
+        )
+        edges = await surreal_schema.execute_query(
+            "SELECT uuid FROM relates_to WHERE uuid = 'remove-edge';"
+        )
+        mentions = await surreal_schema.execute_query(
+            "SELECT uuid FROM mentions WHERE uuid = 'remove-mention';"
+        )
+
+        assert episodes == []
+        assert removed_nodes == []
+        assert [node["uuid"] for node in kept_nodes] == ["keep-node"]
+        assert edges == []
+        assert mentions == []
+
+    @pytest.mark.asyncio
     async def test_bfs_and_rerankers_use_native_surreal_queries(
         self, surreal_schema: SurrealDriver
     ) -> None:
