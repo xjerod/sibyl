@@ -311,6 +311,31 @@ class TestGetProjectTags:
         assert tags == []
         client.driver.execute_query.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_uses_scoped_surreal_client_queries(self) -> None:
+        """Project tag lookup uses native SurrealQL when the driver is org-scoped."""
+
+        class FakeSurrealDriver:
+            __module__ = "sibyl_core.backends.surreal.driver"
+
+            def __init__(self) -> None:
+                self.group_id = "org-123"
+                self.execute_query = AsyncMock(
+                    return_value=[
+                        {"tags": ["Backend", "API"], "attributes": {"tags": ["ops"]}},
+                        {"tags": None, "attributes": {"tags": ["api", "Urgent"]}},
+                    ]
+                )
+
+        client = MagicMock()
+        client.driver = FakeSurrealDriver()
+        client.normalize_result.side_effect = lambda result: result
+
+        tags = await get_project_tags(client, "project-123")
+
+        assert tags == ["api", "backend", "ops", "urgent"]
+        client.driver.execute_query.assert_awaited_once()
+
     def test_build_metadata_with_status_enum(self) -> None:
         """Serializes status enum to string."""
         entity = MockEntity(

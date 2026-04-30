@@ -391,8 +391,40 @@ async def get_project_tags(runtime_or_client: Any, project_id: str) -> list[str]
                 else runtime_or_client
             )
             driver = getattr(client, "driver", None)
-            if _is_surreal_driver(driver):
-                return []
+            if driver is not None and _is_surreal_driver(driver):
+                group_id = getattr(driver, "group_id", None)
+                if not group_id:
+                    return []
+
+                result = await driver.execute_query(
+                    """
+                    SELECT tags, attributes
+                    FROM entity
+                    WHERE group_id = $group_id
+                      AND entity_type = 'task'
+                      AND project_id = $project_id
+                    LIMIT 1000;
+                    """,
+                    group_id=group_id,
+                    project_id=project_id,
+                )
+                normalized_rows = client.normalize_result(result)
+                rows = []
+                for row in normalized_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    rows.append(row.get("tags"))
+                    attributes = row.get("attributes")
+                    if isinstance(attributes, dict):
+                        rows.append(attributes.get("tags"))
+                all_tags.update(
+                    t.lower()
+                    for tags in rows
+                    if isinstance(tags, list)
+                    for t in tags
+                    if isinstance(t, str)
+                )
+                return sorted(all_tags)
 
             query = """
                 MATCH (n)
