@@ -203,57 +203,64 @@ async def test_surreal_list_orgs_materializes_roles(
     )
 
     class FakeClient:
-        async def execute_query(self, _query: str, **_params):
-            return [
-                {
-                    "uuid": str(uuid4()),
-                    "organization_id": str(org_b.id),
-                    "user_id": str(user_id),
-                    "role": OrganizationRole.VIEWER.value,
-                },
-                {
-                    "uuid": str(uuid4()),
-                    "organization_id": str(org_a.id),
-                    "user_id": str(user_id),
-                    "role": OrganizationRole.OWNER.value,
-                },
-            ]
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "FROM organization_members" in query:
+                return [
+                    {
+                        "uuid": str(uuid4()),
+                        "organization_id": str(org_b.id),
+                        "user_id": str(user_id),
+                        "role": OrganizationRole.VIEWER.value,
+                    },
+                    {
+                        "uuid": str(uuid4()),
+                        "organization_id": str(org_a.id),
+                        "user_id": str(user_id),
+                        "role": OrganizationRole.OWNER.value,
+                    },
+                ]
+            if "FROM organizations" in query:
+                return [
+                    {
+                        "uuid": str(org_a.id),
+                        "slug": org_a.slug,
+                        "name": org_a.name,
+                        "is_personal": org_a.is_personal,
+                    },
+                    {
+                        "uuid": str(org_b.id),
+                        "slug": org_b.slug,
+                        "name": org_b.name,
+                        "is_personal": org_b.is_personal,
+                    },
+                ]
+            raise AssertionError(query)
 
         async def close(self) -> None:
             return None
 
+    fake_client = FakeClient()
+
     @asynccontextmanager
     async def fake_scope():
-        yield FakeClient()
-
-    org_repo = SimpleNamespace(
-        get_by_id=AsyncMock(side_effect=lambda org_id: {org_a.id: org_a, org_b.id: org_b}[org_id])
-    )
-    membership_repo = SimpleNamespace(
-        get_for_user=AsyncMock(
-            side_effect=lambda org_id, _user_id: SimpleNamespace(
-                role=OrganizationRole.OWNER if org_id == org_a.id else OrganizationRole.VIEWER
-            )
-        )
-    )
+        yield fake_client
 
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
-    monkeypatch.setattr(
-        surreal_organization_runtime.SurrealOrganizationRepository,
-        "from_client",
-        lambda _client: org_repo,
-    )
-    monkeypatch.setattr(
-        surreal_organization_runtime.SurrealOrganizationMembershipRepository,
-        "from_client",
-        lambda _client: membership_repo,
-    )
 
     result = await surreal_organization_runtime.list_orgs(user_id=user_id)
 
     assert [org.slug for org in result] == ["alpha", "zeta"]
     assert result[0].role == OrganizationRole.OWNER
     assert result[1].role == OrganizationRole.VIEWER
+    assert len(fake_client.calls) == 2
+    assert "FROM organization_members" in fake_client.calls[0][0]
+    assert fake_client.calls[0][1] == {"user_id": str(user_id)}
+    assert "FROM organizations" in fake_client.calls[1][0]
+    assert fake_client.calls[1][1] == {"organization_ids": [str(org_b.id), str(org_a.id)]}
 
 
 @pytest.mark.asyncio

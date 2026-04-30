@@ -231,29 +231,38 @@ async def _replace_org_invitation_record(
 
 async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
     async with _auth_client_scope() as client:
-        orgs = SurrealOrganizationRepository.from_client(client)
-        memberships = SurrealOrganizationMembershipRepository.from_client(client)
         records = _normalize_records(
             await client.execute_query(
                 "SELECT * FROM organization_members WHERE user_id = $user_id ORDER BY created_at ASC;",
                 user_id=str(user_id),
             )
         )
+        organization_ids = [
+            str(record["organization_id"]) for record in records if record.get("organization_id")
+        ]
+        if not organization_ids:
+            return []
+        organizations = _normalize_records(
+            await client.execute_query(
+                "SELECT * FROM organizations WHERE uuid IN $organization_ids;",
+                organization_ids=organization_ids,
+            )
+        )
+        organizations_by_id = {str(record.get("uuid")): record for record in organizations}
 
         summaries: list[OrgSummary] = []
         for record in records:
-            org_id = _coerce_uuid(record.get("organization_id"), field_name="organization_id")
-            organization = await orgs.get_by_id(org_id)
+            org_id = str(record.get("organization_id") or "")
+            organization = organizations_by_id.get(org_id)
             if organization is None:
                 continue
-            membership = await memberships.get_for_user(organization.id, user_id)
             summaries.append(
                 OrgSummary(
-                    id=organization.id,
-                    slug=organization.slug,
-                    name=organization.name,
-                    is_personal=organization.is_personal,
-                    role=membership.role if membership is not None else None,
+                    id=_coerce_uuid(organization.get("uuid"), field_name="organization.uuid"),
+                    slug=str(organization.get("slug") or ""),
+                    name=str(organization.get("name") or ""),
+                    is_personal=bool(organization.get("is_personal", False)),
+                    role=OrganizationRole(str(record.get("role") or OrganizationRole.MEMBER.value)),
                 )
             )
         summaries.sort(key=lambda item: item.slug)
