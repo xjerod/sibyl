@@ -470,6 +470,53 @@ async def _load_org_member_list_records(
     )
 
 
+async def _load_invitation_accept_records(
+    client: Any,
+    *,
+    token: str,
+    user_id: UUID,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    payload = await client.execute_query(
+        """
+            RETURN {
+                invitation: (
+                    SELECT * FROM organization_invitations
+                    WHERE token = $token
+                    LIMIT 1
+                )[0],
+                organization: (
+                    SELECT * FROM organizations
+                    WHERE uuid IN (
+                        SELECT VALUE organization_id FROM organization_invitations
+                        WHERE token = $token
+                        LIMIT 1
+                    )
+                    LIMIT 1
+                )[0],
+                membership: (
+                    SELECT * FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE organization_id FROM organization_invitations
+                        WHERE token = $token
+                        LIMIT 1
+                    )
+                        AND user_id = $user_id
+                    LIMIT 1
+                )[0],
+            };
+        """,
+        token=token,
+        user_id=str(user_id),
+    )
+    if not isinstance(payload, dict):
+        payload = {}
+    return (
+        _normalize_record(payload.get("invitation")),
+        _normalize_record(payload.get("organization")),
+        _normalize_record(payload.get("membership")),
+    )
+
+
 async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
     async with _auth_client_scope() as client:
         payload = await client.execute_query(
@@ -1241,20 +1288,16 @@ async def accept_org_invitation(
     request: Request,
 ) -> InvitationAcceptance:
     async with _auth_client_scope() as client:
-        memberships = SurrealOrganizationMembershipRepository.from_client(client)
-        orgs = SurrealOrganizationRepository.from_client(client)
-        records = _normalize_records(
-            await client.execute_query(
-                "SELECT * FROM organization_invitations WHERE token = $token LIMIT 1;",
-                token=token,
-            )
+        invite, organization, membership = await _load_invitation_accept_records(
+            client,
+            token=token,
+            user_id=user.id,
         )
-        if not records:
+        if invite is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation not found"
             )
 
-        invite = records[0]
         if invite.get("accepted_at") is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1276,26 +1319,52 @@ async def accept_org_invitation(
             invite.get("organization_id"),
             field_name="organization_invitations.organization_id",
         )
-        organization = await orgs.get_by_id(organization_id)
         if organization is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-        await memberships.add_member(
-            organization_id=organization.id,
-            user_id=user.id,
-            role=OrganizationRole(str(invite.get("invited_role") or OrganizationRole.MEMBER.value)),
-        )
+        role = OrganizationRole(str(invite.get("invited_role") or OrganizationRole.MEMBER.value))
+        now = _utcnow()
+        if membership is None:
+            member_write_result = await client.execute_query(
+                "CREATE organization_members CONTENT $record;",
+                record={
+                    "uuid": str(uuid4()),
+                    "organization_id": str(organization_id),
+                    "user_id": str(user.id),
+                    "role": role.value,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+        else:
+            member_write_result = await client.execute_query(
+                """
+                    UPDATE organization_members
+                    SET role = $role,
+                        updated_at = $updated_at
+                    WHERE uuid = $uuid;
+                """,
+                uuid=str(_coerce_uuid(membership.get("uuid"), field_name="membership.uuid")),
+                role=role.value,
+                updated_at=now,
+            )
+        member_write_error = _query_error(member_write_result)
+        if member_write_error is not None:
+            raise RuntimeError(member_write_error)
+        if not _normalize_records(member_write_result):
+            msg = "Failed to write organization membership"
+            raise RuntimeError(msg)
 
-        access_token = create_access_token(user_id=user.id, organization_id=organization.id)
+        access_token = create_access_token(user_id=user.id, organization_id=organization_id)
         refresh_token, refresh_expires = create_refresh_token(
             user_id=user.id,
-            organization_id=organization.id,
+            organization_id=organization_id,
         )
         await _rotate_or_create_org_session(
             client=client,
             request=request,
             user_id=user.id,
-            organization_id=organization.id,
+            organization_id=organization_id,
             access_token=access_token,
             refresh_token=refresh_token,
             refresh_expires=refresh_expires,
@@ -1315,7 +1384,7 @@ async def accept_org_invitation(
         await log_audit_event(
             action="org.invitation.accept",
             user_id=user.id,
-            organization_id=organization.id,
+            organization_id=organization_id,
             request=request,
             details={"invitation_id": str(written["uuid"])},
         )
@@ -1323,7 +1392,7 @@ async def accept_org_invitation(
             access_token=access_token,
             refresh_token=refresh_token,
             refresh_expires=refresh_expires,
-            organization_id=organization.id,
+            organization_id=organization_id,
             invitation_id=_coerce_uuid(
                 written.get("uuid"),
                 field_name="organization_invitations.uuid",

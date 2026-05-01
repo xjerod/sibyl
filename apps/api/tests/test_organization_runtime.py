@@ -1299,16 +1299,28 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
     class FakeClient:
         def __init__(self) -> None:
             self.written_invitation: dict[str, object] | None = None
+            self.written_membership: dict[str, object] | None = None
             self.calls: list[tuple[str, dict[str, object]]] = []
 
         async def execute_query(self, query: str, **params):
             self.calls.append((query, params))
-            if "SELECT * FROM organization_invitations WHERE token" in query:
-                return [invite_record]
+            if "RETURN" in query:
+                return {
+                    "invitation": invite_record,
+                    "organization": {
+                        "uuid": str(organization.id),
+                        "slug": organization.slug,
+                        "name": organization.name,
+                    },
+                    "membership": None,
+                }
+            if "CREATE organization_members CONTENT $record" in query:
+                self.written_membership = params["record"]
+                return [params["record"]]
             if "UPSERT organization_invitations CONTENT $record" in query:
                 self.written_invitation = params["record"]
                 return [params["record"]]
-            return []
+            raise AssertionError(query)
 
         async def close(self) -> None:
             return None
@@ -1319,8 +1331,6 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
     async def fake_scope():
         yield fake_client
 
-    membership_repo = SimpleNamespace(add_member=AsyncMock())
-    org_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=organization))
     session_repo = SimpleNamespace(
         get_session_by_token=AsyncMock(return_value=None),
         rotate_tokens=AsyncMock(),
@@ -1332,12 +1342,12 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealOrganizationMembershipRepository,
         "from_client",
-        lambda _client: membership_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected membership repo")),
     )
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealOrganizationRepository,
         "from_client",
-        lambda _client: org_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected org repository")),
     )
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealSessionRepository,
@@ -1367,16 +1377,17 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
         request=_request(),
     )
 
-    membership_repo.add_member.assert_awaited_once_with(
-        organization_id=organization.id,
-        user_id=user.id,
-        role=OrganizationRole.ADMIN,
-    )
+    assert fake_client.written_membership is not None
+    assert fake_client.written_membership["organization_id"] == str(organization.id)
+    assert fake_client.written_membership["user_id"] == str(user.id)
+    assert fake_client.written_membership["role"] == OrganizationRole.ADMIN.value
     session_repo.create_session.assert_awaited_once()
     session_repo.rotate_tokens.assert_not_awaited()
     assert fake_client.written_invitation is not None
     assert fake_client.written_invitation["accepted_by_user_id"] == str(user.id)
     queries = [query for query, _params in fake_client.calls]
+    assert "RETURN" in queries[0]
+    assert any("CREATE organization_members CONTENT $record" in query for query in queries)
     assert any("UPSERT organization_invitations CONTENT $record" in query for query in queries)
     assert all("DELETE FROM organization_invitations" not in query for query in queries)
     assert result.organization_id == organization.id
