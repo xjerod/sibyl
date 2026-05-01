@@ -40,7 +40,7 @@ from sibyl.persistence.surreal.auth import (
     build_surreal_auth_client,
     surreal_auth_client_scope,
 )
-from sibyl_core.auth import AuthSession, OrganizationRole
+from sibyl_core.auth import AuthSession, AuthUser, OrganizationRole
 
 _ORG_ADMIN_ROLE_VALUES = {"owner", "admin"}
 _PROJECT_ROLE_LEVELS: dict[ProjectRole, int] = {
@@ -269,6 +269,23 @@ def _auth_user_namespace(record: dict[str, Any] | None) -> SimpleNamespace | Non
         record,
         uuid_fields={"uuid"},
         datetime_fields=_USER_DATETIME_FIELDS,
+    )
+
+
+def _auth_user_model(record: dict[str, Any] | None) -> AuthUser | None:
+    user = _auth_user_namespace(record)
+    if user is None:
+        return None
+    return AuthUser(
+        id=user.id,
+        email=getattr(user, "email", None),
+        name=str(getattr(user, "name", None) or ""),
+        avatar_url=getattr(user, "avatar_url", None),
+        github_id=getattr(user, "github_id", None),
+        is_admin=bool(getattr(user, "is_admin", False)),
+        bio=getattr(user, "bio", None),
+        timezone=getattr(user, "timezone", None),
+        preferences=dict(getattr(user, "preferences", None) or {}),
     )
 
 
@@ -1326,6 +1343,30 @@ async def get_device_request_by_user_code(user_code: str):
         return _device_request_namespace(record)
 
 
+async def _load_device_authorization_user_and_request(
+    client: Any, *, user_id: UUID, user_code: str
+) -> tuple[AuthUser | None, dict[str, Any] | None, SimpleNamespace | None]:
+    payload = await client.execute_query(
+        """
+            RETURN {
+                user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                device_request: (
+                    SELECT * FROM device_authorization_requests
+                    WHERE user_code = $user_code
+                    LIMIT 1
+                )[0],
+            };
+        """,
+        user_id=str(user_id),
+        user_code=user_code,
+    )
+    if not isinstance(payload, dict):
+        payload = {}
+    user = _auth_user_model(_normalize_record(payload.get("user")))
+    record = _normalize_record(payload.get("device_request"))
+    return user, record, _device_request_namespace(record)
+
+
 async def resolve_request_claims(request) -> dict[str, Any] | None:
     claims = getattr(request.state, "jwt_claims", None)
     if claims:
@@ -1378,16 +1419,18 @@ async def login_device_browser_user(*, email: str, password: str, request):
 async def deny_device_authorization(*, user_id: UUID, user_code: str, request):
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
-        user = await get_user_by_id(user_id)
+        user, record, request_row = await _load_device_authorization_user_and_request(
+            client, user_id=user_id, user_code=user_code
+        )
         if user is None:
             return None
-        record = await repo.select_one(
-            "SELECT * FROM device_authorization_requests WHERE user_code = $user_code LIMIT 1;",
-            user_code=user_code,
-        )
-        request_row = _device_request_namespace(record)
         now = _utcnow()
-        if request_row is None or request_row.expires_at <= now or request_row.status != "pending":
+        if (
+            record is None
+            or request_row is None
+            or request_row.expires_at <= now
+            or request_row.status != "pending"
+        ):
             return None
         updated = {
             **record,
@@ -1416,20 +1459,21 @@ async def deny_device_authorization(*, user_id: UUID, user_code: str, request):
 
 async def approve_device_authorization(*, user_id: UUID, user_code: str, request):
     async with _auth_client_scope() as client:
-        users = SurrealUserRepository.from_client(client)
         orgs = SurrealOrganizationRepository.from_client(client)
         memberships = SurrealOrganizationMembershipRepository.from_client(client)
         repo = _SurrealRepository(client)
-        user = await users.get_by_id(user_id)
+        user, record, request_row = await _load_device_authorization_user_and_request(
+            client, user_id=user_id, user_code=user_code
+        )
         if user is None:
             return None
-        record = await repo.select_one(
-            "SELECT * FROM device_authorization_requests WHERE user_code = $user_code LIMIT 1;",
-            user_code=user_code,
-        )
-        request_row = _device_request_namespace(record)
         now = _utcnow()
-        if request_row is None or request_row.expires_at <= now or request_row.status != "pending":
+        if (
+            record is None
+            or request_row is None
+            or request_row.expires_at <= now
+            or request_row.status != "pending"
+        ):
             return None
         organization = await orgs.create_personal_for_user(user)
         await memberships.add_member(

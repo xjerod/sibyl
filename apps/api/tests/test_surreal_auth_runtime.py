@@ -743,6 +743,90 @@ async def test_start_device_authorization_uses_shared_device_code_primitives(
 
 
 @pytest.mark.asyncio
+async def test_approve_device_authorization_batches_user_and_request_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 4, 23, 16, 0, tzinfo=UTC).replace(tzinfo=None)
+    user_id = uuid4()
+    organization_id = uuid4()
+    device_request_id = uuid4()
+    user_record = {
+        "uuid": str(user_id),
+        "email": "nova@example.com",
+        "name": "Nova",
+    }
+    request_record = {
+        "uuid": str(device_request_id),
+        "device_code_hash": "hash",
+        "user_code": "ABCD-EFGH",
+        "client_name": "sibyl-cli",
+        "scope": "mcp",
+        "status": "pending",
+        "expires_at": now + timedelta(minutes=5),
+        "poll_interval_seconds": 5,
+    }
+    written_record = {
+        **request_record,
+        "status": "approved",
+        "approved_at": now,
+        "user_id": str(user_id),
+        "organization_id": str(organization_id),
+        "updated_at": now,
+    }
+    client = _SequenceAuthClient(
+        [{"user": user_record, "device_request": request_record}, [written_record]]
+    )
+    organization = SimpleNamespace(
+        id=organization_id,
+        name="Nova",
+        slug="u-nova",
+        is_personal=True,
+        settings={},
+    )
+    orgs = SimpleNamespace(create_personal_for_user=AsyncMock(return_value=organization))
+    memberships = SimpleNamespace(add_member=AsyncMock())
+    audit = AsyncMock()
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+    monkeypatch.setattr(surreal_auth_runtime, "_utcnow", lambda: now)
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealOrganizationRepository,
+        "from_client",
+        lambda _client: orgs,
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealOrganizationMembershipRepository,
+        "from_client",
+        lambda _client: memberships,
+    )
+    monkeypatch.setattr(surreal_auth_runtime, "_log_audit_event", audit)
+
+    approved = await surreal_auth_runtime.approve_device_authorization(
+        user_id=user_id,
+        user_code="ABCD-EFGH",
+        request=SimpleNamespace(),
+    )
+
+    assert approved is not None
+    approved_org, approved_request = approved
+    assert approved_org.id == organization_id
+    assert approved_request.status == "approved"
+    assert len(client.calls) == 2
+    query, params = client.calls[0]
+    assert "RETURN" in query
+    assert "FROM users" in query
+    assert "FROM device_authorization_requests" in query
+    assert "SELECT * FROM users" in query
+    assert params == {"user_id": str(user_id), "user_code": "ABCD-EFGH"}
+    memberships.add_member.assert_awaited_once()
+    audit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_exchange_device_code_accepts_aware_datetime_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
