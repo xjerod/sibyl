@@ -537,29 +537,25 @@ async def test_update_auth_user_changes_password_without_repository_reload(
         "password_hash": password_state.hash_hex,
         "password_iterations": password_state.iterations,
     }
+    client = _SequenceAuthClient([{"user": user_record, "email_owner": None}])
     written_record: dict[str, object] = {}
-    users = SimpleNamespace(
-        get_by_email=AsyncMock(return_value=None),
-        get_by_id=AsyncMock(side_effect=AssertionError("unexpected user reload")),
-        change_password=AsyncMock(side_effect=AssertionError("unexpected password write")),
-    )
 
     async def replace_record(_self, table, *, uuid, record):
         written_record.update(record)
         return record
 
-    select_one = AsyncMock(return_value=user_record)
+    select_one = AsyncMock(side_effect=AssertionError("unexpected user select"))
     audit = AsyncMock()
 
     monkeypatch.setattr(
         surreal_auth_runtime,
         "_auth_client_scope",
-        lambda: _StaticAuthClientScope(object()),
+        lambda: _StaticAuthClientScope(client),
     )
     monkeypatch.setattr(
         surreal_auth_runtime.SurrealUserRepository,
         "from_client",
-        lambda client: users,
+        lambda client: (_ for _ in ()).throw(AssertionError("unexpected user repository")),
     )
     monkeypatch.setattr(surreal_auth_runtime._SurrealRepository, "select_one", select_one)
     monkeypatch.setattr(
@@ -581,9 +577,13 @@ async def test_update_auth_user_changes_password_without_repository_reload(
     )
 
     assert updated.id == user_id
-    assert select_one.await_count == 1
-    users.get_by_id.assert_not_awaited()
-    users.change_password.assert_not_awaited()
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "RETURN" in query
+    assert "FROM users" in query
+    assert "email_owner: NONE" in query
+    assert params == {"user_id": str(user_id)}
+    select_one.assert_not_awaited()
     assert written_record["password_hash"] != password_state.hash_hex
     assert written_record["password_salt"] != password_state.salt_hex
     audit.assert_awaited_once()
@@ -603,23 +603,24 @@ async def test_update_auth_user_rejects_invalid_current_password_before_write(
         "password_hash": password_state.hash_hex,
         "password_iterations": password_state.iterations,
     }
+    client = _SequenceAuthClient([{"user": user_record, "email_owner": None}])
     replace_record = AsyncMock(side_effect=AssertionError("unexpected user write"))
     audit = AsyncMock(side_effect=AssertionError("unexpected audit log"))
 
     monkeypatch.setattr(
         surreal_auth_runtime,
         "_auth_client_scope",
-        lambda: _StaticAuthClientScope(object()),
+        lambda: _StaticAuthClientScope(client),
     )
     monkeypatch.setattr(
         surreal_auth_runtime.SurrealUserRepository,
         "from_client",
-        lambda client: SimpleNamespace(get_by_email=AsyncMock(return_value=None)),
+        lambda client: (_ for _ in ()).throw(AssertionError("unexpected user repository")),
     )
     monkeypatch.setattr(
         surreal_auth_runtime._SurrealRepository,
         "select_one",
-        AsyncMock(return_value=user_record),
+        AsyncMock(side_effect=AssertionError("unexpected user select")),
     )
     monkeypatch.setattr(
         surreal_auth_runtime._SurrealRepository,
@@ -642,6 +643,73 @@ async def test_update_auth_user_rejects_invalid_current_password_before_write(
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Invalid current password"
+    assert len(client.calls) == 1
+    replace_record.assert_not_awaited()
+    audit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_patch_auth_user_batches_user_and_email_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    owner_id = uuid4()
+    client = _SequenceAuthClient(
+        [
+            {
+                "user": {
+                    "uuid": str(user_id),
+                    "email": "bliss@example.com",
+                    "name": "Bliss",
+                },
+                "email_owner": {
+                    "uuid": str(owner_id),
+                    "email": "taken@example.com",
+                },
+            }
+        ]
+    )
+    replace_record = AsyncMock(side_effect=AssertionError("unexpected user write"))
+    audit = AsyncMock(side_effect=AssertionError("unexpected audit log"))
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealUserRepository,
+        "from_client",
+        lambda client: (_ for _ in ()).throw(AssertionError("unexpected user repository")),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime._SurrealRepository,
+        "select_one",
+        AsyncMock(side_effect=AssertionError("unexpected user select")),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime._SurrealRepository,
+        "replace_record",
+        replace_record,
+    )
+    monkeypatch.setattr(surreal_auth_runtime, "_log_audit_event", audit)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await surreal_auth_runtime.patch_auth_user(
+            user_id=user_id,
+            updates={"email": "Taken@Example.com"},
+            organization_id=None,
+            request=None,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Email is already in use"
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "RETURN" in query
+    assert "FROM users" in query
+    assert "email_owner" in query
+    assert params == {"user_id": str(user_id), "email": "taken@example.com"}
     replace_record.assert_not_awaited()
     audit.assert_not_awaited()
 

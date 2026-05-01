@@ -353,6 +353,39 @@ def _apply_password_change(
     return updated
 
 
+async def _load_user_update_records(
+    client: Any, *, user_id: UUID, email: str | None
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if email is None:
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                    email_owner: NONE,
+                };
+            """,
+            user_id=str(user_id),
+        )
+    else:
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                    email_owner: (
+                        SELECT * FROM users
+                        WHERE email = $email
+                        LIMIT 1
+                    )[0],
+                };
+            """,
+            user_id=str(user_id),
+            email=email,
+        )
+    if not isinstance(payload, dict):
+        payload = {}
+    return _normalize_record(payload.get("user")), _normalize_record(payload.get("email_owner"))
+
+
 def _session_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
     return _ns(
         record,
@@ -1951,18 +1984,21 @@ async def update_auth_user(
 ):
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
-        users = SurrealUserRepository.from_client(client)
-        user = await repo.select_one(
-            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id)
+        normalized_email = email.strip().lower() if email is not None else None
+        user, email_owner = await _load_user_update_records(
+            client,
+            user_id=user_id,
+            email=normalized_email,
         )
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         changes: list[str] = []
         updated = dict(user)
         if email is not None:
-            normalized_email = email.strip().lower()
-            existing = await users.get_by_email(normalized_email)
-            if existing is not None and existing.id != user_id:
+            if (
+                email_owner is not None
+                and _coerce_optional_uuid(email_owner.get("uuid")) != user_id
+            ):
                 raise HTTPException(status_code=400, detail="Email is already in use")
             updated["email"] = normalized_email
             changes.append("email")
@@ -2016,25 +2052,32 @@ async def patch_auth_user(
 ):
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
-        users = SurrealUserRepository.from_client(client)
-        user = await repo.select_one(
-            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id)
-        )
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
 
-        updated = dict(user)
-        changes: list[str] = []
-
+        normalized_email: str | None = None
         if "email" in updates:
             email = updates["email"]
             normalized_email = str(email).strip().lower() if email is not None else ""
             if not normalized_email:
                 raise HTTPException(status_code=400, detail="Email is required")
-            existing = await users.get_by_email(normalized_email)
-            if existing is not None and existing.id != user_id:
+
+        user, email_owner = await _load_user_update_records(
+            client,
+            user_id=user_id,
+            email=normalized_email,
+        )
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        updated = dict(user)
+        changes: list[str] = []
+
+        if "email" in updates:
+            if (
+                email_owner is not None
+                and _coerce_optional_uuid(email_owner.get("uuid")) != user_id
+            ):
                 raise HTTPException(status_code=400, detail="Email is already in use")
             updated["email"] = normalized_email
             changes.append("email")
