@@ -33,7 +33,6 @@ from sibyl.persistence.organization_common import (
 from sibyl.persistence.surreal.auth import (
     SurrealOrganizationMembershipRepository,
     SurrealOrganizationRepository,
-    SurrealUserRepository,
     surreal_auth_client_scope,
 )
 from sibyl.persistence.surreal.auth_runtime import SurrealSessionRepository
@@ -263,6 +262,55 @@ async def _replace_org_invitation_record(
         msg = f"Failed to write organization invitation {uuid}"
         raise RuntimeError(msg)
     return created[0]
+
+
+async def _load_org_member_add_records(
+    client: Any,
+    *,
+    slug: str,
+    actor_id: UUID,
+    target_user_id: UUID,
+) -> tuple[
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
+    payload = await client.execute_query(
+        """
+            RETURN {
+                organization: (SELECT * FROM organizations WHERE slug = $slug LIMIT 1)[0],
+                actor_membership: (
+                    SELECT * FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                    )
+                        AND user_id = $actor_id
+                    LIMIT 1
+                )[0],
+                target_user: (SELECT * FROM users WHERE uuid = $target_user_id LIMIT 1)[0],
+                target_membership: (
+                    SELECT * FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                    )
+                        AND user_id = $target_user_id
+                    LIMIT 1
+                )[0],
+            };
+        """,
+        slug=slug,
+        actor_id=str(actor_id),
+        target_user_id=str(target_user_id),
+    )
+    if not isinstance(payload, dict):
+        payload = {}
+    return (
+        _normalize_record(payload.get("organization")),
+        _normalize_record(payload.get("actor_membership")),
+        _normalize_record(payload.get("target_user")),
+        _normalize_record(payload.get("target_membership")),
+    )
 
 
 async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
@@ -707,37 +755,76 @@ async def add_org_member(
     request: Request,
 ) -> OrgMemberChange:
     async with _auth_client_scope() as client:
-        orgs = SurrealOrganizationRepository.from_client(client)
-        memberships = SurrealOrganizationMembershipRepository.from_client(client)
-        users = SurrealUserRepository.from_client(client)
-
-        organization = await orgs.get_by_slug(slug)
+        organization, actor_membership, target_user, target_membership = (
+            await _load_org_member_add_records(
+                client,
+                slug=slug,
+                actor_id=actor_id,
+                target_user_id=target_user_id,
+            )
+        )
         if organization is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        actor_membership = await memberships.get_for_user(organization.id, actor_id)
         if actor_membership is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        if actor_membership.role not in {OrganizationRole.OWNER, OrganizationRole.ADMIN}:
+        actor_role = OrganizationRole(
+            str(actor_membership.get("role") or OrganizationRole.MEMBER.value)
+        )
+        if actor_role not in {OrganizationRole.OWNER, OrganizationRole.ADMIN}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-        if await users.get_by_id(target_user_id) is None:
+        if target_user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-        membership = await memberships.add_member(
-            organization_id=organization.id,
-            user_id=target_user_id,
-            role=role,
-        )
+        organization_id = _coerce_uuid(organization.get("uuid"), field_name="organization.uuid")
+        now = _utcnow()
+        if target_membership is not None:
+            write_result = await client.execute_query(
+                """
+                    UPDATE organization_members
+                    SET role = $role,
+                        updated_at = $updated_at
+                    WHERE uuid = $uuid;
+                """,
+                uuid=str(_coerce_uuid(target_membership.get("uuid"), field_name="membership.uuid")),
+                role=role.value,
+                updated_at=now,
+            )
+        else:
+            write_result = await client.execute_query(
+                "CREATE organization_members CONTENT $record;",
+                record={
+                    "uuid": str(uuid4()),
+                    "organization_id": str(organization_id),
+                    "user_id": str(target_user_id),
+                    "role": role.value,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+        error = _query_error(write_result)
+        if error is not None:
+            if _is_uniqueness_error(error):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="User is already a member",
+                )
+            raise RuntimeError(error)
+        written = _normalize_records(write_result)
+        if not written:
+            msg = "Failed to write organization membership"
+            raise RuntimeError(msg)
+        membership = written[0]
         await log_audit_event(
             action="org.member.add",
             user_id=actor_id,
-            organization_id=organization.id,
+            organization_id=organization_id,
             request=request,
-            details={"target_user_id": str(membership.user_id), "role": membership.role.value},
+            details={"target_user_id": str(target_user_id), "role": role.value},
         )
         return OrgMemberChange(
-            org_id=organization.id,
-            user_id=membership.user_id,
-            role=membership.role,
+            org_id=organization_id,
+            user_id=_coerce_uuid(membership.get("user_id"), field_name="membership.user_id"),
+            role=OrganizationRole(str(membership.get("role") or role.value)),
         )
 
 
