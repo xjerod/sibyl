@@ -30,11 +30,7 @@ from sibyl.persistence.organization_common import (
     ProjectMembersResult,
     can_manage_project_members,
 )
-from sibyl.persistence.surreal.auth import (
-    SurrealOrganizationMembershipRepository,
-    SurrealOrganizationRepository,
-    surreal_auth_client_scope,
-)
+from sibyl.persistence.surreal.auth import surreal_auth_client_scope
 from sibyl.persistence.surreal.auth_runtime import SurrealSessionRepository
 
 log = structlog.get_logger()
@@ -565,9 +561,13 @@ async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
 
 async def list_org_ids() -> list[str]:
     async with _auth_client_scope() as client:
-        orgs = SurrealOrganizationRepository.from_client(client)
-        organizations = await orgs.list_all(limit=100_000)
-        return [str(org.id) for org in organizations]
+        organizations = _normalize_records(
+            await client.execute_query(
+                "SELECT uuid FROM organizations ORDER BY created_at ASC LIMIT $limit;",
+                limit=100_000,
+            )
+        )
+        return [str(record["uuid"]) for record in organizations if record.get("uuid") is not None]
 
 
 async def create_org(
@@ -578,38 +578,81 @@ async def create_org(
     slug: str | None = None,
 ) -> OrgAuthResult:
     async with _auth_client_scope() as client:
-        orgs = SurrealOrganizationRepository.from_client(client)
-        memberships = SurrealOrganizationMembershipRepository.from_client(client)
         resolved_slug = slugify(slug or name)
-        existing = await orgs.get_by_slug(resolved_slug)
-        if existing is not None:
+        existing = _normalize_records(
+            await client.execute_query(
+                "SELECT uuid FROM organizations WHERE slug = $slug LIMIT 1;",
+                slug=resolved_slug,
+            )
+        )
+        if existing:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already taken")
 
-        organization = await orgs.create(name=name, slug=resolved_slug, is_personal=False)
-        await memberships.add_member(
-            organization_id=organization.id,
-            user_id=user_id,
-            role=OrganizationRole.OWNER,
+        now = _utcnow()
+        create_result = await client.execute_query(
+            "CREATE organizations CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "name": name,
+                "slug": resolved_slug,
+                "is_personal": False,
+                "settings": {},
+                "created_at": now,
+                "updated_at": now,
+            },
         )
+        error = _query_error(create_result)
+        if error is not None:
+            if _is_uniqueness_error(error):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Slug already taken",
+                )
+            raise RuntimeError(error)
+        created = _normalize_records(create_result)
+        if not created:
+            msg = "Failed to create organization"
+            raise RuntimeError(msg)
+        organization = created[0]
+        organization_id = _coerce_uuid(organization.get("uuid"), field_name="organization.uuid")
+
+        membership_result = await client.execute_query(
+            "CREATE organization_members CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "organization_id": str(organization_id),
+                "user_id": str(user_id),
+                "role": OrganizationRole.OWNER.value,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        error = _query_error(membership_result)
+        if error is not None:
+            raise RuntimeError(error)
+        if not _normalize_records(membership_result):
+            msg = "Failed to create organization owner membership"
+            raise RuntimeError(msg)
+
         try:
-            await ensure_graph_indexes(str(organization.id))
+            await ensure_graph_indexes(str(organization_id))
         except Exception as exc:
             log.debug(
                 "Graph index setup deferred",
-                org_id=str(organization.id),
+                org_id=str(organization_id),
                 error=str(exc),
             )
 
-        access_token = create_access_token(user_id=user_id, organization_id=organization.id)
+        access_token = create_access_token(user_id=user_id, organization_id=organization_id)
         refresh_token, refresh_expires = create_refresh_token(
             user_id=user_id,
-            organization_id=organization.id,
+            organization_id=organization_id,
         )
         await _rotate_or_create_org_session(
             client=client,
             request=request,
             user_id=user_id,
-            organization_id=organization.id,
+            organization_id=organization_id,
             access_token=access_token,
             refresh_token=refresh_token,
             refresh_expires=refresh_expires,
@@ -617,14 +660,17 @@ async def create_org(
         await log_audit_event(
             action="org.create",
             user_id=user_id,
-            organization_id=organization.id,
+            organization_id=organization_id,
             request=request,
-            details={"slug": organization.slug, "name": organization.name},
+            details={
+                "slug": str(organization.get("slug") or ""),
+                "name": str(organization.get("name") or ""),
+            },
         )
         return OrgAuthResult(
-            id=organization.id,
-            slug=organization.slug,
-            name=organization.name,
+            id=organization_id,
+            slug=str(organization.get("slug") or ""),
+            name=str(organization.get("name") or ""),
             access_token=access_token,
             refresh_token=refresh_token,
             refresh_expires=refresh_expires,
