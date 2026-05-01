@@ -314,18 +314,29 @@ async def test_mark_current_updates_session_flags_without_loading_all_sessions()
         "refresh_token_expires_at": datetime.now(UTC) + timedelta(days=30),
         "revoked_at": None,
     }
-    client = _SequenceAuthClient([[session_record], [], [session_record]])
+    client = _SequenceAuthClient(
+        [
+            [session_record],
+            {
+                "result": [
+                    {"status": "OK", "result": []},
+                    {"status": "OK", "result": [session_record]},
+                ]
+            },
+        ]
+    )
     repo = surreal_auth_runtime.SurrealSessionRepository(client)
 
     result = await repo.mark_current(token)
 
     assert result is True
-    assert len(client.calls) == 3
+    assert len(client.calls) == 2
     assert "ORDER BY created_at" not in " ".join(query for query, _ in client.calls)
-    assert "UPDATE user_sessions SET is_current = false" in client.calls[1][0]
-    assert "UPDATE user_sessions SET is_current = true" in client.calls[2][0]
+    assert client.calls[1][0].count("UPDATE user_sessions") == 2
+    assert "is_current = false" in client.calls[1][0]
+    assert "is_current = true" in client.calls[1][0]
     assert client.calls[1][1]["user_id"] == str(user_id)
-    assert client.calls[2][1]["uuid"] == str(session_id)
+    assert client.calls[1][1]["uuid"] == str(session_id)
 
 
 @pytest.mark.asyncio

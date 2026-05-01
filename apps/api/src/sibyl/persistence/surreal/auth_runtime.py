@@ -614,26 +614,20 @@ class SurrealSessionRepository(_SurrealRepository):
         user_id = str(record["user_id"])
         session_id = str(record["uuid"])
         now = _utcnow()
-        clear_result = await self._client.execute_query(
-            "UPDATE user_sessions SET is_current = false, updated_at = $updated_at "
-            "WHERE user_id = $user_id AND is_current = true AND uuid != $uuid;",
+        await _execute_raw_statement_records(
+            self._client,
+            """
+                UPDATE user_sessions
+                SET is_current = false, updated_at = $updated_at
+                WHERE user_id = $user_id AND is_current = true AND uuid != $uuid;
+                UPDATE user_sessions
+                SET is_current = true, updated_at = $updated_at
+                WHERE uuid = $uuid AND user_id = $user_id;
+            """,
             user_id=user_id,
             uuid=session_id,
             updated_at=now,
         )
-        error = _query_error(clear_result)
-        if error is not None:
-            raise RuntimeError(error)
-        set_result = await self._client.execute_query(
-            "UPDATE user_sessions SET is_current = true, updated_at = $updated_at "
-            "WHERE uuid = $uuid AND user_id = $user_id;",
-            uuid=session_id,
-            user_id=user_id,
-            updated_at=now,
-        )
-        error = _query_error(set_result)
-        if error is not None:
-            raise RuntimeError(error)
         return True
 
     async def revoke_session(self, session_id: UUID, user_id: UUID) -> bool:
