@@ -95,6 +95,16 @@ class RelationshipManager:
             return self._driver.entity_edge_ops
         return None
 
+    def _surreal_episodic_edge_ops(self):
+        try:
+            from sibyl_core.backends.surreal import SurrealDriver
+        except ImportError:
+            return None
+
+        if isinstance(self._driver, SurrealDriver):
+            return self._driver.episodic_edge_ops
+        return None
+
     def _surreal_entity_node_ops(self):
         try:
             from sibyl_core.backends.surreal import SurrealDriver
@@ -154,6 +164,28 @@ class RelationshipManager:
                 **(relationship.metadata or {}),
             },
         )
+
+    async def _try_save_as_episode_mention(self, relationship: Relationship) -> bool:
+        episodic_edge_ops = self._surreal_episodic_edge_ops()
+        if episodic_edge_ops is None:
+            return False
+
+        from graphiti_core.edges import EpisodicEdge
+
+        try:
+            await episodic_edge_ops.save(
+                self._driver,
+                EpisodicEdge(
+                    uuid=relationship.id or str(uuid4()),
+                    group_id=self._group_id,
+                    source_node_uuid=relationship.source_id,
+                    target_node_uuid=relationship.target_id,
+                    created_at=relationship.created_at,
+                ),
+            )
+        except ValueError:
+            return False
+        return True
 
     def _from_graphiti_edge(self, edge: EntityEdge) -> Relationship:
         """Convert Graphiti's EntityEdge to our Relationship model.
@@ -273,7 +305,11 @@ class RelationshipManager:
                         return edge.uuid
 
                 edge = self._to_graphiti_edge(relationship)
-                await surreal_edge_ops.save(self._driver, edge)
+                try:
+                    await surreal_edge_ops.save(self._driver, edge)
+                except ValueError as save_error:
+                    if not await self._try_save_as_episode_mention(relationship):
+                        raise save_error
                 log.info("Created relationship", relationship_id=edge.uuid)
                 return edge.uuid
 
