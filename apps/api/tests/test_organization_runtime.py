@@ -244,36 +244,37 @@ async def test_surreal_list_orgs_materializes_roles(
 
         async def execute_query(self, query: str, **params):
             self.calls.append((query, params))
-            if "FROM organization_members" in query:
-                return [
-                    {
-                        "uuid": str(uuid4()),
-                        "organization_id": str(org_b.id),
-                        "user_id": str(user_id),
-                        "role": OrganizationRole.VIEWER.value,
-                    },
-                    {
-                        "uuid": str(uuid4()),
-                        "organization_id": str(org_a.id),
-                        "user_id": str(user_id),
-                        "role": OrganizationRole.OWNER.value,
-                    },
-                ]
-            if "FROM organizations" in query:
-                return [
-                    {
-                        "uuid": str(org_a.id),
-                        "slug": org_a.slug,
-                        "name": org_a.name,
-                        "is_personal": org_a.is_personal,
-                    },
-                    {
-                        "uuid": str(org_b.id),
-                        "slug": org_b.slug,
-                        "name": org_b.name,
-                        "is_personal": org_b.is_personal,
-                    },
-                ]
+            if "RETURN" in query:
+                return {
+                    "memberships": [
+                        {
+                            "uuid": str(uuid4()),
+                            "organization_id": str(org_b.id),
+                            "user_id": str(user_id),
+                            "role": OrganizationRole.VIEWER.value,
+                        },
+                        {
+                            "uuid": str(uuid4()),
+                            "organization_id": str(org_a.id),
+                            "user_id": str(user_id),
+                            "role": OrganizationRole.OWNER.value,
+                        },
+                    ],
+                    "organizations": [
+                        {
+                            "uuid": str(org_a.id),
+                            "slug": org_a.slug,
+                            "name": org_a.name,
+                            "is_personal": org_a.is_personal,
+                        },
+                        {
+                            "uuid": str(org_b.id),
+                            "slug": org_b.slug,
+                            "name": org_b.name,
+                            "is_personal": org_b.is_personal,
+                        },
+                    ],
+                }
             raise AssertionError(query)
 
         async def close(self) -> None:
@@ -292,11 +293,10 @@ async def test_surreal_list_orgs_materializes_roles(
     assert [org.slug for org in result] == ["alpha", "zeta"]
     assert result[0].role == OrganizationRole.OWNER
     assert result[1].role == OrganizationRole.VIEWER
-    assert len(fake_client.calls) == 2
+    assert len(fake_client.calls) == 1
     assert "FROM organization_members" in fake_client.calls[0][0]
     assert fake_client.calls[0][1] == {"user_id": str(user_id)}
-    assert "FROM organizations" in fake_client.calls[1][0]
-    assert fake_client.calls[1][1] == {"organization_ids": [str(org_b.id), str(org_a.id)]}
+    assert "FROM organizations" in fake_client.calls[0][0]
 
 
 @pytest.mark.asyncio

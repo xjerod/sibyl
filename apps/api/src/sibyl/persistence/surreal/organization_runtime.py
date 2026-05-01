@@ -269,23 +269,29 @@ async def _replace_org_invitation_record(
 
 async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
     async with _auth_client_scope() as client:
-        records = _normalize_records(
-            await client.execute_query(
-                "SELECT * FROM organization_members WHERE user_id = $user_id ORDER BY created_at ASC;",
-                user_id=str(user_id),
-            )
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    memberships: (
+                        SELECT * FROM organization_members
+                        WHERE user_id = $user_id
+                        ORDER BY created_at ASC
+                    ),
+                    organizations: (
+                        SELECT * FROM organizations
+                        WHERE uuid IN (
+                            SELECT VALUE organization_id FROM organization_members
+                            WHERE user_id = $user_id
+                        )
+                    ),
+                };
+            """,
+            user_id=str(user_id),
         )
-        organization_ids = [
-            str(record["organization_id"]) for record in records if record.get("organization_id")
-        ]
-        if not organization_ids:
-            return []
-        organizations = _normalize_records(
-            await client.execute_query(
-                "SELECT * FROM organizations WHERE uuid IN $organization_ids;",
-                organization_ids=organization_ids,
-            )
-        )
+        if not isinstance(payload, dict):
+            payload = {}
+        records = _normalize_records(payload.get("memberships"))
+        organizations = _normalize_records(payload.get("organizations"))
         organizations_by_id = {str(record.get("uuid")): record for record in organizations}
 
         summaries: list[OrgSummary] = []
