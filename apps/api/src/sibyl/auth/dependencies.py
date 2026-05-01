@@ -112,6 +112,9 @@ async def get_current_user(
     if getattr(cached_user, "id", None) == user_id:
         return cast("User", cached_user)
 
+    if claims.get("org") and cached_ctx is None:
+        return cast("User", (await build_auth_context(request)).user)
+
     try:
         user = await get_user_by_id(user_id)
     except TimeoutError as e:

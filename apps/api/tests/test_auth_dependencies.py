@@ -129,22 +129,53 @@ async def test_build_auth_context_returns_503_when_auth_store_times_out(
 
 
 @pytest.mark.asyncio
-async def test_get_current_user_uses_surreal_lookup_without_postgres(
+async def test_get_current_user_uses_auth_context_when_org_claim_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = uuid4()
     org_id = uuid4()
     request = _make_request(user_id=str(user_id), org_id=str(org_id))
     expected_user = SimpleNamespace(id=user_id, email="nova@example.com")
+    expected_ctx = SimpleNamespace(user=expected_user, organization=SimpleNamespace(id=org_id))
 
+    resolve_auth_context = AsyncMock(return_value=expected_ctx)
     get_user_by_id = AsyncMock(return_value=expected_user)
 
     monkeypatch.setattr(dependencies.settings, "auth_store", "surreal")
+    monkeypatch.setattr(dependencies, "resolve_auth_context", resolve_auth_context)
     monkeypatch.setattr(dependencies, "get_user_by_id", get_user_by_id)
 
     result = await dependencies.get_current_user(request)
 
     assert result is expected_user
+    assert request.state.auth_context is expected_ctx
+    resolve_auth_context.assert_awaited_once_with(
+        claims={"sub": str(user_id), "org": str(org_id)},
+        session=None,
+    )
+    get_user_by_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_uses_user_lookup_without_org_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    request = _make_request(user_id=str(user_id), org_id=str(uuid4()))
+    request.state.jwt_claims = {"sub": str(user_id)}
+    expected_user = SimpleNamespace(id=user_id, email="nova@example.com")
+
+    resolve_auth_context = AsyncMock()
+    get_user_by_id = AsyncMock(return_value=expected_user)
+
+    monkeypatch.setattr(dependencies.settings, "auth_store", "surreal")
+    monkeypatch.setattr(dependencies, "resolve_auth_context", resolve_auth_context)
+    monkeypatch.setattr(dependencies, "get_user_by_id", get_user_by_id)
+
+    result = await dependencies.get_current_user(request)
+
+    assert result is expected_user
+    resolve_auth_context.assert_not_awaited()
     get_user_by_id.assert_awaited_once_with(user_id)
 
 
@@ -155,9 +186,9 @@ async def test_get_current_user_returns_503_when_auth_store_times_out(
     user_id = uuid4()
     org_id = uuid4()
     request = _make_request(user_id=str(user_id), org_id=str(org_id))
-    get_user_by_id = AsyncMock(side_effect=TimeoutError("timed out"))
+    resolve_auth_context = AsyncMock(side_effect=TimeoutError("timed out"))
 
-    monkeypatch.setattr(dependencies, "get_user_by_id", get_user_by_id)
+    monkeypatch.setattr(dependencies, "resolve_auth_context", resolve_auth_context)
 
     with pytest.raises(dependencies.HTTPException) as exc:
         await dependencies.get_current_user(request)
