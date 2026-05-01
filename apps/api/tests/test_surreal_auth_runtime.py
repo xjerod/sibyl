@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -426,6 +426,67 @@ async def test_revoke_session_uses_single_conditional_update() -> None:
     assert params["uuid"] == str(session_id)
     assert params["user_id"] == str(user_id)
     assert params["revoked_at"] == params["updated_at"]
+
+
+@pytest.mark.asyncio
+async def test_repository_list_user_sessions_filters_active_rows_in_query() -> None:
+    user_id = uuid4()
+    session_record = {
+        "uuid": str(uuid4()),
+        "user_id": str(user_id),
+        "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+        "revoked_at": None,
+    }
+    client = _RecordingAuthClient([session_record])
+    repo = surreal_auth_runtime.SurrealSessionRepository(client)
+
+    sessions = await repo.list_user_sessions(user_id)
+
+    assert [session.id for session in sessions] == [UUID(session_record["uuid"])]
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "revoked_at = NONE" in query
+    assert "expires_at > $now" in query
+    assert params["user_id"] == str(user_id)
+    assert "now" in params
+
+
+@pytest.mark.asyncio
+async def test_list_user_sessions_filters_active_rows_in_surreal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    session_id = uuid4()
+    client = _RecordingAuthClient(
+        [
+            {
+                "uuid": str(session_id),
+                "user_id": str(user_id),
+                "token_hash": "hash",
+                "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+                "last_active_at": datetime.now(UTC).replace(tzinfo=None),
+                "created_at": datetime.now(UTC).replace(tzinfo=None),
+                "revoked_at": None,
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    sessions = await surreal_auth_runtime.list_user_sessions(user_id=user_id)
+
+    assert [session.id for session in sessions] == [session_id]
+    assert sessions[0].token_hash == "hash"
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "revoked_at = NONE" in query
+    assert "expires_at > $now" in query
+    assert params["user_id"] == str(user_id)
+    assert "now" in params
 
 
 @pytest.mark.asyncio

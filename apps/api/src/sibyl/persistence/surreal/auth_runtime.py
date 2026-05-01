@@ -587,15 +587,17 @@ class SurrealSessionRepository(_SurrealRepository):
     async def list_user_sessions(
         self, user_id: UUID, *, include_expired: bool = False
     ) -> list[AuthSession]:
-        records = await self.select_many(
-            "SELECT * FROM user_sessions WHERE user_id = $user_id ORDER BY last_active_at DESC;",
-            user_id=str(user_id),
+        params: dict[str, Any] = {"user_id": str(user_id)}
+        query = (
+            "SELECT * FROM user_sessions "
+            "WHERE user_id = $user_id AND revoked_at = NONE"
         )
-        return [
-            self._auth_session_from_record(record)
-            for record in records
-            if self._is_session_active(record, include_expired=include_expired)
-        ]
+        if not include_expired:
+            params["now"] = _utcnow()
+            query += " AND expires_at > $now"
+        query += " ORDER BY last_active_at DESC;"
+        records = await self.select_many(query, **params)
+        return [self._auth_session_from_record(record) for record in records]
 
     async def update_activity(self, token: str) -> bool:
         now = _utcnow()
@@ -2085,18 +2087,18 @@ async def list_user_sessions(
 ) -> list[SimpleNamespace]:
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
-        rows = await repo.select_many(
-            "SELECT * FROM user_sessions WHERE user_id = $user_id ORDER BY last_active_at DESC;",
-            user_id=str(user_id),
+        params: dict[str, Any] = {"user_id": str(user_id)}
+        query = (
+            "SELECT * FROM user_sessions "
+            "WHERE user_id = $user_id AND revoked_at = NONE"
         )
+        if not include_expired:
+            params["now"] = _utcnow()
+            query += " AND expires_at > $now"
+        query += " ORDER BY last_active_at DESC;"
+        rows = await repo.select_many(query, **params)
         sessions: list[SimpleNamespace] = []
         for row in rows:
-            if row.get("revoked_at") is not None:
-                continue
-            if not include_expired:
-                expires_at = _coerce_datetime(row.get("expires_at"))
-                if expires_at is None or expires_at <= _utcnow():
-                    continue
             session = _session_namespace(row)
             if session is not None:
                 sessions.append(session)
