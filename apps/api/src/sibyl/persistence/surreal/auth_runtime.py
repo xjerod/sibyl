@@ -2225,10 +2225,30 @@ async def request_password_reset(email: str) -> None:
 async def confirm_password_reset(token: str, new_password: str) -> None:
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
-        token_record = await repo.select_one(
-            "SELECT * FROM password_reset_tokens WHERE token_hash = $token_hash LIMIT 1;",
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    token: (
+                        SELECT * FROM password_reset_tokens
+                        WHERE token_hash = $token_hash
+                        LIMIT 1
+                    )[0],
+                    user: (
+                        SELECT * FROM users
+                        WHERE uuid IN (
+                            SELECT VALUE user_id FROM password_reset_tokens
+                            WHERE token_hash = $token_hash
+                            LIMIT 1
+                        )
+                        LIMIT 1
+                    )[0],
+                };
+            """,
             token_hash=_hash_reset_token(token),
         )
+        if not isinstance(payload, dict):
+            payload = {}
+        token_record = _normalize_record(payload.get("token"))
         reset_token = _password_reset_namespace(token_record)
         if reset_token is None:
             await _log_login_history(
@@ -2247,10 +2267,7 @@ async def confirm_password_reset(token: str, new_password: str) -> None:
         if reset_token.expires_at is None or reset_token.expires_at < now:
             raise HTTPException(status_code=400, detail="This reset link has expired")
 
-        user = await repo.select_one(
-            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;",
-            uuid=str(reset_token.user_id),
-        )
+        user = _normalize_record(payload.get("user"))
         if user is None:
             raise HTTPException(status_code=400, detail="User not found")
 

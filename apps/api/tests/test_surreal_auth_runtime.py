@@ -559,6 +559,61 @@ async def test_request_password_reset_batches_user_and_token_reads(
 
 
 @pytest.mark.asyncio
+async def test_confirm_password_reset_batches_token_and_user_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    token_id = uuid4()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    token_record = {
+        "uuid": str(token_id),
+        "user_id": str(user_id),
+        "token_hash": surreal_auth_runtime._hash_reset_token("reset-token"),
+        "expires_at": now + timedelta(minutes=5),
+        "used_at": None,
+        "revoked_at": None,
+        "created_at": now - timedelta(minutes=1),
+    }
+    user_record = {
+        "uuid": str(user_id),
+        "email": "bliss@example.com",
+        "name": "Bliss",
+    }
+    client = _SequenceAuthClient(
+        [
+            {"token": token_record, "user": user_record},
+            {**user_record, "password_hash": "new-hash"},
+            {**token_record, "used_at": now},
+        ]
+    )
+    login_history = AsyncMock()
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime._SurrealRepository,
+        "select_one",
+        AsyncMock(side_effect=AssertionError("unexpected split reset lookup")),
+    )
+    monkeypatch.setattr(surreal_auth_runtime, "_log_login_history", login_history)
+
+    await surreal_auth_runtime.confirm_password_reset("reset-token", "new-password")
+
+    assert len(client.calls) == 3
+    read_query, read_params = client.calls[0]
+    assert "RETURN" in read_query
+    assert "FROM password_reset_tokens" in read_query
+    assert "FROM users" in read_query
+    assert read_params == {"token_hash": surreal_auth_runtime._hash_reset_token("reset-token")}
+    assert "UPSERT users CONTENT $record" in client.calls[1][0]
+    assert "UPSERT password_reset_tokens CONTENT $record" in client.calls[2][0]
+    login_history.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_list_user_org_records_batches_organization_reads() -> None:
     user_id = uuid4()
     personal_org_id = uuid4()
