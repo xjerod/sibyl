@@ -626,13 +626,13 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
     class FakeClient:
         def __init__(self) -> None:
             self.written_invitation: dict[str, object] | None = None
+            self.calls: list[tuple[str, dict[str, object]]] = []
 
         async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
             if "SELECT * FROM organization_invitations WHERE token" in query:
                 return [invite_record]
-            if "DELETE FROM organization_invitations" in query:
-                return []
-            if "CREATE organization_invitations CONTENT $record" in query:
+            if "UPSERT organization_invitations CONTENT $record" in query:
                 self.written_invitation = params["record"]
                 return [params["record"]]
             return []
@@ -703,6 +703,9 @@ async def test_surreal_accept_org_invitation_creates_session_and_marks_accepted(
     session_repo.rotate_tokens.assert_not_awaited()
     assert fake_client.written_invitation is not None
     assert fake_client.written_invitation["accepted_by_user_id"] == str(user.id)
+    queries = [query for query, _params in fake_client.calls]
+    assert any("UPSERT organization_invitations CONTENT $record" in query for query in queries)
+    assert all("DELETE FROM organization_invitations" not in query for query in queries)
     assert result.organization_id == organization.id
     assert result.invitation_id == UUID("00000000-0000-0000-0000-000000000222")
 

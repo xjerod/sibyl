@@ -252,13 +252,11 @@ async def _require_org_admin(
 async def _replace_org_invitation_record(
     client: Any, *, uuid: UUID, record: dict[str, Any]
 ) -> dict[str, Any]:
-    await client.execute_query(
-        "DELETE FROM organization_invitations WHERE uuid = $uuid;",
-        uuid=str(uuid),
-    )
     created = _normalize_records(
         await client.execute_query(
-            "CREATE organization_invitations CONTENT $record;", record=record
+            "UPSERT organization_invitations CONTENT $record WHERE uuid = $uuid;",
+            uuid=str(uuid),
+            record=record,
         )
     )
     if not created:
