@@ -73,6 +73,44 @@ class TestCreateLearningEpisodeJob:
             link_id="rel_episode_task-123_pattern-1",
         )
 
+    @pytest.mark.asyncio
+    async def test_surreal_learning_episode_skips_missing_mention_endpoint(self) -> None:
+        task = Task(
+            id="task-123",
+            title="Ship the thing",
+            description="Complete the feature",
+            project_id="proj-1",
+            status=TaskStatus.DONE,
+            learnings="The useful bit",
+        )
+        task_data = task.model_dump(mode="json")
+
+        entity_manager = MagicMock()
+        entity_manager.create = AsyncMock(return_value="episode_task-123")
+        relationship_manager = MagicMock()
+        relationship_manager.create = AsyncMock(side_effect=AssertionError("wrong edge table"))
+        relationship_manager.get_for_entity = AsyncMock(return_value=[])
+        save_episode_mention = AsyncMock(side_effect=ValueError("target entity not found"))
+        client = SimpleNamespace()
+
+        with (
+            patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=client)),
+            patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager),
+            patch(
+                "sibyl_core.graph.relationships.RelationshipManager",
+                return_value=relationship_manager,
+            ),
+            patch("sibyl.jobs.entities._save_episode_mention", save_episode_mention),
+            patch("sibyl.jobs.entities._get_surreal_driver", MagicMock(return_value=object())),
+            patch("sibyl.jobs.entities._safe_broadcast", AsyncMock()),
+        ):
+            result = await create_learning_episode({}, task_data, "org-1")
+
+        assert result["episode_id"] == "episode_task-123"
+        assert result["task_id"] == "task-123"
+        relationship_manager.create.assert_not_awaited()
+        save_episode_mention.assert_awaited_once()
+
 
 class TestCreateLearningProcedureJob:
     @pytest.mark.asyncio

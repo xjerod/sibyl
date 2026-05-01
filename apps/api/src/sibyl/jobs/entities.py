@@ -15,6 +15,20 @@ from sibyl_core.tasks.distillation import build_learning_episode, build_learning
 log = structlog.get_logger()
 
 
+def _get_surreal_driver(client: Any, group_id: str) -> Any | None:
+    try:
+        from sibyl_core.backends.surreal import SurrealDriver
+    except ImportError:
+        return None
+
+    get_org_driver = getattr(client, "get_org_driver", None)
+    if not callable(get_org_driver):
+        return None
+
+    driver = get_org_driver(group_id)
+    return driver if isinstance(driver, SurrealDriver) else None
+
+
 async def _safe_broadcast(event: str, data: dict[str, Any], *, org_id: str | None) -> None:
     """Broadcast event via Redis pub/sub (worker runs in separate process)."""
     try:
@@ -35,13 +49,11 @@ async def _save_episode_mention(
 ) -> bool:
     try:
         from graphiti_core.edges import EpisodicEdge
-
-        from sibyl_core.backends.surreal import SurrealDriver
     except ImportError:
         return False
 
-    driver = client.get_org_driver(group_id)
-    if not isinstance(driver, SurrealDriver):
+    driver = _get_surreal_driver(client, group_id)
+    if driver is None:
         return False
 
     await driver.episodic_edge_ops.save(
@@ -69,16 +81,28 @@ async def _create_learning_artifact_link(
     source_is_episode: bool = False,
     metadata: dict[str, Any] | None = None,
 ) -> str:
-    from sibyl_core.models.entities import Relationship
+    if source_is_episode:
+        try:
+            if await _save_episode_mention(
+                client,
+                group_id=group_id,
+                episode_id=source_id,
+                target_id=target_id,
+                link_id=link_id,
+            ):
+                return link_id
+        except ValueError as exc:
+            if _get_surreal_driver(client, group_id) is not None:
+                log.warning(
+                    "learning_artifact_episode_mention_skipped",
+                    error=str(exc),
+                    episode_id=source_id,
+                    target_id=target_id,
+                )
+                return link_id
+            raise
 
-    if source_is_episode and await _save_episode_mention(
-        client,
-        group_id=group_id,
-        episode_id=source_id,
-        target_id=target_id,
-        link_id=link_id,
-    ):
-        return link_id
+    from sibyl_core.models.entities import Relationship
 
     return await relationship_manager.create(
         Relationship(

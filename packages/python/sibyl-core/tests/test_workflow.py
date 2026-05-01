@@ -681,6 +681,28 @@ class TestWorkflowEngine:
         )
 
     @pytest.mark.asyncio
+    async def test_create_learning_episode_skips_missing_surreal_mention_endpoint(
+        self,
+        workflow_engine: TaskWorkflowEngine,
+        mock_relationship_manager: MockRelationshipManager,
+    ) -> None:
+        task = make_task(
+            task_id="task_episode",
+            title="Capture learning",
+            status=TaskStatus.DONE,
+            learnings="Keep the learning even when the link target is gone.",
+        )
+        save_episode_mention = AsyncMock(side_effect=ValueError("target entity not found"))
+        workflow_engine._save_episode_mention = save_episode_mention  # type: ignore[method-assign]
+        workflow_engine._surreal_driver = MagicMock(return_value=object())  # type: ignore[method-assign]
+
+        episode_id = await workflow_engine._create_learning_episode(task)
+
+        assert episode_id == "episode_task_episode"
+        assert len(mock_relationship_manager.relationships) == 0
+        save_episode_mention.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_archive_task_sets_archived_status(
         self,
         workflow_engine: TaskWorkflowEngine,

@@ -128,12 +128,24 @@ class TaskWorkflowEngine:
         source_is_episode: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> str:
-        if source_is_episode and await self._save_episode_mention(
-            episode_id=source_id,
-            target_id=target_id,
-            link_id=link_id,
-        ):
-            return link_id
+        if source_is_episode:
+            try:
+                if await self._save_episode_mention(
+                    episode_id=source_id,
+                    target_id=target_id,
+                    link_id=link_id,
+                ):
+                    return link_id
+            except ValueError as exc:
+                if self._surreal_driver() is not None:
+                    log.warning(
+                        "Learning artifact episode mention skipped",
+                        error=str(exc),
+                        episode_id=source_id,
+                        target_id=target_id,
+                    )
+                    return link_id
+                raise
 
         return await self._relationship_manager.create(
             Relationship(
