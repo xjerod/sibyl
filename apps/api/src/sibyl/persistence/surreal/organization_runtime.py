@@ -313,6 +313,62 @@ async def _load_org_member_add_records(
     )
 
 
+async def _load_org_member_mutation_records(
+    client: Any,
+    *,
+    slug: str,
+    actor_id: UUID,
+    target_user_id: UUID,
+) -> tuple[
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    list[dict[str, Any]],
+]:
+    payload = await client.execute_query(
+        """
+            RETURN {
+                organization: (SELECT * FROM organizations WHERE slug = $slug LIMIT 1)[0],
+                actor_membership: (
+                    SELECT * FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                    )
+                        AND user_id = $actor_id
+                    LIMIT 1
+                )[0],
+                target_membership: (
+                    SELECT * FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                    )
+                        AND user_id = $target_user_id
+                    LIMIT 1
+                )[0],
+                owner_memberships: (
+                    SELECT uuid FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                    )
+                        AND role = $owner_role
+                ),
+            };
+        """,
+        slug=slug,
+        actor_id=str(actor_id),
+        target_user_id=str(target_user_id),
+        owner_role=OrganizationRole.OWNER.value,
+    )
+    if not isinstance(payload, dict):
+        payload = {}
+    return (
+        _normalize_record(payload.get("organization")),
+        _normalize_record(payload.get("actor_membership")),
+        _normalize_record(payload.get("target_membership")),
+        _normalize_records(payload.get("owner_memberships")),
+    )
+
+
 async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
     async with _auth_client_scope() as client:
         payload = await client.execute_query(
@@ -837,38 +893,70 @@ async def update_org_member_role(
     request: Request,
 ) -> OrgMemberChange:
     async with _auth_client_scope() as client:
-        orgs = SurrealOrganizationRepository.from_client(client)
-        memberships = SurrealOrganizationMembershipRepository.from_client(client)
-
-        organization = await orgs.get_by_slug(slug)
+        organization, actor_membership, target_membership, owner_memberships = (
+            await _load_org_member_mutation_records(
+                client,
+                slug=slug,
+                actor_id=actor_id,
+                target_user_id=target_user_id,
+            )
+        )
         if organization is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        actor_membership = await memberships.get_for_user(organization.id, actor_id)
         if actor_membership is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        if actor_membership.role not in {OrganizationRole.OWNER, OrganizationRole.ADMIN}:
+        actor_role = OrganizationRole(
+            str(actor_membership.get("role") or OrganizationRole.MEMBER.value)
+        )
+        if actor_role not in {OrganizationRole.OWNER, OrganizationRole.ADMIN}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-        try:
-            membership = await memberships.set_role(
-                organization_id=organization.id,
-                user_id=target_user_id,
-                role=role,
+        if target_membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User is not a member of this organization",
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        target_role = OrganizationRole(
+            str(target_membership.get("role") or OrganizationRole.MEMBER.value)
+        )
+        if target_role is OrganizationRole.OWNER and role is not OrganizationRole.OWNER:
+            if len(owner_memberships) <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot demote the last organization owner",
+                )
+
+        update_result = await client.execute_query(
+            """
+                UPDATE organization_members
+                SET role = $role,
+                    updated_at = $updated_at
+                WHERE uuid = $uuid;
+            """,
+            uuid=str(_coerce_uuid(target_membership.get("uuid"), field_name="membership.uuid")),
+            role=role.value,
+            updated_at=_utcnow(),
+        )
+        error = _query_error(update_result)
+        if error is not None:
+            raise RuntimeError(error)
+        written = _normalize_records(update_result)
+        if not written:
+            msg = "Failed to update organization membership"
+            raise RuntimeError(msg)
+        membership = written[0]
+        organization_id = _coerce_uuid(organization.get("uuid"), field_name="organization.uuid")
 
         await log_audit_event(
             action="org.member.update_role",
             user_id=actor_id,
-            organization_id=organization.id,
+            organization_id=organization_id,
             request=request,
-            details={"target_user_id": str(membership.user_id), "role": membership.role.value},
+            details={"target_user_id": str(target_user_id), "role": role.value},
         )
         return OrgMemberChange(
-            org_id=organization.id,
-            user_id=membership.user_id,
-            role=membership.role,
+            org_id=organization_id,
+            user_id=_coerce_uuid(membership.get("user_id"), field_name="membership.user_id"),
+            role=OrganizationRole(str(membership.get("role") or role.value)),
         )
 
 
@@ -880,37 +968,55 @@ async def remove_org_member(
     request: Request,
 ) -> OrgMemberChange:
     async with _auth_client_scope() as client:
-        orgs = SurrealOrganizationRepository.from_client(client)
-        memberships = SurrealOrganizationMembershipRepository.from_client(client)
-
-        organization = await orgs.get_by_slug(slug)
+        organization, actor_membership, target_membership, owner_memberships = (
+            await _load_org_member_mutation_records(
+                client,
+                slug=slug,
+                actor_id=actor_id,
+                target_user_id=target_user_id,
+            )
+        )
         if organization is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        actor_membership = await memberships.get_for_user(organization.id, actor_id)
         if actor_membership is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        if actor_id != target_user_id and actor_membership.role not in {
+        actor_role = OrganizationRole(
+            str(actor_membership.get("role") or OrganizationRole.MEMBER.value)
+        )
+        if actor_id != target_user_id and actor_role not in {
             OrganizationRole.OWNER,
             OrganizationRole.ADMIN,
         }:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-        try:
-            await memberships.remove_member(
-                organization_id=organization.id,
-                user_id=target_user_id,
+        organization_id = _coerce_uuid(organization.get("uuid"), field_name="organization.uuid")
+        if target_membership is not None:
+            target_role = OrganizationRole(
+                str(target_membership.get("role") or OrganizationRole.MEMBER.value)
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            if target_role is OrganizationRole.OWNER and len(owner_memberships) <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot remove the last organization owner",
+                )
+            delete_result = await client.execute_query(
+                "DELETE FROM organization_members WHERE uuid = $uuid;",
+                uuid=str(
+                    _coerce_uuid(target_membership.get("uuid"), field_name="membership.uuid")
+                ),
+            )
+            error = _query_error(delete_result)
+            if error is not None:
+                raise RuntimeError(error)
 
         await log_audit_event(
             action="org.member.remove",
             user_id=actor_id,
-            organization_id=organization.id,
+            organization_id=organization_id,
             request=request,
             details={"target_user_id": str(target_user_id)},
         )
-        return OrgMemberChange(org_id=organization.id, user_id=target_user_id)
+        return OrgMemberChange(org_id=organization_id, user_id=target_user_id)
 
 
 async def list_org_invitations(

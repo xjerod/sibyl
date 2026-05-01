@@ -644,35 +644,198 @@ async def test_surreal_add_org_member_batches_lookup_and_creates_missing(
 
 
 @pytest.mark.asyncio
-async def test_surreal_remove_org_member_allows_self_service(
+async def test_surreal_update_org_member_role_batches_lookup_and_update(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    org_id = uuid4()
     actor_id = uuid4()
-    org = SimpleNamespace(id=uuid4(), slug="electric-coven")
+    target_user_id = uuid4()
+    membership_id = uuid4()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "RETURN" in query:
+                return {
+                    "organization": {"uuid": str(org_id), "slug": "electric-coven"},
+                    "actor_membership": {
+                        "uuid": str(uuid4()),
+                        "organization_id": str(org_id),
+                        "user_id": str(actor_id),
+                        "role": OrganizationRole.ADMIN.value,
+                    },
+                    "target_membership": {
+                        "uuid": str(membership_id),
+                        "organization_id": str(org_id),
+                        "user_id": str(target_user_id),
+                        "role": OrganizationRole.MEMBER.value,
+                    },
+                    "owner_memberships": [{"uuid": str(uuid4())}],
+                }
+            if "UPDATE organization_members" in query:
+                return [
+                    {
+                        "uuid": str(membership_id),
+                        "organization_id": str(org_id),
+                        "user_id": str(target_user_id),
+                        "role": params["role"],
+                    }
+                ]
+            raise AssertionError(query)
+
+    fake_client = FakeClient()
 
     @asynccontextmanager
     async def fake_scope():
-        yield SimpleNamespace(close=AsyncMock())
+        yield fake_client
 
-    org_repo = SimpleNamespace(get_by_slug=AsyncMock(return_value=org))
-    membership_repo = SimpleNamespace(
-        get_for_user=AsyncMock(return_value=SimpleNamespace(role=OrganizationRole.VIEWER)),
-        remove_member=AsyncMock(),
-    )
     audit_log = AsyncMock()
 
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
+    monkeypatch.setattr(surreal_organization_runtime, "log_audit_event", audit_log)
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealOrganizationRepository,
         "from_client",
-        lambda _client: org_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected org repository")),
     )
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealOrganizationMembershipRepository,
         "from_client",
-        lambda _client: membership_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected membership repo")),
     )
+
+    result = await surreal_organization_runtime.update_org_member_role(
+        slug="electric-coven",
+        actor_id=actor_id,
+        target_user_id=target_user_id,
+        role=OrganizationRole.VIEWER,
+        request=_request(),
+    )
+
+    assert result.org_id == org_id
+    assert result.user_id == target_user_id
+    assert result.role is OrganizationRole.VIEWER
+    assert len(fake_client.calls) == 2
+    assert "RETURN" in fake_client.calls[0][0]
+    assert "UPDATE organization_members" in fake_client.calls[1][0]
+    assert fake_client.calls[1][1]["uuid"] == str(membership_id)
+    audit_log.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_surreal_update_org_member_role_rejects_last_owner_demotion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    actor_id = uuid4()
+    target_user_id = uuid4()
+    membership_id = uuid4()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "RETURN" in query:
+                return {
+                    "organization": {"uuid": str(org_id), "slug": "electric-coven"},
+                    "actor_membership": {
+                        "uuid": str(uuid4()),
+                        "organization_id": str(org_id),
+                        "user_id": str(actor_id),
+                        "role": OrganizationRole.OWNER.value,
+                    },
+                    "target_membership": {
+                        "uuid": str(membership_id),
+                        "organization_id": str(org_id),
+                        "user_id": str(target_user_id),
+                        "role": OrganizationRole.OWNER.value,
+                    },
+                    "owner_memberships": [{"uuid": str(membership_id)}],
+                }
+            raise AssertionError(query)
+
+    fake_client = FakeClient()
+
+    @asynccontextmanager
+    async def fake_scope():
+        yield fake_client
+
+    monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await surreal_organization_runtime.update_org_member_role(
+            slug="electric-coven",
+            actor_id=actor_id,
+            target_user_id=target_user_id,
+            role=OrganizationRole.ADMIN,
+            request=_request(),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Cannot demote the last organization owner"
+    assert len(fake_client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_surreal_remove_org_member_batches_lookup_and_allows_self_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    actor_id = uuid4()
+    membership_id = uuid4()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "RETURN" in query:
+                return {
+                    "organization": {"uuid": str(org_id), "slug": "electric-coven"},
+                    "actor_membership": {
+                        "uuid": str(membership_id),
+                        "organization_id": str(org_id),
+                        "user_id": str(actor_id),
+                        "role": OrganizationRole.VIEWER.value,
+                    },
+                    "target_membership": {
+                        "uuid": str(membership_id),
+                        "organization_id": str(org_id),
+                        "user_id": str(actor_id),
+                        "role": OrganizationRole.VIEWER.value,
+                    },
+                    "owner_memberships": [{"uuid": str(uuid4())}],
+                }
+            if "DELETE FROM organization_members" in query:
+                return []
+            raise AssertionError(query)
+
+    fake_client = FakeClient()
+
+    @asynccontextmanager
+    async def fake_scope():
+        yield fake_client
+
+    audit_log = AsyncMock()
+
+    monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
     monkeypatch.setattr(surreal_organization_runtime, "log_audit_event", audit_log)
+    monkeypatch.setattr(
+        surreal_organization_runtime.SurrealOrganizationRepository,
+        "from_client",
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected org repository")),
+    )
+    monkeypatch.setattr(
+        surreal_organization_runtime.SurrealOrganizationMembershipRepository,
+        "from_client",
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected membership repo")),
+    )
 
     result = await surreal_organization_runtime.remove_org_member(
         slug="electric-coven",
@@ -681,12 +844,13 @@ async def test_surreal_remove_org_member_allows_self_service(
         request=SimpleNamespace(),
     )
 
-    membership_repo.remove_member.assert_awaited_once_with(
-        organization_id=org.id,
-        user_id=actor_id,
-    )
-    assert result.org_id == org.id
+    assert result.org_id == org_id
     assert result.user_id == actor_id
+    assert len(fake_client.calls) == 2
+    assert "RETURN" in fake_client.calls[0][0]
+    assert "DELETE FROM organization_members" in fake_client.calls[1][0]
+    assert fake_client.calls[1][1]["uuid"] == str(membership_id)
+    audit_log.assert_awaited_once()
 
 
 @pytest.mark.asyncio
