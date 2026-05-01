@@ -1388,7 +1388,7 @@ async def test_surreal_list_org_members_batches_user_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     actor_id = uuid4()
-    organization = SimpleNamespace(id=uuid4())
+    org_id = uuid4()
     user_a_id = uuid4()
     user_b_id = uuid4()
     created_at = datetime.now(UTC)
@@ -1399,24 +1399,49 @@ async def test_surreal_list_org_members_batches_user_reads(
 
         async def execute_query(self, query: str, **params):
             self.calls.append((query, params))
-            if "FROM users" in query:
-                return [
-                    {
-                        "uuid": str(user_a_id),
-                        "github_id": 123,
-                        "email": "a@example.com",
-                        "name": "A",
-                        "avatar_url": "https://example.com/a.png",
+            if "RETURN" in query:
+                return {
+                    "organization": {"uuid": str(org_id), "slug": "team"},
+                    "actor_membership": {
+                        "uuid": str(uuid4()),
+                        "organization_id": str(org_id),
+                        "user_id": str(actor_id),
+                        "role": OrganizationRole.OWNER.value,
                     },
-                    {
-                        "uuid": str(user_b_id),
-                        "github_id": None,
-                        "email": "b@example.com",
-                        "name": "B",
-                        "avatar_url": None,
-                    },
-                ]
-            return []
+                    "memberships": [
+                        {
+                            "uuid": str(uuid4()),
+                            "organization_id": str(org_id),
+                            "user_id": str(user_a_id),
+                            "role": OrganizationRole.OWNER.value,
+                            "created_at": created_at,
+                        },
+                        {
+                            "uuid": str(uuid4()),
+                            "organization_id": str(org_id),
+                            "user_id": str(user_b_id),
+                            "role": OrganizationRole.MEMBER.value,
+                            "created_at": created_at,
+                        },
+                    ],
+                    "users": [
+                        {
+                            "uuid": str(user_a_id),
+                            "github_id": 123,
+                            "email": "a@example.com",
+                            "name": "A",
+                            "avatar_url": "https://example.com/a.png",
+                        },
+                        {
+                            "uuid": str(user_b_id),
+                            "github_id": None,
+                            "email": "b@example.com",
+                            "name": "B",
+                            "avatar_url": None,
+                        },
+                    ],
+                }
+            raise AssertionError(query)
 
     fake_client = FakeClient()
 
@@ -1424,35 +1449,16 @@ async def test_surreal_list_org_members_batches_user_reads(
     async def fake_scope():
         yield fake_client
 
-    org_repo = SimpleNamespace(get_by_slug=AsyncMock(return_value=organization))
-    membership_repo = SimpleNamespace(
-        get_for_user=AsyncMock(return_value=SimpleNamespace(role=OrganizationRole.OWNER)),
-        list_for_org=AsyncMock(
-            return_value=[
-                SimpleNamespace(
-                    user_id=user_a_id,
-                    role=OrganizationRole.OWNER,
-                    created_at=created_at,
-                ),
-                SimpleNamespace(
-                    user_id=user_b_id,
-                    role=OrganizationRole.MEMBER,
-                    created_at=created_at,
-                ),
-            ]
-        ),
-    )
-
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealOrganizationRepository,
         "from_client",
-        lambda _client: org_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected org repository")),
     )
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealOrganizationMembershipRepository,
         "from_client",
-        lambda _client: membership_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected membership repo")),
     )
 
     rows = await surreal_organization_runtime.list_org_members(
@@ -1462,8 +1468,12 @@ async def test_surreal_list_org_members_batches_user_reads(
 
     assert [row["user"]["email"] for row in rows] == ["a@example.com", "b@example.com"]
     assert len(fake_client.calls) == 1
-    assert "FROM users" in fake_client.calls[0][0]
-    assert fake_client.calls[0][1] == {"user_ids": [str(user_a_id), str(user_b_id)]}
+    query, params = fake_client.calls[0]
+    assert "RETURN" in query
+    assert "FROM organizations" in query
+    assert "FROM organization_members" in query
+    assert "FROM users" in query
+    assert params == {"slug": "team", "actor_id": str(actor_id)}
 
 
 @pytest.mark.asyncio

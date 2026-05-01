@@ -416,6 +416,60 @@ async def _load_org_role_records(
     )
 
 
+async def _load_org_member_list_records(
+    client: Any,
+    *,
+    slug: str,
+    actor_id: UUID,
+) -> tuple[
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    payload = await client.execute_query(
+        """
+            RETURN {
+                organization: (SELECT * FROM organizations WHERE slug = $slug LIMIT 1)[0],
+                actor_membership: (
+                    SELECT * FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                    )
+                        AND user_id = $actor_id
+                    LIMIT 1
+                )[0],
+                memberships: (
+                    SELECT * FROM organization_members
+                    WHERE organization_id IN (
+                        SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                    )
+                    ORDER BY created_at ASC
+                ),
+                users: (
+                    SELECT * FROM users
+                    WHERE uuid IN (
+                        SELECT VALUE user_id FROM organization_members
+                        WHERE organization_id IN (
+                            SELECT VALUE uuid FROM organizations WHERE slug = $slug LIMIT 1
+                        )
+                    )
+                ),
+            };
+        """,
+        slug=slug,
+        actor_id=str(actor_id),
+    )
+    if not isinstance(payload, dict):
+        payload = {}
+    return (
+        _normalize_record(payload.get("organization")),
+        _normalize_record(payload.get("actor_membership")),
+        _normalize_records(payload.get("memberships")),
+        _normalize_records(payload.get("users")),
+    )
+
+
 async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
     async with _auth_client_scope() as client:
         payload = await client.execute_query(
@@ -843,31 +897,30 @@ async def delete_org(*, request: Request, slug: str, user_id: UUID) -> None:
 
 async def list_org_members(*, slug: str, actor_id: UUID) -> list[dict[str, object]]:
     async with _auth_client_scope() as client:
-        orgs = SurrealOrganizationRepository.from_client(client)
-        memberships = SurrealOrganizationMembershipRepository.from_client(client)
-
-        organization = await orgs.get_by_slug(slug)
+        organization, actor_membership, records, users = await _load_org_member_list_records(
+            client,
+            slug=slug,
+            actor_id=actor_id,
+        )
         if organization is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        actor_membership = await memberships.get_for_user(organization.id, actor_id)
         if actor_membership is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-        records = await memberships.list_for_org(organization.id)
-        users_by_id = await _list_user_records_by_id(
-            client,
-            [membership.user_id for membership in records],
-        )
+        users_by_id = {
+            _coerce_uuid(record.get("uuid"), field_name="user.uuid"): record for record in users
+        }
         rows: list[dict[str, object]] = []
         for membership in records:
-            user = users_by_id.get(membership.user_id)
+            user_id = _coerce_uuid(membership.get("user_id"), field_name="membership.user_id")
+            user = users_by_id.get(user_id)
             if user is None:
                 continue
             rows.append(
                 {
                     "user": _member_user_payload(user, include_github_id=True),
-                    "role": membership.role.value,
-                    "created_at": membership.created_at,
+                    "role": str(membership.get("role") or OrganizationRole.MEMBER.value),
+                    "created_at": _coerce_datetime(membership.get("created_at")),
                 }
             )
         return rows
