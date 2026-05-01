@@ -2128,11 +2128,26 @@ async def request_password_reset(email: str) -> None:
         return
 
     async with _auth_client_scope() as client:
-        repo = _SurrealRepository(client)
-        user = await repo.select_one(
-            "SELECT * FROM users WHERE email = $email LIMIT 1;",
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    user: (SELECT * FROM users WHERE email = $email LIMIT 1)[0],
+                    tokens: (
+                        SELECT * FROM password_reset_tokens
+                        WHERE user_id IN (
+                            SELECT VALUE uuid FROM users
+                            WHERE email = $email
+                            LIMIT 1
+                        )
+                        ORDER BY created_at DESC
+                    ),
+                };
+            """,
             email=normalized_email,
         )
+        if not isinstance(payload, dict):
+            payload = {}
+        user = _normalize_record(payload.get("user"))
         if user is None:
             await _log_login_history(
                 client,
@@ -2146,10 +2161,7 @@ async def request_password_reset(email: str) -> None:
 
         now = _utcnow()
         rate_limit_cutoff = now - timedelta(minutes=2)
-        existing_tokens = await repo.select_many(
-            "SELECT * FROM password_reset_tokens WHERE user_id = $user_id ORDER BY created_at DESC;",
-            user_id=str(user["uuid"]),
-        )
+        existing_tokens = _normalize_records(payload.get("tokens"))
         for token_record in existing_tokens:
             created_at = _coerce_datetime(token_record.get("created_at"))
             if (

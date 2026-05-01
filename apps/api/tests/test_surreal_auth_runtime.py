@@ -486,12 +486,11 @@ async def test_update_auth_user_rejects_invalid_current_password_before_write(
 
 
 @pytest.mark.asyncio
-async def test_request_password_reset_revokes_existing_tokens_in_one_query(
+async def test_request_password_reset_batches_user_and_token_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = uuid4()
     now = datetime.now(UTC).replace(tzinfo=None)
-    client = _RecordingAuthClient([])
     user_record = {
         "uuid": str(user_id),
         "email": "bliss@example.com",
@@ -513,6 +512,9 @@ async def test_request_password_reset_revokes_existing_tokens_in_one_query(
             "revoked_at": None,
         },
     ]
+    client = _SequenceAuthClient(
+        [{"user": user_record, "tokens": existing_tokens}, [], []]
+    )
     replace_record = AsyncMock(side_effect=AssertionError("unexpected per-token write"))
     email_client = SimpleNamespace(send_template=AsyncMock())
 
@@ -524,12 +526,12 @@ async def test_request_password_reset_revokes_existing_tokens_in_one_query(
     monkeypatch.setattr(
         surreal_auth_runtime._SurrealRepository,
         "select_one",
-        AsyncMock(return_value=user_record),
+        AsyncMock(side_effect=AssertionError("unexpected split user lookup")),
     )
     monkeypatch.setattr(
         surreal_auth_runtime._SurrealRepository,
         "select_many",
-        AsyncMock(return_value=existing_tokens),
+        AsyncMock(side_effect=AssertionError("unexpected split token lookup")),
     )
     monkeypatch.setattr(
         surreal_auth_runtime._SurrealRepository,
@@ -542,6 +544,11 @@ async def test_request_password_reset_revokes_existing_tokens_in_one_query(
     await surreal_auth_runtime.request_password_reset("Bliss@Example.com")
 
     queries = [query for query, _params in client.calls]
+    read_query, read_params = client.calls[0]
+    assert "RETURN" in read_query
+    assert "FROM users" in read_query
+    assert "FROM password_reset_tokens" in read_query
+    assert read_params == {"email": "bliss@example.com"}
     assert any(
         "UPDATE password_reset_tokens SET revoked_at = $revoked_at" in query
         for query in queries
