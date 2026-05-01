@@ -2417,39 +2417,52 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
         org_id = str(ctx.organization.id)
         org_role = _role_value(ctx.org_role)
         user_id = str(ctx.user.id)
-        payload = await client.execute_query(
-            """
-                RETURN {
-                    projects: (
-                        SELECT * FROM projects
+        payload: dict[str, Any] = {}
+        if org_role in _ORG_ADMIN_ROLE_VALUES:
+            project_records = _normalize_records(
+                await client.execute_query(
+                    """
+                        SELECT graph_project_id FROM projects
                         WHERE organization_id = $organization_id
-                        ORDER BY created_at ASC
-                    ),
-                    direct_memberships: (
-                        SELECT * FROM project_members
-                        WHERE organization_id = $organization_id AND user_id = $user_id
-                        ORDER BY created_at ASC
-                    ),
-                    team_members: (
-                        SELECT * FROM team_members
-                        WHERE user_id = $user_id
-                        ORDER BY created_at ASC
-                    ),
-                    team_projects: (
-                        SELECT * FROM team_projects
-                        WHERE team_id IN (
-                            SELECT VALUE team_id FROM team_members WHERE user_id = $user_id
-                        )
-                        ORDER BY created_at ASC
-                    ),
-                };
-            """,
-            organization_id=org_id,
-            user_id=user_id,
-        )
-        if not isinstance(payload, dict):
-            payload = {}
-        project_records = _normalize_records(payload.get("projects"))
+                        ORDER BY created_at ASC;
+                    """,
+                    organization_id=org_id,
+                )
+            )
+        else:
+            raw_payload = await client.execute_query(
+                """
+                    RETURN {
+                        projects: (
+                            SELECT * FROM projects
+                            WHERE organization_id = $organization_id
+                            ORDER BY created_at ASC
+                        ),
+                        direct_memberships: (
+                            SELECT * FROM project_members
+                            WHERE organization_id = $organization_id AND user_id = $user_id
+                            ORDER BY created_at ASC
+                        ),
+                        team_members: (
+                            SELECT * FROM team_members
+                            WHERE user_id = $user_id
+                            ORDER BY created_at ASC
+                        ),
+                        team_projects: (
+                            SELECT * FROM team_projects
+                            WHERE team_id IN (
+                                SELECT VALUE team_id FROM team_members WHERE user_id = $user_id
+                            )
+                            ORDER BY created_at ASC
+                        ),
+                    };
+                """,
+                organization_id=org_id,
+                user_id=user_id,
+            )
+            if isinstance(raw_payload, dict):
+                payload = raw_payload
+            project_records = _normalize_records(payload.get("projects"))
         if not project_records:
             if ctx.org_role is None:
                 return set()
@@ -2553,6 +2566,8 @@ async def verify_entity_project_access(
             required_role=required_role,
             actual_role=ProjectRole.VIEWER if ctx.org_role else None,
         )
+    if _role_value(ctx.org_role) in _ORG_ADMIN_ROLE_VALUES and not require_existing_project:
+        return ProjectRole.OWNER
     async with _auth_client_scope() as client:
         payload = await client.execute_query(
             """

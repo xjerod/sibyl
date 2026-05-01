@@ -1066,6 +1066,42 @@ async def test_list_accessible_project_graph_ids_batches_project_grants(
 
 
 @pytest.mark.asyncio
+async def test_list_accessible_project_graph_ids_admin_skips_grant_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    client = _RecordingAuthClient(
+        [
+            {"graph_project_id": "project_a"},
+            {"graph_project_id": "project_b"},
+        ]
+    )
+    ctx = SimpleNamespace(
+        organization=SimpleNamespace(id=org_id),
+        user=SimpleNamespace(id=user_id),
+        org_role="owner",
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    accessible = await surreal_auth_runtime.list_accessible_project_graph_ids(ctx)
+
+    assert accessible == {"project_a", "project_b"}
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "SELECT graph_project_id FROM projects" in query
+    assert "project_members" not in query
+    assert "team_members" not in query
+    assert "team_projects" not in query
+    assert params == {"organization_id": str(org_id)}
+
+
+@pytest.mark.asyncio
 async def test_verify_entity_project_access_batches_project_grants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1119,6 +1155,31 @@ async def test_verify_entity_project_access_batches_project_grants(
         "graph_project_id": "project_team",
         "user_id": str(user_id),
     }
+
+
+@pytest.mark.asyncio
+async def test_verify_entity_project_access_admin_skips_project_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = SimpleNamespace(
+        organization=SimpleNamespace(id=uuid4()),
+        user=SimpleNamespace(id=uuid4()),
+        org_role="admin",
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected auth storage")),
+    )
+
+    role = await surreal_auth_runtime.verify_entity_project_access(
+        ctx=ctx,
+        entity_project_id="project_any",
+        required_role=ProjectRole.VIEWER,
+    )
+
+    assert role is ProjectRole.OWNER
 
 
 @pytest.mark.asyncio
