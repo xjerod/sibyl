@@ -1047,21 +1047,26 @@ async def test_surreal_add_project_member_rejects_existing_membership(
     project = SimpleNamespace(id=uuid4(), owner_user_id=actor.id)
 
     class FakeClient:
-        async def execute_query(self, query: str, **_params):
-            if "SELECT * FROM project_members" in query:
-                return [{"uuid": str(uuid4())}]
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "RETURN" in query:
+                return {
+                    "user": {"uuid": str(target_user_id)},
+                    "membership": {"uuid": str(uuid4())},
+                }
             return []
 
         async def close(self) -> None:
             return None
 
+    fake_client = FakeClient()
+
     @asynccontextmanager
     async def fake_scope():
-        yield FakeClient()
-
-    user_repo = SimpleNamespace(
-        get_by_id=AsyncMock(return_value=SimpleNamespace(id=target_user_id))
-    )
+        yield fake_client
 
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
     monkeypatch.setattr(
@@ -1072,7 +1077,7 @@ async def test_surreal_add_project_member_rejects_existing_membership(
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealUserRepository,
         "from_client",
-        lambda _client: user_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected user repository")),
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -1086,6 +1091,12 @@ async def test_surreal_add_project_member_rejects_existing_membership(
         )
 
     assert exc_info.value.status_code == 409
+    assert len(fake_client.calls) == 1
+    query, params = fake_client.calls[0]
+    assert "RETURN" in query
+    assert "FROM users" in query
+    assert "FROM project_members" in query
+    assert params == {"project_id": str(project.id), "user_id": str(target_user_id)}
 
 
 @pytest.mark.asyncio
@@ -1099,8 +1110,8 @@ async def test_surreal_add_project_member_handles_unique_index_conflict(
 
     class FakeClient:
         async def execute_query(self, query: str, **_params):
-            if "SELECT * FROM project_members" in query:
-                return []
+            if "RETURN" in query:
+                return {"user": {"uuid": str(target_user_id)}, "membership": None}
             if "CREATE project_members CONTENT $record" in query:
                 return {
                     "status": "ERR",
@@ -1115,10 +1126,6 @@ async def test_surreal_add_project_member_handles_unique_index_conflict(
     async def fake_scope():
         yield FakeClient()
 
-    user_repo = SimpleNamespace(
-        get_by_id=AsyncMock(return_value=SimpleNamespace(id=target_user_id))
-    )
-
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
     monkeypatch.setattr(
         surreal_organization_runtime,
@@ -1128,7 +1135,7 @@ async def test_surreal_add_project_member_handles_unique_index_conflict(
     monkeypatch.setattr(
         surreal_organization_runtime.SurrealUserRepository,
         "from_client",
-        lambda _client: user_repo,
+        lambda _client: (_ for _ in ()).throw(AssertionError("unexpected user repository")),
     )
 
     with pytest.raises(HTTPException) as exc_info:

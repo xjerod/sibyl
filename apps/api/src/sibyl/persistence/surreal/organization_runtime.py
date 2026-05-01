@@ -1142,6 +1142,31 @@ async def _list_project_member_records(
     )
 
 
+async def _load_project_member_target(
+    client: Any,
+    *,
+    project_db_id: UUID,
+    user_id: UUID,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    payload = await client.execute_query(
+        """
+            RETURN {
+                user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                membership: (
+                    SELECT * FROM project_members
+                    WHERE project_id = $project_id AND user_id = $user_id
+                    LIMIT 1
+                )[0],
+            };
+        """,
+        project_id=str(project_db_id),
+        user_id=str(user_id),
+    )
+    if not isinstance(payload, dict):
+        payload = {}
+    return _normalize_record(payload.get("user")), _normalize_record(payload.get("membership"))
+
+
 async def _delete_project_member_records(
     client: Any,
     *,
@@ -1251,7 +1276,6 @@ async def add_project_member(
     role: ProjectRole,
 ) -> ProjectMemberChange:
     async with _auth_client_scope() as client:
-        users = SurrealUserRepository.from_client(client)
         project, user_role = await _get_project_and_user_role(
             client=client,
             project_id=project_id,
@@ -1260,15 +1284,14 @@ async def add_project_member(
         )
         if not can_manage_project_members(user_role, project, actor):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-        if await users.get_by_id(target_user_id) is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-        existing = await _list_project_member_records(
+        target_user, existing = await _load_project_member_target(
             client,
             project_db_id=project.id,
             user_id=target_user_id,
         )
-        if existing:
+        if target_user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        if existing is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="User is already a member",
