@@ -1837,9 +1837,7 @@ class TestEntitySearch:
 
         surreal_entity_manager._client.client.search_ = AsyncMock()
         surreal_entity_manager._driver.entity_node_ops.get_by_group_ids = AsyncMock()
-        surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [matching_record]]
-        )
+        surreal_entity_manager._driver.execute_query = AsyncMock(return_value=[matching_record])
 
         results = await surreal_entity_manager.search(
             "repository", entity_types=[EntityType.PATTERN]
@@ -1849,8 +1847,9 @@ class TestEntitySearch:
         assert results[0][0].id == "pattern-001"
         surreal_entity_manager._client.client.search_.assert_not_awaited()
         surreal_entity_manager._driver.entity_node_ops.get_by_group_ids.assert_not_awaited()
-        fallback_query = surreal_entity_manager._driver.execute_query.await_args_list[1].args[0]
+        fallback_query = surreal_entity_manager._driver.execute_query.await_args.args[0]
         assert "FROM entity" in fallback_query
+        assert "string::lowercase(name ?? '') = $query_lower" in fallback_query
         assert "name @0@ $search_query" in fallback_query
         assert "summary @1@ $search_query" in fallback_query
         assert "attributes.description @2@ $search_query" in fallback_query
@@ -1876,9 +1875,7 @@ class TestEntitySearch:
             "search_score": 0.42,
         }
 
-        surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [matching_record]]
-        )
+        surreal_entity_manager._driver.execute_query = AsyncMock(return_value=[matching_record])
 
         results = await surreal_entity_manager.search(
             "repository", entity_types=[EntityType.PATTERN]
@@ -1915,7 +1912,7 @@ class TestEntitySearch:
         }
 
         surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [], [matching_record, unrelated_record]]
+            side_effect=[[], [matching_record, unrelated_record]]
         )
 
         results = await surreal_entity_manager.search(
@@ -1926,7 +1923,7 @@ class TestEntitySearch:
         assert len(results) == 1
         assert results[0][0].id == "pattern-001"
         assert results[0][1] > 0.5
-        scan_query = surreal_entity_manager._driver.execute_query.await_args_list[2].args[0]
+        scan_query = surreal_entity_manager._driver.execute_query.await_args_list[1].args[0]
         assert "FROM entity" in scan_query
         assert "@0@ $search_query" not in scan_query
 
@@ -1955,7 +1952,7 @@ class TestEntitySearch:
         }
 
         surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [], [], [], [unrelated_entity], [matching_episode]]
+            side_effect=[[], [], [unrelated_entity], [matching_episode]]
         )
 
         results = await surreal_entity_manager.search("graph search diary")
@@ -1963,7 +1960,7 @@ class TestEntitySearch:
         assert len(results) == 1
         assert results[0][0].id == "episode-001"
         assert results[0][0].entity_type == EntityType.EPISODE
-        episode_scan_query = surreal_entity_manager._driver.execute_query.await_args_list[5].args[0]
+        episode_scan_query = surreal_entity_manager._driver.execute_query.await_args_list[3].args[0]
         assert "FROM episode" in episode_scan_query
 
     @pytest.mark.asyncio
@@ -1983,7 +1980,7 @@ class TestEntitySearch:
         }
 
         surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [], [partial_record]]
+            side_effect=[[], [partial_record]]
         )
 
         results = await surreal_entity_manager.search(
@@ -2010,9 +2007,7 @@ class TestEntitySearch:
             "search_score": 0.0,
         }
 
-        surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [matching_record]]
-        )
+        surreal_entity_manager._driver.execute_query = AsyncMock(return_value=[matching_record])
 
         results = await surreal_entity_manager.search(
             'repository "pattern"\x00',
@@ -2020,7 +2015,7 @@ class TestEntitySearch:
         )
 
         assert len(results) == 1
-        fallback_params = surreal_entity_manager._driver.execute_query.await_args_list[1].kwargs
+        fallback_params = surreal_entity_manager._driver.execute_query.await_args.kwargs
         assert fallback_params["query_lower"] == 'repository "pattern"\x00'
         assert fallback_params["search_query"] == "repository pattern"
 
@@ -2043,7 +2038,6 @@ class TestEntitySearch:
 
         surreal_entity_manager._driver.execute_query = AsyncMock(
             side_effect=[
-                [],
                 RuntimeError("There was no suitable index supporting the expression: name @0@"),
                 [matching_record],
             ]
@@ -2058,7 +2052,7 @@ class TestEntitySearch:
         assert len(results) == 1
         assert results[0][0].id == "pattern-001"
         surreal_entity_manager._driver.build_indices_and_constraints.assert_awaited_once()
-        assert surreal_entity_manager._driver.execute_query.await_count == 3
+        assert surreal_entity_manager._driver.execute_query.await_count == 2
 
     @pytest.mark.asyncio
     async def test_surreal_search_exact_episode_reads_episode_table(
@@ -2073,6 +2067,7 @@ class TestEntitySearch:
             "source_description": "MCP Entity: episode",
             "created_at": datetime.now(UTC),
             "valid_at": datetime.now(UTC),
+            "search_score": 2.0,
         }
 
         surreal_entity_manager._driver.execute_query = AsyncMock(return_value=[matching_record])
@@ -2111,9 +2106,7 @@ class TestEntitySearch:
             "valid_at": datetime.now(UTC),
         }
 
-        surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[matching_record], [matching_record]]
-        )
+        surreal_entity_manager._driver.execute_query = AsyncMock(return_value=[matching_record])
 
         results = await surreal_entity_manager.search(
             "Legacy pattern episode",
@@ -2138,9 +2131,7 @@ class TestEntitySearch:
             "search_score": 0.33,
         }
 
-        surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [matching_record]]
-        )
+        surreal_entity_manager._driver.execute_query = AsyncMock(return_value=[matching_record])
 
         results = await surreal_entity_manager.search(
             "legacy",
@@ -2165,9 +2156,7 @@ class TestEntitySearch:
             "search_score": 0.33,
         }
 
-        surreal_entity_manager._driver.execute_query = AsyncMock(
-            side_effect=[[], [matching_record]]
-        )
+        surreal_entity_manager._driver.execute_query = AsyncMock(return_value=[matching_record])
 
         results = await surreal_entity_manager.search(
             'raw "memory"\x00',
@@ -2177,8 +2166,8 @@ class TestEntitySearch:
 
         assert len(results) == 1
         assert results[0][0].id == "episode-001"
-        fallback_query = surreal_entity_manager._driver.execute_query.await_args_list[1].args[0]
-        fallback_params = surreal_entity_manager._driver.execute_query.await_args_list[1].kwargs
+        fallback_query = surreal_entity_manager._driver.execute_query.await_args.args[0]
+        fallback_params = surreal_entity_manager._driver.execute_query.await_args.kwargs
         assert "FROM episode" in fallback_query
         assert "content @0@ $search_query" in fallback_query
         assert "FROM entity" not in fallback_query
@@ -2213,7 +2202,7 @@ class TestEntitySearch:
         assert surreal_entity_manager._driver.execute_query.await_count == 1
         exact_query = surreal_entity_manager._driver.execute_query.await_args.args[0]
         assert "FROM entity" in exact_query
-        assert "ORDER BY updated_at DESC, created_at DESC, uuid DESC" in exact_query
+        assert "ORDER BY search_score DESC, updated_at DESC, created_at DESC, uuid DESC" in exact_query
         assert "attributes.updated_at DESC" not in exact_query
         assert "string::contains" not in exact_query
 

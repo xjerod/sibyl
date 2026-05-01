@@ -435,7 +435,12 @@ class EntityManager:
         if not exact_name_only:
             fulltext_query = self._driver.build_fulltext_query(query_lower)
             if not fulltext_query:
-                return []
+                return await self._surreal_search_entity_records(
+                    query_lower=query_lower,
+                    entity_types=entity_types,
+                    limit=limit,
+                    exact_name_only=True,
+                )
 
         params: dict[str, Any] = {
             "group_id": self._group_id,
@@ -455,16 +460,18 @@ class EntityManager:
             where_clauses.append(f"{name_expr} = $query_lower")
         else:
             where_clauses.append(
-                """(
-                    name @0@ $search_query
+                f"""(
+                    {name_expr} = $query_lower
+                    OR name @0@ $search_query
                     OR summary @1@ $search_query
                     OR attributes.description @2@ $search_query
                     OR attributes.content @3@ $search_query
                 )"""
             )
             score_expr = (
+                f"IF {name_expr} = $query_lower THEN 2.0 ELSE "
                 "math::max([search::score(0), search::score(1), "
-                "search::score(2), search::score(3)]) AS search_score,"
+                "search::score(2), search::score(3)]) END AS search_score,"
             )
             order_by = (
                 "search_score DESC, updated_at DESC, created_at DESC, uuid DESC"
@@ -550,6 +557,7 @@ class EntityManager:
             "query_limit": max(limit, 1),
         }
         name_expr = "string::lowercase(name ?? '')"
+        exact_name_clause = f"({name_expr} = $query_lower OR {name_expr} = $prefixed_query_lower)"
 
         if exact_name_only:
             search_query = f"""
@@ -563,7 +571,7 @@ class EntityManager:
                        2.0 AS search_score
                 FROM episode
                 WHERE group_id = $group_id
-                  AND ({name_expr} = $query_lower OR {name_expr} = $prefixed_query_lower)
+                  AND {exact_name_clause}
                 ORDER BY created_at DESC, uuid DESC
                 LIMIT $query_limit;
             """
@@ -573,7 +581,11 @@ class EntityManager:
 
         fulltext_query = self._driver.build_fulltext_query(query_lower)
         if not fulltext_query:
-            return []
+            return await self._surreal_search_episode_records(
+                query_lower=query_lower,
+                limit=limit,
+                exact_name_only=True,
+            )
 
         params["search_query"] = fulltext_query
         search_query = f"""
@@ -584,13 +596,12 @@ class EntityManager:
                    source_description,
                    created_at,
                    valid_at,
-                   search::score(0) AS search_score
+                   IF {exact_name_clause} THEN 2.0 ELSE search::score(0) END AS search_score
             FROM episode
             WHERE group_id = $group_id
               AND (
                   content @0@ $search_query
-                  OR {name_expr} = $query_lower
-                  OR {name_expr} = $prefixed_query_lower
+                  OR {exact_name_clause}
               )
             ORDER BY search_score DESC, created_at DESC, uuid DESC
             LIMIT $query_limit;
@@ -1309,26 +1320,11 @@ class EntityManager:
             _t0 = _time.perf_counter()
             results: list[tuple[Entity, float]] = []
             if self._surreal_entity_node_ops() is not None:
-                exact_name_results = await self._exact_name_search(
+                results = await self._fallback_text_search(
                     query=query,
                     entity_types=entity_types,
                     limit=limit,
                 )
-                if len(exact_name_results) >= limit:
-                    log.info(
-                        "Search completed",
-                        **query_log_fields(query),
-                        results_count=len(exact_name_results),
-                        mode="surreal_direct_exact",
-                    )
-                    return exact_name_results[:limit]
-
-                fallback_results = await self._fallback_text_search(
-                    query=query,
-                    entity_types=entity_types,
-                    limit=limit,
-                )
-                results = self._merge_ranked_results(exact_name_results, fallback_results, limit)
                 log.info(
                     "Search completed",
                     **query_log_fields(query),
@@ -1640,8 +1636,11 @@ class EntityManager:
                 name = entity.name.strip().lower()
                 description = (entity.description or "").lower()
                 content = (entity.content or "").lower()
+                raw_search_score = record.get("search_score")
 
-                if name == normalized_query:
+                if isinstance(raw_search_score, (int, float)) and raw_search_score >= 2.0:
+                    score = float(raw_search_score)
+                elif name == normalized_query:
                     score = 1.0
                 elif name.startswith(normalized_query):
                     score = 0.95
