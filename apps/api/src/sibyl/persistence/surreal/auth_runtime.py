@@ -558,21 +558,28 @@ class SurrealSessionRepository(_SurrealRepository):
         if record is None:
             return False
         user_id = str(record["user_id"])
-        sessions = await self.select_many(
-            "SELECT * FROM user_sessions WHERE user_id = $user_id ORDER BY created_at ASC;",
+        session_id = str(record["uuid"])
+        now = _utcnow()
+        clear_result = await self._client.execute_query(
+            "UPDATE user_sessions SET is_current = false, updated_at = $updated_at "
+            "WHERE user_id = $user_id AND is_current = true AND uuid != $uuid;",
             user_id=user_id,
+            uuid=session_id,
+            updated_at=now,
         )
-        for session_record in sessions:
-            updated = {
-                **session_record,
-                "is_current": session_record.get("uuid") == record.get("uuid"),
-                "updated_at": _utcnow(),
-            }
-            await self.replace_record(
-                "user_sessions",
-                uuid=_coerce_uuid(updated.get("uuid"), field_name="session.uuid"),
-                record=updated,
-            )
+        error = _query_error(clear_result)
+        if error is not None:
+            raise RuntimeError(error)
+        set_result = await self._client.execute_query(
+            "UPDATE user_sessions SET is_current = true, updated_at = $updated_at "
+            "WHERE uuid = $uuid AND user_id = $user_id;",
+            uuid=session_id,
+            user_id=user_id,
+            updated_at=now,
+        )
+        error = _query_error(set_result)
+        if error is not None:
+            raise RuntimeError(error)
         return True
 
     async def revoke_session(self, session_id: UUID, user_id: UUID) -> bool:
@@ -607,40 +614,35 @@ class SurrealSessionRepository(_SurrealRepository):
     async def revoke_all_sessions(
         self, user_id: UUID, *, exclude_token_hash: str | None = None
     ) -> int:
-        records = await self.select_many(
-            "SELECT * FROM user_sessions WHERE user_id = $user_id ORDER BY created_at ASC;",
-            user_id=str(user_id),
-        )
         now = _utcnow()
-        count = 0
-        for record in records:
-            if record.get("revoked_at") is not None:
-                continue
-            if exclude_token_hash and record.get("token_hash") == exclude_token_hash:
-                continue
-            updated = {**record, "revoked_at": now, "updated_at": now}
-            await self.replace_record(
-                "user_sessions",
-                uuid=_coerce_uuid(updated.get("uuid"), field_name="session.uuid"),
-                record=updated,
-            )
-            count += 1
-        return count
+        params: dict[str, Any] = {
+            "user_id": str(user_id),
+            "revoked_at": now,
+            "updated_at": now,
+        }
+        query = (
+            "UPDATE user_sessions SET revoked_at = $revoked_at, updated_at = $updated_at "
+            "WHERE user_id = $user_id AND revoked_at = NONE"
+        )
+        if exclude_token_hash:
+            query += " AND token_hash != $exclude_token_hash"
+            params["exclude_token_hash"] = exclude_token_hash
+        result = await self._client.execute_query(query + ";", **params)
+        error = _query_error(result)
+        if error is not None:
+            raise RuntimeError(error)
+        return len(_normalize_records(result))
 
     async def cleanup_expired(self, *, older_than_days: int = 30) -> int:
         cutoff = _utcnow() - timedelta(days=older_than_days)
-        records = await self.select_many("SELECT * FROM user_sessions ORDER BY created_at ASC;")
-        count = 0
-        for record in records:
-            expires_at = _coerce_datetime(record.get("expires_at"))
-            if expires_at is None or expires_at >= cutoff:
-                continue
-            await self._client.execute_query(
-                "DELETE FROM user_sessions WHERE uuid = $uuid;",
-                uuid=str(record["uuid"]),
-            )
-            count += 1
-        return count
+        result = await self._client.execute_query(
+            "DELETE FROM user_sessions WHERE expires_at < $cutoff;",
+            cutoff=cutoff,
+        )
+        error = _query_error(result)
+        if error is not None:
+            raise RuntimeError(error)
+        return len(_normalize_records(result))
 
     def _is_session_active(
         self,

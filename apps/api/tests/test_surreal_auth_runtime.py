@@ -36,6 +36,18 @@ class _RecordingAuthClient:
         return self.response
 
 
+class _SequenceAuthClient:
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = responses
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **kwargs: object) -> object:
+        self.calls.append((query, kwargs))
+        if not self.responses:
+            raise AssertionError("unexpected query")
+        return self.responses.pop(0)
+
+
 def _auth_session(*, organization_id=None) -> AuthSession:
     return AuthSession(
         id=uuid4(),
@@ -213,6 +225,68 @@ async def test_surreal_repository_replace_record_uses_single_upsert_statement() 
     assert "UPSERT user_sessions CONTENT $record WHERE uuid = $uuid" in query
     assert "DELETE FROM user_sessions" not in query
     assert params == {"uuid": str(session_id), "record": record}
+
+
+@pytest.mark.asyncio
+async def test_mark_current_updates_session_flags_without_loading_all_sessions() -> None:
+    user_id = uuid4()
+    session_id = uuid4()
+    token = "access-token"
+    repo = surreal_auth_runtime.SurrealSessionRepository(object())
+    session_record = {
+        "uuid": str(session_id),
+        "user_id": str(user_id),
+        "token_hash": repo.hash_token(token),
+        "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+        "refresh_token_expires_at": datetime.now(UTC) + timedelta(days=30),
+        "revoked_at": None,
+    }
+    client = _SequenceAuthClient([[session_record], [], [session_record]])
+    repo = surreal_auth_runtime.SurrealSessionRepository(client)
+
+    result = await repo.mark_current(token)
+
+    assert result is True
+    assert len(client.calls) == 3
+    assert "ORDER BY created_at" not in " ".join(query for query, _ in client.calls)
+    assert "UPDATE user_sessions SET is_current = false" in client.calls[1][0]
+    assert "UPDATE user_sessions SET is_current = true" in client.calls[2][0]
+    assert client.calls[1][1]["user_id"] == str(user_id)
+    assert client.calls[2][1]["uuid"] == str(session_id)
+
+
+@pytest.mark.asyncio
+async def test_revoke_all_sessions_uses_batch_update() -> None:
+    user_id = uuid4()
+    revoked = [{"uuid": str(uuid4())}, {"uuid": str(uuid4())}]
+    client = _RecordingAuthClient(revoked)
+    repo = surreal_auth_runtime.SurrealSessionRepository(client)
+
+    count = await repo.revoke_all_sessions(user_id, exclude_token_hash="keep-this-session")
+
+    assert count == 2
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert query.startswith("UPDATE user_sessions SET revoked_at = $revoked_at")
+    assert "SELECT * FROM user_sessions" not in query
+    assert "UPSERT user_sessions" not in query
+    assert params["user_id"] == str(user_id)
+    assert params["exclude_token_hash"] == "keep-this-session"
+
+
+@pytest.mark.asyncio
+async def test_cleanup_expired_sessions_uses_batch_delete() -> None:
+    deleted = [{"uuid": str(uuid4())}, {"uuid": str(uuid4())}]
+    client = _RecordingAuthClient(deleted)
+    repo = surreal_auth_runtime.SurrealSessionRepository(client)
+
+    count = await repo.cleanup_expired(older_than_days=30)
+
+    assert count == 2
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert query == "DELETE FROM user_sessions WHERE expires_at < $cutoff;"
+    assert "cutoff" in params
 
 
 @pytest.mark.asyncio
