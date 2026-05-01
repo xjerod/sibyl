@@ -21,12 +21,18 @@ from sibyl_core.auth import AuthUser, OrganizationRole
 _ADMIN_ROLES = (OrganizationRole.OWNER, OrganizationRole.ADMIN)
 
 
+def _has_records(value: object) -> bool:
+    if isinstance(value, list):
+        return bool(value)
+    return isinstance(value, dict)
+
+
 async def is_setup_mode() -> bool:
     """Return whether the system has no users and is still in setup mode."""
     client = build_surreal_auth_client()
     try:
-        users = SurrealUserRepository.from_client(client)
-        return not await users.has_any_users()
+        records = await client.execute_query("SELECT uuid FROM users LIMIT 1;")
+        return not _has_records(records)
     finally:
         await client.close()
 
@@ -35,11 +41,20 @@ async def get_setup_status() -> SetupStatus:
     """Return whether Surreal auth storage has users and organizations."""
     client = build_surreal_auth_client()
     try:
-        users = SurrealUserRepository.from_client(client)
-        orgs = SurrealOrganizationRepository.from_client(client)
-        has_users = await users.has_any_users()
-        has_orgs = bool(await orgs.list_all(limit=1))
-        return SetupStatus(has_users=has_users, has_orgs=has_orgs)
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    users: (SELECT uuid FROM users LIMIT 1),
+                    organizations: (SELECT uuid FROM organizations LIMIT 1),
+                };
+            """
+        )
+        if not isinstance(payload, dict):
+            payload = {}
+        return SetupStatus(
+            has_users=_has_records(payload.get("users")),
+            has_orgs=_has_records(payload.get("organizations")),
+        )
     finally:
         await client.close()
 
