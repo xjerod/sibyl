@@ -2453,7 +2453,7 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
             project_records = _normalize_records(
                 await client.execute_query(
                     """
-                        SELECT graph_project_id FROM projects
+                        SELECT graph_project_id, created_at FROM projects
                         WHERE organization_id = $organization_id
                         ORDER BY created_at ASC;
                     """,

@@ -1094,7 +1094,7 @@ async def test_list_accessible_project_graph_ids_admin_skips_grant_reads(
     assert accessible == {"project_a", "project_b"}
     assert len(client.calls) == 1
     query, params = client.calls[0]
-    assert "SELECT graph_project_id FROM projects" in query
+    assert "SELECT graph_project_id, created_at FROM projects" in query
     assert "project_members" not in query
     assert "team_members" not in query
     assert "team_projects" not in query

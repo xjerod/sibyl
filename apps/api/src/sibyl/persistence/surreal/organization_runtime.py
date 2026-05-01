@@ -563,7 +563,7 @@ async def list_org_ids() -> list[str]:
     async with _auth_client_scope() as client:
         organizations = _normalize_records(
             await client.execute_query(
-                "SELECT uuid FROM organizations ORDER BY created_at ASC LIMIT $limit;",
+                "SELECT uuid, created_at FROM organizations ORDER BY created_at ASC LIMIT $limit;",
                 limit=100_000,
             )
         )

@@ -624,7 +624,7 @@ async def test_surreal_list_org_ids_reads_surreal_directly(
 
     assert result == [str(org_id) for org_id in org_ids]
     assert len(fake_client.calls) == 1
-    assert "SELECT uuid FROM organizations" in fake_client.calls[0][0]
+    assert "SELECT uuid, created_at FROM organizations" in fake_client.calls[0][0]
     assert fake_client.calls[0][1] == {"limit": 100_000}
 
 
