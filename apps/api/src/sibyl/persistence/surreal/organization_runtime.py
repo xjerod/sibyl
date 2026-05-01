@@ -1121,22 +1121,34 @@ async def list_project_members(
             org_id=org_id,
         )
 
-        member_records = _normalize_records(
-            await client.execute_query(
-                "SELECT * FROM project_members WHERE project_id = $project_id ORDER BY created_at ASC;",
-                project_id=str(project.id),
-            )
+        payload = await client.execute_query(
+            """
+                RETURN {
+                    members: (
+                        SELECT * FROM project_members
+                        WHERE project_id = $project_id
+                        ORDER BY created_at ASC
+                    ),
+                    users: (
+                        SELECT * FROM users
+                        WHERE uuid = $owner_user_id
+                            OR uuid IN (
+                                SELECT VALUE user_id FROM project_members
+                                WHERE project_id = $project_id
+                            )
+                    ),
+                };
+            """,
+            project_id=str(project.id),
+            owner_user_id=str(project.owner_user_id),
         )
-        member_user_ids: list[UUID] = []
-        for membership_record in member_records:
-            member_user_id = _coerce_uuid(membership_record.get("user_id"), field_name="user_id")
-            if member_user_id == project.owner_user_id or member_user_id in member_user_ids:
-                continue
-            member_user_ids.append(member_user_id)
-        users_by_id = await _list_user_records_by_id(
-            client,
-            [project.owner_user_id, *member_user_ids],
-        )
+        if not isinstance(payload, dict):
+            payload = {}
+        member_records = _normalize_records(payload.get("members"))
+        users_by_id = {
+            _coerce_uuid(record.get("uuid"), field_name="user.uuid"): record
+            for record in _normalize_records(payload.get("users"))
+        }
 
         rows: list[dict[str, object]] = []
         owner = users_by_id.get(project.owner_user_id)

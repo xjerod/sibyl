@@ -814,45 +814,46 @@ async def test_surreal_list_project_members_batches_user_reads(
 
         async def execute_query(self, query: str, **params):
             self.calls.append((query, params))
-            if "FROM project_members" in query:
-                return [
-                    {
-                        "uuid": str(uuid4()),
-                        "project_id": str(project.id),
-                        "user_id": str(owner_id),
-                        "role": ProjectRole.MAINTAINER.value,
-                        "created_at": member_created_at,
-                    },
-                    {
-                        "uuid": str(uuid4()),
-                        "project_id": str(project.id),
-                        "user_id": str(member_id),
-                        "role": ProjectRole.CONTRIBUTOR.value,
-                        "created_at": member_created_at,
-                    },
-                    {
-                        "uuid": str(uuid4()),
-                        "project_id": str(project.id),
-                        "user_id": str(member_id),
-                        "role": ProjectRole.VIEWER.value,
-                        "created_at": member_created_at,
-                    },
-                ]
-            if "FROM users" in query:
-                return [
-                    {
-                        "uuid": str(owner_id),
-                        "email": "owner@example.com",
-                        "name": "Owner",
-                        "avatar_url": None,
-                    },
-                    {
-                        "uuid": str(member_id),
-                        "email": "member@example.com",
-                        "name": "Member",
-                        "avatar_url": None,
-                    },
-                ]
+            if "RETURN" in query:
+                return {
+                    "members": [
+                        {
+                            "uuid": str(uuid4()),
+                            "project_id": str(project.id),
+                            "user_id": str(owner_id),
+                            "role": ProjectRole.MAINTAINER.value,
+                            "created_at": member_created_at,
+                        },
+                        {
+                            "uuid": str(uuid4()),
+                            "project_id": str(project.id),
+                            "user_id": str(member_id),
+                            "role": ProjectRole.CONTRIBUTOR.value,
+                            "created_at": member_created_at,
+                        },
+                        {
+                            "uuid": str(uuid4()),
+                            "project_id": str(project.id),
+                            "user_id": str(member_id),
+                            "role": ProjectRole.VIEWER.value,
+                            "created_at": member_created_at,
+                        },
+                    ],
+                    "users": [
+                        {
+                            "uuid": str(owner_id),
+                            "email": "owner@example.com",
+                            "name": "Owner",
+                            "avatar_url": None,
+                        },
+                        {
+                            "uuid": str(member_id),
+                            "email": "member@example.com",
+                            "name": "Member",
+                            "avatar_url": None,
+                        },
+                    ],
+                }
             return []
 
     fake_client = FakeClient()
@@ -880,10 +881,13 @@ async def test_surreal_list_project_members_batches_user_reads(
     ]
     assert result.members[0]["is_owner"] is True
     assert result.members[1]["role"] == ProjectRole.CONTRIBUTOR.value
-    assert len(fake_client.calls) == 2
+    assert len(fake_client.calls) == 1
     assert "FROM project_members" in fake_client.calls[0][0]
-    assert "FROM users" in fake_client.calls[1][0]
-    assert fake_client.calls[1][1] == {"user_ids": [str(owner_id), str(member_id)]}
+    assert "FROM users" in fake_client.calls[0][0]
+    assert fake_client.calls[0][1] == {
+        "project_id": str(project.id),
+        "owner_user_id": str(owner_id),
+    }
 
 
 @pytest.mark.asyncio
