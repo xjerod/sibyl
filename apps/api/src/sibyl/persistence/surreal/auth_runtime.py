@@ -1778,20 +1778,15 @@ async def delete_project_record(
             return False
 
         project_uuid = str(existing["uuid"])
-        await client.execute_query(
-            "DELETE FROM api_key_project_scopes WHERE project_id = $project_id;",
+        await _execute_raw_statement_records(
+            client,
+            """
+                DELETE FROM api_key_project_scopes WHERE project_id = $project_id;
+                DELETE FROM team_projects WHERE project_id = $project_id;
+                DELETE FROM project_members WHERE project_id = $project_id;
+                DELETE FROM projects WHERE uuid = $uuid AND organization_id = $organization_id;
+            """,
             project_id=project_uuid,
-        )
-        await client.execute_query(
-            "DELETE FROM team_projects WHERE project_id = $project_id;",
-            project_id=project_uuid,
-        )
-        await client.execute_query(
-            "DELETE FROM project_members WHERE project_id = $project_id;",
-            project_id=project_uuid,
-        )
-        await client.execute_query(
-            "DELETE FROM projects WHERE uuid = $uuid AND organization_id = $organization_id;",
             uuid=project_uuid,
             organization_id=str(organization_id),
         )

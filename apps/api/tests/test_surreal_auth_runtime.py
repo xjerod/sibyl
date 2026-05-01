@@ -559,6 +559,58 @@ async def test_request_password_reset_batches_user_and_token_reads(
 
 
 @pytest.mark.asyncio
+async def test_delete_project_record_batches_dependent_deletes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid4()
+    project_id = uuid4()
+    client = _SequenceAuthClient(
+        [
+            [
+                {
+                    "uuid": str(project_id),
+                    "organization_id": str(organization_id),
+                    "graph_project_id": "project_alpha",
+                }
+            ],
+            {
+                "result": [
+                    {"status": "OK", "result": []},
+                    {"status": "OK", "result": []},
+                    {"status": "OK", "result": []},
+                    {"status": "OK", "result": []},
+                ]
+            },
+        ]
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    deleted = await surreal_auth_runtime.delete_project_record(
+        organization_id=organization_id,
+        graph_project_id="project_alpha",
+    )
+
+    assert deleted is True
+    assert len(client.calls) == 2
+    delete_query, delete_params = client.calls[1]
+    assert delete_query.count("DELETE FROM") == 4
+    assert "DELETE FROM api_key_project_scopes" in delete_query
+    assert "DELETE FROM team_projects" in delete_query
+    assert "DELETE FROM project_members" in delete_query
+    assert "DELETE FROM projects" in delete_query
+    assert delete_params == {
+        "project_id": str(project_id),
+        "uuid": str(project_id),
+        "organization_id": str(organization_id),
+    }
+
+
+@pytest.mark.asyncio
 async def test_confirm_password_reset_batches_token_and_user_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
