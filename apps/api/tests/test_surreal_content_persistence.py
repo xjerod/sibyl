@@ -101,11 +101,13 @@ class _SequencedContentClient:
 
 @pytest_asyncio.fixture
 async def surreal_content_client() -> SurrealContentClient:
+    await surreal_content.close_shared_surreal_content_client()
     client = SurrealContentClient(url="memory://")
     await bootstrap_content_schema(client, reset=True)
     try:
         yield client
     finally:
+        await surreal_content.close_shared_surreal_content_client()
         await client.close()
 
 

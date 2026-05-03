@@ -1142,6 +1142,10 @@ class TestGetProjectSummaries:
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
             ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
+            ),
         ):
             result = await get_project_summaries(org=mock_org)
 
@@ -1165,6 +1169,83 @@ class TestGetProjectSummaries:
             assert result.projects_summary[1].id == "proj_b"
             assert result.projects_summary[1].doing == 1
             assert result.projects_summary[1].critical == 1
+
+    @pytest.mark.asyncio
+    async def test_project_summaries_uses_surreal_metric_task_fast_path(self) -> None:
+        """Surreal-backed summaries fetch lean task rows without paging task entities."""
+        from sibyl.api.routes.metrics import get_project_summaries
+
+        mock_org = create_mock_org()
+        mock_service = AsyncMock()
+        mock_driver = MagicMock()
+        mock_runtime = MagicMock()
+
+        mock_runtime.entity_manager._driver = mock_driver
+        mock_runtime.entity_manager._group_id = str(mock_org.id)
+
+        mock_projects = [
+            create_mock_entity(entity_type="project", name="Project A", entity_id="proj_a"),
+            create_mock_entity(entity_type="project", name="Project B", entity_id="proj_b"),
+        ]
+        mock_driver.execute_query = AsyncMock(
+            return_value=[
+                create_metric_task_row(
+                    project_id="proj_b",
+                    status="doing",
+                    priority="critical",
+                ),
+                create_metric_task_row(
+                    project_id="proj_a",
+                    status="done",
+                    priority="high",
+                ),
+                create_metric_task_row(
+                    project_id="proj_a",
+                    status="todo",
+                    priority="high",
+                ),
+            ]
+        )
+        mock_service.list_entities = AsyncMock(
+            return_value=Page(items=mock_projects, next_cursor=None)
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.metrics.get_knowledge_read_adapter",
+                AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "sibyl.api.routes.metrics.get_entity_graph_runtime",
+                AsyncMock(return_value=mock_runtime),
+            ),
+            patch(
+                "sibyl.api.routes.metrics._surreal_driver_for",
+                MagicMock(return_value=mock_driver),
+            ),
+        ):
+            result = await get_project_summaries(org=mock_org)
+
+        assert mock_service.list_entities.await_args_list == [
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                cursor=None,
+            ),
+        ]
+        assert mock_driver.execute_query.await_count == 1
+        assert "FROM entity" in mock_driver.execute_query.await_args.args[0]
+        assert mock_driver.execute_query.await_args.kwargs == {
+            "group_id": str(mock_org.id),
+            "task_type": EntityType.TASK.value,
+        }
+        assert result.projects_summary[0].id == "proj_a"
+        assert result.projects_summary[0].total == 2
+        assert result.projects_summary[0].completed == 1
+        assert result.projects_summary[0].high == 1
+        assert result.projects_summary[1].id == "proj_b"
+        assert result.projects_summary[1].doing == 1
+        assert result.projects_summary[1].critical == 1
 
     @pytest.mark.asyncio
     async def test_project_summaries_pages_past_first_500_projects(self) -> None:
@@ -1195,6 +1276,10 @@ class TestGetProjectSummaries:
             patch(
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
             ),
         ):
             result = await get_project_summaries(org=mock_org)
