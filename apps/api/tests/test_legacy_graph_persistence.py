@@ -11,6 +11,7 @@ from sibyl.persistence.graph_runtime import (
     GraphEntityStore,
     GraphQueryAdapter,
     GraphRelationshipStore,
+    delete_graph_data,
 )
 from sibyl.persistence.legacy.graph import (
     LegacyEntityStore,
@@ -27,6 +28,73 @@ from sibyl.persistence.legacy.graph import (
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.storage import GraphStats, SearchFilters
+
+
+@pytest.mark.asyncio
+async def test_delete_graph_data_uses_surreal_graph_ops_when_available() -> None:
+    graph_ops = MagicMock()
+    graph_ops.clear_data = AsyncMock()
+    driver = MagicMock()
+    driver.graph_ops = graph_ops
+    client = MagicMock()
+    client.get_org_driver.return_value = driver
+
+    with (
+        patch("sibyl.persistence.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=driver),
+    ):
+        await delete_graph_data("org-1")
+
+    client.get_org_driver.assert_called_once_with("org-1")
+    graph_ops.clear_data.assert_awaited_once_with(driver, group_ids=["org-1"])
+    driver.execute_query.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_graph_data_falls_back_to_surreal_table_deletes() -> None:
+    from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
+
+    graph_ops = MagicMock()
+    graph_ops.clear_data = AsyncMock(side_effect=RuntimeError("clear failed"))
+    driver = MagicMock()
+    driver.graph_ops = graph_ops
+    driver.execute_query = AsyncMock()
+    client = MagicMock()
+    client.get_org_driver.return_value = driver
+
+    with (
+        patch("sibyl.persistence.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=driver),
+    ):
+        await delete_graph_data("org-1")
+
+    graph_ops.clear_data.assert_awaited_once_with(driver, group_ids=["org-1"])
+    assert driver.execute_query.await_count == len((*GRAPH_EDGES, *GRAPH_TABLES))
+    queries = [call.args[0] for call in driver.execute_query.await_args_list]
+    assert [
+        query.removeprefix("DELETE FROM ").removesuffix(" WHERE group_id = $group_id;")
+        for query in queries
+    ] == [*GRAPH_EDGES, *GRAPH_TABLES]
+    assert all(call.kwargs == {"group_id": "org-1"} for call in driver.execute_query.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_delete_graph_data_uses_legacy_write_for_non_surreal_driver() -> None:
+    driver = MagicMock()
+    client = MagicMock()
+    client.get_org_driver.return_value = driver
+    client.execute_write_org = AsyncMock()
+
+    with (
+        patch("sibyl.persistence.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=None),
+    ):
+        await delete_graph_data("org-1")
+
+    client.execute_write_org.assert_awaited_once_with(
+        "MATCH (n) DETACH DELETE n RETURN count(n) AS deleted",
+        "org-1",
+    )
 
 
 @pytest.mark.asyncio

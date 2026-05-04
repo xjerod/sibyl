@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Self
 from uuid import uuid4
 
+import structlog
 from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.errors import EntityNotFoundError
@@ -33,6 +34,8 @@ from sibyl_core.storage import (
 
 if TYPE_CHECKING:
     from sibyl_core.graph.communities import ClusterSummary, HierarchicalGraphData
+
+log = structlog.get_logger()
 
 
 def _decode_cursor(cursor: str | None) -> int:
@@ -1168,6 +1171,34 @@ async def update_graph_entity(
     """Update an entity through the current graph runtime."""
     client = await get_graph_client()
     return await EntityManager(client, group_id=group_id).update(entity_id, patch)
+
+
+async def delete_graph_data(group_id: str) -> None:
+    client = await get_graph_client()
+    driver = client.get_org_driver(group_id)
+    if _surreal_driver_for(driver) is not None:
+        from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
+
+        graph_ops = getattr(driver, "graph_ops", None)
+        if graph_ops is not None:
+            try:
+                await graph_ops.clear_data(driver, group_ids=[group_id])
+                return
+            except Exception as exc:
+                log.warning(
+                    "surreal_graph_clear_data_failed",
+                    group_id=group_id,
+                    error=str(exc),
+                )
+        for table in (*GRAPH_EDGES, *GRAPH_TABLES):
+            query = f"DELETE FROM {table} WHERE group_id = $group_id;"  # noqa: S608
+            await driver.execute_query(query, group_id=group_id)
+        return
+
+    await client.execute_write_org(
+        "MATCH (n) DETACH DELETE n RETURN count(n) AS deleted",
+        group_id,
+    )
 
 
 def graph_stats_payload(stats: GraphStats) -> dict[str, object]:

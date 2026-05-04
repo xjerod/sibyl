@@ -244,7 +244,7 @@ async def test_surreal_delete_org_batches_authorization_and_deletes_directly(
 
     delete_auth_children = AsyncMock()
     delete_crawl_source = AsyncMock()
-    graph_client = SimpleNamespace(execute_write_org=AsyncMock())
+    delete_graph = AsyncMock()
     audit_log = AsyncMock()
 
     monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
@@ -254,7 +254,7 @@ async def test_surreal_delete_org_batches_authorization_and_deletes_directly(
         delete_auth_children,
     )
     monkeypatch.setattr(surreal_organization_runtime, "log_audit_event", audit_log)
-    monkeypatch.setattr(surreal_organization_runtime.config_module.settings, "store", "legacy")
+    monkeypatch.setattr(surreal_organization_runtime, "delete_graph_data", delete_graph)
     monkeypatch.setattr(
         "sibyl.persistence.surreal.content.surreal_content_client",
         fake_content_scope,
@@ -262,10 +262,6 @@ async def test_surreal_delete_org_batches_authorization_and_deletes_directly(
     monkeypatch.setattr(
         "sibyl.persistence.surreal.content.delete_crawl_source_record",
         delete_crawl_source,
-    )
-    monkeypatch.setattr(
-        "sibyl_core.graph.client.get_graph_client",
-        AsyncMock(return_value=graph_client),
     )
 
     await surreal_organization_runtime.delete_org(
@@ -289,10 +285,7 @@ async def test_surreal_delete_org_batches_authorization_and_deletes_directly(
         source_id=source_id,
         organization_id=org_id,
     )
-    graph_client.execute_write_org.assert_awaited_once_with(
-        "MATCH (n) DETACH DELETE n RETURN count(n) AS deleted",
-        str(org_id),
-    )
+    delete_graph.assert_awaited_once_with(str(org_id))
     audit_log.assert_awaited_once()
 
 

@@ -18,7 +18,7 @@ from sibyl.auth.jwt import create_access_token, create_refresh_token
 from sibyl.auth.primitives import generate_invite_token, slugify
 from sibyl.db.models import OrganizationRole, ProjectRole, User
 from sibyl.persistence.auth_runtime import log_audit_event
-from sibyl.persistence.graph_runtime import ensure_graph_indexes
+from sibyl.persistence.graph_runtime import delete_graph_data, ensure_graph_indexes
 from sibyl.persistence.organization_common import (
     InvitationAcceptance,
     InvitationRecord,
@@ -951,36 +951,7 @@ async def delete_org(*, request: Request, slug: str, user_id: UUID) -> None:
             ):
                 await content_client.execute_query(query, organization_id=str(organization_id))
 
-        from sibyl_core.graph.client import get_graph_client
-
-        graph_client = await get_graph_client()
-        if config_module.settings.store == "surreal":
-            from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
-
-            driver = graph_client.get_org_driver(str(organization_id))
-            graph_ops = getattr(driver, "graph_ops", None)
-            if graph_ops is not None:
-                try:
-                    await graph_ops.clear_data(driver, group_ids=[str(organization_id)])
-                except Exception:
-                    for table in (*GRAPH_EDGES, *GRAPH_TABLES):
-                        query = f"DELETE FROM {table} WHERE group_id = $group_id;"  # noqa: S608
-                        await driver.execute_query(
-                            query,
-                            group_id=str(organization_id),
-                        )
-            else:
-                for table in (*GRAPH_EDGES, *GRAPH_TABLES):
-                    query = f"DELETE FROM {table} WHERE group_id = $group_id;"  # noqa: S608
-                    await driver.execute_query(
-                        query,
-                        group_id=str(organization_id),
-                    )
-        else:
-            await graph_client.execute_write_org(
-                "MATCH (n) DETACH DELETE n RETURN count(n) AS deleted",
-                str(organization_id),
-            )
+        await delete_graph_data(str(organization_id))
 
         await client.execute_query(
             "DELETE FROM organizations WHERE uuid = $organization_id;",
