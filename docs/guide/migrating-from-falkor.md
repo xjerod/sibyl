@@ -45,11 +45,11 @@ SIBYL_STORE=surreal \
 SIBYL_AUTH_STORE=surreal \
 SIBYL_SURREAL_URL=ws://localhost:8000/rpc \
 sibyld migrate import /tmp/sibyl-migration.tar.gz \
-  --restore-postgres   # Replay relational dump too
+  --restore-database-dump   # Replay relational dump too
 ```
 
-Restore order is: PostgreSQL dump → graph → auth → content. `--restore-postgres` is only needed if
-the target is in mixed mode or you want to keep a relational copy during transition.
+Restore order is: PostgreSQL dump → graph → auth → content. `--restore-database-dump` is only
+needed if the target is in mixed mode or you want to keep a relational copy during transition.
 
 ### 3. Verify
 

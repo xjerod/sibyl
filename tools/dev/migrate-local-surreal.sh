@@ -15,7 +15,8 @@ then verifies the restored graph.
 Options:
   --org-id <uuid>          Organization UUID to migrate
   --archive <path>         Archive path to write (default: /tmp/sibyl-migrate-<timestamp>.tar.gz)
-  --restore-postgres       Replay postgres.sql before graph import
+  --restore-database-dump  Replay the database dump sidecar before graph import
+  --restore-postgres       Alias for --restore-database-dump
   --help                   Show this help
 EOF
 }
@@ -35,7 +36,7 @@ main() {
         archive="${2:-}"
         shift 2
         ;;
-      --restore-postgres)
+      --restore-database-dump|--restore-postgres)
         restore_postgres=true
         shift
         ;;
@@ -87,7 +88,7 @@ main() {
       SIBYL_REDIS_HOST="$redis_host" \
       SIBYL_REDIS_PORT="$redis_port" \
       SIBYL_REDIS_PASSWORD="${SIBYL_REDIS_PASSWORD:-}" \
-      uv run --directory apps/api sibyld migrate import "$archive" --yes --clean --restore-postgres
+      uv run --directory apps/api sibyld migrate import "$archive" --yes --clean --restore-database-dump
   else
     env \
       SIBYL_STORE=surreal \
