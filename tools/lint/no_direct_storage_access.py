@@ -20,6 +20,7 @@ FORBIDDEN_MODULE_PREFIXES = {
     "graphiti": "Graphiti runtime import",
     "graphiti_core": "Graphiti runtime import",
     "sibyl.db.connection": "legacy SQL session import",
+    "sibyl.auth.rls": "RLS SQL session wrapper import",
     "sibyl_core.graph": "legacy graph runtime import",
     "sqlalchemy": "raw SQLAlchemy import",
     "sqlmodel": "raw SQLModel import",

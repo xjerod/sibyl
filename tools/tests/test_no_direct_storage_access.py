@@ -16,7 +16,9 @@ def test_collect_direct_storage_imports_flags_unallowlisted_modules(tmp_path: Pa
     route_dir.mkdir(parents=True)
     path = route_dir / "bad.py"
     path.write_text(
-        "from sibyl_core.graph.client import get_graph_client\nfrom sqlmodel import select\n",
+        "from sibyl_core.graph.client import get_graph_client\n"
+        "from sibyl.auth.rls import get_auth_session\n"
+        "from sqlmodel import select\n",
         encoding="utf-8",
     )
 
@@ -24,6 +26,7 @@ def test_collect_direct_storage_imports_flags_unallowlisted_modules(tmp_path: Pa
 
     assert [(violation.module, violation.allowlisted) for violation in violations] == [
         ("sibyl_core.graph.client", False),
+        ("sibyl.auth.rls", False),
         ("sqlmodel", False),
     ]
 
