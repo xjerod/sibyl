@@ -7,10 +7,10 @@ from tools.inventory.runtime_surface import (
     render_markdown,
 )
 
-EXPECTED_ROUTER_COUNT = 22
+EXPECTED_ROUTER_COUNT = 24
 EXPECTED_HTTP_ROUTE_COUNT = 2
 EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
-EXPECTED_MCP_TOOL_COUNT = 5
+EXPECTED_MCP_TOOL_COUNT = 8
 EXPECTED_MCP_RESOURCE_COUNT = 2
 EXPECTED_SQLMODEL_TABLE_COUNT = 24
 
@@ -47,7 +47,7 @@ def test_runtime_surface_finds_known_contracts() -> None:
         record.path == "apps/api/src/sibyl/server.py" for record in surface.raw_sql_usage
     )
     assert any(
-        record.path == "apps/api/src/sibyl/api/routes/rag.py"
+        record.path == "apps/api/src/sibyl/persistence/content_runtime.py"
         for record in surface.session_storage_usage
     )
     assert any(
