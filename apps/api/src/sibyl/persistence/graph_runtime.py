@@ -1133,6 +1133,20 @@ async def get_graph_query_adapter(group_id: str) -> GraphQueryAdapter:
     return GraphQueryAdapter(client, group_id)
 
 
+async def execute_surreal_graph_query(
+    group_id: str,
+    query: str,
+    **params: object,
+) -> list[dict[str, object]] | None:
+    client = await get_graph_client()
+    driver = client.get_org_driver(group_id)
+    surreal_driver = _surreal_driver_for(driver)
+    if surreal_driver is None:
+        return None
+    result = await surreal_driver.execute_query(query, group_id=group_id, **params)
+    return GraphClient.normalize_result(result)
+
+
 async def get_task_graph_runtime(group_id: str) -> TaskGraphRuntime:
     client = await get_graph_client()
     return TaskGraphRuntime(

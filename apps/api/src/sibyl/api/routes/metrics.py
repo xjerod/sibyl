@@ -22,11 +22,10 @@ from sibyl.api.schemas import (
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.graph_runtime import (
-    _surreal_driver_for,
+    execute_surreal_graph_query as _service_execute_surreal_graph_query,
     get_entity_graph_runtime as _service_get_entity_graph_runtime,
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
 )
-from sibyl_core.graph.client import GraphClient
 from sibyl_core.models.entities import EntityType
 from sibyl_core.services import KnowledgeReadService
 
@@ -39,6 +38,14 @@ async def get_entity_graph_runtime(group_id: str):
 
 async def get_knowledge_read_adapter(group_id: str):
     return await _service_get_knowledge_read_adapter(group_id)
+
+
+async def execute_surreal_graph_query(
+    group_id: str,
+    query: str,
+    **params: object,
+) -> list[dict[str, object]] | None:
+    return await _service_execute_surreal_graph_query(group_id, query, **params)
 
 
 router = APIRouter(
@@ -392,51 +399,35 @@ def _normalize_metric_task_row(row: dict[str, Any]) -> dict[str, Any]:
 
 async def _list_surreal_metric_task_rows(group_id: str) -> list[dict[str, Any]] | None:
     try:
-        runtime = await get_entity_graph_runtime(group_id)
+        rows = await execute_surreal_graph_query(
+            group_id,
+            """
+            SELECT
+                uuid,
+                project_id,
+                status,
+                priority,
+                assignees,
+                completed_at,
+                due_date,
+                attributes.metadata AS metadata,
+                created_at,
+                updated_at ?? attributes.updated_at AS updated_at
+            FROM entity
+            WHERE group_id = $group_id
+                AND entity_type = $task_type;
+            """,
+            task_type=EntityType.TASK.value,
+        )
     except Exception as exc:
-        log.debug(
-            "surreal_metric_task_fast_path_unavailable",
+        log.warning(
+            "surreal_metric_task_fast_path_failed",
             group_id=group_id,
             error_type=type(exc).__name__,
         )
         return None
 
-    entity_manager = getattr(runtime, "entity_manager", None)
-    driver = getattr(entity_manager, "_driver", None)
-    query_group_id = getattr(entity_manager, "_group_id", None) or group_id
-    surreal_driver = _surreal_driver_for(driver)
-    if surreal_driver is None:
-        return None
-
-    try:
-        rows = GraphClient.normalize_result(
-            await surreal_driver.execute_query(
-                """
-                SELECT
-                    uuid,
-                    project_id,
-                    status,
-                    priority,
-                    assignees,
-                    completed_at,
-                    due_date,
-                    attributes.metadata AS metadata,
-                    created_at,
-                    updated_at ?? attributes.updated_at AS updated_at
-                FROM entity
-                WHERE group_id = $group_id
-                    AND entity_type = $task_type;
-                """,
-                group_id=query_group_id,
-                task_type=EntityType.TASK.value,
-            )
-        )
-    except Exception as exc:
-        log.warning(
-            "surreal_metric_task_fast_path_failed",
-            group_id=query_group_id,
-            error_type=type(exc).__name__,
-        )
+    if rows is None:
         return None
 
     return [_normalize_metric_task_row(row) for row in rows]

@@ -16,7 +16,6 @@ from sibyl_core.models.entities import EntityType
 async def test_verify_task_access_uses_knowledge_read_adapter() -> None:
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     ctx = SimpleNamespace()
-    session = AsyncMock()
     entity = SimpleNamespace(metadata={"project_id": "project-1"})
     service = AsyncMock()
     service.get_entity.return_value = entity
@@ -26,11 +25,11 @@ async def test_verify_task_access_uses_knowledge_read_adapter() -> None:
         patch("sibyl.api.routes.tasks.get_knowledge_read_adapter", AsyncMock(return_value=service)),
         patch("sibyl.api.routes.tasks.verify_entity_project_access", authorize),
     ):
-        await _verify_task_access("task-1", org, ctx, session)
+        await _verify_task_access("task-1", org, ctx)
 
     service.get_entity.assert_awaited_once_with("task-1")
     authorize.assert_awaited_once_with(
-        session,
+        None,
         ctx,
         "project-1",
         required_role=ProjectRole.CONTRIBUTOR,

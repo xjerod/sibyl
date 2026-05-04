@@ -1177,17 +1177,7 @@ class TestGetProjectSummaries:
 
         mock_org = create_mock_org()
         mock_service = AsyncMock()
-        mock_driver = MagicMock()
-        mock_runtime = MagicMock()
-
-        mock_runtime.entity_manager._driver = mock_driver
-        mock_runtime.entity_manager._group_id = str(mock_org.id)
-
-        mock_projects = [
-            create_mock_entity(entity_type="project", name="Project A", entity_id="proj_a"),
-            create_mock_entity(entity_type="project", name="Project B", entity_id="proj_b"),
-        ]
-        mock_driver.execute_query = AsyncMock(
+        execute_surreal_query = AsyncMock(
             return_value=[
                 create_metric_task_row(
                     project_id="proj_b",
@@ -1206,6 +1196,11 @@ class TestGetProjectSummaries:
                 ),
             ]
         )
+
+        mock_projects = [
+            create_mock_entity(entity_type="project", name="Project A", entity_id="proj_a"),
+            create_mock_entity(entity_type="project", name="Project B", entity_id="proj_b"),
+        ]
         mock_service.list_entities = AsyncMock(
             return_value=Page(items=mock_projects, next_cursor=None)
         )
@@ -1216,12 +1211,8 @@ class TestGetProjectSummaries:
                 AsyncMock(return_value=mock_service),
             ),
             patch(
-                "sibyl.api.routes.metrics.get_entity_graph_runtime",
-                AsyncMock(return_value=mock_runtime),
-            ),
-            patch(
-                "sibyl.api.routes.metrics._surreal_driver_for",
-                MagicMock(return_value=mock_driver),
+                "sibyl.api.routes.metrics.execute_surreal_graph_query",
+                execute_surreal_query,
             ),
         ):
             result = await get_project_summaries(org=mock_org)
@@ -1233,10 +1224,10 @@ class TestGetProjectSummaries:
                 cursor=None,
             ),
         ]
-        assert mock_driver.execute_query.await_count == 1
-        assert "FROM entity" in mock_driver.execute_query.await_args.args[0]
-        assert mock_driver.execute_query.await_args.kwargs == {
-            "group_id": str(mock_org.id),
+        assert execute_surreal_query.await_count == 1
+        assert execute_surreal_query.await_args.args[0] == str(mock_org.id)
+        assert "FROM entity" in execute_surreal_query.await_args.args[1]
+        assert execute_surreal_query.await_args.kwargs == {
             "task_type": EntityType.TASK.value,
         }
         assert result.projects_summary[0].id == "proj_a"

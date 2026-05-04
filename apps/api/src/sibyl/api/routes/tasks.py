@@ -51,7 +51,6 @@ async def _verify_task_access(
     task_id: str,
     org: Organization,
     ctx: AuthContext,
-    session: Any,
     required_role: ProjectRole = ProjectRole.CONTRIBUTOR,
 ) -> Any:
     """Fetch a task and verify project access.
@@ -65,7 +64,7 @@ async def _verify_task_access(
 
     # Extract project_id from entity metadata
     project_id = entity.metadata.get("project_id") if entity.metadata else None
-    await verify_entity_project_access(session, ctx, project_id, required_role=required_role)
+    await verify_entity_project_access(None, ctx, project_id, required_role=required_role)
     return entity
 
 
@@ -173,10 +172,8 @@ async def create_task(
     from sibyl_core.models.entities import Relationship, RelationshipType
     from sibyl_core.models.tasks import Task, TaskComplexity, TaskPriority, TaskStatus
 
-    # Verify user has write access to the target project
-    # auth.session has RLS context set for tenant isolation
     await verify_entity_project_access(
-        auth.session, auth.ctx, request.project_id, required_role=ProjectRole.CONTRIBUTOR
+        None, auth.ctx, request.project_id, required_role=ProjectRole.CONTRIBUTOR
     )
 
     try:
@@ -336,9 +333,7 @@ async def start_task(
     request: StartTaskRequest | None = None,
 ) -> TaskActionResponse:
     """Start working on a task (moves to 'doing' status)."""
-    # Verify project access before modifying
-    # auth.session has RLS context set for tenant isolation
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     group_id = str(org.id)
 
@@ -376,7 +371,7 @@ async def block_task(
     auth: AuthSession = Depends(get_auth_session),
 ) -> TaskActionResponse:
     """Mark a task as blocked with a reason."""
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     group_id = str(org.id)
 
@@ -412,7 +407,7 @@ async def unblock_task(
     auth: AuthSession = Depends(get_auth_session),
 ) -> TaskActionResponse:
     """Resume a blocked task (moves back to 'doing')."""
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     group_id = str(org.id)
 
@@ -449,7 +444,7 @@ async def submit_review(
     request: ReviewTaskRequest | None = None,
 ) -> TaskActionResponse:
     """Submit a task for review."""
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     group_id = str(org.id)
 
@@ -493,7 +488,7 @@ async def complete_task(
         enqueue_create_learning_procedure,
     )
 
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     group_id = str(org.id)
 
@@ -544,7 +539,7 @@ async def archive_task(
     request: ArchiveTaskRequest | None = None,
 ) -> TaskActionResponse:
     """Archive a task (terminal state)."""
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     group_id = str(org.id)
 
@@ -613,8 +608,7 @@ async def update_task(
     """
     from sibyl.jobs.queue import enqueue_update_task as enqueue_update_task_async
 
-    # Auth check stays synchronous — fast (one graph read + one PG query)
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     group_id = str(org.id)
     update_data = _build_update_data(request, str(user.id))
@@ -772,7 +766,7 @@ async def create_note(
     from sibyl.jobs.pending import is_pending, queue_pending_operation
     from sibyl_core.models.entities import Relationship, RelationshipType
 
-    await _verify_task_access(task_id, org, auth.ctx, auth.session)
+    await _verify_task_access(task_id, org, auth.ctx)
 
     try:
         group_id = str(org.id)
@@ -890,9 +884,7 @@ async def list_notes(
 ) -> NotesListResponse:
     """List all notes for a task."""
     # Read access is sufficient for listing notes
-    await _verify_task_access(
-        task_id, org, auth.ctx, auth.session, required_role=ProjectRole.VIEWER
-    )
+    await _verify_task_access(task_id, org, auth.ctx, required_role=ProjectRole.VIEWER)
 
     try:
         group_id = str(org.id)
