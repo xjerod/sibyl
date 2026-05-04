@@ -3,13 +3,12 @@
 Sets relational session variables (app.user_id, app.org_id) so RLS policies
 can filter rows based on the authenticated user's context.
 
-Usage:
+Relational-only surfaces that genuinely need a SQLAlchemy session may use:
     from sibyl.auth.rls import get_rls_session
 
-    @router.get("/protected")
-    async def protected(session: AsyncSession = Depends(get_rls_session)):
-        # RLS policies now filter based on current user/org
-        ...
+Auth-only API routes should depend on get_auth_context instead. Route and MCP surfaces
+are guarded from importing this module so fully-Surreal mode cannot accidentally open
+Postgres sessions.
 """
 
 from __future__ import annotations
@@ -86,7 +85,7 @@ async def get_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
     3. Sets app.user_id and app.org_id session variables
     4. Yields the configured session
 
-    Usage:
+    Relational-only usage:
         @router.get("/items")
         async def list_items(session: AsyncSession = Depends(get_rls_session)):
             # RLS policies automatically filter to user's accessible rows
@@ -235,10 +234,11 @@ async def get_auth_session(request: Request) -> AsyncGenerator[AuthSession]:
     """FastAPI dependency providing AuthContext + RLS-enabled session.
 
     This combines authentication, authorization context, and RLS setup
-    into a single dependency. Use this when you need both auth context
-    for permission checks AND database access with tenant isolation.
+    into a single dependency. Use this only for legacy relational code that
+    genuinely needs both auth context and a database session with tenant isolation.
+    Auth-only API routes should depend on get_auth_context directly.
 
-    Usage:
+    Relational-only usage:
         @router.get("/items")
         async def list_items(auth: AuthSession = Depends(get_auth_session)):
             # auth.ctx has user, org, scopes for permission checks
