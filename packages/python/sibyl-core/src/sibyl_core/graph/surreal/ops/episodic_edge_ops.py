@@ -152,6 +152,56 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
         )
         return [_episodic_edge_from_record(r) for r in records]
 
+    async def get_between_nodes(
+        self,
+        executor: QueryExecutor,
+        source_node_uuid: str,
+        target_node_uuid: str,
+        group_ids: list[str] | None = None,
+        limit: int | None = None,
+    ) -> list[EpisodicEdge]:
+        group_clause = "AND group_id IN $group_ids" if group_ids else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
+        records = normalize_records(
+            await executor.execute_query(
+                f"SELECT uuid, group_id, created_at, "
+                f"in.uuid AS source_node_uuid, out.uuid AS target_node_uuid "
+                f"FROM {EDGE_TABLE} "
+                "WHERE in.uuid = $src_uuid AND out.uuid = $tgt_uuid "
+                f"{group_clause} "
+                "ORDER BY uuid DESC "
+                f"{limit_clause};",
+                src_uuid=source_node_uuid,
+                tgt_uuid=target_node_uuid,
+                group_ids=group_ids,
+            )
+        )
+        return [_episodic_edge_from_record(r) for r in records]
+
+    async def get_by_node_uuid(
+        self,
+        executor: QueryExecutor,
+        node_uuid: str,
+        group_ids: list[str] | None = None,
+        limit: int | None = None,
+    ) -> list[EpisodicEdge]:
+        group_clause = "AND group_id IN $group_ids" if group_ids else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
+        records = normalize_records(
+            await executor.execute_query(
+                f"SELECT uuid, group_id, created_at, "
+                f"in.uuid AS source_node_uuid, out.uuid AS target_node_uuid "
+                f"FROM {EDGE_TABLE} "
+                "WHERE (in.uuid = $node_uuid OR out.uuid = $node_uuid) "
+                f"{group_clause} "
+                "ORDER BY uuid DESC "
+                f"{limit_clause};",
+                node_uuid=node_uuid,
+                group_ids=group_ids,
+            )
+        )
+        return [_episodic_edge_from_record(r) for r in records]
+
     async def get_by_group_ids(
         self,
         executor: QueryExecutor,

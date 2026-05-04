@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from graphiti_core.edges import EntityEdge
+from graphiti_core.edges import EntityEdge, EpisodicEdge
 from graphiti_core.nodes import EntityNode
 
 from sibyl_core.backends.surreal import SurrealDriver
@@ -178,6 +178,7 @@ class TestRelationshipCreate:
         entity_ops.get_between_nodes = AsyncMock(return_value=[])
         entity_ops.save = AsyncMock()
         episodic_ops = surreal_relationship_manager._driver.episodic_edge_ops
+        episodic_ops.get_between_nodes = AsyncMock(return_value=[])
         episodic_ops.save = AsyncMock()
 
         result = await surreal_relationship_manager.create(relationship)
@@ -190,6 +191,36 @@ class TestRelationshipCreate:
         assert edge.uuid == "rel-episode-task"
         assert edge.source_node_uuid == "episode_task-123"
         assert edge.target_node_uuid == "task-123"
+
+    @pytest.mark.asyncio
+    async def test_create_relationship_reuses_existing_episode_mentions(
+        self,
+        surreal_relationship_manager: RelationshipManager,
+    ) -> None:
+        relationship = Relationship(
+            id="rel-new",
+            relationship_type=RelationshipType.RELATED_TO,
+            source_id="episode_task-123",
+            target_id="task-123",
+        )
+        entity_ops = surreal_relationship_manager._driver.entity_edge_ops
+        entity_ops.save = AsyncMock()
+        episodic_ops = surreal_relationship_manager._driver.episodic_edge_ops
+        existing = EpisodicEdge(
+            uuid="rel-existing",
+            group_id=surreal_relationship_manager._group_id,
+            source_node_uuid="episode_task-123",
+            target_node_uuid="task-123",
+            created_at=datetime.now(UTC),
+        )
+        episodic_ops.get_between_nodes = AsyncMock(return_value=[existing])
+        episodic_ops.save = AsyncMock()
+
+        result = await surreal_relationship_manager.create(relationship)
+
+        assert result == "rel-existing"
+        entity_ops.save.assert_not_awaited()
+        episodic_ops.save.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_create_relationship_refuses_surreal_cypher_fallback(
@@ -602,6 +633,43 @@ class TestGetForEntity:
         ops.get_by_node_uuid.assert_awaited_once_with(
             surreal_relationship_manager._driver,
             "entity-001",
+            group_ids=[surreal_relationship_manager._group_id],
+            limit=1000,
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_for_entity_includes_surreal_episode_mentions(
+        self,
+        surreal_relationship_manager: RelationshipManager,
+    ) -> None:
+        entity_ops = surreal_relationship_manager._driver.entity_edge_ops
+        entity_ops.get_by_node_uuid = AsyncMock(return_value=[])
+        episodic_ops = surreal_relationship_manager._driver.episodic_edge_ops
+        episodic_ops.get_by_node_uuid = AsyncMock(
+            return_value=[
+                EpisodicEdge(
+                    uuid="rel-episode-task",
+                    group_id=surreal_relationship_manager._group_id,
+                    source_node_uuid="episode_task-123",
+                    target_node_uuid="task-123",
+                    created_at=datetime.now(UTC),
+                )
+            ]
+        )
+
+        results = await surreal_relationship_manager.get_for_entity(
+            "episode_task-123",
+            direction="outgoing",
+        )
+
+        assert len(results) == 1
+        assert results[0].id == "rel-episode-task"
+        assert results[0].relationship_type == RelationshipType.RELATED_TO
+        assert results[0].source_id == "episode_task-123"
+        assert results[0].target_id == "task-123"
+        episodic_ops.get_by_node_uuid.assert_awaited_once_with(
+            surreal_relationship_manager._driver,
+            "episode_task-123",
             group_ids=[surreal_relationship_manager._group_id],
             limit=1000,
         )

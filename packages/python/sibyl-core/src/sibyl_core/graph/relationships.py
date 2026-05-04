@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import structlog
-from graphiti_core.edges import EntityEdge
+from graphiti_core.edges import EntityEdge, EpisodicEdge
 from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.errors import GraphError
@@ -174,8 +174,6 @@ class RelationshipManager:
         if episodic_edge_ops is None:
             raise RuntimeError("SurrealDB episode mentions require native episodic edge operations")
 
-        from graphiti_core.edges import EpisodicEdge
-
         edge = EpisodicEdge(
             uuid=relationship.id or str(uuid4()),
             group_id=self._group_id,
@@ -219,6 +217,14 @@ class RelationshipManager:
             target_id=edge.target_node_uuid,
             weight=weight,
             metadata=attributes,
+        )
+
+    def _from_episodic_edge(self, edge: EpisodicEdge) -> Relationship:
+        return Relationship(
+            id=edge.uuid,
+            relationship_type=RelationshipType.RELATED_TO,
+            source_id=edge.source_node_uuid,
+            target_id=edge.target_node_uuid,
         )
 
     def _build_bulk_relationship_row(self, relationship: Relationship) -> dict[str, object]:
@@ -296,6 +302,22 @@ class RelationshipManager:
             surreal_edge_ops = self._surreal_entity_edge_ops()
             if surreal_edge_ops is not None:
                 if _is_episode_id(relationship.source_id):
+                    episodic_edge_ops = self._surreal_episodic_edge_ops()
+                    if episodic_edge_ops is not None:
+                        existing = await episodic_edge_ops.get_between_nodes(
+                            self._driver,
+                            relationship.source_id,
+                            relationship.target_id,
+                            group_ids=[self._group_id],
+                            limit=1000,
+                        )
+                        if existing:
+                            log.info(
+                                "Episode mention already exists; skipping duplicate",
+                                relationship_id=existing[0].uuid,
+                            )
+                            return existing[0].uuid
+
                     edge_id = await self._save_as_episode_mention(relationship)
                     log.info("Created episode mention", relationship_id=edge_id)
                     return edge_id
@@ -551,6 +573,20 @@ class RelationshipManager:
                     if type_values and edge.name not in type_values:
                         continue
                     relationships.append(self._from_graphiti_edge(edge))
+
+                episodic_edge_ops = self._surreal_episodic_edge_ops()
+                if episodic_edge_ops is not None and _is_episode_id(entity_id):
+                    mention_edges = await episodic_edge_ops.get_by_node_uuid(
+                        self._driver,
+                        entity_id,
+                        group_ids=[self._group_id],
+                        limit=1000,
+                    )
+                    include_mentions = not type_values or RelationshipType.RELATED_TO.value in type_values
+                    if direction != "incoming" and include_mentions:
+                        for edge in mention_edges:
+                            if edge.group_id == self._group_id:
+                                relationships.append(self._from_episodic_edge(edge))
 
                 log.debug(
                     "Retrieved relationships via Surreal edge ops",

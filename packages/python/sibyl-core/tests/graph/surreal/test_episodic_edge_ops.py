@@ -83,6 +83,44 @@ class TestEpisodicEdgeOps:
         uuids = {r.uuid for r in results}
         assert uuids == {"m-a", "m-b"}
 
+    async def test_get_between_nodes(self, surreal_schema: SurrealDriver) -> None:
+        ops = SurrealEpisodicEdgeOperations()
+        gid = surreal_schema.group_id
+        await _seed_episode(surreal_schema, "ep-1")
+        await _seed_entity(surreal_schema, "ent-1")
+        await _seed_entity(surreal_schema, "ent-2")
+
+        await ops.save(surreal_schema, _make_edge("m-a", gid, "ep-1", "ent-1"))
+        await ops.save(surreal_schema, _make_edge("m-b", gid, "ep-1", "ent-2"))
+
+        results = await ops.get_between_nodes(
+            surreal_schema,
+            "ep-1",
+            "ent-1",
+            group_ids=[gid],
+        )
+        assert [edge.uuid for edge in results] == ["m-a"]
+
+    async def test_get_by_node_uuid_matches_source_or_target(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        ops = SurrealEpisodicEdgeOperations()
+        gid = surreal_schema.group_id
+        await _seed_episode(surreal_schema, "ep-1")
+        await _seed_episode(surreal_schema, "ep-2")
+        await _seed_entity(surreal_schema, "ent-1")
+        await _seed_entity(surreal_schema, "ent-2")
+
+        await ops.save(surreal_schema, _make_edge("m-a", gid, "ep-1", "ent-1"))
+        await ops.save(surreal_schema, _make_edge("m-b", gid, "ep-2", "ent-1"))
+        await ops.save(surreal_schema, _make_edge("m-c", gid, "ep-2", "ent-2"))
+
+        by_episode = await ops.get_by_node_uuid(surreal_schema, "ep-2", group_ids=[gid])
+        by_entity = await ops.get_by_node_uuid(surreal_schema, "ent-1", group_ids=[gid])
+
+        assert {edge.uuid for edge in by_episode} == {"m-b", "m-c"}
+        assert {edge.uuid for edge in by_entity} == {"m-a", "m-b"}
+
     async def test_save_bulk_and_group_query(self, surreal_schema: SurrealDriver) -> None:
         ops = SurrealEpisodicEdgeOperations()
         gid = surreal_schema.group_id
