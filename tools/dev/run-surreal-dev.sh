@@ -29,7 +29,7 @@ resolve_coordination_backend() {
   local configured="${SIBYL_COORDINATION_BACKEND:-auto}"
 
   if [[ "$configured" == "auto" ]]; then
-    if [[ "${SIBYL_STORE:-legacy}" == "legacy" ]]; then
+    if [[ "${SIBYL_STORE:-surreal}" == "legacy" ]]; then
       printf 'redis\n'
     else
       printf 'local\n'

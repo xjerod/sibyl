@@ -55,6 +55,10 @@ def test_up_defaults_to_surreal_local_without_redis(tmp_path: Path, monkeypatch)
     assert "SIBYL_REDIS_HOST" not in env
 
 
+def test_coordination_backend_helper_defaults_to_surreal_local() -> None:
+    assert up_cmd._resolve_coordination_backend({}) == "local"
+
+
 def test_up_starts_redis_when_surreal_coordination_backend_is_redis(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -116,6 +120,21 @@ def test_configure_requested_worker_mode_skips_extra_worker_for_local_runtime(
     monkeypatch.setattr(up_cmd, "warn", warn)
 
     env = {"SIBYL_STORE": "surreal", "SIBYL_COORDINATION_BACKEND": "auto"}
+    up_cmd._configure_requested_worker_mode(env, with_worker=True)
+
+    assert "SIBYL_RUN_WORKER" not in env
+    info.assert_called_once_with("Local coordination already runs jobs and schedules in-process")
+    warn.assert_not_called()
+
+
+def test_configure_requested_worker_mode_defaults_to_local_runtime(monkeypatch) -> None:
+    info = MagicMock()
+    warn = MagicMock()
+
+    monkeypatch.setattr(up_cmd, "info", info)
+    monkeypatch.setattr(up_cmd, "warn", warn)
+
+    env: dict[str, str] = {}
     up_cmd._configure_requested_worker_mode(env, with_worker=True)
 
     assert "SIBYL_RUN_WORKER" not in env

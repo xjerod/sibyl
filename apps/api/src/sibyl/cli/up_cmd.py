@@ -87,7 +87,7 @@ def _default_local_surreal_url(env: dict[str, str]) -> str:
 
 def _resolve_coordination_backend(env: dict[str, str]) -> str:
     return resolve_coordination_backend(
-        store=env.get("SIBYL_STORE", "legacy"),
+        store=env.get("SIBYL_STORE", "surreal"),
         coordination_backend=env.get("SIBYL_COORDINATION_BACKEND", "auto"),
     )
 
@@ -180,7 +180,7 @@ def _configure_requested_worker_mode(env: dict[str, str], *, with_worker: bool) 
         info("Local coordination already runs jobs and schedules in-process")
         return
 
-    if env.get("SIBYL_STORE", "legacy") == "legacy":
+    if env.get("SIBYL_STORE", "surreal") == "legacy":
         info("Worker mode: running embedded arq worker in the API process")
         env["SIBYL_RUN_WORKER"] = "true"
         return
