@@ -47,6 +47,7 @@ class FakeClient:
     def __init__(self, responses: list[object]) -> None:
         self._responses = list(responses)
         self.calls: list[tuple[str, dict[str, object]]] = []
+        self.closed = 0
 
     async def execute_query(
         self, query: str, params: dict[str, object] | None = None, **kwargs: object
@@ -65,10 +66,35 @@ class FakeClient:
         return self._responses.pop(0)
 
     async def close(self) -> None:
-        return None
+        self.closed += 1
 
 
 class TestSurrealContentHelpers:
+    @pytest.mark.asyncio
+    async def test_surreal_content_client_reuses_shared_client(self) -> None:
+        fake_client = FakeClient([])
+
+        from sibyl_core.services import surreal_content as content_service
+
+        await content_service.close_shared_surreal_content_client()
+        try:
+            with pytest.MonkeyPatch.context() as monkeypatch:
+                monkeypatch.setattr(
+                    content_service,
+                    "build_surreal_content_client",
+                    lambda: fake_client,
+                )
+                async with (
+                    content_service.surreal_content_client() as first,
+                    content_service.surreal_content_client() as second,
+                ):
+                    assert first is fake_client
+                    assert second is fake_client
+        finally:
+            await content_service.close_shared_surreal_content_client()
+
+        assert fake_client.closed == 1
+
     @pytest.mark.asyncio
     async def test_replace_record_uses_single_upsert_statement(self) -> None:
         record = {
