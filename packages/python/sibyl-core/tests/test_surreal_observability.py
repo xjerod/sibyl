@@ -96,6 +96,23 @@ def test_fast_schema_define_query_is_quiet(monkeypatch) -> None:
     assert fake_log.events == []
 
 
+def test_fast_schema_alter_query_is_quiet(monkeypatch) -> None:
+    fake_log = FakeLog()
+    monkeypatch.setattr(observability, "log", fake_log)
+    monkeypatch.setattr(observability, "_slow_query_threshold_ms", lambda: 500.0)
+
+    observability.log_query(
+        "ALTER TABLE IF EXISTS users SCHEMAFULL;",
+        client_kind="auth",
+        namespace="sibyl_auth",
+        database="auth",
+        raw=False,
+        elapsed=0.7,
+    )
+
+    assert fake_log.events == []
+
+
 def test_slow_schema_define_query_still_warns(monkeypatch) -> None:
     fake_log = FakeLog()
     monkeypatch.setattr(observability, "log", fake_log)
