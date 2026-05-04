@@ -41,8 +41,6 @@ from sibyl_core.utils.resilience import GRAPHITI_RETRY
 
 log = structlog.get_logger()
 
-_LEGACY_GUIDE_ENTITY_TYPE = "convention"
-
 # Generic enum type for coercion
 TEnum = TypeVar("TEnum", bound=Enum)
 # RediSearch special characters that need escaping in fulltext queries
@@ -78,8 +76,6 @@ def _entity_type_filter_values(entity_types: list[EntityType]) -> list[str]:
     for entity_type in entity_types:
         if entity_type.value not in values:
             values.append(entity_type.value)
-        if entity_type == EntityType.GUIDE and _LEGACY_GUIDE_ENTITY_TYPE not in values:
-            values.append(_LEGACY_GUIDE_ENTITY_TYPE)
     return values
 
 

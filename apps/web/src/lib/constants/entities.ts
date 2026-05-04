@@ -325,12 +325,10 @@ export const ENTITY_STYLES: Record<EntityType, EntityStyle> = {
 
 // Get color for any entity type (with fallback)
 export function getEntityColor(type: string): string {
-  const normalizedType = type === 'convention' ? 'guide' : type;
-  return ENTITY_COLORS[normalizedType as EntityType] ?? DEFAULT_ENTITY_COLOR;
+  return ENTITY_COLORS[type as EntityType] ?? DEFAULT_ENTITY_COLOR;
 }
 
 // Get style classes for any entity type (with fallback)
 export function getEntityStyles(type: string) {
-  const normalizedType = type === 'convention' ? 'guide' : type;
-  return ENTITY_STYLES[normalizedType as EntityType] ?? ENTITY_STYLES.knowledge_source;
+  return ENTITY_STYLES[type as EntityType] ?? ENTITY_STYLES.knowledge_source;
 }

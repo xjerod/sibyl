@@ -66,8 +66,7 @@ interface EntityIconProps {
 }
 
 export function EntityIcon({ type, size = 14, className = '' }: EntityIconProps) {
-  const normalizedType = type === 'convention' ? 'guide' : type;
-  const Icon = ENTITY_ICON_MAP[normalizedType as EntityType] ?? DEFAULT_ICON;
+  const Icon = ENTITY_ICON_MAP[type as EntityType] ?? DEFAULT_ICON;
   return <Icon width={size} height={size} className={className} />;
 }
 

@@ -54,7 +54,7 @@ class EntityType(StrEnum):
 
     @classmethod
     def _missing_(cls, value: object) -> "EntityType | None":
-        if isinstance(value, str) and value.lower() in {"guide", "convention"}:
+        if isinstance(value, str) and value.lower() == "guide":
             return cls.GUIDE
         return None
 

@@ -60,8 +60,8 @@ describe('ENTITY_COLORS', () => {
     }
   });
 
-  it('maps old guide rows to the guide color', () => {
-    expect(getEntityColor('convention')).toBe(ENTITY_COLORS.guide);
+  it('uses the fallback color for unknown types', () => {
+    expect(getEntityColor('unknown')).toBe('#8b85a0');
   });
 });
 

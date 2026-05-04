@@ -7,13 +7,12 @@ def test_entity_type_accepts_guide_alias() -> None:
     assert EntityType.GUIDE.value == "guide"
     assert EntityType("guide") is EntityType.GUIDE
     assert EntityType("GUIDE") is EntityType.GUIDE
-    assert EntityType("convention") is EntityType.GUIDE
 
 
-def test_surreal_entity_type_filters_include_legacy_guide_rows() -> None:
+def test_surreal_entity_type_filters_use_guide_rows() -> None:
     from sibyl_core.graph.entities import _entity_type_filter_values
 
-    assert _entity_type_filter_values([EntityType.GUIDE]) == ["guide", "convention"]
+    assert _entity_type_filter_values([EntityType.GUIDE]) == ["guide"]
 
 
 class TestTaskModel:
