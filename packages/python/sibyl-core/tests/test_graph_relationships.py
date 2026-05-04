@@ -164,7 +164,7 @@ class TestRelationshipCreate:
         ops.save.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_create_relationship_routes_episode_sources_to_mentions(
+    async def test_create_relationship_routes_episode_sources_directly_to_mentions(
         self,
         surreal_relationship_manager: RelationshipManager,
     ) -> None:
@@ -176,18 +176,15 @@ class TestRelationshipCreate:
         )
         entity_ops = surreal_relationship_manager._driver.entity_edge_ops
         entity_ops.get_between_nodes = AsyncMock(return_value=[])
-        entity_ops.save = AsyncMock(
-            side_effect=ValueError(
-                "relates_to endpoint not found: 'episode_task-123' -> 'task-123'"
-            )
-        )
+        entity_ops.save = AsyncMock()
         episodic_ops = surreal_relationship_manager._driver.episodic_edge_ops
         episodic_ops.save = AsyncMock()
 
         result = await surreal_relationship_manager.create(relationship)
 
         assert result == relationship.id
-        entity_ops.save.assert_awaited_once()
+        entity_ops.get_between_nodes.assert_not_awaited()
+        entity_ops.save.assert_not_awaited()
         episodic_ops.save.assert_awaited_once()
         edge = episodic_ops.save.await_args.args[1]
         assert edge.uuid == "rel-episode-task"

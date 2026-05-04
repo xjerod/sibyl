@@ -26,6 +26,10 @@ log = structlog.get_logger()
 VALID_RELATIONSHIP_TYPES = frozenset(rt.value for rt in RelationshipType)
 
 
+def _is_episode_id(node_id: str) -> bool:
+    return node_id.startswith("episode")
+
+
 def _validate_relationship_type(rel_type: str) -> str:
     """Validate relationship type is in the allowed whitelist.
 
@@ -165,24 +169,26 @@ class RelationshipManager:
             },
         )
 
-    async def _try_save_as_episode_mention(self, relationship: Relationship) -> bool:
+    async def _save_as_episode_mention(self, relationship: Relationship) -> str:
         episodic_edge_ops = self._surreal_episodic_edge_ops()
         if episodic_edge_ops is None:
-            return False
+            raise RuntimeError("SurrealDB episode mentions require native episodic edge operations")
 
         from graphiti_core.edges import EpisodicEdge
 
+        edge = EpisodicEdge(
+            uuid=relationship.id or str(uuid4()),
+            group_id=self._group_id,
+            source_node_uuid=relationship.source_id,
+            target_node_uuid=relationship.target_id,
+            created_at=relationship.created_at,
+        )
+        await episodic_edge_ops.save(self._driver, edge)
+        return edge.uuid
+
+    async def _try_save_as_episode_mention(self, relationship: Relationship) -> bool:
         try:
-            await episodic_edge_ops.save(
-                self._driver,
-                EpisodicEdge(
-                    uuid=relationship.id or str(uuid4()),
-                    group_id=self._group_id,
-                    source_node_uuid=relationship.source_id,
-                    target_node_uuid=relationship.target_id,
-                    created_at=relationship.created_at,
-                ),
-            )
+            await self._save_as_episode_mention(relationship)
         except ValueError:
             return False
         return True
@@ -289,6 +295,11 @@ class RelationshipManager:
         try:
             surreal_edge_ops = self._surreal_entity_edge_ops()
             if surreal_edge_ops is not None:
+                if _is_episode_id(relationship.source_id):
+                    edge_id = await self._save_as_episode_mention(relationship)
+                    log.info("Created episode mention", relationship_id=edge_id)
+                    return edge_id
+
                 existing = await surreal_edge_ops.get_between_nodes(
                     self._driver,
                     relationship.source_id,
