@@ -83,6 +83,35 @@ def _resolve_org_id(requested_org_id: str, archive_org_id: str) -> str:
     return effective_org_id
 
 
+def _resolve_export_org_id(requested_org_id: str) -> str:
+    if requested_org_id:
+        return requested_org_id
+
+    from sibyl.persistence import organization_runtime
+
+    @run_async
+    async def _list_org_ids() -> list[str]:
+        return await organization_runtime.list_org_ids()
+
+    org_ids = _list_org_ids()
+    if len(org_ids) == 1:
+        org_id = org_ids[0]
+        info(f"No --org-id supplied; using the only organization: {org_id}")
+        return org_id
+
+    if not org_ids:
+        error("No organizations found in the active auth runtime")
+        info("Create an organization first, or pass --org-id if the graph exists elsewhere")
+        raise typer.Exit(code=1)
+
+    error("Multiple organizations found; pass --org-id to choose one")
+    for org_id in org_ids[:10]:
+        console.print(f"  [dim]{org_id}[/dim]")
+    if len(org_ids) > 10:
+        console.print(f"  [dim]... and {len(org_ids) - 10} more[/dim]")
+    raise typer.Exit(code=1)
+
+
 def _print_verify_summary(result: object) -> None:
     expected_entities = getattr(result, "expected_entities", 0)
     actual_entities = getattr(result, "actual_entities", 0)
@@ -643,9 +672,8 @@ def export_archive(
         )
         raise typer.Exit(code=1)
 
-    if include_graph and not org_id:
-        error("--org-id is required when exporting graph runtime data")
-        raise typer.Exit(code=1)
+    if include_graph:
+        org_id = _resolve_export_org_id(org_id)
 
     files: dict[str, bytes] = {}
     file_metadata: dict[str, dict[str, object]] = {}
