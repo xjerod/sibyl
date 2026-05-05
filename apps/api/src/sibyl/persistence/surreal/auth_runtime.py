@@ -38,6 +38,7 @@ from sibyl.auth.primitives import (
     generate_user_code,
     hash_device_code,
 )
+from sibyl.auth.session_cache import access_session_cache
 from sibyl.email import PasswordResetEmail, get_email_client
 from sibyl.persistence.surreal.auth import (
     SurrealAuthContextResolver,
@@ -618,7 +619,9 @@ class SurrealSessionRepository(_SurrealRepository):
         if not created:
             msg = "Failed to create session"
             raise RuntimeError(msg)
-        return self._auth_session_from_record(created[0])
+        session = self._auth_session_from_record(created[0])
+        access_session_cache.store_session(session)
+        return session
 
     async def get_session_by_token(self, token: str) -> AuthSession | None:
         record = await self.select_one(
@@ -697,7 +700,9 @@ class SurrealSessionRepository(_SurrealRepository):
         if not updated_records:
             msg = f"Session not found: {session.id}"
             raise LookupError(msg)
-        return self._auth_session_from_record(updated_records[0])
+        updated = self._auth_session_from_record(updated_records[0])
+        access_session_cache.store_session(updated)
+        return updated
 
     async def list_user_sessions(
         self, user_id: UUID, *, include_expired: bool = False
@@ -767,7 +772,10 @@ class SurrealSessionRepository(_SurrealRepository):
         error = _query_error(result)
         if error is not None:
             raise RuntimeError(error)
-        return bool(_normalize_records(result))
+        revoked = bool(_normalize_records(result))
+        if revoked:
+            access_session_cache.mark_revoked(session_id, user_id=user_id)
+        return revoked
 
     async def revoke_loaded_session(self, session: AuthSession) -> bool:
         if session.revoked_at is not None:
@@ -783,6 +791,12 @@ class SurrealSessionRepository(_SurrealRepository):
         error = _query_error(result)
         if error is not None:
             raise RuntimeError(error)
+        access_session_cache.mark_revoked(
+            session.id,
+            user_id=session.user_id,
+            organization_id=session.organization_id,
+            expires_at=session.refresh_token_expires_at or session.expires_at,
+        )
         return True
 
     async def revoke_all_sessions(
@@ -805,7 +819,9 @@ class SurrealSessionRepository(_SurrealRepository):
         error = _query_error(result)
         if error is not None:
             raise RuntimeError(error)
-        return len(_normalize_records(result))
+        records = _normalize_records(result)
+        access_session_cache.invalidate_user(user_id)
+        return len(records)
 
     async def cleanup_expired(self, *, older_than_days: int = 30) -> int:
         cutoff = _utcnow() - timedelta(days=older_than_days)
@@ -1612,7 +1628,15 @@ async def validate_access_session(token: str) -> bool:
         sessions = SurrealSessionRepository.from_client(client)
         session_id = _session_id_from_access_token(token)
         if session_id is not None:
-            return await sessions.get_session_by_id(session_id) is not None
+            cached = access_session_cache.get(session_id)
+            if cached is not None:
+                return cached
+            session = await sessions.get_session_by_id(session_id)
+            if session is None:
+                access_session_cache.mark_revoked(session_id)
+                return False
+            access_session_cache.store_session(session)
+            return True
         return await sessions.get_session_by_token(token) is not None
 
 
@@ -1810,8 +1834,16 @@ async def revoke_access_session(token: str) -> None:
             else await sessions.get_session_by_token(token)
         )
         if existing is None:
+            if session_id is not None:
+                access_session_cache.mark_revoked(session_id)
             return
         await sessions.revoke_loaded_session(existing)
+        access_session_cache.mark_revoked(
+            existing.id,
+            user_id=existing.user_id,
+            organization_id=existing.organization_id,
+            expires_at=existing.refresh_token_expires_at or existing.expires_at,
+        )
 
 
 async def log_audit_event(

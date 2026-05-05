@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,6 +12,7 @@ from fastapi import HTTPException
 from sibyl.auth.api_key_common import api_key_prefix, hash_api_key
 from sibyl.auth.passwords import hash_password
 from sibyl.auth.primitives import DeviceTokenError
+from sibyl.auth.session_cache import access_session_cache
 from sibyl.db.models import ProjectRole
 from sibyl.persistence.surreal import auth as surreal_auth, auth_runtime as surreal_auth_runtime
 from sibyl_core.auth import AuthSession
@@ -66,6 +68,13 @@ def _auth_session(*, organization_id=None) -> AuthSession:
         device_name="mcp_oauth",
         device_type="mcp",
     )
+
+
+@pytest.fixture(autouse=True)
+def clear_access_session_cache() -> Iterator[None]:
+    access_session_cache.clear()
+    yield
+    access_session_cache.clear()
 
 
 @pytest.mark.asyncio
@@ -241,6 +250,7 @@ async def test_revoke_access_session_uses_sid_when_present(
     sessions.get_session_by_id.assert_awaited_once_with(session.id)
     sessions.get_session_by_token.assert_not_awaited()
     sessions.revoke_loaded_session.assert_awaited_once_with(session)
+    assert access_session_cache.get(session.id) is False
 
 
 @pytest.mark.asyncio
@@ -293,6 +303,70 @@ async def test_validate_access_session_uses_sid_when_present(
 
     assert await surreal_auth_runtime.validate_access_session("access-token") is True
     sessions.get_session_by_id.assert_awaited_once_with(session.id)
+    sessions.get_session_by_token.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_validate_access_session_reuses_sid_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session()
+    sessions = SimpleNamespace(
+        get_session_by_id=AsyncMock(return_value=session),
+        get_session_by_token=AsyncMock(return_value=None),
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "decode_token_unverified",
+        lambda token: {"sid": str(session.id)},
+    )
+
+    assert await surreal_auth_runtime.validate_access_session("access-token") is True
+    assert await surreal_auth_runtime.validate_access_session("access-token") is True
+    sessions.get_session_by_id.assert_awaited_once_with(session.id)
+    sessions.get_session_by_token.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_validate_access_session_rejects_cached_revocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session()
+    sessions = SimpleNamespace(
+        get_session_by_id=AsyncMock(return_value=session),
+        get_session_by_token=AsyncMock(return_value=None),
+    )
+    access_session_cache.mark_revoked(session.id)
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "decode_token_unverified",
+        lambda token: {"sid": str(session.id)},
+    )
+
+    assert await surreal_auth_runtime.validate_access_session("access-token") is False
+    sessions.get_session_by_id.assert_not_awaited()
     sessions.get_session_by_token.assert_not_awaited()
 
 
