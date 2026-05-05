@@ -210,6 +210,40 @@ async def test_token_revoke_helpers_revoke_loaded_session_without_reload(
 
 
 @pytest.mark.asyncio
+async def test_revoke_access_session_uses_sid_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session()
+    sessions = SimpleNamespace(
+        get_session_by_id=AsyncMock(return_value=session),
+        get_session_by_token=AsyncMock(return_value=None),
+        revoke_loaded_session=AsyncMock(return_value=True),
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "decode_token_unverified",
+        lambda token: {"sid": str(session.id)},
+    )
+
+    await surreal_auth_runtime.revoke_access_session("access-token")
+
+    sessions.get_session_by_id.assert_awaited_once_with(session.id)
+    sessions.get_session_by_token.assert_not_awaited()
+    sessions.revoke_loaded_session.assert_awaited_once_with(session)
+
+
+@pytest.mark.asyncio
 async def test_validate_access_session_checks_active_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -232,6 +266,37 @@ async def test_validate_access_session_checks_active_session(
 
 
 @pytest.mark.asyncio
+async def test_validate_access_session_uses_sid_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session()
+    sessions = SimpleNamespace(
+        get_session_by_id=AsyncMock(return_value=session),
+        get_session_by_token=AsyncMock(return_value=None),
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "decode_token_unverified",
+        lambda token: {"sid": str(session.id)},
+    )
+
+    assert await surreal_auth_runtime.validate_access_session("access-token") is True
+    sessions.get_session_by_id.assert_awaited_once_with(session.id)
+    sessions.get_session_by_token.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_validate_access_session_rejects_revoked_or_missing_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -250,6 +315,32 @@ async def test_validate_access_session_rejects_revoked_or_missing_session(
 
     assert await surreal_auth_runtime.validate_access_session("access-token") is False
     sessions.get_session_by_token.assert_awaited_once_with("access-token")
+
+
+@pytest.mark.asyncio
+async def test_get_session_by_id_uses_uuid_lookup() -> None:
+    session_id = uuid4()
+    user_id = uuid4()
+    session_record = {
+        "uuid": str(session_id),
+        "user_id": str(user_id),
+        "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+        "refresh_token_expires_at": datetime.now(UTC) + timedelta(days=30),
+        "revoked_at": None,
+    }
+    client = _RecordingAuthClient([session_record])
+    repo = surreal_auth_runtime.SurrealSessionRepository(client)
+
+    session = await repo.get_session_by_id(session_id)
+
+    assert session is not None
+    assert session.id == session_id
+    assert session.user_id == user_id
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "WHERE uuid = $uuid" in query
+    assert "token_hash" not in query
+    assert params == {"uuid": str(session_id)}
 
 
 @pytest.mark.asyncio

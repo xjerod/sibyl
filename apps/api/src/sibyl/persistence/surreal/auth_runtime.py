@@ -24,7 +24,13 @@ from sibyl.auth.api_key_common import (
     verify_api_key,
 )
 from sibyl.auth.http import select_access_token
-from sibyl.auth.jwt import JwtError, create_access_token, create_refresh_token, verify_access_token
+from sibyl.auth.jwt import (
+    JwtError,
+    create_access_token,
+    create_refresh_token,
+    decode_token_unverified,
+    verify_access_token,
+)
 from sibyl.auth.passwords import PasswordError, hash_password, verify_password
 from sibyl.auth.primitives import (
     DeviceTokenError,
@@ -608,6 +614,17 @@ class SurrealSessionRepository(_SurrealRepository):
         if not self._is_session_active(record):
             return None
         if record is None:
+            return None
+        return self._auth_session_from_record(record)
+
+    async def get_session_by_id(self, session_id: UUID) -> AuthSession | None:
+        record = await self.select_one(
+            "SELECT * FROM user_sessions WHERE uuid = $uuid LIMIT 1;",
+            uuid=str(session_id),
+        )
+        if record is None:
+            return None
+        if not self._is_session_active(record):
             return None
         return self._auth_session_from_record(record)
 
@@ -1571,7 +1588,20 @@ async def resolve_request_user(request):
 async def validate_access_session(token: str) -> bool:
     async with _auth_client_scope() as client:
         sessions = SurrealSessionRepository.from_client(client)
+        session_id = _session_id_from_access_token(token)
+        if session_id is not None:
+            return await sessions.get_session_by_id(session_id) is not None
         return await sessions.get_session_by_token(token) is not None
+
+
+def _session_id_from_access_token(token: str) -> UUID | None:
+    sid = decode_token_unverified(token).get("sid")
+    if not isinstance(sid, str) or not sid:
+        return None
+    try:
+        return UUID(sid)
+    except ValueError:
+        return None
 
 
 async def login_device_browser_user(*, email: str, password: str, request):
@@ -1735,7 +1765,12 @@ async def rotate_refresh_exchange(
 async def revoke_access_session(token: str) -> None:
     async with _auth_client_scope() as client:
         sessions = SurrealSessionRepository.from_client(client)
-        existing = await sessions.get_session_by_token(token)
+        session_id = _session_id_from_access_token(token)
+        existing = (
+            await sessions.get_session_by_id(session_id)
+            if session_id is not None
+            else await sessions.get_session_by_token(token)
+        )
         if existing is None:
             return
         await sessions.revoke_loaded_session(existing)

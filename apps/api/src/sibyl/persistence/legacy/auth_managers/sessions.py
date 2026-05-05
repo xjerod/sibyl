@@ -103,6 +103,14 @@ class SessionManager:
         )
         return result.scalar_one_or_none()
 
+    async def get_session_by_id(self, session_id: UUID) -> UserSession | None:
+        result = await self._session.execute(
+            select(UserSession)
+            .where(UserSession.id == session_id)
+            .where(_is_none(col(UserSession.revoked_at)))
+        )
+        return result.scalar_one_or_none()
+
     async def get_session_by_refresh_token(self, refresh_token: str) -> UserSession | None:
         """Get a session by refresh token (for token rotation)."""
         refresh_hash = self.hash_token(refresh_token)

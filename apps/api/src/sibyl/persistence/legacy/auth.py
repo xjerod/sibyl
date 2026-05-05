@@ -13,7 +13,13 @@ from sqlmodel import col, select
 
 from sibyl import config as config_module
 from sibyl.auth.http import select_access_token
-from sibyl.auth.jwt import JwtError, create_access_token, create_refresh_token, verify_access_token
+from sibyl.auth.jwt import (
+    JwtError,
+    create_access_token,
+    create_refresh_token,
+    decode_token_unverified,
+    verify_access_token,
+)
 from sibyl.db.models import (
     DeviceAuthorizationRequest,
     Organization,
@@ -503,7 +509,21 @@ async def validate_legacy_access_session(token: str) -> bool:
     from sibyl.db.connection import get_session
 
     async with get_session() as session:
-        return await SessionManager(session).get_session_by_token(token) is not None
+        manager = SessionManager(session)
+        session_id = _session_id_from_access_token(token)
+        if session_id is not None:
+            return await manager.get_session_by_id(session_id) is not None
+        return await manager.get_session_by_token(token) is not None
+
+
+def _session_id_from_access_token(token: str) -> UUID | None:
+    sid = decode_token_unverified(token).get("sid")
+    if not isinstance(sid, str) or not sid:
+        return None
+    try:
+        return UUID(sid)
+    except ValueError:
+        return None
 
 
 async def login_legacy_device_browser_user(
@@ -682,7 +702,13 @@ async def revoke_legacy_access_session(token: str) -> None:
     from sibyl.db.connection import get_session
 
     async with get_session() as session:
-        existing = await SessionManager(session).get_session_by_token(token)
+        manager = SessionManager(session)
+        session_id = _session_id_from_access_token(token)
+        existing = (
+            await manager.get_session_by_id(session_id)
+            if session_id is not None
+            else await manager.get_session_by_token(token)
+        )
         if existing is not None:
             existing.revoked_at = datetime.now(UTC).replace(tzinfo=None)
 
@@ -1179,6 +1205,9 @@ class SessionRepository(_SessionRepository):
 
     async def get_session_by_token(self, token: str) -> AuthSession | None:
         return _to_auth_session(await self._manager.get_session_by_token(token))
+
+    async def get_session_by_id(self, session_id: UUID) -> AuthSession | None:
+        return _to_auth_session(await self._manager.get_session_by_id(session_id))
 
     async def get_session_by_refresh_token(self, refresh_token: str) -> AuthSession | None:
         return _to_auth_session(await self._manager.get_session_by_refresh_token(refresh_token))

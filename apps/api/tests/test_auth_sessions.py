@@ -133,6 +133,23 @@ class TestSessionManager:
         assert session is None
 
     @pytest.mark.asyncio
+    async def test_get_session_by_id_returns_active_session(self) -> None:
+        db_session = AsyncMock()
+        session_id = uuid4()
+        expected_session = make_session_record()
+        expected_session.id = session_id
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = expected_session
+        db_session.execute = AsyncMock(return_value=mock_result)
+
+        manager = SessionManager(db_session)
+        session = await manager.get_session_by_id(session_id)
+
+        assert session is expected_session
+        db_session.execute.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_list_user_sessions_returns_active_sessions(self) -> None:
         """Should return all active (non-revoked) sessions for user."""
         db_session = AsyncMock()
