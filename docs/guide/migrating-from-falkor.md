@@ -44,12 +44,12 @@ This writes a versioned archive containing:
 SIBYL_STORE=surreal \
 SIBYL_AUTH_STORE=surreal \
 SIBYL_SURREAL_URL=ws://localhost:8000/rpc \
-sibyld migrate import /tmp/sibyl-migration.tar.gz \
-  --restore-database-dump   # Replay relational dump too
+sibyld migrate import /tmp/sibyl-migration.tar.gz
 ```
 
-Restore order is: PostgreSQL dump → graph → auth → content. `--restore-database-dump` is only
-needed if the target is in mixed mode or you want to keep a relational copy during transition.
+The structured `auth.json` and `content.json` payloads restore directly into SurrealDB.
+`--restore-database-dump` is only needed if the target is in mixed mode or you want to keep a
+relational copy during transition.
 
 ### 3. Verify
 

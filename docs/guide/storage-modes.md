@@ -72,6 +72,7 @@ variable list.
 - **New install:** leave defaults alone. Fully Surreal is the default.
 - **Legacy → Surreal:** see [migrating-from-falkor.md](./migrating-from-falkor.md). The migration is
   CLI-driven (`sibyld migrate export|import|verify`) and supports rehearsal runs.
-- **Mixed → Fully Surreal:** export auth with `sibyld migrate export --auth`, flip
-  `SIBYL_AUTH_STORE=surreal`, import with `sibyld migrate import`. Postgres can then be
+- **Mixed → Fully Surreal:** export auth with
+  `sibyld migrate export --skip-graph --skip-content`, flip `SIBYL_AUTH_STORE=surreal`, import with
+  `sibyld migrate import <archive> --skip-graph --skip-content`. Postgres can then be
   decommissioned.
