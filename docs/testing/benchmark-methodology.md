@@ -135,9 +135,9 @@ you want a full FalkorDB/PostgreSQL migration rehearsal instead of a graph-only 
 the public story honest and makes it much easier to compare runs over time.
 
 When you are ready for a real maintenance-window swap, use
-`sibyld migrate cutover /tmp/migration.tar.gz --yes --write-freeze-confirmed` on the Surreal
-runtime. That command keeps writes frozen through import, verification, baseline replay, and any
-optional live bench checks. Reopening writes is a separate explicit step with
+`moon run migrate-cutover -- /tmp/migration.tar.gz --yes --write-freeze-confirmed --base-url <surreal-api>`
+on the Surreal runtime. That command keeps writes frozen through import, verification, baseline
+replay, and any optional live bench checks. Reopening writes is a separate explicit step with
 `--reopen-writes --acknowledge-no-instant-rollback`, because instant zero-loss rollback is not
 promised after Surreal starts accepting new writes.
 
