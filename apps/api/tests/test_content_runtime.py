@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from sibyl.persistence import content_common, content_runtime
+from sibyl.persistence import content_common, content_runtime, settings_runtime
 from sibyl.persistence.legacy import (
     crawler as legacy_crawler,
     entities as legacy_entities,
@@ -200,6 +200,38 @@ async def test_content_runtime_delegates_to_postgres_session_in_legacy_mode(
     monkeypatch.setattr(content_runtime, "get_session", mock_get_session)
 
     async with content_runtime.get_content_read_session() as yielded:
+        assert yielded is session
+
+
+@pytest.mark.asyncio
+async def test_content_runtime_get_session_uses_legacy_session_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = object()
+
+    @asynccontextmanager
+    async def mock_get_legacy_session():
+        yield session
+
+    monkeypatch.setattr(content_runtime, "get_legacy_session", mock_get_legacy_session)
+
+    async with content_runtime.get_session() as yielded:
+        assert yielded is session
+
+
+@pytest.mark.asyncio
+async def test_settings_runtime_get_session_uses_legacy_session_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = object()
+
+    @asynccontextmanager
+    async def mock_get_legacy_session():
+        yield session
+
+    monkeypatch.setattr(settings_runtime, "get_legacy_session", mock_get_legacy_session)
+
+    async with settings_runtime.get_session() as yielded:
         assert yielded is session
 
 

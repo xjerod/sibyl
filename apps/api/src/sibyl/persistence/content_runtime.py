@@ -8,6 +8,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Protocol, cast
 
 from sibyl.config import settings
+from sibyl.persistence.legacy.session import get_legacy_session
 
 
 class RuntimeExport(Protocol):
@@ -412,9 +413,7 @@ def _resolve_backend_export(name: str) -> RuntimeExport:
 
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[object]:
-    from sibyl.db.connection import get_session as _get_session
-
-    async with _get_session() as session:
+    async with get_legacy_session() as session:
         yield session
 
 
