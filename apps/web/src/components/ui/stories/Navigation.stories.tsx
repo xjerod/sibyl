@@ -98,15 +98,15 @@ export const AccordionBasic: StoryObj = {
       <AccordionItem value="item-2">
         <AccordionTrigger>How does it work?</AccordionTrigger>
         <AccordionContent>
-          Sibyl stores knowledge as entities in FalkorDB, connected by semantic relationships,
+          Sibyl stores knowledge as durable graph entities connected by semantic relationships,
           enabling intelligent retrieval and context-aware responses.
         </AccordionContent>
       </AccordionItem>
       <AccordionItem value="item-3">
         <AccordionTrigger>What technologies are used?</AccordionTrigger>
         <AccordionContent>
-          Python, FastMCP, FastAPI, Graphiti, FalkorDB on the backend. Next.js, React Query, and
-          Tailwind on the frontend.
+          Python, FastAPI, SurrealDB-backed persistence, and task coordination on the backend.
+          Next.js, React Query, and Tailwind on the frontend.
         </AccordionContent>
       </AccordionItem>
     </Accordion>

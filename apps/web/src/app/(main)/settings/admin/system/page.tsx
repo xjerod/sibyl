@@ -186,8 +186,8 @@ export default function SystemStatusPage() {
             <div className="flex items-center gap-3">
               <Network width={18} height={18} className="text-sc-coral" />
               <div>
-                <p className="text-sm font-medium text-sc-fg-primary">FalkorDB Graph</p>
-                <p className="text-xs text-sc-fg-muted">Knowledge graph storage</p>
+                <p className="text-sm font-medium text-sc-fg-primary">Knowledge Graph</p>
+                <p className="text-xs text-sc-fg-muted">Graph runtime and retrieval</p>
               </div>
             </div>
             <StatusBadge
@@ -201,8 +201,8 @@ export default function SystemStatusPage() {
             <div className="flex items-center gap-3">
               <Database width={18} height={18} className="text-sc-purple" />
               <div>
-                <p className="text-sm font-medium text-sc-fg-primary">PostgreSQL</p>
-                <p className="text-xs text-sc-fg-muted">User data and authentication</p>
+                <p className="text-sm font-medium text-sc-fg-primary">Storage Runtime</p>
+                <p className="text-xs text-sc-fg-muted">Auth, content, and services</p>
               </div>
             </div>
             <StatusBadge
