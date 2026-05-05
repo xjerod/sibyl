@@ -179,6 +179,8 @@ def _warn_if_relational_runtime(env: dict[str, str]) -> None:
 
     warn("Legacy relational runtime is deprecated; migrate this install to SurrealDB.")
     info("Recommended settings: SIBYL_STORE=surreal and SIBYL_AUTH_STORE=surreal")
+    info("Local single-org migration: moon run dev -- --migrate-legacy")
+    info("Migration playbook: docs/guide/migrating-from-falkor.md")
 
 
 def _configure_requested_worker_mode(env: dict[str, str], *, with_worker: bool) -> None:

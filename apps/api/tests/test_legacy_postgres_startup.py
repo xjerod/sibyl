@@ -49,6 +49,8 @@ async def test_bootstrap_relational_sidecar_support_runs_all_steps(
         auth_store="postgres",
         suggested_store="surreal",
         suggested_auth_store="surreal",
+        migration_command="moon run dev -- --migrate-legacy",
+        migration_guide="docs/guide/migrating-from-falkor.md",
     )
     check_connection.assert_awaited_once()
     run_migrations.assert_awaited_once()
@@ -181,6 +183,8 @@ async def test_bootstrap_relational_sidecar_support_skips_content_startup_in_sur
         auth_store="postgres",
         suggested_store="surreal",
         suggested_auth_store="surreal",
+        migration_command="moon run dev -- --migrate-legacy",
+        migration_guide="docs/guide/migrating-from-falkor.md",
     )
     check_connection.assert_awaited_once()
     run_migrations.assert_awaited_once()

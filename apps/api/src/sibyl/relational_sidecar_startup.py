@@ -54,6 +54,8 @@ async def bootstrap_relational_sidecar_support() -> bool:
         auth_store=settings.auth_store,
         suggested_store="surreal",
         suggested_auth_store="surreal",
+        migration_command="moon run dev -- --migrate-legacy",
+        migration_guide="docs/guide/migrating-from-falkor.md",
     )
 
     try:

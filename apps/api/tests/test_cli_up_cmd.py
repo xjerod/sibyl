@@ -135,9 +135,9 @@ def test_warn_if_relational_runtime_recommends_surreal(monkeypatch) -> None:
     warn.assert_called_once_with(
         "Legacy relational runtime is deprecated; migrate this install to SurrealDB."
     )
-    info.assert_called_once_with(
-        "Recommended settings: SIBYL_STORE=surreal and SIBYL_AUTH_STORE=surreal"
-    )
+    info.assert_any_call("Recommended settings: SIBYL_STORE=surreal and SIBYL_AUTH_STORE=surreal")
+    info.assert_any_call("Local single-org migration: moon run dev -- --migrate-legacy")
+    info.assert_any_call("Migration playbook: docs/guide/migrating-from-falkor.md")
 
 
 def test_configure_requested_worker_mode_skips_extra_worker_for_local_runtime(
