@@ -20,20 +20,20 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from sibyl.db.models import SystemSetting
+    from sibyl.persistence.settings_types import SystemSettingRecord
 
     class GetSystemSetting(Protocol):
         def __call__(
             self, session: object, *, key: str
-        ) -> Awaitable[SystemSetting | None]: ...
+        ) -> Awaitable[SystemSettingRecord | None]: ...
 
     class ListSystemSettings(Protocol):
-        def __call__(self, session: object) -> Awaitable[list[SystemSetting]]: ...
+        def __call__(self, session: object) -> Awaitable[list[SystemSettingRecord]]: ...
 
     class SaveSystemSetting(Protocol):
         def __call__(
-            self, session: object, *, setting: SystemSetting
-        ) -> Awaitable[SystemSetting]: ...
+            self, session: object, *, setting: SystemSettingRecord
+        ) -> Awaitable[SystemSettingRecord]: ...
 
     class DeleteSystemSetting(Protocol):
         def __call__(self, session: object, *, key: str) -> Awaitable[bool]: ...

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import cast
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -19,6 +21,12 @@ from sibyl.persistence.surreal.auth import (
 from sibyl_core.auth import AuthUser, OrganizationRole
 
 _ADMIN_ROLES = (OrganizationRole.OWNER, OrganizationRole.ADMIN)
+
+
+def _object_mapping(value: object) -> Mapping[object, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    return cast("Mapping[object, object]", value)
 
 
 def _has_records(value: object) -> bool:
@@ -41,16 +49,16 @@ async def get_setup_status() -> SetupStatus:
     """Return whether Surreal auth storage has users and organizations."""
     client = build_surreal_auth_client()
     try:
-        payload = await client.execute_query(
-            """
-                RETURN {
-                    users: (SELECT uuid FROM users LIMIT 1),
-                    organizations: (SELECT uuid FROM organizations LIMIT 1),
-                };
-            """
+        payload = _object_mapping(
+            await client.execute_query(
+                """
+                    RETURN {
+                        users: (SELECT uuid FROM users LIMIT 1),
+                        organizations: (SELECT uuid FROM organizations LIMIT 1),
+                    };
+                """
+            )
         )
-        if not isinstance(payload, dict):
-            payload = {}
         return SetupStatus(
             has_users=_has_records(payload.get("users")),
             has_orgs=_has_records(payload.get("organizations")),

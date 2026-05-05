@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Self
+from typing import Self, cast
 from uuid import UUID, uuid4
 
 from sibyl import config as config_module
@@ -46,6 +46,12 @@ _UPSERT_RECORD = {
     "users": "UPSERT users CONTENT $record WHERE uuid = $uuid;",
 }
 type SurrealRecord = dict[str, object]
+
+
+def _object_mapping(value: object) -> Mapping[object, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    return cast("Mapping[object, object]", value)
 
 
 def build_surreal_auth_client() -> SurrealAuthClient:
@@ -740,9 +746,7 @@ class SurrealAuthContextResolver(RepositoryAuthContextResolver):
                 };
             """
 
-        payload = await self._client.execute_query(query, **params)
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _object_mapping(await self._client.execute_query(query, **params))
 
         user_record = _normalize_record(payload.get("user"))
         if user_record is None:

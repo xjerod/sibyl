@@ -6,44 +6,75 @@ from typing import TYPE_CHECKING
 
 from sqlmodel import select
 
-from sibyl.db.models import SystemSetting
+from sibyl.db.models import SystemSetting as DbSystemSetting
+from sibyl.persistence.settings_types import SystemSettingRecord
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def _record_from_model(setting: DbSystemSetting) -> SystemSettingRecord:
+    return SystemSettingRecord(
+        key=setting.key,
+        value=setting.value,
+        is_secret=setting.is_secret,
+        description=setting.description,
+        created_at=setting.created_at,
+        updated_at=setting.updated_at,
+    )
+
+
+def _model_from_record(setting: SystemSettingRecord) -> DbSystemSetting:
+    model = DbSystemSetting(
+        key=setting.key,
+        value=setting.value,
+        is_secret=setting.is_secret,
+        description=setting.description,
+    )
+    if setting.created_at is not None:
+        model.created_at = setting.created_at
+    if setting.updated_at is not None:
+        model.updated_at = setting.updated_at
+    return model
 
 
 async def get_system_setting(
     session: AsyncSession,
     *,
     key: str,
-) -> SystemSetting | None:
-    result = await session.execute(select(SystemSetting).where(SystemSetting.key == key))
-    return result.scalar_one_or_none()
+) -> SystemSettingRecord | None:
+    result = await session.execute(select(DbSystemSetting).where(DbSystemSetting.key == key))
+    setting = result.scalar_one_or_none()
+    return _record_from_model(setting) if setting is not None else None
 
 
-async def list_system_settings(session: AsyncSession) -> list[SystemSetting]:
-    result = await session.execute(select(SystemSetting))
-    return list(result.scalars())
+async def list_system_settings(session: AsyncSession) -> list[SystemSettingRecord]:
+    result = await session.execute(select(DbSystemSetting))
+    return [_record_from_model(setting) for setting in result.scalars()]
 
 
 async def save_system_setting(
     session: AsyncSession,
     *,
-    setting: SystemSetting,
-) -> SystemSetting:
-    existing = await get_system_setting(session, key=setting.key)
+    setting: SystemSettingRecord,
+) -> SystemSettingRecord:
+    result = await session.execute(
+        select(DbSystemSetting).where(DbSystemSetting.key == setting.key)
+    )
+    existing = result.scalar_one_or_none()
     if existing is None:
-        session.add(setting)
+        model = _model_from_record(setting)
+        session.add(model)
         await session.flush()
-        await session.refresh(setting)
-        return setting
+        await session.refresh(model)
+        return _record_from_model(model)
 
     existing.value = setting.value
     existing.is_secret = setting.is_secret
     existing.description = setting.description
     await session.flush()
     await session.refresh(existing)
-    return existing
+    return _record_from_model(existing)
 
 
 async def delete_system_setting(
@@ -51,7 +82,8 @@ async def delete_system_setting(
     *,
     key: str,
 ) -> bool:
-    setting = await get_system_setting(session, key=key)
+    result = await session.execute(select(DbSystemSetting).where(DbSystemSetting.key == key))
+    setting = result.scalar_one_or_none()
     if setting is None:
         return False
     await session.delete(setting)

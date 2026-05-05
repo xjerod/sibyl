@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from sibyl.db.models import SystemSetting
+from sibyl.persistence.settings_types import SystemSettingRecord
 from sibyl.services.settings import SettingsService
 
 
@@ -16,7 +16,7 @@ async def test_settings_service_get_uses_runtime_helper_and_cache() -> None:
         yield None
 
     service = SettingsService(lambda: mock_session())
-    setting = SystemSetting(key="openai_api_key", value="ciphertext", is_secret=True)
+    setting = SystemSettingRecord(key="openai_api_key", value="ciphertext", is_secret=True)
 
     with (
         patch(
@@ -62,7 +62,7 @@ async def test_settings_service_set_uses_runtime_save_and_invalidates_cache() ->
     get_setting.assert_awaited_once_with(None, key="openai_api_key")
     save_setting.assert_awaited_once()
     saved = save_setting.await_args.kwargs["setting"]
-    assert isinstance(saved, SystemSetting)
+    assert isinstance(saved, SystemSettingRecord)
     assert saved.key == "openai_api_key"
     assert saved.value == "ciphertext"
     assert saved.is_secret is True
@@ -78,8 +78,8 @@ async def test_settings_service_get_all_uses_runtime_listing() -> None:
 
     service = SettingsService(lambda: mock_session())
     settings = [
-        SystemSetting(key="openai_api_key", value="ciphertext", is_secret=True),
-        SystemSetting(key="feature_flag", value="enabled", is_secret=False),
+        SystemSettingRecord(key="openai_api_key", value="ciphertext", is_secret=True),
+        SystemSettingRecord(key="feature_flag", value="enabled", is_secret=False),
     ]
 
     with (

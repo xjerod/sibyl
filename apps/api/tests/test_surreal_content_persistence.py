@@ -14,11 +14,11 @@ from sibyl.db.models import (
     ChunkType,
     CrawledDocument,
     SourceType,
-    SystemSetting,
 )
 from sibyl.persistence import content_archive
 from sibyl.persistence.content_archive import restore_content_archive_payload
 from sibyl.persistence.content_common import RawCaptureRecord
+from sibyl.persistence.settings_types import SystemSettingRecord
 from sibyl.persistence.surreal import (
     backups as surreal_backups,
     content as surreal_content,
@@ -168,7 +168,9 @@ async def test_surreal_backup_settings_save_uses_upsert_statement(
 
     queries = [query for query, _params in client.calls]
     assert saved.schedule == "0 3 * * *"
-    assert any("UPSERT backup_settings CONTENT $record WHERE uuid = $uuid" in query for query in queries)
+    assert any(
+        "UPSERT backup_settings CONTENT $record WHERE uuid = $uuid" in query for query in queries
+    )
     assert not any("DELETE FROM backup_settings" in query for query in queries)
 
 
@@ -227,7 +229,7 @@ async def test_surreal_system_setting_save_uses_upsert_statement(
 
     saved = await surreal_system_settings.save_system_setting(
         None,
-        setting=SystemSetting(
+        setting=SystemSettingRecord(
             key="openai_api_key",
             value="encrypted",
             is_secret=True,
@@ -237,7 +239,9 @@ async def test_surreal_system_setting_save_uses_upsert_statement(
 
     queries = [query for query, _params in client.calls]
     assert saved.key == "openai_api_key"
-    assert any("UPSERT system_settings CONTENT $record WHERE key = $key" in query for query in queries)
+    assert any(
+        "UPSERT system_settings CONTENT $record WHERE key = $key" in query for query in queries
+    )
     assert not any("DELETE FROM system_settings" in query for query in queries)
 
 
@@ -703,7 +707,7 @@ async def test_surreal_system_setting_helpers_round_trip(
     ):
         saved = await save_system_setting(
             None,
-            setting=SystemSetting(
+            setting=SystemSettingRecord(
                 key="openai_api_key",
                 value="encrypted",
                 is_secret=True,

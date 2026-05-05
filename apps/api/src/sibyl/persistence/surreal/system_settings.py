@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
-from sibyl.db.models import SystemSetting
+from sibyl.persistence.settings_types import SystemSettingRecord
 from sibyl.persistence.surreal.content import (
     _coerce_bool,
     _coerce_datetime,
@@ -21,9 +21,9 @@ def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _setting_from_record(record: Mapping[str, object]) -> SystemSetting:
+def _setting_from_record(record: Mapping[str, object]) -> SystemSettingRecord:
     now = _utcnow()
-    return SystemSetting(
+    return SystemSettingRecord(
         key=_coerce_str(record.get("key")),
         value=_coerce_str(record.get("value")),
         is_secret=_coerce_bool(record.get("is_secret")),
@@ -33,7 +33,7 @@ def _setting_from_record(record: Mapping[str, object]) -> SystemSetting:
     )
 
 
-def _setting_record(setting: SystemSetting) -> dict[str, object]:
+def _setting_record(setting: SystemSettingRecord) -> dict[str, object]:
     return {
         "key": setting.key,
         "value": setting.value,
@@ -62,7 +62,7 @@ async def get_system_setting(
     _session: object,
     *,
     key: str,
-) -> SystemSetting | None:
+) -> SystemSettingRecord | None:
     rows = await _select_many(
         "SELECT * FROM system_settings WHERE key = $key LIMIT 1;",
         key=key,
@@ -70,7 +70,7 @@ async def get_system_setting(
     return _setting_from_record(rows[0]) if rows else None
 
 
-async def list_system_settings(_session: object) -> list[SystemSetting]:
+async def list_system_settings(_session: object) -> list[SystemSettingRecord]:
     rows = await _select_many("SELECT * FROM system_settings;")
     settings = [_setting_from_record(row) for row in rows]
     return sorted(settings, key=lambda setting: setting.key)
@@ -79,8 +79,8 @@ async def list_system_settings(_session: object) -> list[SystemSetting]:
 async def save_system_setting(
     _session: object,
     *,
-    setting: SystemSetting,
-) -> SystemSetting:
+    setting: SystemSettingRecord,
+) -> SystemSettingRecord:
     existing = await get_system_setting(None, key=setting.key)
     now = _utcnow()
     if existing is None and setting.created_at is None:

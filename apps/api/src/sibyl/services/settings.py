@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 import structlog
 
 from sibyl.crypto import decrypt_value, encrypt_value, mask_secret
-from sibyl.db.models import SystemSetting
 from sibyl.persistence.settings_runtime import (
     delete_system_setting,
     get_settings_session,
@@ -24,6 +23,7 @@ from sibyl.persistence.settings_runtime import (
     list_system_settings,
     save_system_setting,
 )
+from sibyl.persistence.settings_types import SystemSettingRecord
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -203,7 +203,7 @@ class SettingsService:
                     if description is not None:
                         setting.description = description
                 else:
-                    setting = SystemSetting(
+                    setting = SystemSettingRecord(
                         key=key,
                         value=stored_value,
                         is_secret=is_secret,
