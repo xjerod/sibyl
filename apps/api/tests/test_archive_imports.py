@@ -12,13 +12,17 @@ import pytest
     [
         "sibyl.persistence.auth_archive",
         "sibyl.persistence.content_archive",
+        "sibyl.auth.rls",
     ],
 )
-def test_archive_imports_do_not_load_legacy_db_connection(module_name: str) -> None:
+def test_storage_neutral_imports_do_not_load_relational_stack(module_name: str) -> None:
     script = (
         "import importlib, json, sys; "
         f"importlib.import_module({module_name!r}); "
-        "print(json.dumps('sibyl.db.connection' in sys.modules))"
+        "print(json.dumps({"
+        "'db': 'sibyl.db.connection' in sys.modules, "
+        "'sqlalchemy': 'sqlalchemy' in sys.modules"
+        "}))"
     )
 
     result = subprocess.run(  # noqa: S603
@@ -28,4 +32,4 @@ def test_archive_imports_do_not_load_legacy_db_connection(module_name: str) -> N
         text=True,
     )
 
-    assert json.loads(result.stdout) is False
+    assert json.loads(result.stdout) == {"db": False, "sqlalchemy": False}

@@ -13,9 +13,9 @@ Postgres sessions.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Mapping
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
 import structlog
@@ -23,13 +23,20 @@ from fastapi import HTTPException, Request, status
 
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import resolve_request_claims
-from sibyl.persistence.legacy.rls import RlsSession, set_legacy_rls_context
 from sibyl.persistence.legacy.session import get_legacy_session
 
 if TYPE_CHECKING:
     from sibyl.auth.context import AuthContext
 
 log = structlog.get_logger()
+
+
+class RlsSession(Protocol):
+    def execute(
+        self,
+        statement: object,
+        params: Mapping[str, object] | None = None,
+    ) -> Awaitable[object]: ...
 
 
 @asynccontextmanager
@@ -61,6 +68,8 @@ async def set_rls_context(
         user_id: Current user's UUID
         org_id: Current organization's UUID
     """
+    from sibyl.persistence.legacy.rls import set_legacy_rls_context
+
     await set_legacy_rls_context(session, user_id=user_id, org_id=org_id)
 
 
