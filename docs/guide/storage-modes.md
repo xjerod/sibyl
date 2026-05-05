@@ -73,6 +73,8 @@ variable list.
 - **Legacy → Surreal:** see [migrating-from-falkor.md](./migrating-from-falkor.md). The migration is
   CLI-driven (`sibyld migrate export|import|verify`) and supports rehearsal runs.
 - **Mixed → Fully Surreal:** export auth with
-  `sibyld migrate export --skip-graph --skip-content`, flip `SIBYL_AUTH_STORE=surreal`, import with
-  `sibyld migrate import <archive> --skip-graph --skip-content`. Postgres can then be
-  decommissioned.
+  `sibyld migrate export --skip-graph --skip-content`, rehearse the archive, flip
+  `SIBYL_AUTH_STORE=surreal`, import with
+  `sibyld migrate import <archive> --skip-graph --skip-content`, then run the auth-flow gate.
+  Freeze the legacy auth/RBAC tables with `moon run auth-readonly -- --mode freeze --apply --yes`
+  for the rollback window before Postgres is decommissioned.
