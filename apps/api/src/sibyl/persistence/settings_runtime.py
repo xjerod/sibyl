@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from importlib import import_module
 from types import ModuleType
 from typing import TYPE_CHECKING, Protocol, cast
 
 from sibyl.config import settings
-from sibyl.persistence.legacy.session import get_legacy_session
 
 
 class RuntimeExport(Protocol):
@@ -60,6 +59,12 @@ __all__ = list(_RUNTIME_EXPORTS)
 
 def _backend_module() -> ModuleType:
     return import_module(_BACKEND_MODULES[settings.store])
+
+
+def get_legacy_session() -> AbstractAsyncContextManager[object]:
+    from sibyl.persistence.legacy.session import get_legacy_session as _get_legacy_session
+
+    return _get_legacy_session()
 
 
 @asynccontextmanager
