@@ -32,6 +32,7 @@ _logger = logging.getLogger(__name__)
 _SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _REST_READ_SCOPES = frozenset({"api:read", "api:write"})
 _REST_WRITE_SCOPE = "api:write"
+_VALIDATED_AUTH_CLAIMS_ATTR = "validated_auth_claims"
 
 # Security warning at startup if auth is disabled
 if settings.disable_auth:
@@ -56,6 +57,10 @@ def _api_key_allows_rest(*, scopes: list[str], method: str) -> bool:
 async def resolve_claims(
     request: Request, _session: object | None = None
 ) -> dict[str, object] | None:
+    cached_claims = getattr(request.state, _VALIDATED_AUTH_CLAIMS_ATTR, None)
+    if isinstance(cached_claims, dict):
+        return cast("dict[str, object]", cached_claims)
+
     claims = getattr(request.state, "jwt_claims", None)
 
     token = select_access_token(
@@ -72,7 +77,9 @@ async def resolve_claims(
         if verified_claims is not None:
             try:
                 if await validate_access_session(token):
-                    return cast("dict[str, object]", verified_claims)
+                    resolved_claims = cast("dict[str, object]", verified_claims)
+                    setattr(request.state, _VALIDATED_AUTH_CLAIMS_ATTR, resolved_claims)
+                    return resolved_claims
             except TimeoutError as e:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -91,12 +98,14 @@ async def resolve_claims(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Insufficient API key scope",
                     )
-                return {
+                api_key_claims: dict[str, object] = {
                     "sub": str(auth.user_id),
                     "org": str(auth.organization_id),
                     "typ": "api_key",
                     "scopes": scopes,
                 }
+                setattr(request.state, _VALIDATED_AUTH_CLAIMS_ATTR, api_key_claims)
+                return api_key_claims
 
         return None
 

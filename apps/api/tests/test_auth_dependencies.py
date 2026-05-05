@@ -134,6 +134,34 @@ async def test_auth_context_is_cached_across_request_dependencies(
 
 
 @pytest.mark.asyncio
+async def test_get_current_user_reuses_validated_claims_when_building_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    token = "access-token"
+    request = _make_bearer_request(token)
+    claims = {"sub": str(user_id), "org": str(org_id), "typ": "access"}
+    expected_user = SimpleNamespace(id=user_id, email="nova@example.com")
+    expected_ctx = SimpleNamespace(user=expected_user, organization=SimpleNamespace(id=org_id))
+    validate_access_session = AsyncMock(return_value=True)
+    resolve_auth_context = AsyncMock(return_value=expected_ctx)
+
+    monkeypatch.setattr(dependencies.settings, "auth_store", "surreal")
+    monkeypatch.setattr(dependencies, "verify_access_token", lambda _token: claims)
+    monkeypatch.setattr(dependencies, "validate_access_session", validate_access_session)
+    monkeypatch.setattr(dependencies, "resolve_auth_context", resolve_auth_context)
+
+    user = await dependencies.get_current_user(request)
+    ctx = await dependencies.get_auth_context(request)
+
+    assert user is expected_user
+    assert ctx is expected_ctx
+    validate_access_session.assert_awaited_once_with(token)
+    resolve_auth_context.assert_awaited_once_with(claims=claims, session=None)
+
+
+@pytest.mark.asyncio
 async def test_build_auth_context_does_not_reuse_cache_for_explicit_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
