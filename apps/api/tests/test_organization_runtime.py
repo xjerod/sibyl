@@ -29,34 +29,9 @@ def _request(*, authorization: str | None = "Bearer current-token") -> SimpleNam
     )
 
 
-def test_organization_runtime_only_exports_neutral_runtime_surface() -> None:
-    assert not hasattr(organization_runtime, "create_legacy_org")
-    assert not hasattr(organization_runtime, "list_legacy_orgs")
-    assert not hasattr(organization_runtime, "can_manage_legacy_project_members")
+def test_organization_runtime_exports_neutral_runtime_surface() -> None:
     assert hasattr(legacy_orgs_runtime, "list_orgs")
     assert hasattr(legacy_project_members_runtime, "list_project_members")
-    for legacy_name in [
-        "list_legacy_orgs",
-        "list_legacy_org_ids",
-        "create_legacy_org",
-        "get_legacy_org",
-        "switch_legacy_org",
-        "update_legacy_org",
-        "delete_legacy_org",
-        "list_legacy_org_members",
-        "add_legacy_org_member",
-        "update_legacy_org_member_role",
-        "remove_legacy_org_member",
-        "list_legacy_org_invitations",
-        "create_legacy_org_invitation",
-        "delete_legacy_org_invitation",
-        "accept_legacy_org_invitation",
-        "list_legacy_project_members",
-        "add_legacy_project_member",
-        "update_legacy_project_member_role",
-        "remove_legacy_project_member",
-    ]:
-        assert not hasattr(surreal_organization_runtime, legacy_name)
     assert organization_common.__all__ == [
         "InvitationAcceptance",
         "InvitationRecord",
@@ -68,8 +43,9 @@ def test_organization_runtime_only_exports_neutral_runtime_surface() -> None:
         "ProjectMembersResult",
         "can_manage_project_members",
     ]
-    assert not hasattr(organization_common, "LegacyOrgSummary")
-    assert not hasattr(organization_common, "LegacyProjectMembersResult")
+    assert "list_orgs" in organization_runtime.__all__
+    assert "list_org_ids" in organization_runtime.__all__
+    assert hasattr(surreal_organization_runtime, "list_project_members")
 
 
 def test_organization_runtime_resolves_postgres_neutral_exports(

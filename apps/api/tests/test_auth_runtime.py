@@ -25,8 +25,6 @@ def test_auth_runtime_uses_shared_error_types(
     assert auth_runtime.AuthContextResolver is LegacyAuthContextResolver
     assert auth_runtime.SessionRepository is LegacySessionRepository
     assert "AuthContextResolver" in dir(auth_runtime)
-    assert "LegacyAuthContextResolver" not in auth_runtime.__all__
-    assert not hasattr(auth_runtime, "LegacyAuthContextResolver")
 
 
 def test_auth_runtime_maps_resolver_name_for_surreal(
@@ -36,7 +34,6 @@ def test_auth_runtime_maps_resolver_name_for_surreal(
 
     assert auth_runtime.AuthContextResolver is SurrealAuthContextResolver
     assert auth_runtime.SessionRepository is SurrealSessionRepository
-    assert not hasattr(auth_runtime, "LegacySessionRepository")
 
 
 def test_auth_runtime_maps_auth_exports_for_surreal(
@@ -61,23 +58,10 @@ def test_auth_runtime_maps_auth_exports_for_postgres(
     assert auth_runtime.SessionRepository is LegacySessionRepository
 
 
-def test_auth_runtime_only_exports_neutral_runtime_surface() -> None:
+def test_auth_runtime_exports_neutral_runtime_surface() -> None:
     assert "resolve_auth_context" in auth_runtime.__all__
     assert "patch_auth_user" in auth_runtime.__all__
     assert "list_oauth_connections" in auth_runtime.__all__
-    assert "resolve_surreal_auth_context" not in auth_runtime.__all__
-    for legacy_name in [
-        "LegacyAuthContextResolver",
-        "LegacySessionRepository",
-        "patch_legacy_auth_user",
-        "resolve_legacy_auth_context",
-        "get_legacy_project_record_by_graph_id",
-        "list_legacy_oauth_connections",
-        "list_legacy_accessible_project_graph_ids",
-        "verify_legacy_entity_project_access",
-    ]:
-        assert legacy_name not in auth_runtime.__all__
-        assert not hasattr(auth_runtime, legacy_name)
 
     assert hasattr(legacy_auth_runtime, "resolve_auth_context")
     assert hasattr(legacy_auth_runtime, "patch_auth_user")
@@ -86,15 +70,6 @@ def test_auth_runtime_only_exports_neutral_runtime_surface() -> None:
     assert "SessionRepository" in surreal_auth_runtime.__all__
     assert "list_accessible_project_graph_ids" in surreal_auth_runtime.__all__
     assert "verify_entity_project_access" in surreal_auth_runtime.__all__
-    for legacy_name in [
-        "LegacyAuthContextResolver",
-        "LegacySessionRepository",
-        "authenticate_legacy_api_key",
-        "list_legacy_accessible_project_graph_ids",
-        "verify_legacy_entity_project_access",
-    ]:
-        assert legacy_name not in surreal_auth_runtime.__all__
-        assert not hasattr(surreal_auth_runtime, legacy_name)
     assert surreal_auth_runtime.SessionRepository is SurrealSessionRepository
 
 

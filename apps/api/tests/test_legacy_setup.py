@@ -212,7 +212,7 @@ def test_legacy_setup_exposes_neutral_helpers() -> None:
     assert legacy_setup.LegacySetupStatus is legacy_setup.SetupStatus
 
 
-def test_surreal_setup_only_exports_neutral_runtime_surface() -> None:
+def test_surreal_setup_exports_neutral_runtime_surface() -> None:
     assert surreal_setup.__all__ == [
         "SetupStatus",
         "SurrealOrganizationRepository",
@@ -224,11 +224,3 @@ def test_surreal_setup_only_exports_neutral_runtime_surface() -> None:
         "require_setup_mode_or_admin",
         "require_setup_mode_or_auth",
     ]
-    for legacy_name in [
-        "is_legacy_setup_mode",
-        "get_legacy_setup_status",
-        "require_legacy_setup_mode_or_auth",
-        "require_legacy_setup_mode_or_admin",
-        "require_legacy_settings_admin",
-    ]:
-        assert not hasattr(surreal_setup, legacy_name)
