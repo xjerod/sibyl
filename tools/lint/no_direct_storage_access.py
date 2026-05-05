@@ -11,6 +11,7 @@ from typing import TextIO
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TARGETS = (
     REPO_ROOT / "apps/api/src/sibyl/api/routes",
+    REPO_ROOT / "apps/api/src/sibyl/auth/dependencies.py",
     REPO_ROOT / "apps/api/src/sibyl/auth/authorization.py",
     REPO_ROOT / "apps/api/src/sibyl/server.py",
     REPO_ROOT / "apps/api/src/sibyl/auth/mcp_auth.py",
@@ -75,6 +76,33 @@ def allowlisted(path: str, module: str, allowlist: Mapping[str, tuple[str, ...]]
     return matches_prefix(module, allowlist.get(path, ()))
 
 
+def _type_checking_body_ranges(tree: ast.AST) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        is_type_checking = isinstance(test, ast.Name) and test.id == "TYPE_CHECKING"
+        if (
+            isinstance(test, ast.Attribute)
+            and test.attr == "TYPE_CHECKING"
+            and isinstance(test.value, ast.Name)
+            and test.value.id == "typing"
+        ):
+            is_type_checking = True
+        if not is_type_checking or not node.body:
+            continue
+        start = min(getattr(item, "lineno", 0) for item in node.body)
+        end = max(getattr(item, "end_lineno", getattr(item, "lineno", 0)) for item in node.body)
+        ranges.append((start, end))
+    return ranges
+
+
+def _in_type_checking_block(node: ast.AST, ranges: Sequence[tuple[int, int]]) -> bool:
+    lineno = getattr(node, "lineno", 0)
+    return any(start <= lineno <= end for start, end in ranges)
+
+
 def collect_direct_storage_imports(
     *,
     targets: Sequence[Path] | None = None,
@@ -87,7 +115,10 @@ def collect_direct_storage_imports(
     for path in iter_python_files(selected_targets):
         module_path = display_path(path)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        type_checking_ranges = _type_checking_body_ranges(tree)
         for node in ast.walk(tree):
+            if _in_type_checking_block(node, type_checking_ranges):
+                continue
             imported_modules: list[str] = []
             if isinstance(node, ast.Import):
                 imported_modules.extend(alias.name for alias in node.names)

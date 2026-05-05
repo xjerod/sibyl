@@ -55,6 +55,21 @@ def test_collect_direct_storage_imports_honors_exact_allowlist_entries(tmp_path:
     ]
 
 
+def test_collect_direct_storage_imports_ignores_type_checking_imports(tmp_path: Path) -> None:
+    route_dir = tmp_path / "apps/api/src/sibyl/auth"
+    route_dir.mkdir(parents=True)
+    path = route_dir / "dependencies.py"
+    path.write_text(
+        "from typing import TYPE_CHECKING\n\n"
+        "if TYPE_CHECKING:\n"
+        "    from sqlalchemy.ext.asyncio import AsyncSession\n"
+        "    from sibyl.db.models import User\n",
+        encoding="utf-8",
+    )
+
+    assert collect_direct_storage_imports(targets=(path,)) == []
+
+
 def test_render_report_separates_unallowlisted_and_allowlisted_entries() -> None:
     report = render_report(
         [

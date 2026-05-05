@@ -345,6 +345,7 @@ tasks:
     inputs:
       - tools/**/*.py
       - apps/api/src/sibyl/api/routes/**/*.py
+      - apps/api/src/sibyl/auth/dependencies.py
       - apps/api/src/sibyl/server.py
       - apps/api/src/sibyl/auth/mcp_auth.py
       - apps/api/src/sibyl/auth/mcp_oauth.py
