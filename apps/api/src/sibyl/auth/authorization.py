@@ -11,8 +11,8 @@ Inheritance rules:
 - Org member/viewer: access determined by project visibility + explicit grants
 """
 
-from collections.abc import Callable
-from typing import Any, Protocol
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Protocol, TypeVar
 from uuid import UUID
 
 import structlog
@@ -29,10 +29,25 @@ from sibyl.persistence.auth_runtime import (
 from sibyl_core.auth import ProjectRole
 
 log = structlog.get_logger()
+EntityT = TypeVar("EntityT")
 
 
 class ProjectRecord(Protocol):
     graph_project_id: str
+
+
+def _request_project_id(request: Request, project_id_param: str) -> str | None:
+    path_value = request.path_params.get(project_id_param)
+    if isinstance(path_value, str):
+        return path_value
+
+    query_value = request.query_params.get(project_id_param)
+    return query_value if query_value else None
+
+
+def _entity_project_id(entity: object) -> str | None:
+    project_id = getattr(entity, "project_id", None)
+    return project_id if isinstance(project_id, str) else None
 
 
 # =============================================================================
@@ -57,7 +72,7 @@ def _max_role(*roles: ProjectRole | None) -> ProjectRole | None:
 
 
 async def list_accessible_project_graph_ids(
-    session: Any,
+    session: object,
     ctx: AuthContext,
 ) -> set[str]:
     """Get all graph project IDs the user can access.
@@ -109,7 +124,7 @@ def require_project_role(
     *allowed_roles: ProjectRole,
     project_id_param: str = "project_id",
     use_graph_id: bool = True,
-) -> Callable[..., Any]:
+) -> Callable[..., Awaitable[ProjectRecord]]:
     """Create a dependency that requires a minimum project role.
 
     Args:
@@ -139,11 +154,7 @@ def require_project_role(
                 detail="No organization context",
             )
 
-        # Extract project ID from request
-        project_id_value = request.path_params.get(project_id_param)
-        if project_id_value is None:
-            project_id_value = request.query_params.get(project_id_param)
-
+        project_id_value = _request_project_id(request, project_id_param)
         if project_id_value is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -233,7 +244,7 @@ def require_project_admin(project_id_param: str = "project_id", use_graph_id: bo
 
 
 async def verify_entity_project_access(
-    session: Any | None,
+    session: object | None,
     ctx: AuthContext,
     entity_project_id: str | None,
     *,
@@ -267,11 +278,11 @@ async def verify_entity_project_access(
 
 
 async def filter_accessible_entities(
-    session: Any,
+    session: object,
     ctx: AuthContext,
-    entities: list[Any],
-    project_id_getter: Callable[[Any], str | None] = lambda e: getattr(e, "project_id", None),
-) -> list[Any]:
+    entities: Sequence[EntityT],
+    project_id_getter: Callable[[EntityT], str | None] | None = None,
+) -> list[EntityT]:
     """Filter a list of entities to only those the user can access.
 
     Args:
@@ -285,9 +296,11 @@ async def filter_accessible_entities(
     """
     accessible_graph_ids = await list_accessible_project_graph_ids(session, ctx)
 
-    result = []
+    result: list[EntityT] = []
     for entity in entities:
-        project_id = project_id_getter(entity)
+        project_id = (
+            project_id_getter(entity) if project_id_getter is not None else _entity_project_id(entity)
+        )
         # Include if: no project (unassigned) or project is accessible
         if project_id is None or project_id in accessible_graph_ids:
             result.append(entity)
