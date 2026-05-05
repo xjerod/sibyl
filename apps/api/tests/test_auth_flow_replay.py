@@ -11,6 +11,7 @@ import pytest
 
 from sibyl.cli.auth_flow import (
     AuthFlowError,
+    AuthFlowObservation,
     AuthFlowResult,
     AuthFlowTokenClaims,
     compare_auth_flow_results,
@@ -58,6 +59,67 @@ def _access(label: str, *, org: str = "org-primary", sid: bool = True) -> str:
 
 def _refresh(label: str, *, org: str = "org-primary", sid: bool = True) -> str:
     return _jwt_token(label=label, typ="refresh", org=org, sid=sid)
+
+
+def _expected_observations() -> tuple[AuthFlowObservation, ...]:
+    return (
+        AuthFlowObservation(
+            step="authenticate api key",
+            key="org_role",
+            value="owner",
+        ),
+        AuthFlowObservation(step="verify revoked api key", key="status", value="401"),
+        AuthFlowObservation(
+            step="poll pending device auth",
+            key="error",
+            value="authorization_pending",
+        ),
+        AuthFlowObservation(step="list sessions", key="session_count", value="1"),
+        AuthFlowObservation(
+            step="list sessions",
+            key="current_session_present",
+            value="true",
+        ),
+        AuthFlowObservation(step="verify logged out token", key="status", value="401"),
+    )
+
+
+def _assert_auth_flow_result(
+    result: AuthFlowResult,
+    *,
+    seen: list[tuple[str, str]],
+    api_key_revoked: bool,
+    device_approved: bool,
+) -> None:
+    assert result.primary_email == "auth-flow@example.com"
+    assert result.secondary_email == "auth-flow+member@example.com"
+    assert result.organization_slug == "primary-org"
+    assert result.steps == (
+        "signup_primary_user",
+        "login_primary_user",
+        "refresh_tokens",
+        "create_api_key",
+        "authenticate_api_key",
+        "revoke_api_key",
+        "signup_invited_user",
+        "invite_and_accept_user",
+        "switch_active_org",
+        "device_auth_flow",
+        "change_password",
+        "password_reset_request_and_consume",
+        "list_user_sessions",
+        "logout_rejects_access_token",
+    )
+    assert ("POST", "/api/auth/local/signup") in seen
+    assert ("POST", "/api/users/password/reset") in seen
+    assert api_key_revoked is True
+    assert device_approved is True
+    assert len(result.token_claims) == 20
+    assert {claims.typ for claims in result.token_claims} == {"access", "refresh"}
+    assert all(claims.has_sub for claims in result.token_claims)
+    assert all(claims.has_org for claims in result.token_claims)
+    assert all(claims.has_sid for claims in result.token_claims)
+    assert result.observations == _expected_observations()
 
 
 @pytest.mark.asyncio
@@ -275,34 +337,12 @@ async def test_replay_auth_flow_exercises_cutover_auth_surface(tmp_path: Path) -
         transport=httpx.MockTransport(handler),
     )
 
-    assert result.primary_email == "auth-flow@example.com"
-    assert result.secondary_email == "auth-flow+member@example.com"
-    assert result.organization_slug == "primary-org"
-    assert result.steps == (
-        "signup_primary_user",
-        "login_primary_user",
-        "refresh_tokens",
-        "create_api_key",
-        "authenticate_api_key",
-        "revoke_api_key",
-        "signup_invited_user",
-        "invite_and_accept_user",
-        "switch_active_org",
-        "device_auth_flow",
-        "change_password",
-        "password_reset_request_and_consume",
-        "list_user_sessions",
-        "logout_rejects_access_token",
+    _assert_auth_flow_result(
+        result,
+        seen=seen,
+        api_key_revoked=api_key_revoked,
+        device_approved=device_approved,
     )
-    assert ("POST", "/api/auth/local/signup") in seen
-    assert ("POST", "/api/users/password/reset") in seen
-    assert api_key_revoked is True
-    assert device_approved is True
-    assert len(result.token_claims) == 20
-    assert {claims.typ for claims in result.token_claims} == {"access", "refresh"}
-    assert all(claims.has_sub for claims in result.token_claims)
-    assert all(claims.has_org for claims in result.token_claims)
-    assert all(claims.has_sid for claims in result.token_claims)
 
 
 @pytest.mark.asyncio
@@ -357,6 +397,7 @@ def test_compare_auth_flow_results_detects_jwt_shape_mismatch() -> None:
                 has_jti=False,
             ),
         ),
+        observations=(),
     )
     right = AuthFlowResult(
         primary_email="right@example.com",
@@ -374,9 +415,49 @@ def test_compare_auth_flow_results_detects_jwt_shape_mismatch() -> None:
                 has_jti=False,
             ),
         ),
+        observations=(),
     )
 
     with pytest.raises(AuthFlowError, match="JWT claim shape differed"):
+        compare_auth_flow_results(
+            left_label="postgres",
+            left=left,
+            right_label="surreal",
+            right=right,
+        )
+
+
+def test_compare_auth_flow_results_detects_observation_mismatch() -> None:
+    left = AuthFlowResult(
+        primary_email="left@example.com",
+        secondary_email="left+member@example.com",
+        organization_slug="left",
+        steps=("authenticate_api_key",),
+        token_claims=(),
+        observations=(
+            AuthFlowObservation(
+                step="authenticate api key",
+                key="org_role",
+                value="owner",
+            ),
+        ),
+    )
+    right = AuthFlowResult(
+        primary_email="right@example.com",
+        secondary_email="right+member@example.com",
+        organization_slug="right",
+        steps=("authenticate_api_key",),
+        token_claims=(),
+        observations=(
+            AuthFlowObservation(
+                step="authenticate api key",
+                key="org_role",
+                value="member",
+            ),
+        ),
+    )
+
+    with pytest.raises(AuthFlowError, match="auth observation semantics differed"):
         compare_auth_flow_results(
             left_label="postgres",
             left=left,

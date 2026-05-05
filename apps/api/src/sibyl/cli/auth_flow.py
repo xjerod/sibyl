@@ -25,6 +25,14 @@ class AuthFlowResult:
     organization_slug: str
     steps: tuple[str, ...]
     token_claims: tuple[AuthFlowTokenClaims, ...]
+    observations: tuple[AuthFlowObservation, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AuthFlowObservation:
+    step: str
+    key: str
+    value: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +75,7 @@ async def replay_auth_flow(
 ) -> AuthFlowResult:
     steps: list[str] = []
     token_claims: list[AuthFlowTokenClaims] = []
+    observations: list[AuthFlowObservation] = []
     secondary_email = _secondary_email(email)
 
     async with httpx.AsyncClient(
@@ -83,7 +92,12 @@ async def replay_auth_flow(
             steps=steps,
             token_claims=token_claims,
         )
-        await _exercise_api_key(client=client, primary=primary, steps=steps)
+        await _exercise_api_key(
+            client=client,
+            primary=primary,
+            steps=steps,
+            observations=observations,
+        )
         secondary = await _signup_secondary_user(
             client=client,
             email=secondary_email,
@@ -105,6 +119,7 @@ async def replay_auth_flow(
             primary=primary,
             steps=steps,
             token_claims=token_claims,
+            observations=observations,
         )
         primary = await _exercise_password_paths(
             client=client,
@@ -115,7 +130,12 @@ async def replay_auth_flow(
             steps=steps,
             token_claims=token_claims,
         )
-        await _list_sessions_and_logout(client=client, primary=primary, steps=steps)
+        await _list_sessions_and_logout(
+            client=client,
+            primary=primary,
+            steps=steps,
+            observations=observations,
+        )
 
     return AuthFlowResult(
         primary_email=email,
@@ -123,6 +143,7 @@ async def replay_auth_flow(
         organization_slug=primary.organization_slug,
         steps=tuple(steps),
         token_claims=tuple(token_claims),
+        observations=tuple(observations),
     )
 
 
@@ -144,6 +165,14 @@ def compare_auth_flow_results(
     if left_claims != right_claims:
         mismatches.append(
             f"JWT claim shape differed: {left_label}={left_claims!r} {right_label}={right_claims!r}"
+        )
+
+    left_observations = tuple(_observation_fingerprint(item) for item in left.observations)
+    right_observations = tuple(_observation_fingerprint(item) for item in right.observations)
+    if left_observations != right_observations:
+        mismatches.append(
+            "auth observation semantics differed: "
+            f"{left_label}={left_observations!r} {right_label}={right_observations!r}"
         )
 
     if mismatches:
@@ -204,6 +233,7 @@ async def _exercise_api_key(
     client: httpx.AsyncClient,
     primary: _PrimarySession,
     steps: list[str],
+    observations: list[AuthFlowObservation],
 ) -> None:
     primary_headers = _bearer_headers(primary.access_token)
     api_key = await _post_json(
@@ -223,13 +253,14 @@ async def _exercise_api_key(
     api_key_id = _required_string(api_key, "id", "create api key")
     raw_api_key = _required_string(api_key, "api_key", "create api key")
 
-    await _get_json(
+    me_payload = await _get_json(
         client,
         "/api/auth/me",
         headers=_bearer_headers(raw_api_key),
         expected_status=200,
         step="authenticate api key",
     )
+    _record_me_observations(observations, payload=me_payload, step="authenticate api key")
     steps.append("authenticate_api_key")
 
     await _post_json(
@@ -242,6 +273,12 @@ async def _exercise_api_key(
     )
     revoked = await client.get("/api/auth/me", headers=_bearer_headers(raw_api_key))
     _expect_status_in(revoked, {401, 403}, "verify revoked api key")
+    _record_observation(
+        observations,
+        step="verify revoked api key",
+        key="status",
+        value=str(revoked.status_code),
+    )
     steps.append("revoke_api_key")
 
 
@@ -332,6 +369,7 @@ async def _exercise_device_auth(
     primary: _PrimarySession,
     steps: list[str],
     token_claims: list[AuthFlowTokenClaims],
+    observations: list[AuthFlowObservation],
 ) -> None:
     device_start = await _post_json(
         client,
@@ -352,6 +390,12 @@ async def _exercise_device_auth(
     pending_payload = _json_object(pending, "poll pending device auth")
     if pending_payload.get("error") != "authorization_pending":
         raise AuthFlowError("device auth did not report authorization_pending")
+    _record_observation(
+        observations,
+        step="poll pending device auth",
+        key="error",
+        value="authorization_pending",
+    )
 
     approved = await client.post(
         "/api/auth/device/verify",
@@ -441,16 +485,24 @@ async def _list_sessions_and_logout(
     client: httpx.AsyncClient,
     primary: _PrimarySession,
     steps: list[str],
+    observations: list[AuthFlowObservation],
 ) -> None:
     primary_headers = _bearer_headers(primary.access_token)
     sessions = await client.get("/api/users/me/sessions", headers=primary_headers)
     _expect_status(sessions, 200, "list sessions")
+    _record_session_observations(observations, sessions, step="list sessions")
     steps.append("list_user_sessions")
 
     logout = await client.post("/api/auth/logout", headers=primary_headers)
     _expect_status(logout, 204, "logout")
     rejected = await client.get("/api/auth/me", headers=primary_headers)
     _expect_status_in(rejected, {401, 403}, "verify logged out token")
+    _record_observation(
+        observations,
+        step="verify logged out token",
+        key="status",
+        value=str(rejected.status_code),
+    )
     steps.append("logout_rejects_access_token")
 
 
@@ -573,6 +625,61 @@ def _claim_fingerprint(claims: AuthFlowTokenClaims) -> tuple[str, str, str, bool
         claims.has_org,
         claims.has_sid,
         claims.has_jti,
+    )
+
+
+def _observation_fingerprint(observation: AuthFlowObservation) -> tuple[str, str, str]:
+    return (observation.step, observation.key, observation.value)
+
+
+def _record_observation(
+    observations: list[AuthFlowObservation],
+    *,
+    step: str,
+    key: str,
+    value: str,
+) -> None:
+    observations.append(AuthFlowObservation(step=step, key=key, value=value))
+
+
+def _record_me_observations(
+    observations: list[AuthFlowObservation],
+    *,
+    payload: JsonObject,
+    step: str,
+) -> None:
+    _required_object(payload, "user", step)
+    _required_object(payload, "organization", step)
+    role = _required_string(payload, "org_role", step)
+    _record_observation(observations, step=step, key="org_role", value=role)
+
+
+def _record_session_observations(
+    observations: list[AuthFlowObservation],
+    response: httpx.Response,
+    *,
+    step: str,
+) -> None:
+    payload = _json_object(response, step)
+    sessions = payload.get("sessions")
+    if not isinstance(sessions, list):
+        raise AuthFlowError(f"{step} did not return sessions")
+    current_count = sum(
+        1
+        for session in sessions
+        if isinstance(session, dict) and session.get("is_current") is True
+    )
+    _record_observation(
+        observations,
+        step=step,
+        key="session_count",
+        value=str(len(sessions)),
+    )
+    _record_observation(
+        observations,
+        step=step,
+        key="current_session_present",
+        value=str(current_count > 0).lower(),
     )
 
 
