@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -70,7 +70,7 @@ class SettingsService:
     Encrypted values are automatically decrypted on read and encrypted on write.
     """
 
-    def __init__(self, session_factory: Callable[[], AbstractAsyncContextManager[Any]]) -> None:
+    def __init__(self, session_factory: Callable[[], AbstractAsyncContextManager[object]]) -> None:
         """Initialize the settings service.
 
         Args:

@@ -2,16 +2,46 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from contextlib import asynccontextmanager
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from types import ModuleType
+from typing import TYPE_CHECKING, Protocol, cast
 
 from sibyl.config import settings
+
+
+class RuntimeExport(Protocol):
+    def __call__(self, *args: object, **kwargs: object) -> Awaitable[object]: ...
+
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from sibyl.db.models import SystemSetting
+
+    class GetSystemSetting(Protocol):
+        def __call__(
+            self, session: object, *, key: str
+        ) -> Awaitable[SystemSetting | None]: ...
+
+    class ListSystemSettings(Protocol):
+        def __call__(self, session: object) -> Awaitable[list[SystemSetting]]: ...
+
+    class SaveSystemSetting(Protocol):
+        def __call__(
+            self, session: object, *, setting: SystemSetting
+        ) -> Awaitable[SystemSetting]: ...
+
+    class DeleteSystemSetting(Protocol):
+        def __call__(self, session: object, *, key: str) -> Awaitable[bool]: ...
+
+    delete_system_setting: DeleteSystemSetting
+    get_system_setting: GetSystemSetting
+    list_system_settings: ListSystemSettings
+    save_system_setting: SaveSystemSetting
 
 _BACKEND_MODULES = {
     "legacy": "sibyl.persistence.legacy.system_settings",
@@ -29,7 +59,7 @@ _RUNTIME_EXPORTS = [
 __all__ = list(_RUNTIME_EXPORTS)
 
 
-def _backend_module() -> Any:
+def _backend_module() -> ModuleType:
     return import_module(_BACKEND_MODULES[settings.store])
 
 
@@ -50,13 +80,13 @@ async def get_settings_session() -> AsyncGenerator[AsyncSession | None]:
         yield session
 
 
-def _make_runtime_proxy(name: str) -> Any:
+def _make_runtime_proxy(name: str) -> RuntimeExport:
     async def _proxy(*args: object, **kwargs: object) -> object:
-        export = getattr(_backend_module(), name)
+        export = cast("RuntimeExport", getattr(_backend_module(), name))
         return await export(*args, **kwargs)
 
     _proxy.__name__ = name
-    return _proxy
+    return cast("RuntimeExport", _proxy)
 
 
 for _export_name in _RUNTIME_EXPORTS:
