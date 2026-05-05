@@ -29,7 +29,23 @@ tasks:
   install:
     options:
       shell: true
-    script: echo 'Installing Claude Code hooks...' && mkdir -p ~/.claude/hooks/sibyl && cp ./*.py ~/.claude/hooks/sibyl/ && chmod +x ~/.claude/hooks/sibyl/*.py && python3 configure.py && echo '✓ Hooks installed - restart Claude Code to activate'
+    # `cp ./*.py ~/.claude/hooks/sibyl/` blows up when the dest is a symlink
+    # back to the source (the dev-mode pattern: edit source → hook updates
+    # live). Skip files that already resolve to the same inode so re-running
+    # install is idempotent and preserves dev symlinks.
+    script: |
+      echo 'Installing Claude Code hooks...'
+      mkdir -p ~/.claude/hooks/sibyl
+      for f in ./*.py; do
+        dest="$HOME/.claude/hooks/sibyl/$(basename "$f")"
+        if [[ -e "$dest" ]] && [[ "$(readlink -f "$f")" = "$(readlink -f "$dest")" ]]; then
+          continue
+        fi
+        cp -f "$f" "$dest"
+      done
+      chmod +x ~/.claude/hooks/sibyl/*.py
+      python3 configure.py
+      echo '✓ Hooks installed - restart Claude Code to activate'
     preset: server
   uninstall:
     options:
