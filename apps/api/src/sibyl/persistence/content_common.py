@@ -4,9 +4,80 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Protocol
 from uuid import UUID, uuid4
 
-from sibyl_core.models import ChunkType
+from sibyl_core.models import ChunkType, CrawlStatus, SourceType
+
+type ContentSession = object
+
+
+class CrawlSourceRecord(Protocol):
+    id: UUID
+    organization_id: UUID
+    name: str
+    url: str
+    source_type: SourceType
+    description: str | None
+    crawl_depth: int
+    crawl_status: CrawlStatus
+    document_count: int
+    chunk_count: int
+    current_job_id: str | None
+    last_crawled_at: datetime | None
+    last_error: str | None
+    created_at: datetime
+    updated_at: datetime
+    include_patterns: list[str] | None
+    exclude_patterns: list[str] | None
+    tags: list[str]
+    categories: list[str]
+    favicon_url: str | None
+
+
+class CrawledDocumentRecord(Protocol):
+    id: UUID
+    source_id: UUID
+    url: str
+    title: str
+    raw_content: str
+    content: str
+    content_hash: str
+    word_count: int
+    token_count: int
+    has_code: bool
+    is_index: bool
+    depth: int
+    crawled_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    headings: list[str] | None
+    code_languages: list[str] | None
+    section_path: list[str] | None
+
+
+class DocumentChunkRecord(Protocol):
+    id: UUID
+    document_id: UUID
+    content: str
+    context: str | None
+    chunk_type: ChunkType
+    chunk_index: int
+    heading_path: list[str] | None
+    language: str | None
+    has_entities: bool
+    entity_ids: list[str] | None
+    created_at: datetime
+    updated_at: datetime
+
+
+type RAGSearchRow = tuple[DocumentChunkRecord, CrawledDocumentRecord, str, UUID, float]
+type CodeExampleSearchRow = tuple[
+    DocumentChunkRecord, CrawledDocumentRecord, UUID, str, float
+]
+type HybridSearchRow = tuple[
+    DocumentChunkRecord, CrawledDocumentRecord, str, UUID, float, float
+]
 
 
 def _utcnow_naive() -> datetime:
@@ -57,4 +128,15 @@ class DocumentEntityRecord:
     updated_at: datetime
 
 
-__all__ = ["CrawlStats", "DocumentEntityRecord", "RawCaptureRecord"]
+__all__ = [
+    "CodeExampleSearchRow",
+    "ContentSession",
+    "CrawledDocumentRecord",
+    "CrawlSourceRecord",
+    "CrawlStats",
+    "DocumentChunkRecord",
+    "DocumentEntityRecord",
+    "HybridSearchRow",
+    "RAGSearchRow",
+    "RawCaptureRecord",
+]

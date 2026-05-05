@@ -2,50 +2,317 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from contextlib import asynccontextmanager
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol, cast
 
 from sibyl.config import settings
 
+
+class RuntimeExport(Protocol):
+    def __call__(self, *args: object, **kwargs: object) -> Awaitable[object]: ...
+
+
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Sequence
+    from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    create_crawl_source_record: Any
-    count_remaining_unlinked_chunks: Any
-    check_relational_backend_health: Any
-    delete_crawl_source_record: Any
-    delete_crawled_document_record: Any
-    get_crawl_source_by_id: Any
-    get_crawl_source_by_url: Any
-    get_crawl_stats_payload: Any
-    get_crawled_document_for_org: Any
-    get_document_by_url_for_org: Any
-    get_link_graph_status_payload: Any
-    get_org_crawl_source: Any
-    get_raw_capture: Any
-    get_source_sync_counts: Any
-    hybrid_search_chunks: Any
-    list_crawl_sources: Any
-    list_crawl_sources_for_org: Any
-    list_crawled_documents_for_org: Any
-    list_document_chunks: Any
-    list_rag_source_documents_page: Any
-    list_raw_captures: Any
-    list_source_chunks: Any
-    list_source_documents: Any
-    list_source_documents_page: Any
-    list_sources_for_graph_linking: Any
-    list_unlinked_source_chunks: Any
-    resolve_document_entity: Any
-    save_crawl_source_record: Any
-    save_crawled_document_record: Any
-    save_document_chunks: Any
-    save_raw_capture_record: Any
-    search_code_example_chunks: Any
-    search_rag_chunks: Any
+    from sibyl.persistence.content_common import (
+        CodeExampleSearchRow,
+        ContentSession,
+        CrawledDocumentRecord,
+        CrawlSourceRecord,
+        CrawlStats,
+        DocumentChunkRecord,
+        DocumentEntityRecord,
+        HybridSearchRow,
+        RAGSearchRow,
+        RawCaptureRecord,
+    )
+    from sibyl_core.models import CrawlStatus, SourceType
+    from sibyl_core.services.link_graph_status import LinkGraphStatusData
+
+    class CheckRelationalBackendHealth(Protocol):
+        def __call__(self) -> Awaitable[dict[str, str | None]]: ...
+
+    class GetCrawlSourceById(Protocol):
+        def __call__(
+            self, session: ContentSession, *, source_id: UUID
+        ) -> Awaitable[CrawlSourceRecord | None]: ...
+
+    class GetCrawlSourceByUrl(Protocol):
+        def __call__(
+            self, session: ContentSession, *, url: str
+        ) -> Awaitable[CrawlSourceRecord | None]: ...
+
+    class GetOrgCrawlSource(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            source_id: UUID,
+            organization_id: UUID,
+        ) -> Awaitable[CrawlSourceRecord | None]: ...
+
+    class ListCrawlSourcesForOrg(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            organization_id: UUID,
+            status: CrawlStatus | None,
+            limit: int,
+        ) -> Awaitable[tuple[list[CrawlSourceRecord], int]]: ...
+
+    class ListCrawlSources(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            status: CrawlStatus | None = None,
+            limit: int | None = 50,
+        ) -> Awaitable[list[CrawlSourceRecord]]: ...
+
+    class CreateCrawlSourceRecord(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            name: str,
+            url: str,
+            organization_id: UUID,
+            source_type: SourceType,
+            description: str | None,
+            crawl_depth: int,
+            include_patterns: list[str] | None,
+            exclude_patterns: list[str] | None,
+        ) -> Awaitable[CrawlSourceRecord]: ...
+
+    class SaveCrawlSourceRecord(Protocol):
+        def __call__(
+            self, session: ContentSession, *, source: CrawlSourceRecord
+        ) -> Awaitable[CrawlSourceRecord]: ...
+
+    class GetCrawlStatsPayload(Protocol):
+        def __call__(
+            self, session: ContentSession, *, organization_id: UUID
+        ) -> Awaitable[CrawlStats]: ...
+
+    class GetLinkGraphStatusPayload(Protocol):
+        def __call__(
+            self, session: ContentSession, *, organization_id: UUID
+        ) -> Awaitable[LinkGraphStatusData]: ...
+
+    class ListCrawledDocumentsForOrg(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            organization_id: UUID,
+            limit: int,
+            offset: int,
+        ) -> Awaitable[tuple[list[CrawledDocumentRecord], int]]: ...
+
+    class GetCrawledDocumentForOrg(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            document_id: UUID,
+            organization_id: UUID,
+        ) -> Awaitable[CrawledDocumentRecord | None]: ...
+
+    class SaveCrawledDocumentRecord(Protocol):
+        def __call__(
+            self, session: ContentSession, *, document: object
+        ) -> Awaitable[CrawledDocumentRecord]: ...
+
+    class SaveDocumentChunks(Protocol):
+        def __call__(
+            self, session: ContentSession, *, chunks: Sequence[object]
+        ) -> Awaitable[list[DocumentChunkRecord]]: ...
+
+    class DeleteCrawledDocumentRecord(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            document_id: UUID,
+            organization_id: UUID,
+        ) -> Awaitable[tuple[CrawledDocumentRecord, int] | None]: ...
+
+    class ListDocumentChunks(Protocol):
+        def __call__(
+            self, session: ContentSession, *, document_id: UUID
+        ) -> Awaitable[list[DocumentChunkRecord]]: ...
+
+    class ListSourceDocumentsPage(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            source_id: UUID,
+            limit: int,
+            offset: int,
+            has_code: bool | None = None,
+            is_index: bool | None = None,
+        ) -> Awaitable[tuple[list[CrawledDocumentRecord], int]]: ...
+
+    class ListSourceChunks(Protocol):
+        def __call__(
+            self, session: ContentSession, *, source_id: UUID
+        ) -> Awaitable[list[DocumentChunkRecord]]: ...
+
+    class ListSourceDocuments(Protocol):
+        def __call__(
+            self, session: ContentSession, *, source_id: UUID
+        ) -> Awaitable[list[CrawledDocumentRecord]]: ...
+
+    class DeleteCrawlSourceRecord(Protocol):
+        def __call__(
+            self, session: ContentSession, *, source_id: UUID, organization_id: UUID
+        ) -> Awaitable[CrawlSourceRecord | None]: ...
+
+    class GetSourceSyncCounts(Protocol):
+        def __call__(
+            self, session: ContentSession, *, source_id: UUID
+        ) -> Awaitable[tuple[int, int]]: ...
+
+    class ListSourcesForGraphLinking(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            organization_id: UUID,
+            source_id: UUID | None,
+        ) -> Awaitable[list[CrawlSourceRecord]]: ...
+
+    class ListUnlinkedSourceChunks(Protocol):
+        def __call__(
+            self, session: ContentSession, *, source_id: UUID, limit: int
+        ) -> Awaitable[list[DocumentChunkRecord]]: ...
+
+    class CountRemainingUnlinkedChunks(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            organization_id: UUID,
+            source_id: UUID | None,
+        ) -> Awaitable[int]: ...
+
+    class ListRawCaptures(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            organization_id: UUID,
+            entity_type: str | None,
+            capture_surface: str | None,
+            review_state: str | None,
+            limit: int,
+            offset: int,
+        ) -> Awaitable[tuple[list[RawCaptureRecord], bool]]: ...
+
+    class GetRawCapture(Protocol):
+        def __call__(
+            self, session: ContentSession, *, organization_id: UUID, capture_id: UUID
+        ) -> Awaitable[RawCaptureRecord | None]: ...
+
+    class SaveRawCaptureRecord(Protocol):
+        def __call__(
+            self, session: ContentSession, *, capture: RawCaptureRecord
+        ) -> Awaitable[RawCaptureRecord]: ...
+
+    class ResolveDocumentEntity(Protocol):
+        def __call__(
+            self, session: ContentSession, *, organization_id: UUID, entity_id: str
+        ) -> Awaitable[DocumentEntityRecord | None]: ...
+
+    class GetDocumentByUrlForOrg(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            url: str,
+            organization_id: UUID | str,
+        ) -> Awaitable[CrawledDocumentRecord | None]: ...
+
+    class SearchRAGChunks(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            query_embedding: list[float],
+            organization_id: UUID | str,
+            similarity_threshold: float,
+            match_count: int,
+            source_id: UUID | None = None,
+            source_name: str | None = None,
+        ) -> Awaitable[list[RAGSearchRow]]: ...
+
+    class SearchCodeExampleChunks(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            query_embedding: list[float],
+            organization_id: UUID | str,
+            match_count: int,
+            source_id: UUID | None = None,
+            language: str | None = None,
+        ) -> Awaitable[list[CodeExampleSearchRow]]: ...
+
+    class HybridSearchChunks(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            query_text: str,
+            query_embedding: list[float],
+            organization_id: UUID | str,
+            similarity_threshold: float,
+            match_count: int,
+            source_id: UUID | None = None,
+            source_name: str | None = None,
+        ) -> Awaitable[list[HybridSearchRow]]: ...
+
+    check_relational_backend_health: CheckRelationalBackendHealth
+    count_remaining_unlinked_chunks: CountRemainingUnlinkedChunks
+    create_crawl_source_record: CreateCrawlSourceRecord
+    delete_crawl_source_record: DeleteCrawlSourceRecord
+    delete_crawled_document_record: DeleteCrawledDocumentRecord
+    get_crawl_source_by_id: GetCrawlSourceById
+    get_crawl_source_by_url: GetCrawlSourceByUrl
+    get_crawl_stats_payload: GetCrawlStatsPayload
+    get_crawled_document_for_org: GetCrawledDocumentForOrg
+    get_document_by_url_for_org: GetDocumentByUrlForOrg
+    get_link_graph_status_payload: GetLinkGraphStatusPayload
+    get_org_crawl_source: GetOrgCrawlSource
+    get_raw_capture: GetRawCapture
+    get_source_sync_counts: GetSourceSyncCounts
+    hybrid_search_chunks: HybridSearchChunks
+    list_crawl_sources: ListCrawlSources
+    list_crawl_sources_for_org: ListCrawlSourcesForOrg
+    list_crawled_documents_for_org: ListCrawledDocumentsForOrg
+    list_document_chunks: ListDocumentChunks
+    list_rag_source_documents_page: ListSourceDocumentsPage
+    list_raw_captures: ListRawCaptures
+    list_source_chunks: ListSourceChunks
+    list_source_documents: ListSourceDocuments
+    list_source_documents_page: ListSourceDocumentsPage
+    list_sources_for_graph_linking: ListSourcesForGraphLinking
+    list_unlinked_source_chunks: ListUnlinkedSourceChunks
+    resolve_document_entity: ResolveDocumentEntity
+    save_crawl_source_record: SaveCrawlSourceRecord
+    save_crawled_document_record: SaveCrawledDocumentRecord
+    save_document_chunks: SaveDocumentChunks
+    save_raw_capture_record: SaveRawCaptureRecord
+    search_code_example_chunks: SearchCodeExampleChunks
+    search_rag_chunks: SearchRAGChunks
 
 _BACKEND_MODULES = {
     "legacy": (
@@ -135,12 +402,12 @@ def _active_backend_name() -> str:
     return settings.store
 
 
-def _resolve_backend_export(name: str) -> Any:
+def _resolve_backend_export(name: str) -> RuntimeExport:
     backend = _active_backend_name()
     for module_name in _BACKEND_MODULES[backend]:
         module = import_module(module_name)
         if hasattr(module, name):
-            return getattr(module, name)
+            return cast("RuntimeExport", getattr(module, name))
     msg = f"{name} is not implemented for SIBYL_STORE={backend!r}"
     raise AttributeError(msg)
 
@@ -169,13 +436,13 @@ async def get_content_read_session_dependency() -> AsyncGenerator[AsyncSession |
         yield session
 
 
-def _make_runtime_proxy(name: str) -> Any:
+def _make_runtime_proxy(name: str) -> RuntimeExport:
     async def _proxy(*args: object, **kwargs: object) -> object:
         export = _resolve_backend_export(name)
         return await export(*args, **kwargs)
 
     _proxy.__name__ = name
-    return _proxy
+    return cast("RuntimeExport", _proxy)
 
 
 for _export_name in _BACKEND_EXPORTS:

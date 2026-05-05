@@ -61,8 +61,15 @@ def test_content_runtime_only_exports_neutral_runtime_surface() -> None:
     assert not hasattr(surreal_content, "list_legacy_raw_captures")
     assert not hasattr(surreal_content, "resolve_legacy_document_entity")
     assert content_common.__all__ == [
+        "CodeExampleSearchRow",
+        "ContentSession",
+        "CrawledDocumentRecord",
+        "CrawlSourceRecord",
         "CrawlStats",
+        "DocumentChunkRecord",
         "DocumentEntityRecord",
+        "HybridSearchRow",
+        "RAGSearchRow",
         "RawCaptureRecord",
     ]
     assert "LegacyCrawlStats" not in content_common.__all__

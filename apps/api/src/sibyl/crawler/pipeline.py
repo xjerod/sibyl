@@ -28,8 +28,12 @@ from sibyl.crawler.local import LocalFileCrawler
 from sibyl.crawler.service import CrawlerService
 from sibyl.db.models import (
     CrawledDocument,
-    CrawlSource,
     DocumentChunk,
+)
+from sibyl.persistence.content_common import (
+    CrawledDocumentRecord,
+    CrawlSourceRecord,
+    DocumentChunkRecord,
 )
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
@@ -169,7 +173,7 @@ class IngestionPipeline:
 
     async def ingest_source(
         self,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
         *,
         max_pages: int = 100,
         max_depth: int = 3,
@@ -271,7 +275,7 @@ class IngestionPipeline:
 
     async def _create_guidance_entity(
         self,
-        document: CrawledDocument,
+        document: CrawledDocumentRecord,
     ) -> str | None:
         """Create a guidance entity in the knowledge graph for a local file.
 
@@ -322,7 +326,7 @@ class IngestionPipeline:
             )
             return None
 
-    async def _update_source_tags(self, source: CrawlSource) -> None:
+    async def _update_source_tags(self, source: CrawlSourceRecord) -> None:
         """Update source with auto-detected tags and favicon.
 
         Fetches all documents for the source, extracts tags using heuristics,
@@ -381,6 +385,7 @@ class IngestionPipeline:
             source_type: Type of source (LOCAL creates guidance entities)
         """
         db_chunks: list[DocumentChunk] = []
+        saved_chunks: list[DocumentChunkRecord] = []
         stored_document = document
 
         async with get_content_read_session() as session:
@@ -460,13 +465,13 @@ class IngestionPipeline:
                 )
                 db_chunks.append(db_chunk)
 
-            db_chunks = await save_document_chunks(session, chunks=db_chunks)
+            saved_chunks = await save_document_chunks(session, chunks=db_chunks)
 
         # Graph integration: extract entities and link to knowledge graph
-        if self._graph_integration and db_chunks:
+        if self._graph_integration and saved_chunks:
             try:
                 integration_stats = await self._graph_integration.process_chunks(
-                    db_chunks,
+                    saved_chunks,
                     source_name=stored_document.url,
                 )
                 stats.entities_extracted += integration_stats.entities_extracted
@@ -474,7 +479,7 @@ class IngestionPipeline:
 
                 # Create DOCUMENTED_IN relationships for linked entities
                 entity_uuids = []
-                for chunk in db_chunks:
+                for chunk in saved_chunks:
                     if chunk.entity_ids:
                         entity_uuids.extend(chunk.entity_ids)
 
@@ -508,7 +513,7 @@ class IngestionPipeline:
     async def ingest_url(
         self,
         url: str,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
     ) -> CrawledDocument | None:
         """Ingest a single URL.
 

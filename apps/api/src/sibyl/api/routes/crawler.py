@@ -10,7 +10,6 @@ Provides REST API for:
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import Protocol
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -39,6 +38,10 @@ from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_organization, require_org_role
 from sibyl.config import settings
 from sibyl.crawler.service import SourceAlreadyExistsError
+from sibyl.persistence.content_common import (
+    CrawledDocumentRecord,
+    CrawlSourceRecord,
+)
 from sibyl.persistence.content_runtime import (
     check_relational_backend_health,
     count_remaining_unlinked_chunks,
@@ -63,43 +66,6 @@ from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.models import CrawlStatus, SourceType
 
 log = structlog.get_logger()
-
-
-class CrawlSourceRecord(Protocol):
-    id: UUID
-    name: str
-    url: str
-    source_type: SourceType | str
-    description: str | None
-    crawl_depth: int
-    crawl_status: CrawlStatus | str
-    document_count: int
-    chunk_count: int
-    current_job_id: str | None
-    last_crawled_at: datetime | None
-    last_error: str | None
-    created_at: datetime
-    include_patterns: list[str] | None
-    exclude_patterns: list[str] | None
-
-
-class CrawledDocumentRecord(Protocol):
-    id: UUID
-    source_id: UUID
-    url: str
-    title: str
-    word_count: int
-    has_code: bool
-    is_index: bool
-    depth: int
-    crawled_at: datetime
-    headings: list[str] | None
-    code_languages: list[str] | None
-    raw_content: str
-
-
-class DocumentChunkRecord(Protocol):
-    content: str
 
 
 def _utcnow_naive() -> datetime:

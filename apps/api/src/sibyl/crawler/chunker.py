@@ -16,15 +16,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
 import structlog
 
 from sibyl.config import settings
+from sibyl.persistence.content_common import CrawledDocumentRecord
 from sibyl_core.models import ChunkType
-
-if TYPE_CHECKING:
-    from sibyl.db.models import CrawledDocument
 
 log = structlog.get_logger()
 
@@ -127,7 +124,7 @@ class DocumentChunker:
 
     def chunk_document(
         self,
-        document: CrawledDocument,
+        document: CrawledDocumentRecord,
         *,
         strategy: ChunkStrategy = ChunkStrategy.SEMANTIC,
     ) -> list[Chunk]:
@@ -528,7 +525,7 @@ class DocumentChunker:
 
         return deduped
 
-    def _build_document_context(self, document: CrawledDocument) -> str:
+    def _build_document_context(self, document: CrawledDocumentRecord) -> str:
         """Build document-level context for chunk prefixes.
 
         Used for Anthropic's contextual retrieval technique.
@@ -568,7 +565,7 @@ class DocumentChunker:
 
 
 def chunk_document(
-    document: CrawledDocument,
+    document: CrawledDocumentRecord,
     *,
     strategy: ChunkStrategy = ChunkStrategy.SEMANTIC,
     max_tokens: int | None = None,

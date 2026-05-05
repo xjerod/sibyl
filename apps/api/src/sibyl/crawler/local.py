@@ -11,8 +11,9 @@ from urllib.parse import urlparse
 
 import structlog
 
-from sibyl.db.models import CrawledDocument, CrawlSource
+from sibyl.db.models import CrawledDocument
 from sibyl.ingestion.parser import ParsedDocument, parse_directory
+from sibyl.persistence.content_common import CrawlSourceRecord
 
 log = structlog.get_logger()
 
@@ -61,7 +62,7 @@ class LocalFileCrawler:
     def _to_crawled_document(
         self,
         parsed: ParsedDocument,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
         base_path: Path,
     ) -> CrawledDocument:
         """Convert a ParsedDocument to a CrawledDocument.
@@ -120,7 +121,7 @@ class LocalFileCrawler:
 
     async def crawl_source(
         self,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
         *,
         max_pages: int = 100,
         max_depth: int = 3,  # Not used for local, but matches interface

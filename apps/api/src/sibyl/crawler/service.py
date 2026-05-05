@@ -27,7 +27,8 @@ from sibyl.api.event_types import WSEvent
 from sibyl.api.websocket import broadcast_event
 from sibyl.crawler.discovery import DiscoveryResult, DiscoveryService
 from sibyl.crawler.llms_parser import LLMsSection, parse_llms_full
-from sibyl.db.models import CrawledDocument, CrawlSource, utcnow_naive
+from sibyl.db.models import CrawledDocument, utcnow_naive
+from sibyl.persistence.content_common import CrawlSourceRecord
 from sibyl.persistence.content_runtime import (
     create_crawl_source_record,
     get_content_read_session,
@@ -69,7 +70,7 @@ class SourceAlreadyExistsError(ValueError):
 class CrawlSourcePage:
     """Org-scoped crawl-source listing with total count."""
 
-    sources: list[CrawlSource]
+    sources: list[CrawlSourceRecord]
     total: int
 
 
@@ -89,7 +90,7 @@ def _clean_nav_cruft(content: str) -> str:
     return content.strip()
 
 
-async def _save_source_update(source_id: UUID, **updates: object) -> CrawlSource | None:
+async def _save_source_update(source_id: UUID, **updates: object) -> CrawlSourceRecord | None:
     async with get_content_read_session() as session:
         source = await get_crawl_source_by_id(session, source_id=source_id)
         if source is None:
@@ -220,7 +221,7 @@ class CrawlerService:
 
     async def crawl_source(
         self,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
         *,
         max_pages: int = 100,
         max_depth: int = 3,
@@ -389,7 +390,7 @@ class CrawlerService:
     def result_to_document(
         self,
         result: CrawlResult,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
     ) -> CrawledDocument:
         """Convert a CrawlResult to a CrawledDocument.
 
@@ -584,7 +585,7 @@ class CrawlerService:
     def section_to_document(
         self,
         section: LLMsSection,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
     ) -> CrawledDocument:
         """Convert an llms-full.txt section to a CrawledDocument.
 
@@ -620,7 +621,7 @@ class CrawlerService:
 
     async def crawl_with_discovery(
         self,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
         *,
         max_pages: int = 100,
         max_depth: int = 3,
@@ -747,7 +748,7 @@ class CrawlerService:
 
     async def _crawl_discovered_links(
         self,
-        source: CrawlSource,
+        source: CrawlSourceRecord,
         links: list[str],
         *,
         max_pages: int = 100,
@@ -813,7 +814,7 @@ async def create_source(
     crawl_depth: int = 2,
     include_patterns: list[str] | None = None,
     exclude_patterns: list[str] | None = None,
-) -> CrawlSource:
+) -> CrawlSourceRecord:
     """Create a new crawl source in the database.
 
     Args:
@@ -853,7 +854,7 @@ async def create_org_source(
     crawl_depth: int = 2,
     include_patterns: list[str] | None = None,
     exclude_patterns: list[str] | None = None,
-) -> CrawlSource:
+) -> CrawlSourceRecord:
     """Create a crawl source for an organization, rejecting same-org duplicates."""
     async with get_content_read_session() as session:
         return await create_crawl_source_record(
@@ -869,7 +870,7 @@ async def create_org_source(
         )
 
 
-async def get_source_by_url(url: str) -> CrawlSource | None:
+async def get_source_by_url(url: str) -> CrawlSourceRecord | None:
     """Get a crawl source by URL."""
     async with get_content_read_session() as session:
         return await get_crawl_source_by_url(session, url=_normalize_source_url(url))
@@ -879,7 +880,7 @@ async def list_sources(
     *,
     status: CrawlStatus | None = None,
     limit: int = 50,
-) -> list[CrawlSource]:
+) -> list[CrawlSourceRecord]:
     """List crawl sources with optional filtering."""
     async with get_content_read_session() as session:
         return await list_crawl_sources(session, status=status, limit=limit)

@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from sibyl.db.models import CrawledDocument
+from sibyl.persistence.content_common import CrawledDocumentRecord
 
 # =============================================================================
 # Technology Detection
@@ -84,7 +82,7 @@ CATEGORY_PATTERNS: dict[str, list[str]] = {
 # =============================================================================
 
 
-def extract_tags_from_document(doc: CrawledDocument) -> list[str]:
+def extract_tags_from_document(doc: CrawledDocumentRecord) -> list[str]:
     """Extract tags from a single document.
 
     Analyzes:
@@ -128,7 +126,7 @@ def extract_tags_from_document(doc: CrawledDocument) -> list[str]:
     return sorted(tags)
 
 
-def extract_categories_from_document(doc: CrawledDocument) -> list[str]:
+def extract_categories_from_document(doc: CrawledDocumentRecord) -> list[str]:
     """Extract content categories from a document.
 
     Analyzes URL path, title, and headings to determine content type.
@@ -153,7 +151,7 @@ def extract_categories_from_document(doc: CrawledDocument) -> list[str]:
     return sorted(categories)
 
 
-def aggregate_source_tags(documents: list[CrawledDocument]) -> tuple[list[str], list[str]]:
+def aggregate_source_tags(documents: list[CrawledDocumentRecord]) -> tuple[list[str], list[str]]:
     """Aggregate tags and categories from all documents in a source.
 
     Uses frequency counting to prioritize common tags.

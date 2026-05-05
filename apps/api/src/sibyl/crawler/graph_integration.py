@@ -24,7 +24,7 @@ from uuid import uuid4
 
 import structlog
 
-from sibyl.db.models import DocumentChunk
+from sibyl.persistence.content_common import DocumentChunkRecord
 from sibyl.persistence.content_runtime import get_content_read_session, save_document_chunks
 from sibyl.services.settings import get_settings_service
 from sibyl_core.graph.client import GraphClient
@@ -689,7 +689,7 @@ class GraphIntegrationService:
 
     async def process_chunks(
         self,
-        chunks: list[DocumentChunk],
+        chunks: list[DocumentChunkRecord],
         source_name: str,
     ) -> IntegrationStats:
         """Process document chunks to link with graph.
@@ -733,7 +733,7 @@ class GraphIntegrationService:
             if link.chunk_id:
                 links_by_chunk[link.chunk_id].append(link)
 
-        dirty_chunks: list[DocumentChunk] = []
+        dirty_chunks: list[DocumentChunkRecord] = []
         for chunk in chunks:
             chunk_links = links_by_chunk.get(str(chunk.id), [])
             if not chunk_links:
@@ -845,7 +845,7 @@ class GraphIntegrationService:
 
 async def integrate_document_with_graph(
     _document_id: UUID,
-    chunks: list[DocumentChunk],
+    chunks: list[DocumentChunkRecord],
     source_name: str,
     organization_id: str,
 ) -> IntegrationStats:
