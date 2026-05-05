@@ -93,6 +93,7 @@ main() {
     env \
       SIBYL_STORE=surreal \
       SIBYL_AUTH_STORE=surreal \
+      SIBYL_COORDINATION_BACKEND=local \
       SIBYL_SURREAL_URL="$surreal_url" \
       SIBYL_SURREAL_USERNAME="${SIBYL_SURREAL_USERNAME:-root}" \
       SIBYL_SURREAL_PASSWORD="${SIBYL_SURREAL_PASSWORD:-root}" \
@@ -104,6 +105,7 @@ main() {
     env \
       SIBYL_STORE=surreal \
       SIBYL_AUTH_STORE=surreal \
+      SIBYL_COORDINATION_BACKEND=local \
       SIBYL_SURREAL_URL="$surreal_url" \
       SIBYL_SURREAL_USERNAME="${SIBYL_SURREAL_USERNAME:-root}" \
       SIBYL_SURREAL_PASSWORD="${SIBYL_SURREAL_PASSWORD:-root}" \
@@ -116,6 +118,7 @@ main() {
   env \
     SIBYL_STORE=surreal \
     SIBYL_AUTH_STORE=surreal \
+    SIBYL_COORDINATION_BACKEND=local \
     SIBYL_SURREAL_URL="$surreal_url" \
     SIBYL_SURREAL_USERNAME="${SIBYL_SURREAL_USERNAME:-root}" \
     SIBYL_SURREAL_PASSWORD="${SIBYL_SURREAL_PASSWORD:-root}" \

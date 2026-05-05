@@ -43,10 +43,11 @@ printf 'docker %s\\n' "$*" >> "$SIBYL_STUB_LOG"
     uv.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
-printf 'uv %s | store=%s auth=%s surreal=%s redis=%s:%s\\n' \
+printf 'uv %s | store=%s auth=%s coord=%s surreal=%s redis=%s:%s\\n' \
   "$*" \
   "${SIBYL_STORE:-}" \
   "${SIBYL_AUTH_STORE:-}" \
+  "${SIBYL_COORDINATION_BACKEND:-}" \
   "${SIBYL_SURREAL_URL:-}" \
   "${SIBYL_REDIS_HOST:-}" \
   "${SIBYL_REDIS_PORT:-}" >> "$SIBYL_STUB_LOG"
@@ -179,15 +180,17 @@ def test_local_surreal_migration_script_wires_org_and_runtime_env(tmp_path: Path
     assert "docker compose up -d falkordb postgres surrealdb redis" in log
     assert (
         f"uv run --directory apps/api sibyld migrate export --output {archive_path} "
-        "--include-content --org-id org-two | store=legacy auth=postgres"
+        "--include-content --org-id org-two | store=legacy auth=postgres coord="
     ) in log
     assert (
         f"uv run --directory apps/api sibyld migrate import {archive_path} --yes --clean "
-        "| store=surreal auth=surreal surreal=ws://127.0.0.1:8000/rpc redis=127.0.0.1:6381"
+        "| store=surreal auth=surreal coord=local surreal=ws://127.0.0.1:8000/rpc "
+        "redis=127.0.0.1:6381"
     ) in log
     assert (
         f"uv run --directory apps/api sibyld migrate verify {archive_path} "
-        "| store=surreal auth=surreal surreal=ws://127.0.0.1:8000/rpc redis=127.0.0.1:6381"
+        "| store=surreal auth=surreal coord=local surreal=ws://127.0.0.1:8000/rpc "
+        "redis=127.0.0.1:6381"
     ) in log
     marker = data_dir / ".sibyl-migrated"
     assert marker.exists()
@@ -232,6 +235,49 @@ def test_local_surreal_migration_script_restores_database_dump_when_requested(
     assert f"migrate export --output {archive_path} --include-content" in log
     assert "--org-id" not in log
     assert f"migrate import {archive_path} --yes --clean --restore-database-dump" in log
+
+
+def test_local_surreal_migration_script_overrides_surreal_coordination_env(
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_local_migration_stubs(bin_dir)
+
+    log_path = tmp_path / "stub.log"
+    archive_path = tmp_path / "migration.tar.gz"
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "SIBYL_STUB_LOG": str(log_path),
+        "SIBYL_COORDINATION_BACKEND": "redis",
+        "SIBYL_REDIS_HOST": "bad-redis",
+        "SIBYL_REDIS_PORT": "6399",
+        "SURREAL_DATA_DIR": str(tmp_path / "surreal-dev"),
+    }
+    bash = which("bash")
+    assert bash is not None
+
+    result = subprocess.run(  # noqa: S603
+        [
+            bash,
+            "tools/dev/migrate-local-surreal.sh",
+            "--archive",
+            str(archive_path),
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    log = log_path.read_text(encoding="utf-8")
+    assert f"migrate export --output {archive_path} --include-content" in log
+    assert "migrate import" in log
+    assert "migrate verify" in log
+    assert "store=surreal auth=surreal coord=local" in log
 
 
 def test_local_surreal_migration_script_requires_org_id_value() -> None:
