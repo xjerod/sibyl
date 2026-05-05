@@ -232,3 +232,35 @@ def test_local_surreal_migration_script_restores_database_dump_when_requested(
     assert f"migrate export --output {archive_path} --include-content" in log
     assert "--org-id" not in log
     assert f"migrate import {archive_path} --yes --clean --restore-database-dump" in log
+
+
+def test_local_surreal_migration_script_requires_org_id_value() -> None:
+    bash = which("bash")
+    assert bash is not None
+
+    result = subprocess.run(  # noqa: S603
+        [bash, "tools/dev/migrate-local-surreal.sh", "--org-id"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "Missing value for --org-id" in result.stderr
+
+
+def test_local_surreal_migration_script_requires_archive_value() -> None:
+    bash = which("bash")
+    assert bash is not None
+
+    result = subprocess.run(  # noqa: S603
+        [bash, "tools/dev/migrate-local-surreal.sh", "--archive", "--restore-database-dump"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "Missing value for --archive" in result.stderr

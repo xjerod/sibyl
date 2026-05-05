@@ -29,10 +29,20 @@ main() {
   while (($# > 0)); do
     case "$1" in
       --org-id)
+        if [[ $# -lt 2 || "${2:-}" == --* ]]; then
+          echo "Missing value for --org-id" >&2
+          usage >&2
+          return 1
+        fi
         org_id="${2:-}"
         shift 2
         ;;
       --archive)
+        if [[ $# -lt 2 || "${2:-}" == --* ]]; then
+          echo "Missing value for --archive" >&2
+          usage >&2
+          return 1
+        fi
         archive="${2:-}"
         shift 2
         ;;
