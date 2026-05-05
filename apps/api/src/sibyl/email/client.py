@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
@@ -22,6 +25,7 @@ class EmailClient:
 
         self._api_key = settings.resend_api_key.get_secret_value()
         self._from_address = settings.email_from
+        self._outbox_path = settings.email_outbox_path.strip()
         self._resend: object | None = None
 
         if self._api_key:
@@ -53,6 +57,14 @@ class EmailClient:
             Email ID if sent successfully, None if not configured.
         """
         recipients = [to] if isinstance(to, str) else to
+
+        self._write_outbox(
+            to=recipients,
+            subject=subject,
+            html=html,
+            text=text,
+            reply_to=reply_to,
+        )
 
         if not self.configured:
             log.info(
@@ -86,6 +98,34 @@ class EmailClient:
         except Exception:
             log.exception("email_failed", to=recipients, subject=subject)
             return None
+
+    def _write_outbox(
+        self,
+        *,
+        to: list[str],
+        subject: str,
+        html: str,
+        text: str | None,
+        reply_to: str | None,
+    ) -> None:
+        if not self._outbox_path:
+            return
+        path = Path(self._outbox_path).expanduser()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            record = {
+                "created_at": datetime.now(UTC).isoformat(),
+                "to": to,
+                "subject": subject,
+                "html": html,
+                "text": text,
+                "reply_to": reply_to,
+            }
+            with path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(record, sort_keys=True))
+                file.write("\n")
+        except Exception:
+            log.exception("email_outbox_write_failed", path=str(path))
 
     async def send_template(
         self,

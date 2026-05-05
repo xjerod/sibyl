@@ -289,6 +289,7 @@ main() {
   export SIBYL_SERVER_PORT="${SIBYL_SERVER_PORT:-3334}"
   export SIBYL_BACKEND_URL="${SIBYL_BACKEND_URL:-http://127.0.0.1:3334}"
   export SIBYL_API_URL="${SIBYL_API_URL:-http://127.0.0.1:3334/api}"
+  export SIBYL_EMAIL_OUTBOX_PATH="${SIBYL_EMAIL_OUTBOX_PATH:-$repo_root/.moon/cache/auth-flow-email-outbox.jsonl}"
 
   local api_reload_dir=""
   local default_api_command=""
@@ -382,6 +383,7 @@ main() {
     if [[ -n "${SURREAL_DATA_DIR:-}" ]]; then
       printf 'SURREAL_DATA_DIR=%s\n' "$SURREAL_DATA_DIR"
     fi
+    printf 'SIBYL_EMAIL_OUTBOX_PATH=%s\n' "$SIBYL_EMAIL_OUTBOX_PATH"
     if [[ "$coordination_backend" == "redis" ]]; then
       printf 'SIBYL_REDIS_HOST=%s\n' "$SIBYL_REDIS_HOST"
       printf 'SIBYL_REDIS_PORT=%s\n' "$SIBYL_REDIS_PORT"
@@ -404,6 +406,7 @@ main() {
   if [[ -n "${SURREAL_DATA_DIR:-}" ]]; then
     echo "💎 Surreal data dir: $SURREAL_DATA_DIR"
   fi
+  echo "💎 Email outbox: $SIBYL_EMAIL_OUTBOX_PATH"
   if [[ "$coordination_backend" == "redis" ]]; then
     echo "🛠️  Redis: ${SIBYL_REDIS_HOST}:${SIBYL_REDIS_PORT}"
   fi

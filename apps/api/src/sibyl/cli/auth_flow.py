@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -21,6 +25,7 @@ class AuthFlowResult:
 
 
 JsonObject = dict[str, object]
+_RESET_TOKEN_RE = re.compile(r"/reset-password\?token=([A-Za-z0-9_-]+)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +48,7 @@ async def replay_auth_flow(
     password: str,
     name: str = "Sibyl Auth Flow",
     request_timeout: float = 15.0,
+    email_outbox_path: Path | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> AuthFlowResult:
     steps: list[str] = []
@@ -82,6 +88,7 @@ async def replay_auth_flow(
             primary=primary,
             email=email,
             password=password,
+            email_outbox_path=email_outbox_path,
             steps=steps,
         )
         await _list_sessions_and_logout(client=client, primary=primary, steps=steps)
@@ -309,9 +316,11 @@ async def _exercise_password_paths(
     primary: _PrimarySession,
     email: str,
     password: str,
+    email_outbox_path: Path | None,
     steps: list[str],
 ) -> _PrimarySession:
     new_password = f"{password}-rotated"
+    reset_password = f"{password}-reset"
     await _post_no_content(
         client,
         "/api/users/me/password",
@@ -319,7 +328,7 @@ async def _exercise_password_paths(
         headers=_bearer_headers(primary.access_token),
         step="change password",
     )
-    login = await _post_json(
+    await _post_json(
         client,
         "/api/auth/local/login",
         {"email": email, "password": new_password},
@@ -328,6 +337,7 @@ async def _exercise_password_paths(
     )
     steps.append("change_password")
 
+    outbox_offset = _outbox_offset(email_outbox_path)
     await _post_json(
         client,
         "/api/users/password/reset",
@@ -335,10 +345,28 @@ async def _exercise_password_paths(
         expected_status=202,
         step="request password reset",
     )
-    steps.append("request_password_reset")
+    reset_token = await _read_reset_token(
+        email=email,
+        email_outbox_path=email_outbox_path,
+        offset=outbox_offset,
+    )
+    await _post_no_content(
+        client,
+        "/api/users/password/reset/confirm",
+        {"token": reset_token, "new_password": reset_password},
+        step="confirm password reset",
+    )
+    reset_login = await _post_json(
+        client,
+        "/api/auth/local/login",
+        {"email": email, "password": reset_password},
+        expected_status=200,
+        step="login after password reset",
+    )
+    steps.append("password_reset_request_and_consume")
     return _PrimarySession(
-        access_token=_required_string(login, "access_token", "login after password change"),
-        refresh_token=_required_string(login, "refresh_token", "login after password change"),
+        access_token=_required_string(reset_login, "access_token", "login after password reset"),
+        refresh_token=_required_string(reset_login, "refresh_token", "login after password reset"),
         organization_slug=primary.organization_slug,
     )
 
@@ -380,8 +408,8 @@ async def _post_no_content(
     path: str,
     body: JsonObject,
     *,
-    headers: dict[str, str],
     step: str,
+    headers: dict[str, str] | None = None,
 ) -> None:
     response = await client.post(path, json=body, headers=headers)
     _expect_status(response, 204, step)
@@ -460,6 +488,63 @@ def _invitation_token(accept_url: str) -> str:
     if not token:
         raise AuthFlowError("invitation accept token was empty")
     return token
+
+
+def _outbox_offset(email_outbox_path: Path | None) -> int:
+    if email_outbox_path is None:
+        raise AuthFlowError("password reset consume requires --email-outbox-path")
+    path = email_outbox_path.expanduser()
+    if not path.exists():
+        return 0
+    return path.stat().st_size
+
+
+async def _read_reset_token(
+    *,
+    email: str,
+    email_outbox_path: Path | None,
+    offset: int,
+) -> str:
+    if email_outbox_path is None:
+        raise AuthFlowError("password reset consume requires --email-outbox-path")
+    path = email_outbox_path.expanduser()
+    for _ in range(50):
+        token = _find_reset_token(email=email, path=path, offset=offset)
+        if token is not None:
+            return token
+        await asyncio.sleep(0.1)
+    raise AuthFlowError(f"password reset token was not written to {path}")
+
+
+def _find_reset_token(*, email: str, path: Path, offset: int) -> str | None:
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8") as file:
+        file.seek(offset)
+        for line in file:
+            token = _reset_token_from_outbox_line(email=email, line=line)
+            if token is not None:
+                return token
+    return None
+
+
+def _reset_token_from_outbox_line(*, email: str, line: str) -> str | None:
+    try:
+        payload: object = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    recipients = payload.get("to")
+    if not isinstance(recipients, list) or email not in recipients:
+        return None
+    for key in ("html", "text"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            match = _RESET_TOKEN_RE.search(value)
+            if match:
+                return match.group(1)
+    return None
 
 
 def _response_excerpt(response: httpx.Response) -> str:

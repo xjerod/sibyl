@@ -62,6 +62,7 @@ tasks:
       SIBYL_SURREAL_URL: "ws://127.0.0.1:8000/rpc"
       SIBYL_SURREAL_USERNAME: "root"
       SIBYL_SURREAL_PASSWORD: "root"
+      SIBYL_EMAIL_OUTBOX_PATH: ".moon/cache/auth-flow-email-outbox.jsonl"
     preset: server
     options:
       persistent: true

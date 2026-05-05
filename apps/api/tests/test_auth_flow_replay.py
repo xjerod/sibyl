@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -25,11 +26,12 @@ def _json_response(status_code: int, payload: dict[str, object]) -> httpx.Respon
 
 
 @pytest.mark.asyncio
-async def test_replay_auth_flow_exercises_cutover_auth_surface() -> None:
+async def test_replay_auth_flow_exercises_cutover_auth_surface(tmp_path: Path) -> None:
     seen: list[tuple[str, str]] = []
     api_key_revoked = False
     device_approved = False
     logged_out_authorization = ""
+    outbox_path = tmp_path / "email-outbox.jsonl"
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal api_key_revoked, device_approved, logged_out_authorization
@@ -184,9 +186,25 @@ async def test_replay_auth_flow_exercises_cutover_auth_surface() -> None:
             return httpx.Response(204)
 
         if path == "/api/users/password/reset":
+            outbox_path.write_text(
+                json.dumps(
+                    {
+                        "to": [body["email"]],
+                        "subject": "Reset your Sibyl password",
+                        "html": "/reset-password?token=reset-token",
+                        "text": "http://localhost/reset-password?token=reset-token",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             return _json_response(
                 202, {"message": "If an account exists, a reset email has been sent."}
             )
+
+        if path == "/api/users/password/reset/confirm":
+            assert body["token"] == "reset-token"
+            return httpx.Response(204)
 
         if path == "/api/users/me/sessions":
             return _json_response(
@@ -213,6 +231,7 @@ async def test_replay_auth_flow_exercises_cutover_auth_surface() -> None:
         base_url="http://sibyl.test",
         email="auth-flow@example.com",
         password="auth-flow-password-secure-123!",
+        email_outbox_path=outbox_path,
         transport=httpx.MockTransport(handler),
     )
 
@@ -231,7 +250,7 @@ async def test_replay_auth_flow_exercises_cutover_auth_surface() -> None:
         "switch_active_org",
         "device_auth_flow",
         "change_password",
-        "request_password_reset",
+        "password_reset_request_and_consume",
         "list_user_sessions",
         "logout_rejects_access_token",
     )

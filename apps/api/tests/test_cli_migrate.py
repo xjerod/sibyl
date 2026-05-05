@@ -726,6 +726,7 @@ def test_migrate_auth_flow_runs_standalone_gate() -> None:
         base_url="http://sibyl.test",
         auth_flow_email="auth-flow@example.com",
         auth_flow_password="auth-flow-password-secure-123!",
+        email_outbox_path=migrate_cli.DEFAULT_AUTH_FLOW_EMAIL_OUTBOX,
     )
 
 
@@ -772,6 +773,7 @@ def test_migrate_rehearse_runs_verify_and_baseline(tmp_path: Path) -> None:
         base_url=migrate_cli.DEFAULT_REHEARSAL_BASE_URL,
         auth_flow_email="",
         auth_flow_password=migrate_cli.DEFAULT_AUTH_FLOW_PASSWORD,
+        email_outbox_path=migrate_cli.DEFAULT_AUTH_FLOW_EMAIL_OUTBOX,
     )
 
 
@@ -800,6 +802,8 @@ def test_migrate_rehearse_passes_auth_flow_options(tmp_path: Path) -> None:
                 "auth-flow@example.com",
                 "--auth-flow-password",
                 "auth-flow-password-secure-123!",
+                "--email-outbox-path",
+                str(tmp_path / "email-outbox.jsonl"),
             ],
         )
 
@@ -808,6 +812,7 @@ def test_migrate_rehearse_passes_auth_flow_options(tmp_path: Path) -> None:
         base_url="http://sibyl.test",
         auth_flow_email="auth-flow@example.com",
         auth_flow_password="auth-flow-password-secure-123!",
+        email_outbox_path=tmp_path / "email-outbox.jsonl",
     )
 
 
@@ -902,6 +907,7 @@ def test_migrate_cutover_leaves_writes_frozen_until_explicit_reopen(tmp_path: Pa
         base_url=migrate_cli.DEFAULT_REHEARSAL_BASE_URL,
         auth_flow_email="",
         auth_flow_password=migrate_cli.DEFAULT_AUTH_FLOW_PASSWORD,
+        email_outbox_path=migrate_cli.DEFAULT_AUTH_FLOW_EMAIL_OUTBOX,
     )
 
 

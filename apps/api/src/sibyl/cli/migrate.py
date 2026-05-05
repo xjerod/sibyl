@@ -58,6 +58,7 @@ DEFAULT_REHEARSAL_MANIFEST = Path(".moon/cache/baseline-runtime-manifest.json")
 DEFAULT_REHEARSAL_EMAIL = "baseline-corpus@sibyl.dev"
 DEFAULT_REHEARSAL_PASSWORD = "baseline-corpus-password-secure-123!"  # noqa: S105
 DEFAULT_AUTH_FLOW_PASSWORD = "auth-flow-password-secure-123!"  # noqa: S105
+DEFAULT_AUTH_FLOW_EMAIL_OUTBOX = Path(".moon/cache/auth-flow-email-outbox.jsonl")
 DEFAULT_CUTOVER_BENCH_LABEL = "cutover-acceptance"
 
 
@@ -215,6 +216,7 @@ async def _run_auth_flow_gate(
     base_url: str,
     auth_flow_email: str,
     auth_flow_password: str,
+    email_outbox_path: Path,
 ) -> None:
     from sibyl.cli.auth_flow import replay_auth_flow
 
@@ -223,6 +225,7 @@ async def _run_auth_flow_gate(
         base_url=base_url,
         email=resolved_email,
         password=auth_flow_password,
+        email_outbox_path=email_outbox_path,
     )
     info(f"Auth flow exercised {len(result.steps)} steps for {result.primary_email}")
 
@@ -289,6 +292,7 @@ async def _run_cutover_acceptance(
     run_auth_flow: bool,
     auth_flow_email: str,
     auth_flow_password: str,
+    email_outbox_path: Path,
     run_baseline: bool,
     base_url: str,
     baselines_dir: Path,
@@ -313,6 +317,7 @@ async def _run_cutover_acceptance(
             base_url=base_url,
             auth_flow_email=auth_flow_email,
             auth_flow_password=auth_flow_password,
+            email_outbox_path=email_outbox_path,
         )
         success("Auth flow harness passed")
 
@@ -946,6 +951,13 @@ def auth_flow(
         str,
         typer.Option("--auth-flow-password", help="Auth-flow user password"),
     ] = DEFAULT_AUTH_FLOW_PASSWORD,
+    email_outbox_path: Annotated[
+        Path,
+        typer.Option(
+            "--email-outbox-path",
+            help="JSONL outbox path used to consume the password reset token",
+        ),
+    ] = DEFAULT_AUTH_FLOW_EMAIL_OUTBOX,
 ) -> None:
     """Run the deterministic auth-flow acceptance harness against a live API."""
 
@@ -956,6 +968,7 @@ def auth_flow(
             base_url=base_url,
             auth_flow_email=auth_flow_email,
             auth_flow_password=auth_flow_password,
+            email_outbox_path=email_outbox_path,
         )
         success("Auth flow harness passed")
 
@@ -1022,6 +1035,13 @@ def rehearse_archive(
         str,
         typer.Option("--auth-flow-password", help="Auth-flow user password"),
     ] = DEFAULT_AUTH_FLOW_PASSWORD,
+    email_outbox_path: Annotated[
+        Path,
+        typer.Option(
+            "--email-outbox-path",
+            help="JSONL outbox path used to consume the password reset token",
+        ),
+    ] = DEFAULT_AUTH_FLOW_EMAIL_OUTBOX,
     baselines_dir: Annotated[
         Path,
         typer.Option("--baselines-dir", help="Directory containing baseline case files"),
@@ -1113,6 +1133,7 @@ def rehearse_archive(
                 base_url=base_url,
                 auth_flow_email=auth_flow_email,
                 auth_flow_password=auth_flow_password,
+                email_outbox_path=email_outbox_path,
             )
             success("Auth flow harness passed")
 
@@ -1219,6 +1240,13 @@ def cutover_archive(
         str,
         typer.Option("--auth-flow-password", help="Auth-flow user password"),
     ] = DEFAULT_AUTH_FLOW_PASSWORD,
+    email_outbox_path: Annotated[
+        Path,
+        typer.Option(
+            "--email-outbox-path",
+            help="JSONL outbox path used to consume the password reset token",
+        ),
+    ] = DEFAULT_AUTH_FLOW_EMAIL_OUTBOX,
     baselines_dir: Annotated[
         Path,
         typer.Option("--baselines-dir", help="Directory containing baseline case files"),
@@ -1337,6 +1365,7 @@ def cutover_archive(
         run_auth_flow=run_auth_flow,
         auth_flow_email=auth_flow_email,
         auth_flow_password=auth_flow_password,
+        email_outbox_path=email_outbox_path,
         run_baseline=run_baseline,
         base_url=base_url,
         baselines_dir=baselines_dir,

@@ -214,6 +214,10 @@ class Settings(BaseSettings):
         default="Sibyl <noreply@sibyl.dev>",
         description="Default from address for emails",
     )
+    email_outbox_path: str = Field(
+        default="",
+        description="Optional JSONL outbox path for local/staging email capture",
+    )
 
     # FalkorDB configuration
     falkordb_host: str = Field(default="localhost", description="FalkorDB host")
