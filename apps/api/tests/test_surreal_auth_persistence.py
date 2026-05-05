@@ -480,10 +480,14 @@ async def test_auth_archive_restore_accepts_full_user_rows(
         ),
     ):
         result = await restore_auth_archive_payload(payload, clean=True)
+        second_result = await restore_auth_archive_payload(payload, clean=False)
 
     assert result.success is True
     assert result.tables_restored == 3
     assert result.rows_restored == 3
+    assert second_result.success is True
+    assert second_result.tables_restored == 0
+    assert second_result.rows_restored == 0
 
     user_repo = SurrealUserRepository.from_client(surreal_auth_client)
     membership_repo = SurrealOrganizationMembershipRepository.from_client(surreal_auth_client)

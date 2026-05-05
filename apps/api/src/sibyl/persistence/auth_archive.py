@@ -120,8 +120,11 @@ _AUTH_ARCHIVE_SQL = {
 AUTH_ARCHIVE_TABLES = tuple(_AUTH_ARCHIVE_SQL)
 _SELECT_TABLE_ROWS = {table: queries["select"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
 _DELETE_TABLE_ROWS = {table: queries["delete_all"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
-_DELETE_BY_UUID = {table: queries["delete_by_uuid"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
 _CREATE_RECORD = {table: queries["create"] for table, queries in _AUTH_ARCHIVE_SQL.items()}
+_SELECT_BY_UUID = {
+    table: f"SELECT * FROM {table} WHERE uuid = $uuid LIMIT 1;"  # noqa: S608 - fixed constants
+    for table in _AUTH_ARCHIVE_SQL
+}
 _SELECT_SURREAL_TABLE_ROWS = {
     table: f"SELECT * FROM {table};"  # noqa: S608 - table names are fixed constants
     for table in _AUTH_ARCHIVE_SQL
@@ -299,7 +302,7 @@ async def restore_auth_archive_payload(
             if not rows:
                 continue
 
-            tables_restored += 1
+            restored_table = False
             for row in rows:
                 if not isinstance(row, dict):
                     errors.append(f"{table} row payload must be an object")
@@ -318,17 +321,22 @@ async def restore_auth_archive_payload(
                 record["uuid"] = uuid
 
                 try:
-                    delete_result = await client.execute_query(_DELETE_BY_UUID[table], uuid=uuid)
-                    delete_error = _query_error(delete_result)
-                    if delete_error is not None:
-                        raise RuntimeError(delete_error)
+                    existing_result = await client.execute_query(_SELECT_BY_UUID[table], uuid=uuid)
+                    existing_error = _query_error(existing_result)
+                    if existing_error is not None:
+                        raise RuntimeError(existing_error)
+                    if _normalize_records(existing_result):
+                        continue
                     create_result = await client.execute_query(_CREATE_RECORD[table], record=record)
                     create_error = _query_error(create_result)
                     if create_error is not None:
                         raise RuntimeError(create_error)
                     rows_restored += 1
+                    restored_table = True
                 except Exception as exc:
                     errors.append(f"{table}:{uuid}: {exc}")
+            if restored_table:
+                tables_restored += 1
         return AuthArchiveRestoreResult(
             success=not errors,
             tables_restored=tables_restored,
