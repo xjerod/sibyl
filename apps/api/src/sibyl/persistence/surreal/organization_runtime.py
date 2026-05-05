@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Protocol
 from uuid import UUID, uuid4
 
 import structlog
@@ -34,21 +35,26 @@ from sibyl.persistence.surreal.auth_runtime import SurrealSessionRepository
 from sibyl_core.auth import AuthUser, OrganizationRole, ProjectRole
 
 log = structlog.get_logger()
+type SurrealRecord = dict[str, object]
+
+
+class QueryClient(Protocol):
+    async def execute_query(self, query: str, **params: object) -> object: ...
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _normalize_record(record: Any) -> dict[str, Any] | None:
+def _normalize_record(record: object) -> SurrealRecord | None:
     if record is None or not isinstance(record, dict):
         return None
-    out = dict(record)
+    out = {str(key): value for key, value in record.items()}
     out.pop("id", None)
     return out
 
 
-def _normalize_records(result: Any) -> list[dict[str, Any]]:
+def _normalize_records(result: object) -> list[SurrealRecord]:
     if result is None:
         return []
     if isinstance(result, dict):
@@ -57,7 +63,7 @@ def _normalize_records(result: Any) -> list[dict[str, Any]]:
     if not isinstance(result, list):
         return []
 
-    records: list[dict[str, Any]] = []
+    records: list[SurrealRecord] = []
     for item in result:
         if isinstance(item, list):
             for nested in item:
@@ -69,6 +75,12 @@ def _normalize_records(result: Any) -> list[dict[str, Any]]:
         if record is not None:
             records.append(record)
     return records
+
+
+def _record_payload(value: object) -> SurrealRecord:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
 
 
 def _query_error(result: object) -> str | None:
@@ -121,9 +133,9 @@ def _coerce_datetime(value: object | None) -> datetime | None:
 
 
 async def _list_user_records_by_id(
-    client: Any,
+    client: QueryClient,
     user_ids: list[UUID],
-) -> dict[UUID, dict[str, Any]]:
+) -> dict[UUID, SurrealRecord]:
     user_id_strings: list[str] = []
     seen_ids: set[str] = set()
     for user_id in user_ids:
@@ -146,7 +158,9 @@ async def _list_user_records_by_id(
     }
 
 
-def _member_user_payload(record: dict[str, Any], *, include_github_id: bool = False) -> dict[str, Any]:
+def _member_user_payload(
+    record: Mapping[str, object], *, include_github_id: bool = False
+) -> SurrealRecord:
     payload = {
         "id": str(_coerce_uuid(record.get("uuid"), field_name="user.uuid")),
         "email": record.get("email"),
@@ -159,7 +173,7 @@ def _member_user_payload(record: dict[str, Any], *, include_github_id: bool = Fa
 
 
 def _invitation_from_record(
-    record: dict[str, Any], *, include_accept_url: bool = False
+    record: Mapping[str, object], *, include_accept_url: bool = False
 ) -> InvitationRecord:
     invitation = InvitationRecord(
         id=_coerce_uuid(record.get("uuid"), field_name="organization_invitations.uuid"),
@@ -176,14 +190,14 @@ def _invitation_from_record(
 
 
 @asynccontextmanager
-async def _auth_client_scope():
+async def _auth_client_scope() -> AsyncIterator[QueryClient]:
     async with surreal_auth_client_scope() as client:
         yield client
 
 
 async def _rotate_or_create_org_session(
     *,
-    client: Any,
+    client: QueryClient,
     request: Request,
     user_id: UUID,
     organization_id: UUID,
@@ -229,7 +243,7 @@ async def _require_org_admin(
     *,
     slug: str,
     user_id: UUID,
-) -> tuple[Any, Any]:
+) -> tuple[SimpleNamespace, SimpleNamespace]:
     async with _auth_client_scope() as client:
         organization, membership = await _load_org_role_records(
             client,
@@ -262,8 +276,8 @@ async def _require_org_admin(
 
 
 async def _replace_org_invitation_record(
-    client: Any, *, uuid: UUID, record: dict[str, Any]
-) -> dict[str, Any]:
+    client: QueryClient, *, uuid: UUID, record: SurrealRecord
+) -> SurrealRecord:
     created = _normalize_records(
         await client.execute_query(
             "UPSERT organization_invitations CONTENT $record WHERE uuid = $uuid;",
@@ -278,16 +292,16 @@ async def _replace_org_invitation_record(
 
 
 async def _load_org_member_add_records(
-    client: Any,
+    client: QueryClient,
     *,
     slug: str,
     actor_id: UUID,
     target_user_id: UUID,
 ) -> tuple[
-    dict[str, Any] | None,
-    dict[str, Any] | None,
-    dict[str, Any] | None,
-    dict[str, Any] | None,
+    SurrealRecord | None,
+    SurrealRecord | None,
+    SurrealRecord | None,
+    SurrealRecord | None,
 ]:
     payload = await client.execute_query(
         """
@@ -316,8 +330,7 @@ async def _load_org_member_add_records(
         actor_id=str(actor_id),
         target_user_id=str(target_user_id),
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     return (
         _normalize_record(payload.get("organization")),
         _normalize_record(payload.get("actor_membership")),
@@ -327,16 +340,16 @@ async def _load_org_member_add_records(
 
 
 async def _load_org_member_mutation_records(
-    client: Any,
+    client: QueryClient,
     *,
     slug: str,
     actor_id: UUID,
     target_user_id: UUID,
 ) -> tuple[
-    dict[str, Any] | None,
-    dict[str, Any] | None,
-    dict[str, Any] | None,
-    list[dict[str, Any]],
+    SurrealRecord | None,
+    SurrealRecord | None,
+    SurrealRecord | None,
+    list[SurrealRecord],
 ]:
     payload = await client.execute_query(
         """
@@ -372,8 +385,7 @@ async def _load_org_member_mutation_records(
         target_user_id=str(target_user_id),
         owner_role=OrganizationRole.OWNER.value,
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     return (
         _normalize_record(payload.get("organization")),
         _normalize_record(payload.get("actor_membership")),
@@ -383,11 +395,11 @@ async def _load_org_member_mutation_records(
 
 
 async def _load_org_role_records(
-    client: Any,
+    client: QueryClient,
     *,
     slug: str,
     user_id: UUID,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+) -> tuple[SurrealRecord | None, SurrealRecord | None]:
     payload = await client.execute_query(
         """
             RETURN {
@@ -405,23 +417,22 @@ async def _load_org_role_records(
         slug=slug,
         user_id=str(user_id),
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     return _normalize_record(payload.get("organization")), _normalize_record(
         payload.get("membership")
     )
 
 
 async def _load_org_member_list_records(
-    client: Any,
+    client: QueryClient,
     *,
     slug: str,
     actor_id: UUID,
 ) -> tuple[
-    dict[str, Any] | None,
-    dict[str, Any] | None,
-    list[dict[str, Any]],
-    list[dict[str, Any]],
+    SurrealRecord | None,
+    SurrealRecord | None,
+    list[SurrealRecord],
+    list[SurrealRecord],
 ]:
     payload = await client.execute_query(
         """
@@ -456,8 +467,7 @@ async def _load_org_member_list_records(
         slug=slug,
         actor_id=str(actor_id),
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     return (
         _normalize_record(payload.get("organization")),
         _normalize_record(payload.get("actor_membership")),
@@ -467,11 +477,11 @@ async def _load_org_member_list_records(
 
 
 async def _load_invitation_accept_records(
-    client: Any,
+    client: QueryClient,
     *,
     token: str,
     user_id: UUID,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+) -> tuple[SurrealRecord | None, SurrealRecord | None, SurrealRecord | None]:
     payload = await client.execute_query(
         """
             RETURN {
@@ -504,8 +514,7 @@ async def _load_invitation_accept_records(
         token=token,
         user_id=str(user_id),
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     return (
         _normalize_record(payload.get("invitation")),
         _normalize_record(payload.get("organization")),
@@ -534,8 +543,7 @@ async def list_orgs(*, user_id: UUID) -> list[OrgSummary]:
             """,
             user_id=str(user_id),
         )
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _record_payload(payload)
         records = _normalize_records(payload.get("memberships"))
         organizations = _normalize_records(payload.get("organizations"))
         organizations_by_id = {str(record.get("uuid")): record for record in organizations}
@@ -1417,7 +1425,7 @@ async def accept_org_invitation(
         )
 
 
-async def _resolve_project_record(client: Any, *, project_id: str, org_id: UUID) -> dict[str, Any]:
+async def _resolve_project_record(client: QueryClient, *, project_id: str, org_id: UUID) -> SurrealRecord:
     if project_id.startswith("project_"):
         records = _normalize_records(
             await client.execute_query(
@@ -1450,11 +1458,11 @@ async def _resolve_project_record(client: Any, *, project_id: str, org_id: UUID)
 
 async def _get_project_and_user_role(
     *,
-    client: Any,
+    client: QueryClient,
     project_id: str,
     user_id: UUID,
     org_id: UUID,
-) -> tuple[Any, ProjectRole | None]:
+) -> tuple[SimpleNamespace, ProjectRole | None]:
     params: dict[str, str] = {
         "organization_id": str(org_id),
         "user_id": str(user_id),
@@ -1510,8 +1518,7 @@ async def _get_project_and_user_role(
             };
         """
     payload = await client.execute_query(query, **params)
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     project_record = _normalize_record(payload.get("project"))
     if project_record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -1531,11 +1538,11 @@ async def _get_project_and_user_role(
 
 
 async def _list_project_member_records(
-    client: Any,
+    client: QueryClient,
     *,
     project_db_id: UUID,
     user_id: UUID,
-) -> list[dict[str, Any]]:
+) -> list[SurrealRecord]:
     return _normalize_records(
         await client.execute_query(
             "SELECT * FROM project_members WHERE project_id = $project_id AND user_id = $user_id;",
@@ -1546,11 +1553,11 @@ async def _list_project_member_records(
 
 
 async def _load_project_member_target(
-    client: Any,
+    client: QueryClient,
     *,
     project_db_id: UUID,
     user_id: UUID,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+) -> tuple[SurrealRecord | None, SurrealRecord | None]:
     payload = await client.execute_query(
         """
             RETURN {
@@ -1565,15 +1572,14 @@ async def _load_project_member_target(
         project_id=str(project_db_id),
         user_id=str(user_id),
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     return _normalize_record(payload.get("user")), _normalize_record(payload.get("membership"))
 
 
 async def _delete_project_member_records(
-    client: Any,
+    client: QueryClient,
     *,
-    membership_records: list[dict[str, Any]],
+    membership_records: Sequence[Mapping[str, object]],
 ) -> None:
     membership_ids = [
         str(membership_record["uuid"])
@@ -1623,8 +1629,7 @@ async def list_project_members(
             project_id=str(project.id),
             owner_user_id=str(project.owner_user_id),
         )
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _record_payload(payload)
         member_records = _normalize_records(payload.get("members"))
         users_by_id = {
             _coerce_uuid(record.get("uuid"), field_name="user.uuid"): record
