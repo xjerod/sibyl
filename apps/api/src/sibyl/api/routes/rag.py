@@ -35,7 +35,6 @@ from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, require_org_role
 from sibyl.auth.errors import NoOrgContextError
 from sibyl.crawler.embedder import embed_text
-from sibyl.db.models import OrganizationRole
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
@@ -51,6 +50,7 @@ from sibyl.persistence.content_runtime import (
 from sibyl.persistence.graph_runtime import (
     get_entity_graph_runtime as _service_get_entity_graph_runtime,
 )
+from sibyl_core.auth import OrganizationRole
 
 log = structlog.get_logger()
 

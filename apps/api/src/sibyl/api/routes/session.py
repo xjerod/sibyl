@@ -12,8 +12,8 @@ from sibyl.api.schemas import SessionBundleContext, SessionBundleResponse
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.auth.errors import ProjectAccessDeniedError
-from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
+from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.services.surreal_content import recall_raw_memory
 from sibyl_core.session_bundle import (
     derive_query,
@@ -126,7 +126,7 @@ async def get_session_bundle(
         default=None,
         description="Optional project scope from the current web context",
     ),
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> SessionBundleResponse:
     """Package wake-up context for the current org and optional project scope."""

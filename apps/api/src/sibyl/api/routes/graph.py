@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sibyl.api.dependencies import get_knowledge_read_service
 from sibyl.api.schemas import GraphData, GraphEdge, GraphNode, SubgraphRequest
 from sibyl.auth.dependencies import get_current_organization, require_org_role
-from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.graph_runtime import (
     get_entity_graph_runtime as _service_get_entity_graph_runtime,
     get_graph_query_adapter as _service_get_graph_query_adapter,
 )
+from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.errors import EntityNotFoundError
 from sibyl_core.models.entities import Entity, EntityType, RelationshipType
 from sibyl_core.services import KnowledgeReadService
@@ -85,7 +85,7 @@ router = APIRouter(
 
 
 @router.get("/debug", dependencies=[Depends(require_org_role(*_ADMIN_ROLES))])
-async def debug_graph(org: Organization = Depends(get_current_organization)):
+async def debug_graph(org: AuthOrganization = Depends(get_current_organization)):
     """Debug endpoint to trace graph data issue."""
     group_id = str(org.id)
     runtime = await get_entity_graph_runtime(group_id)
@@ -192,7 +192,7 @@ async def _get_graph_entity(entity_manager: object, entity_id: str) -> Entity | 
 
 @router.get("/nodes", response_model=list[GraphNode])
 async def get_all_nodes(
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     types: list[EntityType] | None = Query(default=None, description="Filter by entity types"),
     limit: int = Query(default=500, ge=1, le=2000, description="Maximum nodes"),
     offset: int = Query(default=0, ge=0, description="Offset for pagination"),
@@ -254,7 +254,7 @@ async def get_all_nodes(
 
 @router.get("/edges", response_model=list[GraphEdge])
 async def get_all_edges(
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     relationship_types: list[RelationshipType] | None = Query(
         default=None, description="Filter by relationship types"
     ),
@@ -294,7 +294,7 @@ async def get_all_edges(
 
 @router.get("/full", response_model=GraphData)
 async def get_full_graph(
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     types: list[EntityType] | None = Query(default=None, description="Filter by entity types"),
     max_nodes: int = Query(default=500, ge=1, le=1000, description="Maximum nodes"),
     max_edges: int = Query(default=1000, ge=1, le=5000, description="Maximum edges"),
@@ -379,7 +379,7 @@ async def get_full_graph(
 @router.post("/subgraph", response_model=GraphData)
 async def get_subgraph(
     payload: SubgraphRequest,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
 ) -> GraphData:
     """Get a subgraph centered on a specific entity."""
     try:
@@ -480,7 +480,7 @@ async def get_subgraph(
 
 @router.get("/clusters")
 async def get_clusters(
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     refresh: bool = Query(default=False, description="Force refresh clusters"),
 ) -> dict:
     """Get clusters for bubble visualization.
@@ -529,7 +529,7 @@ async def get_clusters(
 @router.get("/clusters/{cluster_id}")
 async def get_cluster_detail(
     cluster_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
 ) -> dict:
     """Get nodes and edges within a specific cluster for drill-down view."""
     try:
@@ -591,7 +591,7 @@ async def get_cluster_detail(
 
 @router.get("/hierarchical")
 async def get_hierarchical_graph_data(
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     projects: list[str] | None = Query(default=None, description="Filter by project IDs"),
     types: list[EntityType] | None = Query(default=None, description="Filter by entity types"),
     max_nodes: int = Query(default=1000, ge=100, le=2000, description="Maximum nodes"),

@@ -15,12 +15,12 @@ from sibyl.api.websocket import broadcast_event
 from sibyl.auth.authorization import ProjectRole
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
-from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.auth_runtime import verify_entity_project_access
 from sibyl.persistence.graph_runtime import (
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
     update_graph_entity as _service_update_graph_entity,
 )
+from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.models.entities import EntityType
 from sibyl_core.services import KnowledgeReadService
 
@@ -108,7 +108,7 @@ async def _get_epic(service: KnowledgeReadService, epic_id: str):
 
 async def _verify_epic_access(
     epic_id: str,
-    org: Organization,
+    org: AuthOrganization,
     ctx: AuthContext,
     required_role: ProjectRole = ProjectRole.CONTRIBUTOR,
 ) -> Any:
@@ -173,7 +173,7 @@ async def _update_project_activity(group_id: str, epic: Any) -> None:
 @router.post("/{epic_id}/start", response_model=EpicActionResponse)
 async def start_epic(
     epic_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> EpicActionResponse:
     """Start working on an epic (moves to 'in_progress' status)."""
@@ -212,7 +212,7 @@ async def start_epic(
 @router.post("/{epic_id}/complete", response_model=EpicActionResponse)
 async def complete_epic(
     epic_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
     request: CompleteEpicRequest | None = None,
 ) -> EpicActionResponse:
@@ -260,7 +260,7 @@ async def complete_epic(
 @router.post("/{epic_id}/archive", response_model=EpicActionResponse)
 async def archive_epic(
     epic_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
     request: ArchiveEpicRequest | None = None,
 ) -> EpicActionResponse:
@@ -302,7 +302,7 @@ async def archive_epic(
 async def update_epic(
     epic_id: str,
     request: UpdateEpicRequest,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> EpicActionResponse:
     """Update epic fields."""

@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketException, st
 from sibyl.auth.dependencies import require_org_role
 from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
-from sibyl.db.models import OrganizationRole
 from sibyl.persistence.auth_runtime import has_owner_membership
+from sibyl_core.auth import OrganizationRole
 from sibyl_core.logging import LogBuffer
 
 log = structlog.get_logger()

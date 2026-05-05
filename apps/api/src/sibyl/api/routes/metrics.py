@@ -20,12 +20,12 @@ from sibyl.api.schemas import (
     TimeSeriesPoint,
 )
 from sibyl.auth.dependencies import get_current_organization, require_org_role
-from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.graph_runtime import (
     execute_surreal_graph_query as _service_execute_surreal_graph_query,
     get_entity_graph_runtime as _service_get_entity_graph_runtime,
     get_knowledge_read_adapter as _service_get_knowledge_read_adapter,
 )
+from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.models.entities import EntityType
 from sibyl_core.services import KnowledgeReadService
 
@@ -453,7 +453,7 @@ async def _list_summary_metric_tasks(
 @router.get("/projects/{project_id}", response_model=ProjectMetricsResponse)
 async def get_project_metrics(
     project_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
 ) -> ProjectMetricsResponse:
     """Get metrics for a specific project."""
     try:
@@ -519,7 +519,7 @@ async def get_project_metrics(
 
 @router.get("/projects-summary", response_model=ProjectSummariesResponse)
 async def get_project_summaries(
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
 ) -> ProjectSummariesResponse:
     """Get the lean project-summary payload for the projects page."""
     try:
@@ -549,7 +549,7 @@ async def get_project_summaries(
 
 @router.get("", response_model=OrgMetricsResponse)
 async def get_org_metrics(
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
 ) -> OrgMetricsResponse:
     """Get organization-wide metrics aggregating all projects."""
     try:

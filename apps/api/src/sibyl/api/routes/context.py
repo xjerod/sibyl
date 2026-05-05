@@ -12,8 +12,8 @@ from sibyl.api.schemas import (
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.auth.errors import ProjectAccessDeniedError
-from sibyl.db.models import Organization, OrganizationRole
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
+from sibyl_core.auth import AuthOrganization, OrganizationRole
 
 log = structlog.get_logger()
 _READ_ROLES = (
@@ -81,7 +81,7 @@ async def _resolve_reflection_links(
 @router.post("/pack", response_model=ContextPackResponse)
 async def context_pack(
     request: ContextPackRequest,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> ContextPackResponse:
     """Compile a structured context pack for an agent goal."""
@@ -132,7 +132,7 @@ async def context_pack(
 @router.post("/reflect", response_model=ReflectionResponse)
 async def reflect_context(
     request: ReflectionRequest,
-    org: Organization = Depends(get_current_organization),
+    org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> ReflectionResponse:
     """Reflect raw notes into durable memory candidates."""
