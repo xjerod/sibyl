@@ -418,7 +418,7 @@ def _print_cutover_plan(
         steps.append("Run bench-live-smoke acceptance check")
     if run_bench_live:
         steps.append("Run bench-live artifact capture")
-    steps.append("Apply the legacy auth/RBAC read-only guard")
+    steps.append("Operator freezes legacy auth/RBAC writes before reopening")
     if reopen_writes:
         steps.append("Reopen writes on SurrealDB after operator acknowledgment")
     for index, step in enumerate(steps, start=1):

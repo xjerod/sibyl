@@ -985,7 +985,7 @@ def test_migrate_cutover_dry_run_prints_plan(tmp_path: Path) -> None:
     assert "Import archive into the Surreal runtime" in result.output
     assert "Run auth-flow acceptance harness" in result.output
     assert "Run bench-live artifact capture" in result.output
-    assert "Apply the legacy auth/RBAC read-only guard" in result.output
+    assert "Operator freezes legacy auth/RBAC writes before reopening" in result.output
     assert "Reopen writes on SurrealDB" in result.output
     assert "Cutover dry run complete" in result.output
 
