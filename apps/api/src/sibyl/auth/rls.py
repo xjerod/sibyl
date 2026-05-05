@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Awaitable, Mapping
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 import structlog
@@ -23,7 +23,6 @@ from fastapi import HTTPException, Request, status
 
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import resolve_request_claims
-from sibyl.persistence.legacy.session import get_legacy_session
 
 if TYPE_CHECKING:
     from sibyl.auth.context import AuthContext
@@ -41,8 +40,10 @@ class RlsSession(Protocol):
 
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[RlsSession]:
-    async with get_legacy_session() as session:
-        yield cast("RlsSession", session)
+    from sibyl.persistence.legacy.rls import get_legacy_rls_session
+
+    async with get_legacy_rls_session() as session:
+        yield session
 
 
 async def set_rls_context(

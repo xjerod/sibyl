@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Mapping
-from typing import Protocol
+from collections.abc import AsyncGenerator, Awaitable, Mapping
+from contextlib import asynccontextmanager
+from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -15,6 +16,14 @@ class RlsSession(Protocol):
         statement: object,
         params: Mapping[str, object] | None = None,
     ) -> Awaitable[object]: ...
+
+
+@asynccontextmanager
+async def get_legacy_rls_session() -> AsyncGenerator[RlsSession]:
+    from sibyl.persistence.legacy.session import get_legacy_session
+
+    async with get_legacy_session() as session:
+        yield cast("RlsSession", session)
 
 
 async def set_legacy_rls_context(
