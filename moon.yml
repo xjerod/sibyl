@@ -434,6 +434,13 @@ tasks:
       - apps/api/pyproject.toml
       - packages/python/sibyl-core/pyproject.toml
 
+  auth-flow-replay:
+    command: uv run sibyld migrate auth-flow
+    inputs:
+      - apps/api/src/**/*.py
+      - pyproject.toml
+      - apps/api/pyproject.toml
+
   # ==========================================================================
   # Coverage
   # ==========================================================================

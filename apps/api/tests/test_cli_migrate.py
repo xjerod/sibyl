@@ -703,6 +703,32 @@ def test_migrate_verify_uses_runtime_verifier(tmp_path: Path) -> None:
     assert "Archive verification passed" in result.output
 
 
+def test_migrate_auth_flow_runs_standalone_gate() -> None:
+    auth_flow = AsyncMock(return_value=None)
+
+    with patch("sibyl.cli.migrate._run_auth_flow_gate", auth_flow):
+        result = runner.invoke(
+            migrate_cli.app,
+            [
+                "auth-flow",
+                "--base-url",
+                "http://sibyl.test",
+                "--auth-flow-email",
+                "auth-flow@example.com",
+                "--auth-flow-password",
+                "auth-flow-password-secure-123!",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Auth flow harness passed" in result.output
+    auth_flow.assert_awaited_once_with(
+        base_url="http://sibyl.test",
+        auth_flow_email="auth-flow@example.com",
+        auth_flow_password="auth-flow-password-secure-123!",
+    )
+
+
 def test_migrate_rehearse_runs_verify_and_baseline(tmp_path: Path) -> None:
     archive_path = tmp_path / "migration.tar.gz"
     manifest_path = tmp_path / "runtime-manifest.json"

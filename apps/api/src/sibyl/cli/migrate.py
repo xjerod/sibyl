@@ -929,6 +929,39 @@ def verify_archive(
     _verify()
 
 
+@app.command("auth-flow")
+def auth_flow(
+    base_url: Annotated[
+        str,
+        typer.Option("--base-url", help="Base URL for auth-flow replay"),
+    ] = DEFAULT_REHEARSAL_BASE_URL,
+    auth_flow_email: Annotated[
+        str,
+        typer.Option(
+            "--auth-flow-email",
+            help="Auth-flow user email; generated when omitted",
+        ),
+    ] = "",
+    auth_flow_password: Annotated[
+        str,
+        typer.Option("--auth-flow-password", help="Auth-flow user password"),
+    ] = DEFAULT_AUTH_FLOW_PASSWORD,
+) -> None:
+    """Run the deterministic auth-flow acceptance harness against a live API."""
+
+    @run_async
+    async def _auth_flow() -> None:
+        info(f"Running auth flow harness against {base_url}...")
+        await _run_auth_flow_gate(
+            base_url=base_url,
+            auth_flow_email=auth_flow_email,
+            auth_flow_password=auth_flow_password,
+        )
+        success("Auth flow harness passed")
+
+    _auth_flow()
+
+
 @app.command("rehearse")
 def rehearse_archive(
     source: Annotated[Path, typer.Argument(help="Archive .tar.gz or directory to rehearse")],
