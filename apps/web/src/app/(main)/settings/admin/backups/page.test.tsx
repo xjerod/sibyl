@@ -14,7 +14,10 @@ vi.mock('@/lib/hooks', () => hooks);
 import BackupsPage from './page';
 
 describe('BackupsPage', () => {
+  let createBackupMutateAsync: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
+    createBackupMutateAsync = vi.fn().mockResolvedValue({});
     hooks.useBackupSettings.mockReturnValue({
       data: {
         enabled: true,
@@ -73,7 +76,7 @@ describe('BackupsPage', () => {
       isPending: false,
     });
     hooks.useCreateBackup.mockReturnValue({
-      mutateAsync: vi.fn().mockResolvedValue({}),
+      mutateAsync: createBackupMutateAsync,
       isPending: false,
     });
     hooks.useDeleteBackup.mockReturnValue({
@@ -93,5 +96,34 @@ describe('BackupsPage', () => {
     expect(screen.getByText('backup_123')).toBeInTheDocument();
     expect(screen.getByText('backup_124')).toBeInTheDocument();
     expect(screen.getByText('In Progress')).toBeInTheDocument();
+  });
+
+  it('creates Surreal backups with the current archive contract', async () => {
+    const { user } = render(<BackupsPage />);
+
+    await user.click(screen.getByRole('button', { name: /create backup/i }));
+
+    expect(screen.getAllByText('Surreal Data Snapshot').length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByText(
+        'Auth, content, crawler data, sessions, API keys, and settings from SurrealDB'
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Backups are compressed and include auth.json, content.json, graph.json, metadata.json.'
+      )
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /start backup/i }));
+
+    expect(createBackupMutateAsync).toHaveBeenCalledWith({
+      include_database_dump: true,
+      include_graph: true,
+    });
+    const legacyDatabaseDumpKey = `include_${'postgres'}`;
+    expect(createBackupMutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ [legacyDatabaseDumpKey]: expect.anything() })
+    );
   });
 });
