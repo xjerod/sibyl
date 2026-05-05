@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from sibyl_core.auth import OrganizationRole, ProjectRole
@@ -92,10 +91,12 @@ __all__ = [
 
 def can_manage_project_members(
     role: ProjectRole | None,
-    project: Any,
-    user: Any,
+    project: object,
+    user: object,
 ) -> bool:
     """Return whether the actor can manage project members."""
-    if project.owner_user_id == user.id:
+    owner_user_id = getattr(project, "owner_user_id", None)
+    user_id = getattr(user, "id", None)
+    if user_id is not None and owner_user_id == user_id:
         return True
     return role in {ProjectRole.OWNER, ProjectRole.MAINTAINER}

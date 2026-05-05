@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Collection, Mapping
 from uuid import UUID
 
 from sibyl_core.auth import (
@@ -36,7 +35,7 @@ class RepositoryAuthContextResolver:
         self._organizations = organizations
         self._memberships = memberships
 
-    async def resolve(self, claims: Mapping[str, Any]) -> AuthContext:
+    async def resolve(self, claims: Mapping[str, object]) -> AuthContext:
         user_id = self._parse_subject(claims)
         user = await self._users.get_by_id(user_id)
         if user is None:
@@ -53,7 +52,13 @@ class RepositoryAuthContextResolver:
                 if organization is not None:
                     membership = await self._memberships.get_for_user(organization.id, user.id)
 
-        scopes = frozenset(str(scope) for scope in claims.get("scopes", []))
+        raw_scopes = claims.get("scopes", [])
+        scope_values = (
+            raw_scopes
+            if isinstance(raw_scopes, Collection) and not isinstance(raw_scopes, str)
+            else ()
+        )
+        scopes = frozenset(str(scope) for scope in scope_values)
         return AuthContext(
             user=user,
             organization=organization,
@@ -61,7 +66,7 @@ class RepositoryAuthContextResolver:
             scopes=scopes,
         )
 
-    def _parse_subject(self, claims: Mapping[str, Any]) -> UUID:
+    def _parse_subject(self, claims: Mapping[str, object]) -> UUID:
         try:
             return UUID(str(claims.get("sub", "")))
         except ValueError as e:
