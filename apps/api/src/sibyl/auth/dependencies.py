@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import cast
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
@@ -19,12 +19,7 @@ from sibyl.persistence.auth_runtime import (
     get_user_by_id,
     resolve_auth_context,
 )
-from sibyl_core.auth import OrganizationRole
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from sibyl.db.models import User
+from sibyl_core.auth import AuthOrganization, AuthUser, OrganizationRole
 
 _logger = logging.getLogger(__name__)
 
@@ -57,7 +52,9 @@ def _api_key_allows_rest(*, scopes: list[str], method: str) -> bool:
     return _REST_WRITE_SCOPE in normalized
 
 
-async def resolve_claims(request: Request, _session: AsyncSession | None = None) -> dict | None:
+async def resolve_claims(
+    request: Request, _session: object | None = None
+) -> dict[str, object] | None:
     claims = getattr(request.state, "jwt_claims", None)
     if claims:
         return claims
@@ -97,7 +94,7 @@ async def resolve_claims(request: Request, _session: AsyncSession | None = None)
 
 async def get_current_user(
     request: Request,
-) -> User:
+) -> AuthUser:
     claims = await resolve_claims(request)
     if not claims:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
@@ -110,13 +107,13 @@ async def get_current_user(
     cached_ctx = getattr(request.state, "auth_context", None)
     cached_user = getattr(cached_ctx, "user", None)
     if getattr(cached_user, "id", None) == user_id:
-        return cast("User", cached_user)
+        return cast("AuthUser", cached_user)
 
     if cached_ctx is not None:
         request.state.auth_context = None
 
     if claims.get("org"):
-        return cast("User", (await build_auth_context(request)).user)
+        return (await build_auth_context(request)).user
 
     try:
         user = await get_user_by_id(user_id)
@@ -132,7 +129,7 @@ async def get_current_user(
 
 async def get_current_organization(
     request: Request,
-) -> Any:
+) -> AuthOrganization:
     ctx = await build_auth_context(request)
     if ctx.organization is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")

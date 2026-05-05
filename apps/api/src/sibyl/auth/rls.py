@@ -15,15 +15,16 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 import structlog
 from fastapi import HTTPException, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import resolve_request_claims
+from sibyl.persistence.legacy.rls import RlsSession, set_legacy_rls_context
+from sibyl.persistence.legacy.session import get_legacy_session
 
 if TYPE_CHECKING:
     from sibyl.auth.context import AuthContext
@@ -32,15 +33,13 @@ log = structlog.get_logger()
 
 
 @asynccontextmanager
-async def get_session() -> AsyncGenerator[AsyncSession]:
-    from sibyl.db.connection import get_session as _get_session
-
-    async with _get_session() as session:
-        yield session
+async def get_session() -> AsyncGenerator[RlsSession]:
+    async with get_legacy_session() as session:
+        yield cast("RlsSession", session)
 
 
 async def set_rls_context(
-    session: AsyncSession,
+    session: RlsSession,
     *,
     user_id: UUID | str | None = None,
     org_id: UUID | str | None = None,
@@ -62,21 +61,10 @@ async def set_rls_context(
         user_id: Current user's UUID
         org_id: Current organization's UUID
     """
-    from sqlalchemy import text
-
-    # Use set_config() for transaction-scoped variables (3rd param = true)
-    # This works with bind parameters unlike SET LOCAL
-    await session.execute(
-        text("SELECT set_config('app.user_id', :user_id, true)"),
-        {"user_id": str(user_id) if user_id else ""},
-    )
-    await session.execute(
-        text("SELECT set_config('app.org_id', :org_id, true)"),
-        {"org_id": str(org_id) if org_id else ""},
-    )
+    await set_legacy_rls_context(session, user_id=user_id, org_id=org_id)
 
 
-async def get_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
+async def get_rls_session(request: Request) -> AsyncGenerator[RlsSession]:
     """FastAPI dependency that provides a session with RLS context set.
 
     This dependency:
@@ -126,7 +114,7 @@ async def get_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
         yield session
 
 
-async def require_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
+async def require_rls_session(request: Request) -> AsyncGenerator[RlsSession]:
     """Like get_rls_session, but requires authentication.
 
     Raises 401 if no valid auth context is found.
@@ -175,7 +163,7 @@ async def require_rls_session(request: Request) -> AsyncGenerator[AsyncSession]:
 
 
 async def apply_rls_from_auth_context(
-    session: AsyncSession,
+    session: RlsSession,
     ctx: AuthContext,
 ) -> None:
     """Apply RLS context from an existing AuthContext.
@@ -225,7 +213,7 @@ class AuthSession:
 
     __slots__ = ("ctx", "session")
 
-    def __init__(self, ctx: AuthContext, session: AsyncSession | None) -> None:
+    def __init__(self, ctx: AuthContext, session: RlsSession | None) -> None:
         self.ctx = ctx
         self.session = session
 
