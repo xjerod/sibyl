@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 from sibyl.auth.dependencies import get_current_organization, get_current_user, require_org_admin
 from sibyl.backup_ids import generate_backup_id
 from sibyl.config import settings
-from sibyl.db.models import BackupStatus, Organization, User
 from sibyl.persistence.backups_common import (
     BackupRuntimeOptions,
     resolve_backup_runtime_options,
@@ -34,6 +33,8 @@ from sibyl.persistence.backups_runtime import (
 )
 
 log = structlog.get_logger()
+
+_COMPLETED_BACKUP_STATUS = "completed"
 
 
 def _backup_runtime_options(
@@ -171,7 +172,7 @@ class CleanupResponse(BaseModel):
 
 @router.get("/settings")
 async def get_backup_settings(
-    org: Organization = Depends(get_current_organization),
+    org: Any = Depends(get_current_organization),
 ) -> BackupSettingsResponse:
     """Get backup configuration settings for the organization."""
     settings = await load_backup_settings(org.id)
@@ -182,7 +183,7 @@ async def get_backup_settings(
 @router.patch("/settings")
 async def update_backup_settings(
     request: BackupSettingsUpdate,
-    org: Organization = Depends(get_current_organization),
+    org: Any = Depends(get_current_organization),
 ) -> BackupSettingsResponse:
     """Update backup configuration settings."""
     settings = await save_backup_settings(
@@ -213,8 +214,8 @@ async def update_backup_settings(
 @router.post("")
 async def create_backup(
     request: CreateBackupRequest,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(get_current_user),
+    org: Any = Depends(get_current_organization),
+    user: Any = Depends(get_current_user),
 ) -> CreateBackupResponse:
     """Trigger a new backup job.
 
@@ -271,7 +272,7 @@ async def create_backup(
 
 @router.get("")
 async def list_backups(
-    org: Organization = Depends(get_current_organization),
+    org: Any = Depends(get_current_organization),
     limit: int = 50,
     offset: int = 0,
 ) -> BackupListResponse:
@@ -307,7 +308,7 @@ async def list_backups(
 @router.post("/cleanup")
 async def run_cleanup(
     request: CleanupRequest,
-    org: Organization = Depends(get_current_organization),
+    org: Any = Depends(get_current_organization),
 ) -> CleanupResponse:
     """Trigger a backup cleanup job.
 
@@ -334,7 +335,7 @@ async def run_cleanup(
 @router.get("/{backup_id}")
 async def get_backup_details(
     backup_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: Any = Depends(get_current_organization),
 ) -> BackupInfo:
     """Get detailed information about a specific backup."""
     backup = await get_backup_record(org.id, backup_id)
@@ -359,7 +360,7 @@ async def get_backup_details(
 @router.get("/{backup_id}/download")
 async def download_backup(
     backup_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: Any = Depends(get_current_organization),
 ) -> FileResponse:
     """Download a backup archive.
 
@@ -367,7 +368,7 @@ async def download_backup(
     """
     backup = await get_backup_record(org.id, backup_id)
 
-    if backup.status != BackupStatus.COMPLETED.value:
+    if backup.status != _COMPLETED_BACKUP_STATUS:
         raise HTTPException(
             status_code=400,
             detail=f"Backup not ready for download (status: {backup.status})",
@@ -398,7 +399,7 @@ async def download_backup(
 @router.delete("/{backup_id}")
 async def delete_backup(
     backup_id: str,
-    org: Organization = Depends(get_current_organization),
+    org: Any = Depends(get_current_organization),
 ) -> dict[str, Any]:
     """Delete a specific backup archive.
 
