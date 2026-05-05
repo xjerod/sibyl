@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import structlog
-from sqlalchemy import text
 
 from sibyl.config import settings
 
@@ -11,28 +10,35 @@ log = structlog.get_logger()
 
 
 async def check_relational_sidecar_connection() -> None:
-    from sibyl.db.connection import get_session
+    from sibyl.persistence.legacy.sidecar_startup import (
+        check_relational_sidecar_connection as _check_connection,
+    )
 
-    async with get_session() as session:
-        await session.execute(text("SELECT 1"))
+    await _check_connection()
 
 
 async def run_relational_sidecar_migrations() -> None:
-    from sibyl.db.migrations import run_migrations
+    from sibyl.persistence.legacy.sidecar_startup import (
+        run_relational_sidecar_migrations as _run_migrations,
+    )
 
-    await run_migrations()
+    await _run_migrations()
 
 
 async def recover_relational_sidecar_sources() -> None:
-    from sibyl.api.routes.admin import recover_stuck_sources
+    from sibyl.persistence.legacy.sidecar_startup import (
+        recover_relational_sidecar_sources as _recover_sources,
+    )
 
-    await recover_stuck_sources()
+    await _recover_sources()
 
 
 async def load_relational_sidecar_api_keys() -> None:
-    from sibyl.services.settings import load_api_keys_from_db
+    from sibyl.persistence.legacy.sidecar_startup import (
+        load_relational_sidecar_api_keys as _load_api_keys,
+    )
 
-    await load_api_keys_from_db()
+    await _load_api_keys()
 
 
 async def bootstrap_relational_sidecar_support() -> bool:
