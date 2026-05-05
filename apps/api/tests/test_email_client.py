@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from sibyl.config import settings
+from sibyl import config as config_module
 from sibyl.email.client import EmailClient
 
 
@@ -18,8 +18,8 @@ async def test_email_client_writes_jsonl_outbox(
     tmp_path: Path,
 ) -> None:
     outbox_path = tmp_path / "email-outbox.jsonl"
-    monkeypatch.setattr(settings, "email_outbox_path", str(outbox_path))
-    monkeypatch.setattr(settings, "resend_api_key", SecretStr(""))
+    monkeypatch.setattr(config_module.settings, "email_outbox_path", str(outbox_path))
+    monkeypatch.setattr(config_module.settings, "resend_api_key", SecretStr(""))
 
     client = EmailClient()
     await client.send(
