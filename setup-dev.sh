@@ -15,8 +15,16 @@ ELECTRIC_YELLOW='\033[38;2;241;250;140m'
 SUCCESS_GREEN='\033[38;2;80;250;123m'
 ERROR_RED='\033[38;2;255;99;99m'
 DIM='\033[2m'
+ITALIC='\033[3m'
 BOLD='\033[1m'
 RESET='\033[0m'
+
+# Banner gradient (electric purple → neon cyan, sampled across the wordmark)
+GRAD_1='\033[38;2;225;53;255m'
+GRAD_2='\033[38;2;201;88;247m'
+GRAD_3='\033[38;2;176;130;241m'
+GRAD_4='\033[38;2;152;172;238m'
+GRAD_5='\033[38;2;128;255;234m'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -43,17 +51,14 @@ check_os() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 print_banner() {
-    echo -e "${ELECTRIC_PURPLE}"
-    cat << 'EOF'
-    ███████╗██╗██████╗ ██╗   ██╗██╗
-    ██╔════╝██║██╔══██╗╚██╗ ██╔╝██║
-    ███████╗██║██████╔╝ ╚████╔╝ ██║
-    ╚════██║██║██╔══██╗  ╚██╔╝  ██║
-    ███████║██║██████╔╝   ██║   ███████╗
-    ╚══════╝╚═╝╚═════╝    ╚═╝   ╚══════╝
-EOF
-    echo -e "${RESET}"
-    echo -e "${DIM}    Collective Intelligence Runtime${RESET}\n"
+    echo
+    echo -e "         ${CORAL}✦${RESET}"
+    echo -e "      ${GRAD_1}╔═╗${GRAD_2}╦${GRAD_3}╔╗ ${GRAD_4}╦ ╦${GRAD_5}╦${RESET}"
+    echo -e "      ${GRAD_1}╚═╗${GRAD_2}║${GRAD_3}╠╩╗${GRAD_4}╚╦╝${GRAD_5}║${RESET}"
+    echo -e "      ${GRAD_1}╚═╝${GRAD_2}╩${GRAD_3}╚═╝ ${GRAD_4}╩ ${GRAD_5}╩═╝${RESET}"
+    echo -e "      ${DIM}${ELECTRIC_PURPLE}─────────────────${RESET}"
+    echo -e "      ${DIM}${ITALIC}${NEON_CYAN}collective intelligence runtime${RESET}"
+    echo
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -115,26 +120,46 @@ install_moon() {
 install_toolchain() {
     header "Toolchain"
 
-    # Read required versions from .prototools
     if [[ ! -f .prototools ]]; then
         error ".prototools not found - are you in the sibyl directory?"
         exit 1
     fi
 
-    info "Installing toolchain from ${CORAL}.prototools${RESET}..."
+    # Make sure proto-managed shims are visible if proto was just installed
+    export PROTO_HOME="${PROTO_HOME:-$HOME/.proto}"
+    export PATH="$PROTO_HOME/shims:$PROTO_HOME/bin:$PATH"
 
-    # Proto will read .prototools and install specified versions
-    proto use --yes
+    info "Resolving toolchain from ${CORAL}.prototools${RESET}..."
 
-    # Verify installations
+    # Install tools one at a time. `proto use --yes` runs installs in parallel
+    # and deadlocks if any plugin stalls — pnpm waits on node forever when the
+    # node WASM plugin trips on a flaky nodejs.org fetch, even when node is
+    # already on disk. Sequential installs surface failures cleanly and let us
+    # short-circuit on tools that are already present.
     local tools=("node" "pnpm" "python" "uv")
     for tool in "${tools[@]}"; do
         if command_exists "$tool"; then
             local version
             version=$("$tool" --version 2>/dev/null | head -1)
             success "${tool} ${CORAL}${version}${RESET}"
+            continue
+        fi
+
+        info "Installing ${CORAL}${tool}${RESET}..."
+        if ! timeout 180 proto install "$tool"; then
+            error "${tool} install failed or timed out after 180s"
+            echo -e "${DIM}  Retry: ${RESET}proto install ${tool}"
+            echo -e "${DIM}  If the node plugin keeps failing, clear the cache:${RESET}"
+            echo -e "${DIM}    rm -rf ~/.proto/plugins && proto install ${tool}${RESET}"
+            exit 1
+        fi
+
+        if command_exists "$tool"; then
+            local version
+            version=$("$tool" --version 2>/dev/null | head -1)
+            success "${tool} ${CORAL}${version}${RESET} installed"
         else
-            error "${tool} not found after installation"
+            error "${tool} not found on PATH after install"
             exit 1
         fi
     done
@@ -154,7 +179,7 @@ check_docker() {
         else
             echo -e "${DIM}Install Docker: https://docs.docker.com/engine/install/${RESET}"
         fi
-        echo -e "${DIM}Docker is required for FalkorDB and PostgreSQL${RESET}"
+        echo -e "${DIM}Docker is required for SurrealDB (and the legacy FalkorDB + PostgreSQL stack)${RESET}"
         return 1
     fi
 
@@ -235,7 +260,9 @@ print_summary() {
     echo -e "${NEON_CYAN}Ports:${RESET}"
     echo -e "  ${DIM}API + MCP:${RESET}    ${CORAL}3334${RESET}"
     echo -e "  ${DIM}Frontend:${RESET}     ${CORAL}3337${RESET}"
-    echo -e "  ${DIM}FalkorDB:${RESET}     ${CORAL}6380${RESET}"
+    echo -e "  ${DIM}SurrealDB:${RESET}    ${CORAL}8000${RESET}    ${DIM}(default)${RESET}"
+    echo -e "  ${DIM}FalkorDB:${RESET}     ${CORAL}6380${RESET}    ${DIM}(legacy)${RESET}"
+    echo -e "  ${DIM}Postgres:${RESET}     ${CORAL}5433${RESET}    ${DIM}(legacy)${RESET}"
     echo ""
 
     if ! check_docker 2>/dev/null; then
