@@ -75,8 +75,9 @@ For production migrations, rehearse against a disposable SurrealDB first:
 moon run migrate-rehearse -- /tmp/sibyl-migration.tar.gz --yes
 ```
 
-This runs the full export → import → verify cycle without touching your production target. It's the
-safest pre-cutover check — the rehearsal must pass green before the real run.
+This imports and verifies an existing archive against the active Surreal target without touching
+your production target. It's the safest pre-cutover check — the rehearsal must pass green before the
+real run.
 
 The rehearsal runs the deterministic auth-flow replay by default. It signs up users, rotates tokens,
 exercises API keys, invitations, org switching, device auth, logout revocation, session listing, and
@@ -99,8 +100,8 @@ moon run auth-flow-compare -- \
 ```
 
 The comparison ignores generated IDs, raw tokens, and timestamps. It compares the replayed step
-sequence and normalized JWT claim shape, including `sub`, `org`, `typ`, `sid`, and refresh-token
-`jti` presence.
+sequence, normalized JWT claim shape, and semantic observations such as API-key rejection, device
+authorization pending errors, session listing behavior, and logout revocation.
 
 The compare command rejects identical base URLs by default so it cannot accidentally compare one API
 to itself. `--allow-same-base-url` is only for debugging the harness.

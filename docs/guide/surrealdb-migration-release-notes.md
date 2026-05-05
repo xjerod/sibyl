@@ -49,8 +49,8 @@ moon run dev-legacy
 Use the full migration playbook, not the local shortcut:
 
 1. Back up the legacy install.
-2. Rehearse against a disposable SurrealDB target.
-3. Export the legacy archive.
+2. Export the legacy archive.
+3. Rehearse the archive against a disposable SurrealDB target.
 4. Import into SurrealDB.
 5. Run archive verification.
 6. Run the auth-flow replay against the Surreal-backed API.
