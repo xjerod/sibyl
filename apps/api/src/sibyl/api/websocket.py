@@ -24,6 +24,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from sibyl import config as config_module
 from sibyl.auth.http import extract_bearer_token
 from sibyl.auth.jwt import JwtError, verify_access_token
+from sibyl.persistence.auth_runtime import validate_access_session
 
 log = structlog.get_logger()
 
@@ -295,7 +296,7 @@ def disable_pubsub() -> None:
     log.info("websocket_pubsub_disabled")
 
 
-def _extract_org_from_token(websocket: WebSocket) -> str | None:
+async def _extract_org_from_token(websocket: WebSocket) -> str | None:
     """Extract organization ID from a verified access token.
 
     WebSocket requests don't pass through HTTP middleware, so we must validate
@@ -314,6 +315,12 @@ def _extract_org_from_token(websocket: WebSocket) -> str | None:
     try:
         claims = verify_access_token(token)
     except JwtError:
+        return None
+    try:
+        is_active = await validate_access_session(token)
+    except TimeoutError:
+        return None
+    if not is_active:
         return None
 
     org_id = claims.get("org")
@@ -337,7 +344,7 @@ async def websocket_handler(websocket: WebSocket) -> None:
         - Personal responses to client messages
     """
     manager = get_manager()
-    org_id = _extract_org_from_token(websocket)
+    org_id = await _extract_org_from_token(websocket)
     if not config_module.settings.disable_auth and not org_id:
         await websocket.accept()
         await websocket.close(code=1008)

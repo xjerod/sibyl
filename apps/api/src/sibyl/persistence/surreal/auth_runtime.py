@@ -664,10 +664,7 @@ class SurrealSessionRepository(_SurrealRepository):
         self, user_id: UUID, *, include_expired: bool = False
     ) -> list[AuthSession]:
         params: SurrealRecord = {"user_id": str(user_id)}
-        query = (
-            "SELECT * FROM user_sessions "
-            "WHERE user_id = $user_id AND revoked_at = NONE"
-        )
+        query = "SELECT * FROM user_sessions WHERE user_id = $user_id AND revoked_at = NONE"
         if not include_expired:
             params["now"] = _utcnow()
             query += " AND expires_at > $now"
@@ -1040,8 +1037,7 @@ async def authenticate_local_user(*, email: str, password: str):
             salt_hex=str(record["password_salt"]),
             hash_hex=str(record["password_hash"]),
             iterations=_coerce_int(
-                record.get("password_iterations")
-                or config_module.settings.password_iterations,
+                record.get("password_iterations") or config_module.settings.password_iterations,
                 field_name="user.password_iterations",
             ),
         )
@@ -1066,7 +1062,9 @@ async def list_user_organizations(*, user_id: UUID) -> list[SimpleNamespace]:
         return [org for record in records if (org := _auth_org_namespace(record)) is not None]
 
 
-async def _ensure_personal_org_membership_record(client: QueryClient, user: AuthUser) -> SurrealRecord:
+async def _ensure_personal_org_membership_record(
+    client: QueryClient, user: AuthUser
+) -> SurrealRecord:
     suffix = str(user.github_id) if user.github_id is not None else str(user.id)
     slug = f"u-{suffix}"
     now = _utcnow()
@@ -1554,6 +1552,12 @@ async def resolve_request_user(request):
     except ValueError:
         return None
     return await get_user_by_id(user_id)
+
+
+async def validate_access_session(token: str) -> bool:
+    async with _auth_client_scope() as client:
+        sessions = SurrealSessionRepository.from_client(client)
+        return await sessions.get_session_by_token(token) is not None
 
 
 async def login_device_browser_user(*, email: str, password: str, request):
@@ -2196,10 +2200,7 @@ async def list_user_sessions(
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
         params: SurrealRecord = {"user_id": str(user_id)}
-        query = (
-            "SELECT * FROM user_sessions "
-            "WHERE user_id = $user_id AND revoked_at = NONE"
-        )
+        query = "SELECT * FROM user_sessions WHERE user_id = $user_id AND revoked_at = NONE"
         if not include_expired:
             params["now"] = _utcnow()
             query += " AND expires_at > $now"
@@ -2702,7 +2703,9 @@ async def verify_entity_project_access(
         record = _normalize_record(payload.get("project"))
         if record is None:
             if require_existing_project:
-                raise HTTPException(status_code=404, detail=f"Project not found: {entity_project_id}")
+                raise HTTPException(
+                    status_code=404, detail=f"Project not found: {entity_project_id}"
+                )
             if _role_value(ctx.org_role) in _ORG_ADMIN_ROLE_VALUES:
                 return ProjectRole.OWNER
             if ctx.org_role is not None and required_role == ProjectRole.VIEWER:
@@ -2835,6 +2838,7 @@ __all__ = [
     "start_device_authorization",
     "update_auth_user",
     "update_project_record",
+    "validate_access_session",
     "verify_entity_project_access",
 ]
 

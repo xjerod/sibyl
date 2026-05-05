@@ -18,10 +18,51 @@ async def test_mcp_token_verifier_accepts_jwt(monkeypatch) -> None:
     config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
 
     token = create_access_token(user_id=uuid4())
-    access = await SibylMcpTokenVerifier().verify_token(token)
+    with patch(
+        "sibyl.auth.mcp_auth.validate_access_session",
+        AsyncMock(return_value=True),
+    ) as validate_session:
+        access = await SibylMcpTokenVerifier().verify_token(token)
     assert access is not None
     assert access.client_id.startswith("user:")
     assert "mcp" in access.scopes
+    validate_session.assert_awaited_once_with(token)
+
+
+@pytest.mark.asyncio
+async def test_mcp_token_verifier_rejects_revoked_jwt(monkeypatch) -> None:
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+
+    from sibyl import config as config_module
+
+    config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
+
+    token = create_access_token(user_id=uuid4())
+    with patch(
+        "sibyl.auth.mcp_auth.validate_access_session",
+        AsyncMock(return_value=False),
+    ) as validate_session:
+        access = await SibylMcpTokenVerifier().verify_token(token)
+    assert access is None
+    validate_session.assert_awaited_once_with(token)
+
+
+@pytest.mark.asyncio
+async def test_mcp_token_verifier_rejects_auth_store_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+
+    from sibyl import config as config_module
+
+    config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
+
+    token = create_access_token(user_id=uuid4())
+    with patch(
+        "sibyl.auth.mcp_auth.validate_access_session",
+        AsyncMock(side_effect=TimeoutError),
+    ) as validate_session:
+        access = await SibylMcpTokenVerifier().verify_token(token)
+    assert access is None
+    validate_session.assert_awaited_once_with(token)
 
 
 @pytest.mark.asyncio

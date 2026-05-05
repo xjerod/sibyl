@@ -490,6 +490,13 @@ async def resolve_legacy_request_user(request) -> User | None:
     return await get_legacy_user_by_id(user_id)
 
 
+async def validate_legacy_access_session(token: str) -> bool:
+    from sibyl.db.connection import get_session
+
+    async with get_session() as session:
+        return await SessionManager(session).get_session_by_token(token) is not None
+
+
 async def login_legacy_device_browser_user(
     *,
     email: str,
@@ -1252,3 +1259,4 @@ rotate_refresh_session_record = rotate_legacy_refresh_session_record
 signup_local_user = signup_legacy_local_user
 start_device_authorization = start_legacy_device_authorization
 update_auth_user = update_legacy_auth_user
+validate_access_session = validate_legacy_access_session

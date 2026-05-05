@@ -86,6 +86,7 @@ __all__ += [
     "start_device_authorization",
     "update_auth_user",
     "update_project_record",
+    "validate_access_session",
     "verify_entity_project_access",
 ]
 
@@ -201,6 +202,10 @@ async def resolve_request_claims(request: Request) -> dict[str, object] | None:
 
 async def resolve_request_user(request: Request):
     return await _call_backend_export("resolve_request_user", request)
+
+
+async def validate_access_session(token: str) -> bool:
+    return await _call_backend_export("validate_access_session", token)
 
 
 async def login_device_browser_user(**kwargs: object):

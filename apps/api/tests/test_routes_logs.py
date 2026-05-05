@@ -33,12 +33,19 @@ class TestValidateOwnerToken:
         org_id = uuid4()
         token = create_access_token(user_id=user_id, organization_id=org_id)
 
-        with patch(
-            "sibyl.api.routes.logs.has_owner_membership",
-            AsyncMock(return_value=True),
-        ) as has_owner:
+        with (
+            patch(
+                "sibyl.api.routes.logs.has_owner_membership",
+                AsyncMock(return_value=True),
+            ) as has_owner,
+            patch(
+                "sibyl.api.routes.logs.validate_access_session",
+                AsyncMock(return_value=True),
+            ) as validate_session,
+        ):
             assert await _validate_owner_token(token) is True
 
+        validate_session.assert_awaited_once_with(token)
         has_owner.assert_awaited_once_with(org_id=str(org_id), user_id=str(user_id))
 
     @pytest.mark.asyncio
@@ -54,13 +61,72 @@ class TestValidateOwnerToken:
         org_id = uuid4()
         token = create_access_token(user_id=user_id, organization_id=org_id)
 
-        with patch(
-            "sibyl.api.routes.logs.has_owner_membership",
-            AsyncMock(return_value=False),
-        ) as has_owner:
+        with (
+            patch(
+                "sibyl.api.routes.logs.has_owner_membership",
+                AsyncMock(return_value=False),
+            ) as has_owner,
+            patch(
+                "sibyl.api.routes.logs.validate_access_session",
+                AsyncMock(return_value=True),
+            ) as validate_session,
+        ):
             assert await _validate_owner_token(token) is False
 
+        validate_session.assert_awaited_once_with(token)
         has_owner.assert_awaited_once_with(org_id=str(org_id), user_id=str(user_id))
+
+    @pytest.mark.asyncio
+    async def test_rejects_revoked_access_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
+
+        from sibyl import config as config_module
+
+        config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
+
+        token = create_access_token(user_id=uuid4(), organization_id=uuid4())
+
+        with (
+            patch(
+                "sibyl.api.routes.logs.validate_access_session",
+                AsyncMock(return_value=False),
+            ) as validate_session,
+            patch(
+                "sibyl.api.routes.logs.has_owner_membership",
+                AsyncMock(),
+            ) as has_owner,
+        ):
+            assert await _validate_owner_token(token) is False
+
+        validate_session.assert_awaited_once_with(token)
+        has_owner.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejects_auth_store_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
+
+        from sibyl import config as config_module
+
+        config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
+
+        token = create_access_token(user_id=uuid4(), organization_id=uuid4())
+
+        with (
+            patch(
+                "sibyl.api.routes.logs.validate_access_session",
+                AsyncMock(side_effect=TimeoutError),
+            ) as validate_session,
+            patch(
+                "sibyl.api.routes.logs.has_owner_membership",
+                AsyncMock(),
+            ) as has_owner,
+        ):
+            assert await _validate_owner_token(token) is False
+
+        validate_session.assert_awaited_once_with(token)
+        has_owner.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_rejects_missing_org_context(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,7 +139,13 @@ class TestValidateOwnerToken:
 
         token = create_access_token(user_id=uuid4(), organization_id=None)
 
-        assert await _validate_owner_token(token) is False
+        with patch(
+            "sibyl.api.routes.logs.validate_access_session",
+            AsyncMock(return_value=True),
+        ) as validate_session:
+            assert await _validate_owner_token(token) is False
+
+        validate_session.assert_awaited_once_with(token)
 
 
 class _FakeLogEntry:

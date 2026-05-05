@@ -26,6 +26,18 @@ def _make_request(*, user_id: str, org_id: str) -> Request:
     return request
 
 
+def _make_bearer_request(token: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/test",
+            "headers": [(b"authorization", f"Bearer {token}".encode())],
+            "state": {},
+        }
+    )
+
+
 @pytest.mark.asyncio
 async def test_build_auth_context_uses_surreal_resolver_without_postgres(
     monkeypatch: pytest.MonkeyPatch,
@@ -53,6 +65,42 @@ async def test_build_auth_context_uses_surreal_resolver_without_postgres(
         claims={"sub": str(user_id), "org": str(org_id)},
         session=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_claims_requires_active_access_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    token = "access-token"
+    request = _make_bearer_request(token)
+    claims = {"sub": str(user_id), "org": str(org_id), "typ": "access"}
+    validate_access_session = AsyncMock(return_value=False)
+
+    monkeypatch.setattr(dependencies, "verify_access_token", lambda _token: claims)
+    monkeypatch.setattr(dependencies, "validate_access_session", validate_access_session)
+
+    assert await dependencies.resolve_claims(request) is None
+    validate_access_session.assert_awaited_once_with(token)
+
+
+@pytest.mark.asyncio
+async def test_resolve_claims_returns_validated_access_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    token = "access-token"
+    request = _make_bearer_request(token)
+    claims = {"sub": str(user_id), "org": str(org_id), "typ": "access"}
+    validate_access_session = AsyncMock(return_value=True)
+
+    monkeypatch.setattr(dependencies, "verify_access_token", lambda _token: claims)
+    monkeypatch.setattr(dependencies, "validate_access_session", validate_access_session)
+
+    assert await dependencies.resolve_claims(request) == claims
+    validate_access_session.assert_awaited_once_with(token)
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ from sibyl.persistence.auth_runtime import (
     authenticate_api_key,
     get_user_by_id,
     resolve_auth_context,
+    validate_access_session,
 )
 from sibyl_core.auth import AuthOrganization, AuthUser, OrganizationRole
 
@@ -56,40 +57,50 @@ async def resolve_claims(
     request: Request, _session: object | None = None
 ) -> dict[str, object] | None:
     claims = getattr(request.state, "jwt_claims", None)
-    if claims:
-        return claims
 
     token = select_access_token(
         authorization=request.headers.get("authorization"),
         cookie_token=request.cookies.get("sibyl_access_token"),
     )
-    if not token:
+    if token:
+        verified_claims = claims
+        if verified_claims is None:
+            try:
+                verified_claims = verify_access_token(token)
+            except JwtError:
+                verified_claims = None
+        if verified_claims is not None:
+            try:
+                if await validate_access_session(token):
+                    return cast("dict[str, object]", verified_claims)
+            except TimeoutError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication storage temporarily unavailable",
+                ) from e
+            return None
+
+        if token.startswith("sk_"):
+            auth = await authenticate_api_key(token)
+            if auth:
+                scopes = list(auth.scopes or [])
+                if _is_rest_request(request) and not _api_key_allows_rest(
+                    scopes=scopes, method=request.method
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Insufficient API key scope",
+                    )
+                return {
+                    "sub": str(auth.user_id),
+                    "org": str(auth.organization_id),
+                    "typ": "api_key",
+                    "scopes": scopes,
+                }
+
         return None
 
-    try:
-        return verify_access_token(token)
-    except JwtError:
-        pass
-
-    if token.startswith("sk_"):
-        auth = await authenticate_api_key(token)
-        if auth:
-            scopes = list(auth.scopes or [])
-            if _is_rest_request(request) and not _api_key_allows_rest(
-                scopes=scopes, method=request.method
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Insufficient API key scope",
-                )
-            return {
-                "sub": str(auth.user_id),
-                "org": str(auth.organization_id),
-                "typ": "api_key",
-                "scopes": scopes,
-            }
-
-    return None
+    return cast("dict[str, object] | None", claims)
 
 
 async def get_current_user(

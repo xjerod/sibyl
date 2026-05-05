@@ -208,18 +208,22 @@ class TestConnectionManagerOrgScoping:
 class TestExtractOrgFromToken:
     """Tests for JWT org extraction."""
 
-    def test_missing_cookie(self) -> None:
+    @pytest.mark.asyncio
+    async def test_missing_cookie(self) -> None:
         """Missing cookie should return None."""
         ws = MagicMock()
         ws.cookies = {}
         ws.headers = {}
-        result = _extract_org_from_token(ws)
+        result = await _extract_org_from_token(ws)
         assert result is None
 
-    def test_valid_jwt_with_org(self, monkeypatch) -> None:
+    @pytest.mark.asyncio
+    async def test_valid_jwt_with_org(self, monkeypatch) -> None:
         """Valid signed JWT with org claim should extract org_id."""
         monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
+        validate_access_session = AsyncMock(return_value=True)
+        monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)
 
         from sibyl import config as config_module
 
@@ -231,22 +235,27 @@ class TestExtractOrgFromToken:
         ws.cookies = {"sibyl_access_token": token}
         ws.headers = {}
 
-        result = _extract_org_from_token(ws)
+        result = await _extract_org_from_token(ws)
         assert result == str(org_id)
+        validate_access_session.assert_awaited_once_with(token)
 
-    def test_malformed_jwt(self) -> None:
+    @pytest.mark.asyncio
+    async def test_malformed_jwt(self) -> None:
         """Malformed JWT should return None."""
         ws = MagicMock()
         ws.cookies = {"sibyl_access_token": "not-a-valid-jwt"}
         ws.headers = {}
 
-        result = _extract_org_from_token(ws)
+        result = await _extract_org_from_token(ws)
         assert result is None
 
-    def test_jwt_without_org_claim(self, monkeypatch) -> None:
+    @pytest.mark.asyncio
+    async def test_jwt_without_org_claim(self, monkeypatch) -> None:
         """JWT without org claim should return None (org-scoped WS required)."""
         monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
+        validate_access_session = AsyncMock(return_value=True)
+        monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)
 
         from sibyl import config as config_module
 
@@ -258,5 +267,49 @@ class TestExtractOrgFromToken:
         ws.cookies = {"sibyl_access_token": token}
         ws.headers = {}
 
-        result = _extract_org_from_token(ws)
+        result = await _extract_org_from_token(ws)
         assert result is None
+        validate_access_session.assert_awaited_once_with(token)
+
+    @pytest.mark.asyncio
+    async def test_revoked_jwt_returns_none(self, monkeypatch) -> None:
+        """Revoked JWT sessions should not connect to org-scoped WS."""
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
+        validate_access_session = AsyncMock(return_value=False)
+        monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)
+
+        from sibyl import config as config_module
+
+        config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
+
+        token = create_access_token(user_id=uuid4(), organization_id=uuid4())
+
+        ws = MagicMock()
+        ws.cookies = {"sibyl_access_token": token}
+        ws.headers = {}
+
+        result = await _extract_org_from_token(ws)
+        assert result is None
+        validate_access_session.assert_awaited_once_with(token)
+
+    @pytest.mark.asyncio
+    async def test_auth_store_timeout_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
+        validate_access_session = AsyncMock(side_effect=TimeoutError)
+        monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)
+
+        from sibyl import config as config_module
+
+        config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
+
+        token = create_access_token(user_id=uuid4(), organization_id=uuid4())
+
+        ws = MagicMock()
+        ws.cookies = {"sibyl_access_token": token}
+        ws.headers = {}
+
+        result = await _extract_org_from_token(ws)
+        assert result is None
+        validate_access_session.assert_awaited_once_with(token)

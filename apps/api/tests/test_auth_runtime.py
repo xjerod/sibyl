@@ -62,6 +62,7 @@ def test_auth_runtime_exports_neutral_runtime_surface() -> None:
     assert "resolve_auth_context" in auth_runtime.__all__
     assert "patch_auth_user" in auth_runtime.__all__
     assert "list_oauth_connections" in auth_runtime.__all__
+    assert "validate_access_session" in auth_runtime.__all__
 
     assert hasattr(legacy_auth_runtime, "resolve_auth_context")
     assert hasattr(legacy_auth_runtime, "patch_auth_user")
@@ -70,6 +71,7 @@ def test_auth_runtime_exports_neutral_runtime_surface() -> None:
     assert "SessionRepository" in surreal_auth_runtime.__all__
     assert "list_accessible_project_graph_ids" in surreal_auth_runtime.__all__
     assert "verify_entity_project_access" in surreal_auth_runtime.__all__
+    assert "validate_access_session" in surreal_auth_runtime.__all__
     assert surreal_auth_runtime.SessionRepository is SurrealSessionRepository
 
 

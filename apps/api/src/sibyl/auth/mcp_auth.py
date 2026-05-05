@@ -17,7 +17,7 @@ from uuid import UUID
 from mcp.server.auth.provider import AccessToken
 
 from sibyl.auth.jwt import JwtError, verify_access_token
-from sibyl.persistence.auth_runtime import authenticate_api_key
+from sibyl.persistence.auth_runtime import authenticate_api_key, validate_access_session
 
 
 def _parse_scopes(claims: dict[str, Any]) -> list[str]:
@@ -50,6 +50,12 @@ class SibylMcpTokenVerifier:
         try:
             claims = verify_access_token(token)
         except JwtError:
+            return None
+        try:
+            is_active = await validate_access_session(token)
+        except TimeoutError:
+            return None
+        if not is_active:
             return None
 
         sub = claims.get("sub")

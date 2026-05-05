@@ -58,6 +58,7 @@ from sibyl.persistence.legacy.auth import (
     signup_local_user,
     start_device_authorization,
     update_auth_user,
+    validate_access_session,
 )
 from sibyl.persistence.legacy.auth_managers.audit import AuditLogger
 from sibyl.persistence.legacy.auth_managers.sessions import SessionManager
@@ -606,5 +607,6 @@ __all__ = [
     "start_device_authorization",
     "update_auth_user",
     "update_project_record",
+    "validate_access_session",
     "verify_entity_project_access",
 ]

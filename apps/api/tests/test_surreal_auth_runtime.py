@@ -105,6 +105,7 @@ def test_surreal_auth_runtime_exports_neutral_surface() -> None:
     assert "exchange_device_code" in surreal_auth_runtime.__all__
     assert "list_accessible_project_graph_ids" in surreal_auth_runtime.__all__
     assert "resolve_auth_context" in surreal_auth_runtime.__all__
+    assert "validate_access_session" in surreal_auth_runtime.__all__
 
 
 def test_coerce_datetime_normalizes_aware_datetime_instances() -> None:
@@ -206,6 +207,49 @@ async def test_token_revoke_helpers_revoke_loaded_session_without_reload(
     assert sessions.revoke_loaded_session.await_count == 2
     sessions.revoke_loaded_session.assert_any_await(session)
     select_one.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_validate_access_session_checks_active_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session()
+    sessions = SimpleNamespace(get_session_by_token=AsyncMock(return_value=session))
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+
+    assert await surreal_auth_runtime.validate_access_session("access-token") is True
+    sessions.get_session_by_token.assert_awaited_once_with("access-token")
+
+
+@pytest.mark.asyncio
+async def test_validate_access_session_rejects_revoked_or_missing_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sessions = SimpleNamespace(get_session_by_token=AsyncMock(return_value=None))
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(object()),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime.SurrealSessionRepository,
+        "from_client",
+        lambda client: sessions,
+    )
+
+    assert await surreal_auth_runtime.validate_access_session("access-token") is False
+    sessions.get_session_by_token.assert_awaited_once_with("access-token")
 
 
 @pytest.mark.asyncio
@@ -732,9 +776,7 @@ async def test_request_password_reset_batches_user_and_token_reads(
             "revoked_at": None,
         },
     ]
-    client = _SequenceAuthClient(
-        [{"user": user_record, "tokens": existing_tokens}, [], []]
-    )
+    client = _SequenceAuthClient([{"user": user_record, "tokens": existing_tokens}, [], []])
     replace_record = AsyncMock(side_effect=AssertionError("unexpected per-token write"))
     email_client = SimpleNamespace(send_template=AsyncMock())
 
@@ -770,8 +812,7 @@ async def test_request_password_reset_batches_user_and_token_reads(
     assert "FROM password_reset_tokens" in read_query
     assert read_params == {"email": "bliss@example.com"}
     assert any(
-        "UPDATE password_reset_tokens SET revoked_at = $revoked_at" in query
-        for query in queries
+        "UPDATE password_reset_tokens SET revoked_at = $revoked_at" in query for query in queries
     )
     assert any("CREATE password_reset_tokens CONTENT $record" in query for query in queries)
     replace_record.assert_not_awaited()

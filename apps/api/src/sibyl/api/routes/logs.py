@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketException, st
 from sibyl.auth.dependencies import require_org_role
 from sibyl.auth.jwt import JwtError, verify_access_token
 from sibyl.config import settings
-from sibyl.persistence.auth_runtime import has_owner_membership
+from sibyl.persistence.auth_runtime import has_owner_membership, validate_access_session
 from sibyl_core.auth import OrganizationRole
 from sibyl_core.logging import LogBuffer
 
@@ -87,6 +87,12 @@ async def _validate_owner_token(token: str | None) -> bool:
     try:
         claims = verify_access_token(token)
     except JwtError:
+        return False
+    try:
+        is_active = await validate_access_session(token)
+    except TimeoutError:
+        return False
+    if not is_active:
         return False
 
     try:
