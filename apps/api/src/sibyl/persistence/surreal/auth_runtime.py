@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from collections.abc import AsyncIterator, Awaitable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any, Self
+from typing import Protocol, Self, cast
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from sibyl import config as config_module
 from sibyl.auth.api_key_common import (
@@ -39,7 +41,15 @@ from sibyl.persistence.surreal.auth import (
     build_surreal_auth_client,
     surreal_auth_client_scope,
 )
-from sibyl_core.auth import AuthSession, AuthUser, OrganizationRole, ProjectRole, ProjectVisibility
+from sibyl_core.auth import (
+    AuthContext,
+    AuthSession,
+    AuthUser,
+    OrganizationRole,
+    ProjectRole,
+    ProjectVisibility,
+)
+from sibyl_core.backends.surreal import SurrealAuthClient
 
 _ORG_ADMIN_ROLE_VALUES = {"owner", "admin"}
 _PROJECT_ROLE_LEVELS: dict[ProjectRole, int] = {
@@ -96,6 +106,15 @@ _UPSERT_QUERY_BY_TABLE = {
     "user_sessions": "UPSERT user_sessions CONTENT $record WHERE uuid = $uuid;",
     "users": "UPSERT users CONTENT $record WHERE uuid = $uuid;",
 }
+type SurrealRecord = dict[str, object]
+
+
+class QueryClient(Protocol):
+    async def execute_query(self, query: str, **params: object) -> object: ...
+
+
+class RawQueryFunc(Protocol):
+    def __call__(self, query: str, **params: object) -> Awaitable[object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,15 +147,15 @@ def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _normalize_record(record: Any) -> dict[str, Any] | None:
+def _normalize_record(record: object) -> SurrealRecord | None:
     if record is None or not isinstance(record, dict):
         return None
-    out = dict(record)
+    out = {str(key): value for key, value in record.items()}
     out.pop("id", None)
     return out
 
 
-def _normalize_records(result: Any) -> list[dict[str, Any]]:
+def _normalize_records(result: object) -> list[SurrealRecord]:
     if result is None:
         return []
     if isinstance(result, dict):
@@ -145,7 +164,7 @@ def _normalize_records(result: Any) -> list[dict[str, Any]]:
     if not isinstance(result, list):
         return []
 
-    records: list[dict[str, Any]] = []
+    records: list[SurrealRecord] = []
     for item in result:
         if isinstance(item, list):
             for nested in item:
@@ -160,8 +179,8 @@ def _normalize_records(result: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_raw_statement_records(
-    result: Any, *, statement_index: int
-) -> list[dict[str, Any]]:
+    result: object, *, statement_index: int
+) -> list[SurrealRecord]:
     if isinstance(result, dict):
         payload = {str(key): value for key, value in result.items()}
         statements = payload.get("result")
@@ -176,6 +195,12 @@ def _normalize_raw_statement_records(
                 return _normalize_records(statement.get("result"))
             return _normalize_records(statement)
     return _normalize_records(result)
+
+
+def _record_payload(value: object) -> SurrealRecord:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
 
 
 def _query_error(result: object) -> str | None:
@@ -253,8 +278,24 @@ def _role_value(role: object | None) -> str | None:
     return None
 
 
+def _optional_str(value: object | None) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _coerce_int(value: object | None, *, field_name: str) -> int:
+    if isinstance(value, bool):
+        msg = f"{field_name} must be an integer"
+        raise TypeError(msg)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    msg = f"{field_name} is required"
+    raise TypeError(msg)
+
+
 def _ns(
-    record: dict[str, Any] | None,
+    record: SurrealRecord | None,
     *,
     uuid_fields: set[str],
     datetime_fields: set[str],
@@ -262,7 +303,7 @@ def _ns(
 ) -> SimpleNamespace | None:
     if record is None:
         return None
-    values: dict[str, Any] = dict.fromkeys(uuid_fields | datetime_fields, None)
+    values: SurrealRecord = dict.fromkeys(uuid_fields | datetime_fields, None)
     for key, value in record.items():
         if key in uuid_fields:
             values[key] = _coerce_optional_uuid(value)
@@ -282,7 +323,7 @@ def _require_namespace(value: SimpleNamespace | None, *, label: str) -> SimpleNa
     return value
 
 
-def _auth_user_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+def _auth_user_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
         uuid_fields={"uuid"},
@@ -290,7 +331,7 @@ def _auth_user_namespace(record: dict[str, Any] | None) -> SimpleNamespace | Non
     )
 
 
-def _auth_user_model(record: dict[str, Any] | None) -> AuthUser | None:
+def _auth_user_model(record: SurrealRecord | None) -> AuthUser | None:
     user = _auth_user_namespace(record)
     if user is None:
         return None
@@ -307,7 +348,7 @@ def _auth_user_model(record: dict[str, Any] | None) -> AuthUser | None:
     )
 
 
-def _auth_org_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+def _auth_org_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
         uuid_fields={"uuid"},
@@ -316,11 +357,11 @@ def _auth_org_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None
 
 
 def _apply_password_change(
-    record: dict[str, Any],
+    record: SurrealRecord,
     *,
     current_password: str | None,
     new_password: str,
-) -> dict[str, Any]:
+) -> SurrealRecord:
     updated = dict(record)
     if (
         record.get("password_salt")
@@ -334,7 +375,10 @@ def _apply_password_change(
                 current_password,
                 salt_hex=str(record["password_salt"]),
                 hash_hex=str(record["password_hash"]),
-                iterations=int(record["password_iterations"]),
+                iterations=_coerce_int(
+                    record.get("password_iterations"),
+                    field_name="user.password_iterations",
+                ),
             )
         except (TypeError, ValueError):
             password_matches = False
@@ -353,8 +397,8 @@ def _apply_password_change(
 
 
 async def _load_user_update_records(
-    client: Any, *, user_id: UUID, email: str | None
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    client: QueryClient, *, user_id: UUID, email: str | None
+) -> tuple[SurrealRecord | None, SurrealRecord | None]:
     if email is None:
         payload = await client.execute_query(
             """
@@ -380,12 +424,11 @@ async def _load_user_update_records(
             user_id=str(user_id),
             email=email,
         )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     return _normalize_record(payload.get("user")), _normalize_record(payload.get("email_owner"))
 
 
-def _session_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+def _session_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
         uuid_fields={"uuid", "user_id", "organization_id"},
@@ -416,7 +459,7 @@ def _auth_session_namespace(session: AuthSession | None) -> SimpleNamespace | No
     )
 
 
-def _api_key_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+def _api_key_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
         uuid_fields={"uuid", "organization_id", "user_id"},
@@ -424,7 +467,7 @@ def _api_key_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
     )
 
 
-def _device_request_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+def _device_request_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
         uuid_fields={"uuid", "user_id", "organization_id"},
@@ -432,7 +475,7 @@ def _device_request_namespace(record: dict[str, Any] | None) -> SimpleNamespace 
     )
 
 
-def _oauth_connection_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+def _oauth_connection_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
         uuid_fields={"uuid", "user_id"},
@@ -440,7 +483,7 @@ def _oauth_connection_namespace(record: dict[str, Any] | None) -> SimpleNamespac
     )
 
 
-def _password_reset_namespace(record: dict[str, Any] | None) -> SimpleNamespace | None:
+def _password_reset_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
         uuid_fields={"uuid", "user_id"},
@@ -449,25 +492,25 @@ def _password_reset_namespace(record: dict[str, Any] | None) -> SimpleNamespace 
 
 
 @asynccontextmanager
-async def _auth_client_scope():
+async def _auth_client_scope() -> AsyncIterator[SurrealAuthClient]:
     async with surreal_auth_client_scope() as client:
         yield client
 
 
 class _SurrealRepository:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: QueryClient) -> None:
         self._client = client
 
-    async def select_one(self, query: str, **params: Any) -> dict[str, Any] | None:
+    async def select_one(self, query: str, **params: object) -> SurrealRecord | None:
         records = _normalize_records(await self._client.execute_query(query, **params))
         return records[0] if records else None
 
-    async def select_many(self, query: str, **params: Any) -> list[dict[str, Any]]:
+    async def select_many(self, query: str, **params: object) -> list[SurrealRecord]:
         return _normalize_records(await self._client.execute_query(query, **params))
 
     async def replace_record(
-        self, table: str, *, uuid: UUID, record: dict[str, Any]
-    ) -> dict[str, Any]:
+        self, table: str, *, uuid: UUID, record: SurrealRecord
+    ) -> SurrealRecord:
         query = _UPSERT_QUERY_BY_TABLE.get(table)
         if query is None:
             msg = f"Unsupported replace table: {table}"
@@ -482,14 +525,15 @@ class _SurrealRepository:
 
 
 async def _execute_raw_statement_records(
-    client: Any,
+    client: QueryClient,
     query: str,
     *,
     statement_index: int = -1,
-    **params: Any,
-) -> list[dict[str, Any]]:
-    execute_query_raw = getattr(client, "execute_query_raw", None)
-    if callable(execute_query_raw):
+    **params: object,
+) -> list[SurrealRecord]:
+    raw_candidate = getattr(client, "execute_query_raw", None)
+    if callable(raw_candidate):
+        execute_query_raw = cast("RawQueryFunc", raw_candidate)
         result = await execute_query_raw(query, **params)
     else:
         result = await client.execute_query(query, **params)
@@ -501,7 +545,7 @@ async def _execute_raw_statement_records(
 
 class SurrealSessionRepository(_SurrealRepository):
     @classmethod
-    def from_client(cls, client: Any) -> Self:
+    def from_client(cls, client: QueryClient) -> Self:
         return cls(client)
 
     @staticmethod
@@ -619,7 +663,7 @@ class SurrealSessionRepository(_SurrealRepository):
     async def list_user_sessions(
         self, user_id: UUID, *, include_expired: bool = False
     ) -> list[AuthSession]:
-        params: dict[str, Any] = {"user_id": str(user_id)}
+        params: SurrealRecord = {"user_id": str(user_id)}
         query = (
             "SELECT * FROM user_sessions "
             "WHERE user_id = $user_id AND revoked_at = NONE"
@@ -709,7 +753,7 @@ class SurrealSessionRepository(_SurrealRepository):
         self, user_id: UUID, *, exclude_token_hash: str | None = None
     ) -> int:
         now = _utcnow()
-        params: dict[str, Any] = {
+        params: SurrealRecord = {
             "user_id": str(user_id),
             "revoked_at": now,
             "updated_at": now,
@@ -740,7 +784,7 @@ class SurrealSessionRepository(_SurrealRepository):
 
     def _is_session_active(
         self,
-        record: dict[str, Any] | None,
+        record: SurrealRecord | None,
         *,
         include_expired: bool = False,
     ) -> bool:
@@ -751,7 +795,7 @@ class SurrealSessionRepository(_SurrealRepository):
         expires_at = _coerce_datetime(record.get("expires_at"))
         return expires_at is not None and expires_at > _utcnow()
 
-    def _has_refresh_session(self, record: dict[str, Any] | None) -> bool:
+    def _has_refresh_session(self, record: SurrealRecord | None) -> bool:
         if not self._is_session_active(record, include_expired=True):
             return False
         if record is None:
@@ -759,7 +803,7 @@ class SurrealSessionRepository(_SurrealRepository):
         refresh_expires_at = _coerce_datetime(record.get("refresh_token_expires_at"))
         return refresh_expires_at is not None and refresh_expires_at > _utcnow()
 
-    def _auth_session_from_record(self, record: dict[str, Any]) -> AuthSession:
+    def _auth_session_from_record(self, record: SurrealRecord) -> AuthSession:
         return AuthSession(
             id=_coerce_uuid(record.get("uuid"), field_name="session.uuid"),
             user_id=_coerce_uuid(record.get("user_id"), field_name="session.user_id"),
@@ -769,13 +813,13 @@ class SurrealSessionRepository(_SurrealRepository):
             revoked_at=_coerce_datetime(record.get("revoked_at")),
             last_active_at=_coerce_datetime(record.get("last_active_at")),
             is_current=bool(record.get("is_current", False)),
-            device_name=record.get("device_name"),
-            device_type=record.get("device_type"),
-            browser=record.get("browser"),
-            os=record.get("os"),
-            ip_address=record.get("ip_address"),
-            user_agent=record.get("user_agent"),
-            location=record.get("location"),
+            device_name=_optional_str(record.get("device_name")),
+            device_type=_optional_str(record.get("device_type")),
+            browser=_optional_str(record.get("browser")),
+            os=_optional_str(record.get("os")),
+            ip_address=_optional_str(record.get("ip_address")),
+            user_agent=_optional_str(record.get("user_agent")),
+            location=_optional_str(record.get("location")),
         )
 
 
@@ -785,7 +829,7 @@ def _scopes_list(value: object | None) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
-async def _resolve_auth_context_from_claims(claims: dict[str, Any]) -> Any:
+async def _resolve_auth_context_from_claims(claims: Mapping[str, object]) -> AuthContext:
     async with _auth_client_scope() as client:
         resolver = SurrealAuthContextResolver.from_client(client)
         return await resolver.resolve(claims)
@@ -793,21 +837,21 @@ async def _resolve_auth_context_from_claims(claims: dict[str, Any]) -> Any:
 
 async def resolve_auth_context(
     *,
-    claims: dict[str, Any],
-    session: Any | None = None,
-) -> Any:
+    claims: Mapping[str, object],
+    session: object | None = None,
+) -> AuthContext:
     del session
     return await _resolve_auth_context_from_claims(claims)
 
 
 async def _log_audit_event(
-    client: Any,
+    client: QueryClient,
     *,
     action: str,
     user_id: UUID | None,
     organization_id: UUID | None,
-    request: Any,
-    details: dict[str, Any],
+    request: Request | None,
+    details: SurrealRecord,
 ) -> None:
     now = _utcnow()
     record = {
@@ -824,7 +868,7 @@ async def _log_audit_event(
     await client.execute_query("CREATE audit_logs CONTENT $record;", record=record)
 
 
-async def _list_user_org_records(client: Any, *, user_id: UUID) -> list[dict[str, Any]]:
+async def _list_user_org_records(client: QueryClient, *, user_id: UUID) -> list[SurrealRecord]:
     repo = _SurrealRepository(client)
     organizations = await repo.select_many(
         """
@@ -854,7 +898,7 @@ def _generate_reset_token() -> str:
 
 
 async def _log_login_history(
-    client: Any,
+    client: QueryClient,
     *,
     user_id: UUID | None,
     event_type: str,
@@ -882,13 +926,13 @@ async def _log_login_history(
 
 
 async def _issue_auth_session(
-    client: Any,
+    client: QueryClient,
     *,
     user: SimpleNamespace,
     organization: SimpleNamespace,
-    request: Any,
+    request: Request | None,
     action: str,
-    details: dict[str, Any],
+    details: SurrealRecord,
 ) -> IssuedAuthSession:
     access_token = create_access_token(user_id=user.id, organization_id=organization.id)
     refresh_token, refresh_expires = create_refresh_token(
@@ -995,8 +1039,10 @@ async def authenticate_local_user(*, email: str, password: str):
             password,
             salt_hex=str(record["password_salt"]),
             hash_hex=str(record["password_hash"]),
-            iterations=int(
-                record.get("password_iterations") or config_module.settings.password_iterations
+            iterations=_coerce_int(
+                record.get("password_iterations")
+                or config_module.settings.password_iterations,
+                field_name="user.password_iterations",
             ),
         )
         if not ok:
@@ -1020,7 +1066,7 @@ async def list_user_organizations(*, user_id: UUID) -> list[SimpleNamespace]:
         return [org for record in records if (org := _auth_org_namespace(record)) is not None]
 
 
-async def _ensure_personal_org_membership_record(client: Any, user: AuthUser) -> dict[str, Any]:
+async def _ensure_personal_org_membership_record(client: QueryClient, user: AuthUser) -> SurrealRecord:
     suffix = str(user.github_id) if user.github_id is not None else str(user.id)
     slug = f"u-{suffix}"
     now = _utcnow()
@@ -1041,8 +1087,7 @@ async def _ensure_personal_org_membership_record(client: Any, user: AuthUser) ->
         slug=slug,
         user_id=str(user.id),
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     organization = _normalize_record(payload.get("organization"))
     membership = _normalize_record(payload.get("membership"))
 
@@ -1451,8 +1496,8 @@ async def get_device_request_by_user_code(user_code: str):
 
 
 async def _load_device_authorization_user_and_request(
-    client: Any, *, user_id: UUID, user_code: str
-) -> tuple[AuthUser | None, dict[str, Any] | None, SimpleNamespace | None]:
+    client: QueryClient, *, user_id: UUID, user_code: str
+) -> tuple[AuthUser | None, SurrealRecord | None, SimpleNamespace | None]:
     payload = await client.execute_query(
         """
             RETURN {
@@ -1467,14 +1512,13 @@ async def _load_device_authorization_user_and_request(
         user_id=str(user_id),
         user_code=user_code,
     )
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _record_payload(payload)
     user = _auth_user_model(_normalize_record(payload.get("user")))
     record = _normalize_record(payload.get("device_request"))
     return user, record, _device_request_namespace(record)
 
 
-async def resolve_request_claims(request) -> dict[str, Any] | None:
+async def resolve_request_claims(request) -> SurrealRecord | None:
     claims = getattr(request.state, "jwt_claims", None)
     if claims:
         return claims
@@ -1681,7 +1725,7 @@ async def log_audit_event(
     user_id: UUID | None,
     organization_id: UUID | None,
     request,
-    details: dict[str, Any],
+    details: SurrealRecord,
 ) -> None:
     async with _auth_client_scope() as client:
         await _log_audit_event(
@@ -1724,7 +1768,7 @@ async def _generate_unique_project_slug(
     return f"{base_slug[:55]}-{secrets.token_hex(4)}"
 
 
-def _project_record_namespace(record: dict[str, Any]) -> SimpleNamespace:
+def _project_record_namespace(record: SurrealRecord) -> SimpleNamespace:
     owner_user_id = _coerce_optional_uuid(record.get("owner_user_id"))
     return SimpleNamespace(
         id=_coerce_uuid(record.get("uuid"), field_name="projects.uuid"),
@@ -1747,7 +1791,7 @@ async def create_project_record(
     graph_project_id: str,
     name: str,
     description: str | None = None,
-) -> dict[str, Any]:
+) -> SurrealRecord:
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
         existing = await repo.select_one(
@@ -2067,7 +2111,7 @@ async def update_auth_user(
 async def patch_auth_user(
     *,
     user_id: UUID,
-    updates: dict[str, Any],
+    updates: SurrealRecord,
     organization_id: UUID | None,
     request,
 ):
@@ -2151,7 +2195,7 @@ async def list_user_sessions(
 ) -> list[SimpleNamespace]:
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
-        params: dict[str, Any] = {"user_id": str(user_id)}
+        params: SurrealRecord = {"user_id": str(user_id)}
         query = (
             "SELECT * FROM user_sessions "
             "WHERE user_id = $user_id AND revoked_at = NONE"
@@ -2212,8 +2256,7 @@ async def request_password_reset(email: str) -> None:
             """,
             email=normalized_email,
         )
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _record_payload(payload)
         user = _normalize_record(payload.get("user"))
         if user is None:
             await _log_login_history(
@@ -2313,8 +2356,7 @@ async def confirm_password_reset(token: str, new_password: str) -> None:
             """,
             token_hash=_hash_reset_token(token),
         )
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _record_payload(payload)
         token_record = _normalize_record(payload.get("token"))
         reset_token = _password_reset_namespace(token_record)
         if reset_token is None:
@@ -2397,8 +2439,7 @@ async def remove_oauth_connection(
             connection_id=str(connection_id),
             user_id=str(user_id),
         )
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _record_payload(payload)
         connection = _oauth_connection_namespace(_normalize_record(payload.get("connection")))
         if connection is None:
             raise HTTPException(status_code=404, detail="Connection not found")
@@ -2474,7 +2515,7 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
         org_id = str(ctx.organization.id)
         org_role = _role_value(ctx.org_role)
         user_id = str(ctx.user.id)
-        payload: dict[str, Any] = {}
+        payload: SurrealRecord = {}
         if org_role in _ORG_ADMIN_ROLE_VALUES:
             project_records = _normalize_records(
                 await client.execute_query(
@@ -2517,8 +2558,7 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
                 organization_id=org_id,
                 user_id=user_id,
             )
-            if isinstance(raw_payload, dict):
-                payload = raw_payload
+            payload = _record_payload(raw_payload)
             project_records = _normalize_records(payload.get("projects"))
         if not project_records:
             if ctx.org_role is None:
@@ -2658,8 +2698,7 @@ async def verify_entity_project_access(
             graph_project_id=entity_project_id,
             user_id=str(ctx.user.id),
         )
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _record_payload(payload)
         record = _normalize_record(payload.get("project"))
         if record is None:
             if require_existing_project:
@@ -2703,9 +2742,9 @@ async def verify_entity_project_access(
 def _effective_project_role_from_records(
     *,
     ctx,
-    project: dict[str, Any],
-    direct_record: dict[str, Any] | None,
-    team_project_records: list[dict[str, Any]],
+    project: SurrealRecord,
+    direct_record: SurrealRecord | None,
+    team_project_records: list[SurrealRecord],
 ) -> ProjectRole | None:
     if _role_value(ctx.org_role) in _ORG_ADMIN_ROLE_VALUES:
         return ProjectRole.OWNER
