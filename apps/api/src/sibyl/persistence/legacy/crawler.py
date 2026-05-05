@@ -6,14 +6,73 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col
 
 from sibyl.db import CrawledDocument, CrawlSource, CrawlStatus, DocumentChunk
 from sibyl.db.models import SourceType
-from sibyl.persistence.content_common import CrawlStats
+from sibyl.persistence.content_common import (
+    ContentConflictError,
+    CrawledDocumentRecord,
+    CrawlStats,
+    DocumentChunkRecord,
+)
 from sibyl_core.services.link_graph_status import LinkGraphSourceStatusData, LinkGraphStatusData
 
 LegacyCrawlStats = CrawlStats
+
+
+def _document_model(document: CrawledDocument | CrawledDocumentRecord) -> CrawledDocument:
+    if isinstance(document, CrawledDocument):
+        return document
+    return CrawledDocument(
+        id=document.id,
+        source_id=document.source_id,
+        url=document.url,
+        title=document.title,
+        raw_content=document.raw_content,
+        content=document.content,
+        content_hash=document.content_hash,
+        parent_url=document.parent_url,
+        section_path=document.section_path,
+        depth=document.depth,
+        language=document.language,
+        word_count=document.word_count,
+        token_count=document.token_count,
+        has_code=document.has_code,
+        is_index=document.is_index,
+        headings=document.headings,
+        links=document.links,
+        code_languages=document.code_languages,
+        crawled_at=document.crawled_at,
+        http_status=document.http_status,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
+    )
+
+
+def _chunk_model(chunk: DocumentChunk | DocumentChunkRecord) -> DocumentChunk:
+    if isinstance(chunk, DocumentChunk):
+        return chunk
+    return DocumentChunk(
+        id=chunk.id,
+        document_id=chunk.document_id,
+        chunk_index=chunk.chunk_index,
+        chunk_type=chunk.chunk_type,
+        content=chunk.content,
+        context=chunk.context,
+        token_count=chunk.token_count,
+        start_char=chunk.start_char,
+        end_char=chunk.end_char,
+        heading_path=chunk.heading_path,
+        embedding=chunk.embedding,
+        language=chunk.language,
+        is_complete=chunk.is_complete,
+        has_entities=chunk.has_entities,
+        entity_ids=chunk.entity_ids,
+        created_at=chunk.created_at,
+        updated_at=chunk.updated_at,
+    )
 
 
 async def check_relational_backend_health() -> dict[str, str | None]:
@@ -328,29 +387,34 @@ async def get_crawled_document_for_org(
 async def save_crawled_document_record(
     session: Any,
     *,
-    document: CrawledDocument,
+    document: CrawledDocument | CrawledDocumentRecord,
 ) -> CrawledDocument:
     """Persist a crawled document mutation."""
 
-    session.add(document)
-    await session.flush()
-    await session.refresh(document)
-    return document
+    db_document = _document_model(document)
+    session.add(db_document)
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        raise ContentConflictError(str(exc)) from exc
+    await session.refresh(db_document)
+    return db_document
 
 
 async def save_document_chunks(
     session: Any,
     *,
-    chunks: list[DocumentChunk],
+    chunks: list[DocumentChunk | DocumentChunkRecord],
 ) -> list[DocumentChunk]:
     """Persist document chunk mutations."""
 
-    for chunk in chunks:
+    db_chunks = [_chunk_model(chunk) for chunk in chunks]
+    for chunk in db_chunks:
         session.add(chunk)
     await session.flush()
-    for chunk in chunks:
+    for chunk in db_chunks:
         await session.refresh(chunk)
-    return chunks
+    return db_chunks
 
 
 async def delete_crawled_document_record(

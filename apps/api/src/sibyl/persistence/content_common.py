@@ -11,7 +11,11 @@ from sibyl_core.models import ChunkType, CrawlStatus, SourceType
 type ContentSession = object
 
 
-def _utcnow_naive() -> datetime:
+class ContentConflictError(RuntimeError):
+    """Raised when content writes collide with an existing unique record."""
+
+
+def utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
@@ -37,8 +41,8 @@ class CrawlSourceRecord:
     tags: list[str] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
     favicon_url: str | None = None
-    created_at: datetime = field(default_factory=_utcnow_naive)
-    updated_at: datetime = field(default_factory=_utcnow_naive)
+    created_at: datetime = field(default_factory=utcnow_naive)
+    updated_at: datetime = field(default_factory=utcnow_naive)
 
 
 @dataclass(slots=True)
@@ -61,10 +65,10 @@ class CrawledDocumentRecord:
     headings: list[str] = field(default_factory=list)
     links: list[str] = field(default_factory=list)
     code_languages: list[str] = field(default_factory=list)
-    crawled_at: datetime = field(default_factory=_utcnow_naive)
+    crawled_at: datetime = field(default_factory=utcnow_naive)
     http_status: int | None = None
-    created_at: datetime = field(default_factory=_utcnow_naive)
-    updated_at: datetime = field(default_factory=_utcnow_naive)
+    created_at: datetime = field(default_factory=utcnow_naive)
+    updated_at: datetime = field(default_factory=utcnow_naive)
 
 
 @dataclass(slots=True)
@@ -84,8 +88,8 @@ class DocumentChunkRecord:
     is_complete: bool = True
     has_entities: bool = False
     entity_ids: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=_utcnow_naive)
-    updated_at: datetime = field(default_factory=_utcnow_naive)
+    created_at: datetime = field(default_factory=utcnow_naive)
+    updated_at: datetime = field(default_factory=utcnow_naive)
 
 
 type RAGSearchRow = tuple[DocumentChunkRecord, CrawledDocumentRecord, str, UUID, float]
@@ -116,7 +120,7 @@ class RawCaptureRecord:
     capture_surface: str | None = None
     created_by_user_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
-    created_at: datetime = field(default_factory=_utcnow_naive)
+    created_at: datetime = field(default_factory=utcnow_naive)
 
 
 @dataclass(frozen=True)
@@ -141,6 +145,7 @@ class DocumentEntityRecord:
 
 __all__ = [
     "CodeExampleSearchRow",
+    "ContentConflictError",
     "ContentSession",
     "CrawledDocumentRecord",
     "CrawlSourceRecord",
@@ -150,4 +155,5 @@ __all__ = [
     "HybridSearchRow",
     "RAGSearchRow",
     "RawCaptureRecord",
+    "utcnow_naive",
 ]

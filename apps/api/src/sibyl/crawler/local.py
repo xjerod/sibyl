@@ -11,9 +11,8 @@ from urllib.parse import urlparse
 
 import structlog
 
-from sibyl.db.models import CrawledDocument
 from sibyl.ingestion.parser import ParsedDocument, parse_directory
-from sibyl.persistence.content_common import CrawlSourceRecord
+from sibyl.persistence.content_common import CrawledDocumentRecord, CrawlSourceRecord
 
 log = structlog.get_logger()
 
@@ -64,7 +63,7 @@ class LocalFileCrawler:
         parsed: ParsedDocument,
         source: CrawlSourceRecord,
         base_path: Path,
-    ) -> CrawledDocument:
+    ) -> CrawledDocumentRecord:
         """Convert a ParsedDocument to a CrawledDocument.
 
         Args:
@@ -103,7 +102,7 @@ class LocalFileCrawler:
                 if block.language and block.language not in code_languages:
                     code_languages.append(block.language)
 
-        return CrawledDocument(
+        return CrawledDocumentRecord(
             source_id=source.id,
             url=file_url,
             title=parsed.title or parsed.file_path.stem,
@@ -125,7 +124,7 @@ class LocalFileCrawler:
         *,
         max_pages: int = 100,
         max_depth: int = 3,  # Not used for local, but matches interface
-    ) -> AsyncIterator[CrawledDocument]:
+    ) -> AsyncIterator[CrawledDocumentRecord]:
         """Crawl a local directory and yield documents.
 
         Args:

@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from sibyl import config as config_module
 from sibyl.persistence.content_common import (
+    ContentConflictError,
     CrawledDocumentRecord as CrawledDocument,
     CrawlSourceRecord as CrawlSource,
     CrawlStats,
@@ -38,6 +39,11 @@ _UPSERT_RECORD = {
     "raw_captures": "UPSERT raw_captures CONTENT $record WHERE uuid = $uuid;",
 }
 type SurrealRecord = dict[str, object]
+
+
+def _is_uniqueness_error(error: str) -> bool:
+    lowered = error.lower()
+    return "unique" in lowered or "already contains" in lowered
 type RagSearchRow = tuple[DocumentChunk, CrawledDocument, str, UUID, float]
 type CodeSearchRow = tuple[DocumentChunk, CrawledDocument, UUID, str, float]
 type HybridSearchRow = tuple[DocumentChunk, CrawledDocument, str, UUID, float, float]
@@ -1400,12 +1406,17 @@ async def save_crawled_document_record(
 ) -> CrawledDocument:
     document.updated_at = _utcnow()
     async with surreal_content_client() as client:
-        record = await _replace_record(
-            client,
-            "crawled_documents",
-            uuid=document.id,
-            record=_document_record(document),
-        )
+        try:
+            record = await _replace_record(
+                client,
+                "crawled_documents",
+                uuid=document.id,
+                record=_document_record(document),
+            )
+        except RuntimeError as exc:
+            if _is_uniqueness_error(str(exc)):
+                raise ContentConflictError(str(exc)) from exc
+            raise
     return _document_from_record(record)
 
 

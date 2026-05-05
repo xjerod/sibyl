@@ -4,7 +4,7 @@ This service handles:
 - Single page and deep crawling of documentation sites
 - llms.txt discovery and parsing for AI-friendly content
 - Clean markdown extraction
-- Integration with PostgreSQL document storage
+- Integration with runtime document storage
 - Progress tracking and error handling
 """
 
@@ -27,8 +27,11 @@ from sibyl.api.event_types import WSEvent
 from sibyl.api.websocket import broadcast_event
 from sibyl.crawler.discovery import DiscoveryResult, DiscoveryService
 from sibyl.crawler.llms_parser import LLMsSection, parse_llms_full
-from sibyl.db.models import CrawledDocument, utcnow_naive
-from sibyl.persistence.content_common import CrawlSourceRecord
+from sibyl.persistence.content_common import (
+    CrawledDocumentRecord,
+    CrawlSourceRecord,
+    utcnow_naive,
+)
 from sibyl.persistence.content_runtime import (
     create_crawl_source_record,
     get_content_read_session,
@@ -225,7 +228,7 @@ class CrawlerService:
         *,
         max_pages: int = 100,
         max_depth: int = 3,
-    ) -> AsyncIterator[CrawledDocument]:
+    ) -> AsyncIterator[CrawledDocumentRecord]:
         """Deep crawl a documentation source and yield documents.
 
         Uses BFS strategy for systematic coverage of documentation sites.
@@ -391,7 +394,7 @@ class CrawlerService:
         self,
         result: CrawlResult,
         source: CrawlSourceRecord,
-    ) -> CrawledDocument:
+    ) -> CrawledDocumentRecord:
         """Convert a CrawlResult to a CrawledDocument.
 
         Args:
@@ -422,7 +425,7 @@ class CrawlerService:
         parsed = urlparse(result.url)
         depth = len([p for p in parsed.path.split("/") if p])
 
-        return CrawledDocument(
+        return CrawledDocumentRecord(
             source_id=source.id,
             url=result.url,
             title=title,
@@ -586,7 +589,7 @@ class CrawlerService:
         self,
         section: LLMsSection,
         source: CrawlSourceRecord,
-    ) -> CrawledDocument:
+    ) -> CrawledDocumentRecord:
         """Convert an llms-full.txt section to a CrawledDocument.
 
         Args:
@@ -601,7 +604,7 @@ class CrawlerService:
         headings = self._extract_headings(content)
         code_languages = self._detect_code_languages(content)
 
-        return CrawledDocument(
+        return CrawledDocumentRecord(
             source_id=source.id,
             url=section.url,
             title=section.title,
@@ -625,7 +628,7 @@ class CrawlerService:
         *,
         max_pages: int = 100,
         max_depth: int = 3,
-    ) -> AsyncIterator[CrawledDocument]:
+    ) -> AsyncIterator[CrawledDocumentRecord]:
         """Crawl a source with llms.txt discovery.
 
         First probes for llms.txt, llms-full.txt, etc. If found:
@@ -708,7 +711,7 @@ class CrawlerService:
             # Handle llms.txt with content - yield as document, then follow links
             if discovery_result.file_type == "llms" and not discovery_result.is_link_collection:
                 # Create document from llms.txt content itself
-                llms_doc = CrawledDocument(
+                llms_doc = CrawledDocumentRecord(
                     source_id=source.id,
                     url=discovery_result.url,
                     title="LLMs Documentation Guide",
@@ -752,7 +755,7 @@ class CrawlerService:
         links: list[str],
         *,
         max_pages: int = 100,
-    ) -> AsyncIterator[CrawledDocument]:
+    ) -> AsyncIterator[CrawledDocumentRecord]:
         """Crawl specific URLs from llms.txt links.
 
         Args:

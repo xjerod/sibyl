@@ -25,6 +25,20 @@ from sibyl.persistence.surreal.content import (
 )
 
 
+class RecordingSession:
+    def __init__(self) -> None:
+        self.added: list[object] = []
+
+    def add(self, item: object) -> None:
+        self.added.append(item)
+
+    async def flush(self) -> None:
+        return None
+
+    async def refresh(self, item: object) -> None:
+        return None
+
+
 def test_content_runtime_uses_legacy_exports_in_legacy_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -56,6 +70,7 @@ def test_content_runtime_maps_surreal_exports(
 def test_content_runtime_exports_neutral_runtime_surface() -> None:
     assert content_common.__all__ == [
         "CodeExampleSearchRow",
+        "ContentConflictError",
         "ContentSession",
         "CrawledDocumentRecord",
         "CrawlSourceRecord",
@@ -65,9 +80,40 @@ def test_content_runtime_exports_neutral_runtime_surface() -> None:
         "HybridSearchRow",
         "RAGSearchRow",
         "RawCaptureRecord",
+        "utcnow_naive",
     ]
     assert legacy_crawler.LegacyCrawlStats is content_common.CrawlStats
     assert legacy_entities.LegacyDocumentEntityRecord is content_common.DocumentEntityRecord
+
+
+@pytest.mark.asyncio
+async def test_legacy_content_writes_accept_neutral_records() -> None:
+    session = RecordingSession()
+    source_id = uuid4()
+    document = content_common.CrawledDocumentRecord(
+        source_id=source_id,
+        url="https://docs.example.com/guide",
+        title="Guide",
+        content="Guide",
+        content_hash="hash",
+    )
+
+    saved_document = await legacy_crawler.save_crawled_document_record(
+        session, document=document
+    )
+    chunk = content_common.DocumentChunkRecord(
+        document_id=saved_document.id,
+        chunk_index=0,
+        content="Guide",
+    )
+    saved_chunks = await legacy_crawler.save_document_chunks(session, chunks=[chunk])
+
+    assert saved_document.__class__.__name__ == "CrawledDocument"
+    assert saved_chunks[0].__class__.__name__ == "DocumentChunk"
+    assert [item.__class__.__name__ for item in session.added] == [
+        "CrawledDocument",
+        "DocumentChunk",
+    ]
 
 
 def _query_result(records: list[dict[str, object]]) -> list[dict[str, object]]:

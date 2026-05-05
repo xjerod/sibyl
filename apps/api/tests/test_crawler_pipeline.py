@@ -9,14 +9,19 @@ import pytest
 
 from sibyl.crawler.chunker import Chunk
 from sibyl.crawler.pipeline import IngestionPipeline, IngestionStats, reingest_source
-from sibyl.db import CrawledDocument, CrawlSource, SourceType
+from sibyl.persistence.content_common import (
+    ContentConflictError,
+    CrawledDocumentRecord,
+    CrawlSourceRecord,
+)
+from sibyl_core.models import SourceType
 
 
 @pytest.mark.asyncio
 async def test_process_document_uses_runtime_persistence_helpers() -> None:
     org_id = uuid4()
     source = SimpleNamespace(id=uuid4(), organization_id=org_id)
-    document = CrawledDocument(
+    document = CrawledDocumentRecord(
         source_id=source.id,
         url="https://docs.example.com/guide",
         title="Guide",
@@ -77,7 +82,7 @@ async def test_process_document_treats_runtime_duplicate_as_race() -> None:
     org_id = uuid4()
     source = SimpleNamespace(id=uuid4(), organization_id=org_id)
     session = AsyncMock()
-    existing = CrawledDocument(
+    existing = CrawledDocumentRecord(
         source_id=source.id,
         url="https://docs.example.com/guide",
         title="Existing Guide",
@@ -85,7 +90,7 @@ async def test_process_document_treats_runtime_duplicate_as_race() -> None:
         content="Existing Guide",
         content_hash="existing",
     )
-    document = CrawledDocument(
+    document = CrawledDocumentRecord(
         source_id=source.id,
         url=existing.url,
         title="Guide",
@@ -113,7 +118,7 @@ async def test_process_document_treats_runtime_duplicate_as_race() -> None:
         ) as get_document,
         patch(
             "sibyl.crawler.pipeline.save_crawled_document_record",
-            AsyncMock(side_effect=RuntimeError("duplicate url")),
+            AsyncMock(side_effect=ContentConflictError("duplicate url")),
         ),
         patch(
             "sibyl.crawler.pipeline.save_document_chunks",
@@ -131,7 +136,7 @@ async def test_process_document_treats_runtime_duplicate_as_race() -> None:
 
 @pytest.mark.asyncio
 async def test_reingest_source_uses_runtime_lookup() -> None:
-    source = CrawlSource(
+    source = CrawlSourceRecord(
         id=uuid4(),
         organization_id=uuid4(),
         name="Docs",

@@ -19,18 +19,14 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol, cast
 
 import structlog
-from sqlalchemy.exc import IntegrityError
 
 from sibyl.crawler.chunker import ChunkStrategy, DocumentChunker
 from sibyl.crawler.embedder import EmbeddingService
 from sibyl.crawler.graph_integration import GraphIntegrationService
 from sibyl.crawler.local import LocalFileCrawler
 from sibyl.crawler.service import CrawlerService
-from sibyl.db.models import (
-    CrawledDocument,
-    DocumentChunk,
-)
 from sibyl.persistence.content_common import (
+    ContentConflictError,
     CrawledDocumentRecord,
     CrawlSourceRecord,
     DocumentChunkRecord,
@@ -378,7 +374,7 @@ class IngestionPipeline:
 
     async def _process_document(
         self,
-        document: CrawledDocument,
+        document: CrawledDocumentRecord,
         stats: IngestionStats,
         source_type: SourceType | None = None,
     ) -> None:
@@ -389,7 +385,7 @@ class IngestionPipeline:
             stats: Stats to update
             source_type: Type of source (LOCAL creates guidance entities)
         """
-        db_chunks: list[DocumentChunk] = []
+        db_chunks: list[DocumentChunkRecord] = []
         saved_chunks: list[DocumentChunkRecord] = []
         stored_document = document
 
@@ -410,7 +406,7 @@ class IngestionPipeline:
 
             try:
                 stored_document = await save_crawled_document_record(session, document=document)
-            except (IntegrityError, RuntimeError) as exc:
+            except ContentConflictError as exc:
                 if session is not None and hasattr(session, "rollback"):
                     await cast("_RollbackSession", session).rollback()
                 existing = await get_document_by_url_for_org(
@@ -452,7 +448,7 @@ class IngestionPipeline:
 
             # Store chunks
             for i, chunk in enumerate(chunks):
-                db_chunk = DocumentChunk(
+                db_chunk = DocumentChunkRecord(
                     document_id=stored_document.id,
                     chunk_index=chunk.chunk_index,
                     chunk_type=chunk.chunk_type,
@@ -519,7 +515,7 @@ class IngestionPipeline:
         self,
         url: str,
         source: CrawlSourceRecord,
-    ) -> CrawledDocument | None:
+    ) -> CrawledDocumentRecord | None:
         """Ingest a single URL.
 
         Args:
