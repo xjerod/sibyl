@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from types import ModuleType
+from typing import TYPE_CHECKING, Protocol, cast
 
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import (
@@ -23,12 +25,38 @@ from sibyl.persistence.backups_runtime import (
     update_backup_settings,
 )
 
+
+class RuntimeExport(Protocol):
+    def __call__(self, *args: object, **kwargs: object) -> Awaitable[object]: ...
+
+
 if TYPE_CHECKING:
-    get_setup_status: Any
-    is_setup_mode: Any
-    require_settings_admin: Any
-    require_setup_mode_or_admin: Any
-    require_setup_mode_or_auth: Any
+    from starlette.requests import Request
+
+    from sibyl.db.models import User
+    from sibyl.persistence.setup_common import SetupStatus
+    from sibyl_core.auth import AuthUser
+
+    class GetSetupStatus(Protocol):
+        def __call__(self) -> Awaitable[SetupStatus]: ...
+
+    class IsSetupMode(Protocol):
+        def __call__(self) -> Awaitable[bool]: ...
+
+    class RequireSettingsAdmin(Protocol):
+        def __call__(self, request: Request) -> Awaitable[None]: ...
+
+    class RequireSetupModeOrAdmin(Protocol):
+        def __call__(self, request: Request) -> Awaitable[User | AuthUser | None]: ...
+
+    class RequireSetupModeOrAuth(Protocol):
+        def __call__(self, request: Request) -> Awaitable[None]: ...
+
+    get_setup_status: GetSetupStatus
+    is_setup_mode: IsSetupMode
+    require_settings_admin: RequireSettingsAdmin
+    require_setup_mode_or_admin: RequireSetupModeOrAdmin
+    require_setup_mode_or_auth: RequireSetupModeOrAuth
 
 _AUTH_BACKEND_MODULES = {
     "postgres": "sibyl.persistence.legacy.setup",
@@ -64,17 +92,17 @@ __all__ = [
 ]
 
 
-def _auth_backend_module() -> Any:
+def _auth_backend_module() -> ModuleType:
     return import_module(_AUTH_BACKEND_MODULES[settings.auth_store])
 
 
-def _make_auth_runtime_proxy(name: str) -> Any:
+def _make_auth_runtime_proxy(name: str) -> RuntimeExport:
     async def _proxy(*args: object, **kwargs: object) -> object:
-        export = getattr(_auth_backend_module(), name)
+        export = cast("RuntimeExport", getattr(_auth_backend_module(), name))
         return await export(*args, **kwargs)
 
     _proxy.__name__ = name
-    return _proxy
+    return cast("RuntimeExport", _proxy)
 
 
 for _export_name in _AUTH_RUNTIME_EXPORTS:
