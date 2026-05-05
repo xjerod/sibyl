@@ -82,6 +82,14 @@ export default defineConfig({
                         { text: 'Storage Modes', link: '/guide/storage-modes' },
                         { text: 'Why SurrealDB', link: '/guide/why-surreal' },
                         { text: 'Migrating from FalkorDB', link: '/guide/migrating-from-falkor' },
+                        {
+                            text: 'SurrealDB Release Notes',
+                            link: '/guide/surrealdb-migration-release-notes',
+                        },
+                        {
+                            text: 'SurrealDB Live Gates',
+                            link: '/architecture/SURREALDB_PHASE2_LIVE_GATES',
+                        },
                     ],
                 },
                 {
