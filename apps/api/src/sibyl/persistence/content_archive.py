@@ -8,10 +8,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import text
-
 from sibyl import config as config_module
-from sibyl.db.connection import get_session
 from sibyl.persistence.surreal.content import _normalize_records
 from sibyl_core.backends.surreal import SurrealContentClient, bootstrap_content_schema
 
@@ -257,6 +254,10 @@ def _normalize_content_archive_restore_row(
 
 
 async def _export_relational_content_archive_payload() -> dict[str, object]:
+    from sqlalchemy import text
+
+    from sibyl.db.connection import get_session
+
     tables: dict[str, list[dict[str, object]]] = {}
     row_counts: dict[str, int] = {}
 

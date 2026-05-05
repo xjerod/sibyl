@@ -8,10 +8,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import text
-
 from sibyl import config as config_module
-from sibyl.db.connection import get_session
 from sibyl.persistence.surreal.auth import _normalize_records, build_surreal_auth_client
 from sibyl_core.backends.surreal import bootstrap_auth_schema
 
@@ -204,6 +201,10 @@ def _sort_auth_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 
 
 async def _export_relational_auth_archive_payload() -> dict[str, object]:
+    from sqlalchemy import text
+
+    from sibyl.db.connection import get_session
+
     tables: dict[str, list[dict[str, object]]] = {}
     row_counts: dict[str, int] = {}
 
