@@ -126,6 +126,10 @@ Fallbacks:
 
 Used when `SIBYL_AUTH_STORE=postgres` (legacy or mid-migration mixed mode).
 
+PostgreSQL auth is a compatibility setting for existing installs and rollback windows. New
+deployments should leave `SIBYL_AUTH_STORE=surreal`; the PostgreSQL auth store is planned for
+removal after one compatibility release.
+
 | Variable                      | Default     | Description                          |
 | ----------------------------- | ----------- | ------------------------------------ |
 | `SIBYL_POSTGRES_HOST`         | `localhost` | PostgreSQL host                      |
@@ -143,12 +147,15 @@ installation. In Kubernetes, the standard port 5432 is used.
 
 Used only when `SIBYL_STORE=legacy`. Retained for users who haven't migrated to SurrealDB yet.
 
-| Variable                  | Default       | Description                             |
-| ------------------------- | ------------- | --------------------------------------- |
-| `SIBYL_FALKORDB_HOST`     | `localhost`   | FalkorDB host                           |
-| `SIBYL_FALKORDB_PORT`     | `6380`        | FalkorDB port (6380 for local dev)      |
-| `SIBYL_FALKORDB_PASSWORD` | `sibyl_dev`  | FalkorDB password                       |
-| `SIBYL_REDIS_JOBS_DB`     | `1`           | Redis DB for job queue (0 = graph data) |
+Do not use FalkorDB for new installs. It is kept as a migration bridge for existing deployments that
+still need the legacy graph stack.
+
+| Variable                  | Default     | Description                             |
+| ------------------------- | ----------- | --------------------------------------- |
+| `SIBYL_FALKORDB_HOST`     | `localhost` | FalkorDB host                           |
+| `SIBYL_FALKORDB_PORT`     | `6380`      | FalkorDB port (6380 for local dev)      |
+| `SIBYL_FALKORDB_PASSWORD` | `sibyl_dev` | FalkorDB password                       |
+| `SIBYL_REDIS_JOBS_DB`     | `1`         | Redis DB for job queue (0 = graph data) |
 
 Note: Port 6380 is the default for local development to avoid conflicts with a local Redis
 installation.
@@ -265,7 +272,10 @@ SIBYL_RESEND_API_KEY=re_...
 SIBYL_EMAIL_FROM=Sibyl <sibyl@example.com>
 ```
 
-### Production (Legacy FalkorDB + PostgreSQL)
+### Production (Legacy compatibility only)
+
+Use this only for existing installations that have not completed migration. New production
+deployments should use the fully Surreal example above.
 
 ```bash
 SIBYL_ENVIRONMENT=production

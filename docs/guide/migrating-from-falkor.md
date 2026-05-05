@@ -9,6 +9,10 @@ Sibyl ships CLI tooling to move an organization (or a whole install) from the le
 PostgreSQL stack to SurrealDB. The migration is an explicit, reversible operation — nothing happens
 automatically when you upgrade.
 
+SurrealDB is the default runtime now. Legacy and mixed modes remain as compatibility paths for
+existing installs during the migration window, but new deployments should not start on FalkorDB or
+PostgreSQL auth.
+
 ## Before you start
 
 - **Both stacks online.** Keep FalkorDB + PostgreSQL running during migration. You'll only stop them
@@ -71,9 +75,9 @@ moon run migrate-rehearse -- /tmp/sibyl-migration.tar.gz --yes
 This runs the full export → import → verify cycle without touching your production target. It's the
 safest pre-cutover check — the rehearsal must pass green before the real run.
 
-The rehearsal runs the deterministic auth-flow replay by default. It signs up users, rotates
-tokens, exercises API keys, invitations, org switching, device auth, logout revocation, session
-listing, and password reset consumption through the configured email outbox.
+The rehearsal runs the deterministic auth-flow replay by default. It signs up users, rotates tokens,
+exercises API keys, invitations, org switching, device auth, logout revocation, session listing, and
+password reset consumption through the configured email outbox.
 
 ## Auth flow gates
 
@@ -100,12 +104,20 @@ sequence and normalized JWT claim shape, including `sub`, `org`, `typ`, `sid`, a
 For single-org local dev moves:
 
 ```bash
-moon run migrate-local-surreal
+moon run dev -- --migrate-legacy
 ```
 
-This wraps export → import → verify in one command against the local Surreal instance. If there is
-exactly one legacy organization, Sibyl selects it automatically. If there are multiple
-organizations, the command lists their IDs and asks you to rerun with `--org-id <org-uuid>`.
+`moon run dev` detects local legacy data before it starts a fresh Surreal runtime. If there is
+exactly one legacy organization, `--migrate-legacy` selects it automatically, exports it, imports it
+into the local Surreal instance, verifies the archive, and writes a migrated marker so future starts
+go straight to Surreal.
+
+If there are multiple organizations, the command lists their IDs and asks you to rerun with
+`--org-id <org-uuid>`. You can also run the same wrapper directly:
+
+```bash
+moon run migrate-local-surreal -- --org-id <org-uuid>
+```
 
 ## Cutover
 
@@ -120,7 +132,8 @@ moon run auth-readonly -- --mode freeze --apply --yes
 
 5. Keep legacy containers up for a few days as a rollback option. They hold read-only history until
    you're confident.
-6. Decommission FalkorDB + PostgreSQL once traffic has run cleanly on Surreal.
+6. Decommission FalkorDB + PostgreSQL once traffic has run cleanly on Surreal and your rollback
+   window has closed.
 
 ## Rollback
 
@@ -138,8 +151,9 @@ moon run auth-readonly -- --mode unfreeze --apply --yes
 
 ## FAQ
 
-**Do I need to migrate?** Not immediately, but yes, you should plan it. Legacy mode remains available
-for existing installs during the transition; SurrealDB is the default runtime and the path forward.
+**Do I need to migrate?** Not immediately, but yes, you should plan it during the compatibility
+window. Legacy mode remains available for existing installs during the transition; SurrealDB is the
+default runtime and the path forward.
 
 **Can I migrate org-by-org?** Yes. Each export is scoped to a single `--org-id`. Run them in
 whatever order suits your tenant sizing.

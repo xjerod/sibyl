@@ -13,6 +13,10 @@ Sibyl supports three storage configurations, controlled by two environment varia
 | **Mixed (transitional)**      | `surreal`     | `postgres`         | `local`      | SurrealDB + PostgreSQL        |
 | **Legacy**                    | `legacy`      | `postgres`         | `redis`      | FalkorDB + PostgreSQL + Redis |
 
+Mixed and legacy modes are compatibility paths for existing installs. Fully Surreal is the only
+recommended target for new deployments, and the PostgreSQL auth store is planned for removal after
+one compatibility release once the migration gates are green.
+
 Set `SIBYL_COORDINATION_BACKEND=auto` (the default) and sibyld picks the right coordination backend
 for each mode. Override it only when you need Redis-backed coordination for multi-process Surreal
 dev.
@@ -46,13 +50,13 @@ SIBYL_STORE=surreal
 SIBYL_AUTH_STORE=postgres
 ```
 
-This is a stepping stone, not a long-term target. Once you're comfortable, migrate auth to Surreal
-too (`SIBYL_AUTH_STORE=surreal`) and retire Postgres.
+This is a stepping stone, not a long-term target. Do not start a new install here. Once you're
+comfortable, migrate auth to Surreal too (`SIBYL_AUTH_STORE=surreal`) and retire Postgres.
 
 ## Legacy
 
 **Pick this for:** existing production deploys that aren't ready to migrate yet, or teams with
-strict dependencies on FalkorDB/Postgres tooling.
+strict dependencies on FalkorDB/Postgres tooling during the compatibility window.
 
 ```bash
 SIBYL_STORE=legacy
@@ -72,9 +76,11 @@ variable list.
 - **New install:** leave defaults alone. Fully Surreal is the default.
 - **Legacy → Surreal:** see [migrating-from-falkor.md](./migrating-from-falkor.md). The migration is
   CLI-driven (`sibyld migrate export|import|verify`) and supports rehearsal runs.
-- **Mixed → Fully Surreal:** export auth with
-  `sibyld migrate export --skip-graph --skip-content`, rehearse the archive, flip
-  `SIBYL_AUTH_STORE=surreal`, import with
-  `sibyld migrate import <archive> --skip-graph --skip-content`, then run the auth-flow gate.
-  Freeze the legacy auth/RBAC tables with `moon run auth-readonly -- --mode freeze --apply --yes`
-  for the rollback window before Postgres is decommissioned.
+- **Local legacy dev install:** `moon run dev` detects existing legacy data before starting a fresh
+  Surreal runtime. For the common single-org case, run `moon run dev -- --migrate-legacy` and Sibyl
+  selects the only org automatically.
+- **Mixed → Fully Surreal:** export auth with `sibyld migrate export --skip-graph --skip-content`,
+  rehearse the archive, flip `SIBYL_AUTH_STORE=surreal`, import with
+  `sibyld migrate import <archive> --skip-graph --skip-content`, then run the auth-flow gate. Freeze
+  the legacy auth/RBAC tables with `moon run auth-readonly -- --mode freeze --apply --yes` for the
+  rollback window before Postgres is decommissioned.
