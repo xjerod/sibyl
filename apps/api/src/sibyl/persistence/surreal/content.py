@@ -11,12 +11,14 @@ from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 from sibyl import config as config_module
-from sibyl.db.models import (
-    CrawledDocument,
-    CrawlSource,
-    DocumentChunk,
+from sibyl.persistence.content_common import (
+    CrawledDocumentRecord as CrawledDocument,
+    CrawlSourceRecord as CrawlSource,
+    CrawlStats,
+    DocumentChunkRecord as DocumentChunk,
+    DocumentEntityRecord,
+    RawCaptureRecord,
 )
-from sibyl.persistence.content_common import CrawlStats, DocumentEntityRecord, RawCaptureRecord
 from sibyl_core.backends.surreal import SurrealContentClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.models import ChunkType, CrawlStatus, SourceType

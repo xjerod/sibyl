@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Protocol
 from uuid import UUID, uuid4
 
 from sibyl_core.models import ChunkType, CrawlStatus, SourceType
@@ -12,76 +11,88 @@ from sibyl_core.models import ChunkType, CrawlStatus, SourceType
 type ContentSession = object
 
 
-class CrawlSourceRecord(Protocol):
-    id: UUID
+def _utcnow_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+@dataclass(slots=True)
+class CrawlSourceRecord:
     organization_id: UUID
     name: str
     url: str
-    source_type: SourceType
-    description: str | None
-    crawl_depth: int
-    crawl_status: CrawlStatus
-    document_count: int
-    chunk_count: int
-    current_job_id: str | None
-    last_crawled_at: datetime | None
-    last_error: str | None
-    created_at: datetime
-    updated_at: datetime
-    include_patterns: list[str] | None
-    exclude_patterns: list[str] | None
-    tags: list[str]
-    categories: list[str]
-    favicon_url: str | None
+    id: UUID = field(default_factory=uuid4)
+    source_type: SourceType = SourceType.WEBSITE
+    description: str | None = None
+    crawl_depth: int = 2
+    include_patterns: list[str] = field(default_factory=list)
+    exclude_patterns: list[str] = field(default_factory=list)
+    respect_robots: bool = True
+    crawl_status: CrawlStatus = CrawlStatus.PENDING
+    current_job_id: str | None = None
+    last_crawled_at: datetime | None = None
+    last_error: str | None = None
+    document_count: int = 0
+    chunk_count: int = 0
+    total_tokens: int = 0
+    tags: list[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
+    favicon_url: str | None = None
+    created_at: datetime = field(default_factory=_utcnow_naive)
+    updated_at: datetime = field(default_factory=_utcnow_naive)
 
 
-class CrawledDocumentRecord(Protocol):
-    id: UUID
+@dataclass(slots=True)
+class CrawledDocumentRecord:
     source_id: UUID
     url: str
-    title: str
-    raw_content: str
-    content: str
-    content_hash: str
-    word_count: int
-    token_count: int
-    has_code: bool
-    is_index: bool
-    depth: int
-    crawled_at: datetime
-    created_at: datetime
-    updated_at: datetime
-    headings: list[str] | None
-    code_languages: list[str] | None
-    section_path: list[str] | None
+    id: UUID = field(default_factory=uuid4)
+    title: str = ""
+    raw_content: str = ""
+    content: str = ""
+    content_hash: str = ""
+    parent_url: str | None = None
+    section_path: list[str] = field(default_factory=list)
+    depth: int = 0
+    language: str | None = None
+    word_count: int = 0
+    token_count: int = 0
+    has_code: bool = False
+    is_index: bool = False
+    headings: list[str] = field(default_factory=list)
+    links: list[str] = field(default_factory=list)
+    code_languages: list[str] = field(default_factory=list)
+    crawled_at: datetime = field(default_factory=_utcnow_naive)
+    http_status: int | None = None
+    created_at: datetime = field(default_factory=_utcnow_naive)
+    updated_at: datetime = field(default_factory=_utcnow_naive)
 
 
-class DocumentChunkRecord(Protocol):
-    id: UUID
+@dataclass(slots=True)
+class DocumentChunkRecord:
     document_id: UUID
-    content: str
-    context: str | None
-    chunk_type: ChunkType
     chunk_index: int
-    heading_path: list[str] | None
-    language: str | None
-    has_entities: bool
-    entity_ids: list[str] | None
-    created_at: datetime
-    updated_at: datetime
+    content: str
+    id: UUID = field(default_factory=uuid4)
+    chunk_type: ChunkType = ChunkType.TEXT
+    context: str | None = None
+    token_count: int = 0
+    start_char: int = 0
+    end_char: int = 0
+    heading_path: list[str] = field(default_factory=list)
+    embedding: object | None = None
+    language: str | None = None
+    is_complete: bool = True
+    has_entities: bool = False
+    entity_ids: list[str] = field(default_factory=list)
+    created_at: datetime = field(default_factory=_utcnow_naive)
+    updated_at: datetime = field(default_factory=_utcnow_naive)
 
 
 type RAGSearchRow = tuple[DocumentChunkRecord, CrawledDocumentRecord, str, UUID, float]
-type CodeExampleSearchRow = tuple[
-    DocumentChunkRecord, CrawledDocumentRecord, UUID, str, float
-]
+type CodeExampleSearchRow = tuple[DocumentChunkRecord, CrawledDocumentRecord, UUID, str, float]
 type HybridSearchRow = tuple[
     DocumentChunkRecord, CrawledDocumentRecord, str, UUID, float, float
 ]
-
-
-def _utcnow_naive() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @dataclass(frozen=True)
