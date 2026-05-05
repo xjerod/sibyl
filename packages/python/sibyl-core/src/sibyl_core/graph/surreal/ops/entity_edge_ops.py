@@ -10,7 +10,6 @@ round-trip untouched so Graphiti's temporal reasoning stays intact.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from graphiti_core.driver.operations.entity_edge_ops import EntityEdgeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
@@ -19,7 +18,9 @@ from graphiti_core.edges import EntityEdge
 from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.graph.surreal.ops._common import (
+    SurrealRecord,
     build_relation_save_query,
+    normalize_embedding,
     normalize_records,
     relation_record_id,
     resolve_record_id,
@@ -61,7 +62,7 @@ _ENTITY_EDGE_SAVE = build_relation_save_query(
 )
 
 
-def _entity_edge_save_payload(edge: EntityEdge) -> dict[str, Any]:
+def _entity_edge_save_payload(edge: EntityEdge) -> SurrealRecord:
     return {
         "uuid": edge.uuid,
         "name": edge.name,
@@ -298,7 +299,7 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
         )
         if not records:
             raise EdgeNotFoundError(edge.uuid)
-        edge.fact_embedding = records[0].get("fact_embedding")
+        edge.fact_embedding = normalize_embedding(records[0].get("fact_embedding"))
 
     async def load_embeddings_bulk(
         self,
@@ -316,7 +317,11 @@ class SurrealEntityEdgeOperations(EntityEdgeOperations):
                 uuids=uuids,
             )
         )
-        embedding_map = {r["uuid"]: r.get("fact_embedding") for r in records}
+        embedding_map = {
+            str(record["uuid"]): embedding
+            for record in records
+            if (embedding := normalize_embedding(record.get("fact_embedding"))) is not None
+        }
         for edge in edges:
             if edge.uuid in embedding_map:
                 edge.fact_embedding = embedding_map[edge.uuid]

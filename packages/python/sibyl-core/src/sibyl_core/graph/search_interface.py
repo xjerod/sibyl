@@ -25,7 +25,7 @@ from graphiti_core.driver.record_parsers import (
 from graphiti_core.driver.search_interface.search_interface import SearchInterface
 from graphiti_core.nodes import CommunityNode, EpisodicNode
 
-from sibyl_core.graph.surreal.ops._common import normalize_records
+from sibyl_core.graph.surreal.ops._common import normalize_embedding, normalize_records
 from sibyl_core.graph.surreal.ops.entity_edge_ops import _ENTITY_EDGE_SELECT
 
 log = structlog.get_logger()
@@ -97,6 +97,13 @@ def _dedupe(items: list[str]) -> list[str]:
         seen.add(item)
         out.append(item)
     return out
+
+
+def _record_uuid(record: dict[str, object]) -> str | None:
+    uuid = record.get("uuid")
+    if uuid is None or uuid == "":
+        return None
+    return str(uuid)
 
 
 def _rrf_uuids(results: list[list[str]], rank_const: int = 1) -> list[str]:
@@ -185,7 +192,7 @@ class SurrealSearchInterface(SearchInterface):
                 group_ids=group_ids,
             )
         )
-        return _dedupe([record["uuid"] for record in records if record.get("uuid")])
+        return _dedupe([uuid for record in records if (uuid := _record_uuid(record))])
 
     async def _relation_target_uuids(
         self,
@@ -210,7 +217,7 @@ class SurrealSearchInterface(SearchInterface):
                 group_ids=group_ids,
             )
         )
-        return _dedupe([record["uuid"] for record in records if record.get("uuid")])
+        return _dedupe([uuid for record in records if (uuid := _record_uuid(record))])
 
     async def _hydrate_nodes(
         self,
@@ -481,7 +488,7 @@ class SurrealSearchInterface(SearchInterface):
                     )
                 )
                 for record in records:
-                    uuid = record.get("uuid")
+                    uuid = _record_uuid(record)
                     if not uuid or uuid in seen_edges:
                         continue
                     seen_edges.add(uuid)
@@ -627,11 +634,13 @@ class SurrealSearchInterface(SearchInterface):
                 uuids=uuids,
             )
         )
-        return {
-            record["uuid"]: record["name_embedding"]
-            for record in records
-            if record.get("name_embedding") is not None
-        }
+        embeddings: dict[str, list[float]] = {}
+        for record in records:
+            uuid = _record_uuid(record)
+            embedding = normalize_embedding(record.get("name_embedding"))
+            if uuid is not None and embedding is not None:
+                embeddings[uuid] = embedding
+        return embeddings
 
     async def node_distance_reranker(
         self,
@@ -662,7 +671,7 @@ class SurrealSearchInterface(SearchInterface):
                 )
             )
             for record in records:
-                uuid = record.get("uuid")
+                uuid = _record_uuid(record)
                 if uuid in scores:
                     scores[uuid] = 1.0
 

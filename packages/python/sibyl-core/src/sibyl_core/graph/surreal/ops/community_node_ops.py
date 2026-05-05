@@ -8,7 +8,6 @@ SurrealDB's ``community`` table. Communities carry a ``name_embedding``
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from graphiti_core.driver.operations.community_node_ops import CommunityNodeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
@@ -17,6 +16,7 @@ from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import CommunityNode
 
 from sibyl_core.graph.surreal.ops._common import (
+    SurrealRecord,
     build_node_bulk_upsert_query,
     build_node_upsert_query,
     normalize_records,
@@ -51,7 +51,7 @@ _COMMUNITY_SAVE_BULK = build_node_bulk_upsert_query(
 )
 
 
-def _ensure_community_fields(record: dict[str, Any]) -> dict[str, Any]:
+def _ensure_community_fields(record: SurrealRecord) -> SurrealRecord:
     """Backfill option<> fields SurrealDB omits when they are NONE.
 
     ``community_node_from_record`` uses strict ``record['name_embedding']``
@@ -62,7 +62,7 @@ def _ensure_community_fields(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def _community_save_payload(node: CommunityNode) -> dict[str, Any]:
+def _community_save_payload(node: CommunityNode) -> SurrealRecord:
     return {
         "uuid": node.uuid,
         "name": node.name,

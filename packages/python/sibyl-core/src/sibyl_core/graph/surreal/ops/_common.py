@@ -9,10 +9,11 @@ so the call sites in individual ops modules stay short.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
 
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
 from surrealdb import RecordID
+
+type SurrealRecord = dict[str, object]
 
 
 def _check_identifier(value: str) -> str:
@@ -26,8 +27,8 @@ async def run_query(
     executor: QueryExecutor,
     tx: Transaction | None,
     query: str,
-    **params: Any,
-) -> Any:
+    **params: object,
+) -> object:
     if tx is not None:
         return await tx.run(query, **params)
     return await executor.execute_query(query, **params)
@@ -38,7 +39,7 @@ async def resolve_record_id(
     tx: Transaction | None,
     table: str,
     uuid: str,
-) -> Any | None:
+) -> object | None:
     result = await run_query(
         executor,
         tx,
@@ -108,7 +109,7 @@ def build_node_bulk_upsert_query(table: str, fields: Sequence[str]) -> str:
 """
 
 
-def normalize_record(record: Any) -> dict[str, Any] | None:
+def normalize_record(record: object) -> SurrealRecord | None:
     """Coerce a SurrealDB row into the dict shape Graphiti parsers expect.
 
     SurrealDB returns records as Python dicts keyed by field name, with an
@@ -120,7 +121,7 @@ def normalize_record(record: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(record, dict):
         return None
-    out = dict(record)
+    out = {str(key): value for key, value in record.items()}
     out.pop("id", None)
     # Graphiti's entity_node_from_record mutates attributes in place, so we
     # always return a fresh mutable dict. Missing optional fields default
@@ -132,7 +133,7 @@ def normalize_record(record: Any) -> dict[str, Any] | None:
     return out
 
 
-def normalize_records(result: Any) -> list[dict[str, Any]]:
+def normalize_records(result: object) -> list[SurrealRecord]:
     """Coerce an ``execute_query`` result into a list of record dicts.
 
     SurrealDB SELECT statements return a list of dicts directly. This helper
@@ -145,7 +146,7 @@ def normalize_records(result: Any) -> list[dict[str, Any]]:
         single = normalize_record(result)
         return [single] if single is not None else []
     if isinstance(result, list):
-        out: list[dict[str, Any]] = []
+        out: list[SurrealRecord] = []
         for item in result:
             if isinstance(item, list):
                 # Nested list (eg. multi-statement leak); flatten one level.
@@ -156,10 +157,23 @@ def normalize_records(result: Any) -> list[dict[str, Any]]:
     return []
 
 
+def normalize_embedding(value: object) -> list[float] | None:
+    if not isinstance(value, list):
+        return None
+    embedding: list[float] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int | float):
+            return None
+        embedding.append(float(item))
+    return embedding
+
+
 __all__ = [
+    "SurrealRecord",
     "build_node_bulk_upsert_query",
     "build_node_upsert_query",
     "build_relation_save_query",
+    "normalize_embedding",
     "normalize_record",
     "normalize_records",
     "relation_record_id",

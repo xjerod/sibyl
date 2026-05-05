@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
 
 from graphiti_core.driver.operations.episode_node_ops import EpisodeNodeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
@@ -18,6 +17,7 @@ from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import EpisodicNode
 
 from sibyl_core.graph.surreal.ops._common import (
+    SurrealRecord,
     build_node_bulk_upsert_query,
     build_node_upsert_query,
     normalize_records,
@@ -58,7 +58,7 @@ _EPISODE_SAVE_BULK = build_node_bulk_upsert_query(
 )
 
 
-def _ensure_episode_fields(record: dict[str, Any]) -> dict[str, Any]:
+def _ensure_episode_fields(record: SurrealRecord) -> SurrealRecord:
     """Backfill option<> fields SurrealDB omits when they are NONE.
 
     ``episodic_node_from_record`` uses strict indexing; any missing
@@ -70,7 +70,7 @@ def _ensure_episode_fields(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def _episode_save_payload(node: EpisodicNode) -> dict[str, Any]:
+def _episode_save_payload(node: EpisodicNode) -> SurrealRecord:
     return {
         "uuid": node.uuid,
         "name": node.name,

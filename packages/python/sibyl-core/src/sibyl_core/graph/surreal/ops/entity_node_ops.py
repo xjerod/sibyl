@@ -9,7 +9,6 @@ Graphiti's open-world property model.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from graphiti_core.driver.operations.entity_node_ops import EntityNodeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
@@ -18,8 +17,10 @@ from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import EntityNode
 
 from sibyl_core.graph.surreal.ops._common import (
+    SurrealRecord,
     build_node_bulk_upsert_query,
     build_node_upsert_query,
+    normalize_embedding,
     normalize_records,
     run_query,
 )
@@ -74,19 +75,19 @@ _ENTITY_SAVE_BULK = build_node_bulk_upsert_query(
 )
 
 
-def _string_or_none(value: Any) -> str | None:
+def _string_or_none(value: object) -> str | None:
     if value is None or value == "":
         return None
     return str(value)
 
 
-def _string_list_or_none(value: Any) -> list[str] | None:
+def _string_list_or_none(value: object) -> list[str] | None:
     if not isinstance(value, list | tuple | set):
         return None
     return [str(item) for item in value if item is not None]
 
 
-def _entity_save_payload(node: EntityNode) -> dict[str, Any]:
+def _entity_save_payload(node: EntityNode) -> SurrealRecord:
     attributes = dict(node.attributes or {})
     return {
         "uuid": node.uuid,
@@ -266,7 +267,7 @@ class SurrealEntityNodeOperations(EntityNodeOperations):
         )
         if not records:
             raise NodeNotFoundError(node.uuid)
-        node.name_embedding = records[0].get("name_embedding")
+        node.name_embedding = normalize_embedding(records[0].get("name_embedding"))
 
     async def load_embeddings_bulk(
         self,
@@ -284,7 +285,11 @@ class SurrealEntityNodeOperations(EntityNodeOperations):
                 uuids=uuids,
             )
         )
-        embedding_map = {r["uuid"]: r.get("name_embedding") for r in records}
+        embedding_map = {
+            str(record["uuid"]): embedding
+            for record in records
+            if (embedding := normalize_embedding(record.get("name_embedding"))) is not None
+        }
         for node in nodes:
             if node.uuid in embedding_map:
                 node.name_embedding = embedding_map[node.uuid]

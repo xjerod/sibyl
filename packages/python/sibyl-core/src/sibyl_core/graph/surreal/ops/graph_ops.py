@@ -19,7 +19,6 @@ Implements Graphiti's ``GraphMaintenanceOperations`` contract:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from graphiti_core.driver.operations.graph_ops import GraphMaintenanceOperations
 from graphiti_core.driver.operations.graph_utils import Neighbor, label_propagation
@@ -35,6 +34,16 @@ from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
 from sibyl_core.graph.surreal.ops._common import normalize_records
 
 logger = logging.getLogger(__name__)
+
+
+def _count_value(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    return 0
 
 
 class SurrealGraphMaintenanceOperations(GraphMaintenanceOperations):
@@ -147,10 +156,12 @@ class SurrealGraphMaintenanceOperations(GraphMaintenanceOperations):
                 )
                 combined: dict[str, int] = {}
                 for row in (*neighbor_rows, *reverse_rows):
-                    uuid = row.get("uuid")
+                    uuid = str(row.get("uuid") or "")
                     if not uuid or uuid == node.uuid:
                         continue
-                    combined[uuid] = combined.get(uuid, 0) + int(row.get("count", 0))
+                    combined[uuid] = combined.get(uuid, 0) + _count_value(
+                        row.get("count")
+                    )
                 projection[node.uuid] = [
                     Neighbor(node_uuid=uuid, edge_count=count) for uuid, count in combined.items()
                 ]
@@ -249,7 +260,7 @@ class SurrealGraphMaintenanceOperations(GraphMaintenanceOperations):
         return [community_node_from_record(r) for r in community_rows]
 
 
-def _collect_record_ids(rows: Any, *, field: str) -> list[Any]:
+def _collect_record_ids(rows: object, *, field: str) -> list[object]:
     """Extract unique RecordID values from RELATION row projections.
 
     ``SELECT <field> FROM <relation>`` returns rows shaped like
@@ -260,11 +271,12 @@ def _collect_record_ids(rows: Any, *, field: str) -> list[Any]:
     if not isinstance(rows, list):
         return []
     seen: set[str] = set()
-    out: list[Any] = []
+    out: list[object] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-        record_id = row.get(field)
+        record = {str(key): value for key, value in row.items()}
+        record_id = record.get(field)
         if record_id is None:
             continue
         key = str(record_id)

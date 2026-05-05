@@ -10,7 +10,6 @@ we reconstruct the ``SagaNode`` inline from a normalized record dict.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from graphiti_core.driver.operations.saga_node_ops import SagaNodeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
@@ -19,6 +18,7 @@ from graphiti_core.helpers import parse_db_date
 from graphiti_core.nodes import SagaNode
 
 from sibyl_core.graph.surreal.ops._common import (
+    SurrealRecord,
     build_node_bulk_upsert_query,
     build_node_upsert_query,
     normalize_records,
@@ -37,7 +37,7 @@ _SAGA_SAVE_BULK = build_node_bulk_upsert_query(
 )
 
 
-def _saga_save_payload(node: SagaNode) -> dict[str, Any]:
+def _saga_save_payload(node: SagaNode) -> SurrealRecord:
     return {
         "uuid": node.uuid,
         "name": node.name,
@@ -47,11 +47,11 @@ def _saga_save_payload(node: SagaNode) -> dict[str, Any]:
     }
 
 
-def _saga_from_record(record: dict[str, Any]) -> SagaNode:
+def _saga_from_record(record: SurrealRecord) -> SagaNode:
     return SagaNode(
-        uuid=record["uuid"],
-        name=record["name"],
-        group_id=record["group_id"],
+        uuid=str(record["uuid"]),
+        name=str(record["name"]),
+        group_id=str(record["group_id"]),
         created_at=parse_db_date(record["created_at"]),  # type: ignore[arg-type]
     )
 

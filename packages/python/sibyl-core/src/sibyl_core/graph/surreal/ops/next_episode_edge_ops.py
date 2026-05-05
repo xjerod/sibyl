@@ -7,7 +7,6 @@ SurrealDB's ``next_episode`` RELATION table (episode -> episode sequence link).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from graphiti_core.driver.operations.next_episode_edge_ops import NextEpisodeEdgeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
@@ -16,6 +15,7 @@ from graphiti_core.errors import EdgeNotFoundError
 from graphiti_core.helpers import parse_db_date
 
 from sibyl_core.graph.surreal.ops._common import (
+    SurrealRecord,
     build_relation_save_query,
     normalize_records,
     relation_record_id,
@@ -31,12 +31,12 @@ TARGET_TABLE = "episode"
 _EDGE_SAVE = build_relation_save_query(EDGE_TABLE, ("uuid", "group_id", "created_at"))
 
 
-def _next_episode_edge_from_record(record: dict[str, Any]) -> NextEpisodeEdge:
+def _next_episode_edge_from_record(record: SurrealRecord) -> NextEpisodeEdge:
     return NextEpisodeEdge(
-        uuid=record["uuid"],
-        group_id=record["group_id"],
-        source_node_uuid=record["source_node_uuid"],
-        target_node_uuid=record["target_node_uuid"],
+        uuid=str(record["uuid"]),
+        group_id=str(record["group_id"]),
+        source_node_uuid=str(record["source_node_uuid"]),
+        target_node_uuid=str(record["target_node_uuid"]),
         created_at=parse_db_date(record["created_at"]),  # type: ignore[arg-type]
     )
 

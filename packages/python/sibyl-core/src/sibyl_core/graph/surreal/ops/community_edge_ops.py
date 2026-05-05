@@ -13,7 +13,6 @@ No shared record parser exists upstream for community edges; the inline
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from graphiti_core.driver.operations.community_edge_ops import CommunityEdgeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
@@ -22,6 +21,7 @@ from graphiti_core.errors import EdgeNotFoundError
 from graphiti_core.helpers import parse_db_date
 
 from sibyl_core.graph.surreal.ops._common import (
+    SurrealRecord,
     build_relation_save_query,
     normalize_records,
     relation_record_id,
@@ -53,12 +53,12 @@ _COMMUNITY_EDGE_SAVE = build_relation_save_query(
 )
 
 
-def _community_edge_from_record(record: dict[str, Any]) -> CommunityEdge:
+def _community_edge_from_record(record: SurrealRecord) -> CommunityEdge:
     return CommunityEdge(
-        uuid=record["uuid"],
-        group_id=record["group_id"],
-        source_node_uuid=record["source_node_uuid"],
-        target_node_uuid=record["target_node_uuid"],
+        uuid=str(record["uuid"]),
+        group_id=str(record["group_id"]),
+        source_node_uuid=str(record["source_node_uuid"]),
+        target_node_uuid=str(record["target_node_uuid"]),
         created_at=parse_db_date(record["created_at"]),  # type: ignore[arg-type]
     )
 
