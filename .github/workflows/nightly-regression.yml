@@ -16,6 +16,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  COMPOSE_PROJECT_NAME: sibyl-ci
+
 jobs:
   baseline-parity:
     name: Baseline Parity
@@ -39,24 +42,7 @@ jobs:
           fetch-depth: 0
 
       - name: Start SurrealDB
-        run: |
-          docker run --detach \
-            --name sibyl-surrealdb \
-            --publish 8000:8000 \
-            surrealdb/surrealdb:latest \
-            start --no-banner --log info --user root --pass root memory
-
-          for i in {1..30}; do
-            if docker exec sibyl-surrealdb /surreal is-ready --endpoint http://localhost:8000; then
-              echo "SurrealDB is ready!"
-              exit 0
-            fi
-            echo "Attempt $i: SurrealDB not ready yet..."
-            sleep 1
-          done
-
-          docker logs sibyl-surrealdb || true
-          exit 1
+        uses: ./.github/actions/start-surrealdb
 
       - name: Install system dependencies
         run: |
@@ -133,11 +119,7 @@ jobs:
           tail -n 200 /tmp/sibyl-worker.log || true
           echo ""
           echo "=== SurrealDB logs ==="
-          if docker ps --all --format '{{.Names}}' | grep -qx 'sibyl-surrealdb'; then
-            docker logs sibyl-surrealdb || true
-          else
-            echo "Could not find SurrealDB container"
-          fi
+          docker compose logs surrealdb || true
 
   live-graph:
     name: Live Graph Regression
@@ -163,24 +145,7 @@ jobs:
           fetch-depth: 0
 
       - name: Start SurrealDB
-        run: |
-          docker run --detach \
-            --name sibyl-surrealdb \
-            --publish 8000:8000 \
-            surrealdb/surrealdb:latest \
-            start --no-banner --log info --user root --pass root memory
-
-          for i in {1..30}; do
-            if docker exec sibyl-surrealdb /surreal is-ready --endpoint http://localhost:8000; then
-              echo "SurrealDB is ready!"
-              exit 0
-            fi
-            echo "Attempt $i: SurrealDB not ready yet..."
-            sleep 1
-          done
-
-          docker logs sibyl-surrealdb || true
-          exit 1
+        uses: ./.github/actions/start-surrealdb
 
       - name: Install system dependencies
         run: |

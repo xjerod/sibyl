@@ -18,17 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SIBYL_ENVIRONMENT: production
-  SIBYL_JWT_SECRET: test-secret-for-ci
-  SIBYL_STORE: surreal
-  SIBYL_AUTH_STORE: surreal
-  SIBYL_COORDINATION_BACKEND: local
-  SIBYL_SURREAL_URL: ws://localhost:8000/rpc
-  SIBYL_SURREAL_USERNAME: root
-  SIBYL_SURREAL_PASSWORD: root
-  SIBYL_OPENAI_API_KEY: sk-test-key
-  SIBYL_ANTHROPIC_API_KEY: sk-ant-test-key
-  SIBYL_MOCK_LLM: true
+  COMPOSE_PROJECT_NAME: sibyl-ci
 
 jobs:
   changes:
@@ -385,26 +375,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Start SurrealDB
-        run: |
-          docker run --detach \
-            --name sibyl-surrealdb \
-            --publish 8000:8000 \
-            surrealdb/surrealdb:latest \
-            start --no-banner --log info --user root --pass root memory
-
-          for i in {1..30}; do
-            if docker exec sibyl-surrealdb /surreal is-ready --endpoint http://localhost:8000; then
-              echo "SurrealDB is ready!"
-              exit 0
-            fi
-            echo "Attempt $i: SurrealDB not ready yet..."
-            sleep 1
-          done
-
-          docker logs sibyl-surrealdb || true
-          exit 1
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -471,30 +441,25 @@ jobs:
     if: needs.changes.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SIBYL_ENVIRONMENT: production
+      SIBYL_JWT_SECRET: test-secret-for-ci
+      SIBYL_STORE: surreal
+      SIBYL_AUTH_STORE: surreal
+      SIBYL_COORDINATION_BACKEND: local
+      SIBYL_SURREAL_URL: ws://localhost:8000/rpc
+      SIBYL_SURREAL_USERNAME: root
+      SIBYL_SURREAL_PASSWORD: root
+      SIBYL_OPENAI_API_KEY: sk-test-key
+      SIBYL_ANTHROPIC_API_KEY: sk-ant-test-key
+      SIBYL_MOCK_LLM: true
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Start SurrealDB
-        run: |
-          docker run --detach \
-            --name sibyl-surrealdb \
-            --publish 8000:8000 \
-            surrealdb/surrealdb:latest \
-            start --no-banner --log info --user root --pass root memory
-
-          for i in {1..30}; do
-            if docker exec sibyl-surrealdb /surreal is-ready --endpoint http://localhost:8000; then
-              echo "SurrealDB is ready!"
-              exit 0
-            fi
-            echo "Attempt $i: SurrealDB not ready yet..."
-            sleep 1
-          done
-
-          docker logs sibyl-surrealdb || true
-          exit 1
+        uses: ./.github/actions/start-surrealdb
 
       - name: Install system dependencies
         run: |
@@ -613,11 +578,7 @@ jobs:
           tail -n 200 /tmp/sibyl-web.log || true
           echo ""
           echo "=== SurrealDB logs ==="
-          if docker ps --all --format '{{.Names}}' | grep -qx 'sibyl-surrealdb'; then
-            docker logs sibyl-surrealdb || true
-          else
-            echo "Could not find SurrealDB container"
-          fi
+          docker compose logs surrealdb || true
 
   storybook:
     name: Storybook

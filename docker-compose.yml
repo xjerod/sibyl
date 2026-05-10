@@ -20,7 +20,7 @@ services:
         "${SIBYL_SURREAL_USERNAME:-root}",
         "--pass",
         "${SIBYL_SURREAL_PASSWORD:-root}",
-        "rocksdb:///data/sibyl.db",
+        "${SIBYL_SURREAL_PATH:-rocksdb:///data/sibyl.db}",
       ]
     ports:
       - "${SIBYL_SURREAL_PORT:-8000}:8000"
