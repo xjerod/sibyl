@@ -105,6 +105,10 @@ class CoreConfig(BaseSettings):
         default=SecretStr(""),
         description="OpenAI API key for embeddings",
     )
+    gemini_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Gemini API key for Google embeddings",
+    )
 
     # Auth primitives used by sibyl-core when the server package is absent.
     jwt_secret: SecretStr = Field(
@@ -148,6 +152,13 @@ class CoreConfig(BaseSettings):
             if fallback:
                 object.__setattr__(self, "openai_api_key", SecretStr(fallback))
 
+        if not self.gemini_api_key.get_secret_value():
+            fallback = os.environ.get("GEMINI_API_KEY", "") or os.environ.get(
+                "GOOGLE_API_KEY", ""
+            )
+            if fallback:
+                object.__setattr__(self, "gemini_api_key", SecretStr(fallback))
+
         if not self.jwt_secret.get_secret_value():
             fallback = os.environ.get("JWT_SECRET", "")
             if fallback:
@@ -159,16 +170,32 @@ class CoreConfig(BaseSettings):
         return self
 
     # Embedding configuration
+    embedding_provider: Literal["openai", "gemini"] = Field(
+        default="openai",
+        description="Provider for document chunk embeddings",
+    )
     embedding_model: str = Field(
         default="text-embedding-3-small",
-        description="OpenAI embedding model",
+        description="Document chunk embedding model",
     )
     embedding_dimensions: int = Field(
         default=1536,
-        description="Embedding vector dimensions",
+        ge=128,
+        le=3072,
+        description="Document chunk embedding vector dimensions",
+    )
+    graph_embedding_provider: Literal["openai", "gemini"] = Field(
+        default="openai",
+        description="Provider for graph node and relationship embeddings",
+    )
+    graph_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="Graph node and relationship embedding model",
     )
     graph_embedding_dimensions: int = Field(
         default=1024,
+        ge=128,
+        le=3072,
         description="Graph (Graphiti) embedding dimensions; sets EMBEDDING_DIM for vector search",
     )
     graphiti_semaphore_limit: int = Field(

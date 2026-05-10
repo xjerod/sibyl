@@ -107,10 +107,10 @@ async def test_connect_surreal_constructs_surreal_driver(monkeypatch) -> None:
     client = GraphClient()
 
     class FakeGraphiti:
-        def __init__(self, *, graph_driver, llm_client):
+        def __init__(self, *, graph_driver, llm_client, embedder):
             self.driver = graph_driver
             self.llm_client = llm_client
-            self.embedder = object()
+            self.embedder = embedder
 
         async def close(self) -> None:
             return None
@@ -131,6 +131,7 @@ async def test_connect_surreal_constructs_surreal_driver(monkeypatch) -> None:
         _graph_client.settings.surreal_token,
     )
     monkeypatch.setattr(client, "_create_llm_client", lambda: object())
+    monkeypatch.setattr(client, "_create_embedder", lambda: object())
 
     monkeypatch.setattr(graphiti_core, "Graphiti", FakeGraphiti)
     monkeypatch.setattr(
@@ -145,6 +146,21 @@ async def test_connect_surreal_constructs_surreal_driver(monkeypatch) -> None:
     assert client.driver.namespace_prefix == "tenant_"
     assert client.driver.default_database == "graph_test"
     assert client.is_connected is True
+
+
+def test_create_embedder_uses_gemini_runtime_env(monkeypatch) -> None:
+    client = GraphClient()
+
+    monkeypatch.setenv("SIBYL_GRAPH_EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("SIBYL_GRAPH_EMBEDDING_MODEL", "gemini-embedding-2")
+    monkeypatch.setenv("SIBYL_GRAPH_EMBEDDING_DIMENSIONS", "768")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+
+    embedder = client._create_embedder()
+
+    assert embedder.config.embedding_model == "gemini-embedding-2"
+    assert embedder.config.embedding_dim == 768
+    assert embedder.config.api_key == "gemini-key"
 
 
 def test_get_org_driver_reuses_same_clone_for_same_org() -> None:

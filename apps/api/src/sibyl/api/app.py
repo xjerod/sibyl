@@ -122,6 +122,12 @@ async def _bootstrap_surreal_runtime_schemas() -> bool:
     return await bootstrap_surreal_runtime_schemas()
 
 
+async def _load_runtime_settings_from_db() -> list[str]:
+    from sibyl.services.settings import load_runtime_settings_from_db
+
+    return await load_runtime_settings_from_db()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
     """Run migrations, pre-warm graph client, and start coordination backends."""
@@ -134,6 +140,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
         await _bootstrap_relational_sidecar_support()
 
     await _bootstrap_surreal_runtime_schemas()
+    await _load_runtime_settings_from_db()
 
     log.info("Pre-warming graph client connection...")
     try:

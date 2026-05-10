@@ -101,6 +101,9 @@ async def test_update_settings_uses_request_body_for_environment_updates(
         "_validate_anthropic_key",
         AsyncMock(return_value=(True, None)),
     )
+    monkeypatch.setattr(
+        settings_routes, "_validate_gemini_key", AsyncMock(return_value=(True, None))
+    )
     monkeypatch.setattr(settings_routes, "_try_reset_graph_client", AsyncMock())
 
     service = AsyncMock()
@@ -108,17 +111,30 @@ async def test_update_settings_uses_request_body_for_environment_updates(
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("SIBYL_GRAPH_EMBEDDING_PROVIDER", raising=False)
 
     body = settings_routes.UpdateSettingsRequest(
         openai_api_key="sk-openai-test",
         anthropic_api_key="sk-ant-test",
+        gemini_api_key="gemini-test",
+        graph_embedding_provider="gemini",
     )
 
     response = await settings_routes.update_settings(_request(), body=body)
 
     assert os.environ["OPENAI_API_KEY"] == "sk-openai-test"
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-test"
-    assert response.updated == ["openai_api_key", "anthropic_api_key"]
+    assert os.environ["GEMINI_API_KEY"] == "gemini-test"
+    assert os.environ["GOOGLE_API_KEY"] == "gemini-test"
+    assert os.environ["SIBYL_GRAPH_EMBEDDING_PROVIDER"] == "gemini"
+    assert response.updated == [
+        "openai_api_key",
+        "anthropic_api_key",
+        "gemini_api_key",
+        "graph_embedding_provider",
+    ]
 
 
 @pytest.mark.asyncio

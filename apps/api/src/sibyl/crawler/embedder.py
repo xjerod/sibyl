@@ -6,12 +6,19 @@ Uses OpenAI's text-embedding-3-small by default (1536 dimensions).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import structlog
+from google import genai
+from google.genai import types
 
 from sibyl.config import settings
 from sibyl.services.settings import get_settings_service
+from sibyl_core.embeddings.gemini import (
+    build_gemini_contents,
+    format_gemini_embedding_text,
+)
 
 if TYPE_CHECKING:
     from sibyl.crawler.chunker import Chunk
@@ -20,6 +27,15 @@ log = structlog.get_logger()
 
 # Type alias for embeddings
 Embedding = list[float]
+EmbeddingProvider = Literal["openai", "gemini"]
+EmbeddingInputKind = Literal["query", "document"]
+
+
+@dataclass(frozen=True)
+class ResolvedEmbeddingConfig:
+    provider: EmbeddingProvider
+    model: str
+    dimensions: int
 
 
 class EmbeddingService:
@@ -43,17 +59,61 @@ class EmbeddingService:
             dimensions: Embedding dimensions (default from settings)
             batch_size: Number of texts to embed in parallel
         """
-        self.model = model or settings.embedding_model
-        self.dimensions = dimensions or settings.embedding_dimensions
+        self.model = model
+        self.dimensions = dimensions
         self.batch_size = batch_size
         self._client: object | None = None
+        self._client_provider: EmbeddingProvider | None = None
 
-    async def _get_client(self) -> object:
-        """Lazily initialize the OpenAI client."""
-        if self._client is None:
+    async def _resolve_config(self) -> ResolvedEmbeddingConfig:
+        service = get_settings_service()
+        raw_provider = await service.get("embedding_provider")
+        provider = self._normalize_provider(raw_provider or settings.embedding_provider)
+
+        raw_model = self.model or await service.get("embedding_model")
+        model = raw_model or self._default_model(provider)
+
+        raw_dimensions = self.dimensions or await service.get("embedding_dimensions")
+        dimensions = int(raw_dimensions or settings.embedding_dimensions)
+
+        return ResolvedEmbeddingConfig(
+            provider=provider,
+            model=model,
+            dimensions=dimensions,
+        )
+
+    @staticmethod
+    def _normalize_provider(provider: str) -> EmbeddingProvider:
+        if provider == "openai":
+            return "openai"
+        if provider == "gemini":
+            return "gemini"
+        raise ValueError(f"Unsupported embedding provider: {provider}")
+
+    @staticmethod
+    def _default_model(provider: EmbeddingProvider) -> str:
+        if provider == "gemini":
+            return "gemini-embedding-2"
+        return settings.embedding_model
+
+    async def _get_client(self, config: ResolvedEmbeddingConfig) -> object:
+        """Lazily initialize the configured provider client."""
+        if self._client is None or self._client_provider != config.provider:
+            service = get_settings_service()
+            self._client_provider = config.provider
+
+            if config.provider == "gemini":
+                api_key = await service.get_gemini_key()
+                if not api_key:
+                    raise ValueError(
+                        "Gemini API key not configured (set via UI or SIBYL_GEMINI_API_KEY)"
+                    )
+
+                self._client = genai.Client(api_key=api_key)
+                return self._client
+
             from openai import AsyncOpenAI
 
-            service = get_settings_service()
             api_key = await service.get_openai_key()
             if not api_key:
                 raise ValueError(
@@ -73,16 +133,53 @@ class EmbeddingService:
         Returns:
             Embedding vector
         """
-        client = await self._get_client()
+        config = await self._resolve_config()
 
-        # Include context in embedding if present
-        response = await client.embeddings.create(  # type: ignore[union-attr]
-            model=self.model,
-            input=text,
-            dimensions=self.dimensions,
+        return (await self._embed_texts_with_config([text], config, kind="query"))[0]
+
+    async def _embed_texts_with_config(
+        self,
+        texts: list[str],
+        config: ResolvedEmbeddingConfig,
+        *,
+        kind: EmbeddingInputKind,
+        titles: list[str | None] | None = None,
+    ) -> list[Embedding]:
+        client = await self._get_client(config)
+
+        if config.provider == "gemini":
+            gemini_client = cast("Any", client)
+            formatted = [
+                format_gemini_embedding_text(
+                    text,
+                    model=config.model,
+                    kind=kind,
+                    title=titles[index] if titles else None,
+                )
+                for index, text in enumerate(texts)
+            ]
+            response = await gemini_client.aio.models.embed_content(
+                model=config.model,
+                contents=build_gemini_contents(formatted),
+                config=types.EmbedContentConfig(output_dimensionality=config.dimensions),
+            )
+            if not response.embeddings:
+                raise ValueError("No embeddings returned from Gemini API")
+            embeddings = []
+            for embedding in response.embeddings:
+                if not embedding.values:
+                    raise ValueError("Empty embedding returned from Gemini API")
+                embeddings.append(embedding.values)
+            return embeddings
+
+        openai_client = cast("Any", client)
+        response = await openai_client.embeddings.create(
+            model=config.model,
+            input=texts if len(texts) > 1 else texts[0],
+            dimensions=config.dimensions,
         )
-
-        return response.data[0].embedding
+        batch_embeddings = sorted(response.data, key=lambda x: x.index)
+        return [e.embedding for e in batch_embeddings]
 
     async def embed_texts(self, texts: list[str]) -> list[Embedding]:
         """Generate embeddings for multiple texts.
@@ -98,22 +195,16 @@ class EmbeddingService:
         if not texts:
             return []
 
-        client = await self._get_client()
+        config = await self._resolve_config()
         embeddings: list[Embedding] = []
 
         # Process in batches
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i : i + self.batch_size]
 
-            response = await client.embeddings.create(  # type: ignore[union-attr]
-                model=self.model,
-                input=batch,
-                dimensions=self.dimensions,
+            embeddings.extend(
+                await self._embed_texts_with_config(batch, config, kind="document")
             )
-
-            # Ensure correct ordering
-            batch_embeddings = sorted(response.data, key=lambda x: x.index)
-            embeddings.extend([e.embedding for e in batch_embeddings])
 
             log.debug(
                 "Embedded batch",
@@ -137,6 +228,7 @@ class EmbeddingService:
         """
         # Build text for each chunk, including context if available
         texts = []
+        titles: list[str | None] = []
         for chunk in chunks:
             if chunk.context:
                 # Prepend context for better retrieval
@@ -144,8 +236,26 @@ class EmbeddingService:
             else:
                 text = chunk.content
             texts.append(text)
+            titles.append(" / ".join(chunk.heading_path) or None)
 
-        return await self.embed_texts(texts)
+        if not texts:
+            return []
+
+        config = await self._resolve_config()
+        embeddings: list[Embedding] = []
+        for i in range(0, len(texts), self.batch_size):
+            batch = texts[i : i + self.batch_size]
+            title_batch = titles[i : i + self.batch_size]
+            embeddings.extend(
+                await self._embed_texts_with_config(
+                    batch,
+                    config,
+                    kind="document",
+                    titles=title_batch,
+                )
+            )
+
+        return embeddings
 
 
 # Module-level service instance (lazy initialization)

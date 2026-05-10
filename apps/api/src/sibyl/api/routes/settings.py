@@ -48,6 +48,7 @@ class SettingInfo(BaseModel):
     source: str = Field(description="Where the value comes from: database, environment, or none")
     is_secret: bool = Field(description="True if this is a sensitive value")
     masked: str | None = Field(default=None, description="Masked value for display (secrets only)")
+    value: str | None = Field(default=None, description="Plain value for non-secret settings")
 
 
 class SettingsResponse(BaseModel):
@@ -61,6 +62,21 @@ class UpdateSettingsRequest(BaseModel):
 
     openai_api_key: str | None = Field(default=None, description="OpenAI API key")
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API key")
+    gemini_api_key: str | None = Field(default=None, description="Gemini API key")
+    embedding_provider: str | None = Field(
+        default=None, pattern="^(openai|gemini)$", description="Document embedding provider"
+    )
+    embedding_model: str | None = Field(default=None, description="Document embedding model")
+    embedding_dimensions: int | None = Field(
+        default=None, ge=128, le=3072, description="Document embedding dimensions"
+    )
+    graph_embedding_provider: str | None = Field(
+        default=None, pattern="^(openai|gemini)$", description="Graph embedding provider"
+    )
+    graph_embedding_model: str | None = Field(default=None, description="Graph embedding model")
+    graph_embedding_dimensions: int | None = Field(
+        default=None, ge=128, le=3072, description="Graph embedding dimensions"
+    )
 
 
 class UpdateSettingsResponse(BaseModel):
@@ -131,6 +147,67 @@ async def _validate_anthropic_key(key: str) -> tuple[bool, str | None]:
         return False, str(e)
 
 
+async def _validate_gemini_key(key: str) -> tuple[bool, str | None]:
+    """Validate Gemini API key by calling the embeddings endpoint."""
+    if not key:
+        return False, "No API key provided"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://generativelanguage.googleapis.com/v1beta/"
+                "models/gemini-embedding-2:embedContent",
+                headers={
+                    "x-goog-api-key": key,
+                    "content-type": "application/json",
+                },
+                json={
+                    "content": {"parts": [{"text": "sibyl api key validation"}]},
+                    "outputDimensionality": 128,
+                },
+            )
+            if response.status_code == 200:
+                return True, None
+            if response.status_code in (400, 401, 403):
+                return False, "Invalid API key"
+            return False, f"API error: {response.status_code}"
+    except httpx.TimeoutException:
+        return False, "Connection timeout"
+    except Exception as e:
+        log.warning("Gemini validation failed", error=str(e))
+        return False, str(e)
+
+
+_SETTING_ENV_WRITES: dict[str, tuple[str, ...]] = {
+    "openai_api_key": ("OPENAI_API_KEY",),
+    "anthropic_api_key": ("ANTHROPIC_API_KEY",),
+    "gemini_api_key": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "embedding_provider": ("SIBYL_EMBEDDING_PROVIDER",),
+    "embedding_model": ("SIBYL_EMBEDDING_MODEL",),
+    "embedding_dimensions": ("SIBYL_EMBEDDING_DIMENSIONS",),
+    "graph_embedding_provider": ("SIBYL_GRAPH_EMBEDDING_PROVIDER",),
+    "graph_embedding_model": ("SIBYL_GRAPH_EMBEDDING_MODEL",),
+    "graph_embedding_dimensions": ("SIBYL_GRAPH_EMBEDDING_DIMENSIONS",),
+}
+
+_SETTING_DESCRIPTIONS = {
+    "openai_api_key": "OpenAI API key for embeddings and LLM operations",
+    "anthropic_api_key": "Anthropic API key for Claude models",
+    "gemini_api_key": "Gemini API key for Google embeddings",
+    "embedding_provider": "Document chunk embedding provider",
+    "embedding_model": "Document chunk embedding model",
+    "embedding_dimensions": "Document chunk embedding dimensions",
+    "graph_embedding_provider": "Graph embedding provider",
+    "graph_embedding_model": "Graph embedding model",
+    "graph_embedding_dimensions": "Graph embedding dimensions",
+}
+
+
+def _write_runtime_env(key: str, value: object) -> None:
+    for env_var in _SETTING_ENV_WRITES.get(key, ()):
+        os.environ[env_var] = str(value)
+
+
 @router.get("", response_model=SettingsResponse)
 async def get_settings(
     request: Request,
@@ -155,6 +232,7 @@ async def get_settings(
                 source=info["source"],
                 is_secret=info["is_secret"],
                 masked=info["masked"],
+                value=info.get("value"),
             )
             for key, info in all_settings.items()
         }
@@ -218,8 +296,46 @@ async def update_settings(
         else:
             log.warning("Anthropic key validation failed", error=error)
 
-    # If API keys were updated, reset the GraphClient so it reconnects with new keys
-    # The global singleton is reused, so existing connections would use stale keys
+    # Validate and save Gemini key
+    if body.gemini_api_key is not None:
+        valid, error = await _validate_gemini_key(body.gemini_api_key)
+        validation["gemini_api_key"] = {"valid": valid, "error": error}
+
+        if valid:
+            await service.set(
+                "gemini_api_key",
+                body.gemini_api_key,
+                is_secret=True,
+                description=_SETTING_DESCRIPTIONS["gemini_api_key"],
+            )
+            updated.append("gemini_api_key")
+            _write_runtime_env("gemini_api_key", body.gemini_api_key)
+            log.info("Updated Gemini API key in environment")
+        else:
+            log.warning("Gemini key validation failed", error=error)
+
+    for key in (
+        "embedding_provider",
+        "embedding_model",
+        "embedding_dimensions",
+        "graph_embedding_provider",
+        "graph_embedding_model",
+        "graph_embedding_dimensions",
+    ):
+        value = getattr(body, key)
+        if value is None:
+            continue
+        await service.set(
+            key,
+            str(value),
+            is_secret=False,
+            description=_SETTING_DESCRIPTIONS[key],
+        )
+        updated.append(key)
+        _write_runtime_env(key, value)
+
+    # If API keys or graph embedding settings were updated, reset the GraphClient
+    # so it reconnects with fresh provider/model/key configuration.
     if updated:
         await _try_reset_graph_client(f"API key update keys={updated}")
 
@@ -248,12 +364,12 @@ async def delete_setting(
 
     if deleted:
         # Clear from environment and reset GraphClient if this was an API key
-        if key in ("openai_api_key", "anthropic_api_key"):
-            env_key = "OPENAI_API_KEY" if key == "openai_api_key" else "ANTHROPIC_API_KEY"
+        if key in _SETTING_ENV_WRITES:
             # Note: This clears the env var even if it was externally set. Since webapp users
             # typically configure keys via UI (not external env), this is the expected behavior.
             # If external env vars need to be preserved, track DB-loaded keys at startup.
-            os.environ.pop(env_key, None)
+            for env_key in _SETTING_ENV_WRITES[key]:
+                os.environ.pop(env_key, None)
             await _try_reset_graph_client(f"API key deletion key={key}")
 
         return DeleteSettingResponse(

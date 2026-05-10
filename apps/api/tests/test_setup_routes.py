@@ -16,6 +16,7 @@ async def test_get_setup_status_uses_runtime_status_and_validates_keys(
     service = AsyncMock()
     service.get_openai_key.return_value = "sk-openai"
     service.get_anthropic_key.return_value = None
+    service.get_gemini_key.return_value = "gemini-key"
 
     monkeypatch.setattr(
         setup_routes,
@@ -25,6 +26,7 @@ async def test_get_setup_status_uses_runtime_status_and_validates_keys(
     monkeypatch.setattr(setup_routes, "get_settings_service", lambda: service)
     monkeypatch.setattr(setup_routes, "_check_openai_key", AsyncMock(return_value=(True, None)))
     monkeypatch.setattr(setup_routes, "_check_anthropic_key", AsyncMock(return_value=(False, None)))
+    monkeypatch.setattr(setup_routes, "_check_gemini_key", AsyncMock(return_value=(True, None)))
 
     response = await setup_routes.get_setup_status(validate_keys=True)
 
@@ -33,8 +35,10 @@ async def test_get_setup_status_uses_runtime_status_and_validates_keys(
     assert response.has_orgs is False
     assert response.openai_configured is True
     assert response.anthropic_configured is False
+    assert response.gemini_configured is True
     assert response.openai_valid is True
     assert response.anthropic_valid is None
+    assert response.gemini_valid is True
 
 
 @pytest.mark.asyncio
@@ -44,6 +48,7 @@ async def test_get_setup_status_uses_surreal_setup_runtime_in_surreal_mode(
     service = AsyncMock()
     service.get_openai_key.return_value = None
     service.get_anthropic_key.return_value = None
+    service.get_gemini_key.return_value = None
 
     surreal_status = AsyncMock(return_value=SetupStatus(has_users=True, has_orgs=True))
     legacy_status = AsyncMock(side_effect=AssertionError("legacy setup status should not run"))
@@ -69,6 +74,7 @@ async def test_update_config_persists_and_reports_current_state(
     service = AsyncMock()
     service.get_openai_key.return_value = "sk-openai"
     service.get_anthropic_key.return_value = "sk-anthropic"
+    service.get_gemini_key.return_value = "gemini-key"
 
     monkeypatch.setattr(setup_routes, "get_settings_service", lambda: service)
     monkeypatch.setattr(setup_routes, "_check_openai_key", AsyncMock(return_value=(True, None)))
@@ -77,17 +83,20 @@ async def test_update_config_persists_and_reports_current_state(
         "_check_anthropic_key",
         AsyncMock(return_value=(False, "Invalid API key")),
     )
+    monkeypatch.setattr(setup_routes, "_check_gemini_key", AsyncMock(return_value=(True, None)))
 
     response = await setup_routes.update_config(
         setup_routes.ConfigUpdateRequest(
             openai_api_key="sk-openai",
             anthropic_api_key="sk-anthropic",
+            gemini_api_key="gemini-key",
         )
     )
 
     assert response.success is True
     assert response.openai_valid is True
     assert response.anthropic_valid is False
+    assert response.gemini_valid is True
     assert response.anthropic_error == "Invalid API key"
     service.set.assert_any_await(
         "openai_api_key",
@@ -101,12 +110,20 @@ async def test_update_config_persists_and_reports_current_state(
         is_secret=True,
         description="Anthropic API key for Claude-powered extraction workflows",
     )
+    service.set.assert_any_await(
+        "gemini_api_key",
+        "gemini-key",
+        is_secret=True,
+        description="Gemini API key for Google embeddings",
+    )
 
 
 @pytest.mark.asyncio
 async def test_get_config_status_uses_settings_service(monkeypatch: pytest.MonkeyPatch) -> None:
     service = AsyncMock()
-    service.get_with_source = AsyncMock(side_effect=[("sk-openai", "database"), (None, "none")])
+    service.get_with_source = AsyncMock(
+        side_effect=[("sk-openai", "database"), (None, "none"), ("gemini-key", "environment")]
+    )
 
     monkeypatch.setattr(setup_routes, "get_settings_service", lambda: service)
 
@@ -114,5 +131,7 @@ async def test_get_config_status_uses_settings_service(monkeypatch: pytest.Monke
 
     assert response.openai_configured is True
     assert response.anthropic_configured is False
+    assert response.gemini_configured is True
     assert response.openai_source == "database"
     assert response.anthropic_source == "none"
+    assert response.gemini_source == "environment"

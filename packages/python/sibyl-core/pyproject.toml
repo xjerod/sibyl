@@ -29,7 +29,8 @@ classifiers = [
 
 dependencies = [
     # Knowledge Graph
-    "graphiti-core[falkordb,anthropic]>=0.28.2",
+    "graphiti-core[falkordb,anthropic,google-genai]>=0.28.2",
+    "google-genai>=2.0.1",
     # Data & Validation
     "pydantic>=2.0",
     "pydantic-settings>=2.0",

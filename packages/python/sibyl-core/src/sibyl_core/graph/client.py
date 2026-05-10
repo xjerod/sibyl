@@ -127,6 +127,7 @@ from sibyl_core.utils.resilience import GRAPH_RETRY, TIMEOUTS, retry, with_timeo
 if TYPE_CHECKING:
     from graphiti_core import Graphiti
     from graphiti_core.driver.driver import GraphDriver
+    from graphiti_core.embedder.client import EmbedderClient
     from graphiti_core.llm_client import LLMClient
 
 log = structlog.get_logger()
@@ -191,10 +192,77 @@ class GraphClient:
         return OpenAIClient(config=config)
 
     def _prepare_embedder_env(self) -> None:
-        """Ensure Graphiti's OpenAI embedder sees the configured API key."""
+        """Ensure provider SDKs see configured API keys."""
         openai_key = settings.openai_api_key.get_secret_value()
         if openai_key and not os.getenv("OPENAI_API_KEY"):
             os.environ["OPENAI_API_KEY"] = openai_key
+
+        gemini_key = settings.gemini_api_key.get_secret_value()
+        if gemini_key:
+            os.environ.setdefault("GEMINI_API_KEY", gemini_key)
+            os.environ.setdefault("GOOGLE_API_KEY", gemini_key)
+
+    def _graph_embedding_provider(self) -> str:
+        return os.getenv("SIBYL_GRAPH_EMBEDDING_PROVIDER") or settings.graph_embedding_provider
+
+    def _graph_embedding_model(self) -> str:
+        env_model = os.getenv("SIBYL_GRAPH_EMBEDDING_MODEL")
+        if env_model:
+            return env_model
+        if (
+            self._graph_embedding_provider() == "gemini"
+            and settings.graph_embedding_model == "text-embedding-3-small"
+        ):
+            return "gemini-embedding-2"
+        return settings.graph_embedding_model
+
+    def _graph_embedding_dimensions(self) -> int:
+        raw = os.getenv("SIBYL_GRAPH_EMBEDDING_DIMENSIONS")
+        if raw:
+            return int(raw)
+        return settings.graph_embedding_dimensions
+
+    def _create_embedder(self) -> "EmbedderClient":
+        provider = self._graph_embedding_provider()
+        model = self._graph_embedding_model()
+        dimensions = self._graph_embedding_dimensions()
+
+        if provider == "gemini":
+            from sibyl_core.graph.gemini_embedder import (
+                SibylGeminiEmbedder,
+                SibylGeminiEmbedderConfig,
+            )
+
+            api_key = (
+                os.getenv("SIBYL_GEMINI_API_KEY", "")
+                or os.getenv("GEMINI_API_KEY", "")
+                or os.getenv("GOOGLE_API_KEY", "")
+                or settings.gemini_api_key.get_secret_value()
+            )
+            log.debug("Using Gemini graph embedder", model=model, dimensions=dimensions)
+            return SibylGeminiEmbedder(
+                config=SibylGeminiEmbedderConfig(
+                    api_key=api_key or None,
+                    embedding_model=model,
+                    embedding_dim=dimensions,
+                )
+            )
+
+        from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
+
+        api_key = (
+            os.getenv("SIBYL_OPENAI_API_KEY", "")
+            or os.getenv("OPENAI_API_KEY", "")
+            or settings.openai_api_key.get_secret_value()
+        )
+        log.debug("Using OpenAI graph embedder", model=model, dimensions=dimensions)
+        return OpenAIEmbedder(
+            config=OpenAIEmbedderConfig(
+                api_key=api_key or None,
+                embedding_model=model,
+                embedding_dim=dimensions,
+            )
+        )
 
     def _wrap_graphiti_embedder_cache(self) -> None:
         """Wrap Graphiti's embedder with a small LRU cache."""
@@ -270,9 +338,10 @@ class GraphClient:
             llm_client = self._create_llm_client()
 
             self._prepare_embedder_env()
+            embedder = self._create_embedder()
 
             # Initialize Graphiti with the driver and LLM client
-            self._client = Graphiti(graph_driver=driver, llm_client=llm_client)
+            self._client = Graphiti(graph_driver=driver, llm_client=llm_client, embedder=embedder)
 
             self._wrap_graphiti_embedder_cache()
 
@@ -316,7 +385,8 @@ class GraphClient:
             llm_client = self._create_llm_client()
 
             self._prepare_embedder_env()
-            self._client = Graphiti(graph_driver=driver, llm_client=llm_client)
+            embedder = self._create_embedder()
+            self._client = Graphiti(graph_driver=driver, llm_client=llm_client, embedder=embedder)
             self._wrap_graphiti_embedder_cache()
 
             self._connected = True
@@ -478,9 +548,10 @@ class GraphClient:
 
         # Create vector index for Entity nodes (required for cosine similarity search)
         # FalkorDB vector index syntax - idempotent (fails silently if exists)
-        vector_index_query = """
+        graph_embedding_dimensions = self._graph_embedding_dimensions()
+        vector_index_query = f"""
             CREATE VECTOR INDEX FOR (n:Entity) ON (n.name_embedding)
-            OPTIONS {dimension: 1536, similarityFunction: 'cosine'}
+            OPTIONS {{dimension: {graph_embedding_dimensions}, similarityFunction: 'cosine'}}
         """
         try:
             await driver.execute_query(vector_index_query)

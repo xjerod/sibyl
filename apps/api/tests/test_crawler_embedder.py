@@ -1,0 +1,99 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from sibyl.crawler import embedder as embedder_module
+from sibyl.crawler.chunker import Chunk
+from sibyl.crawler.embedder import EmbeddingService
+
+
+class FakeSettingsService:
+    def __init__(self, values: dict[str, str | None]) -> None:
+        self.values = values
+
+    async def get(self, key: str) -> str | None:
+        return self.values.get(key)
+
+    async def get_gemini_key(self) -> str | None:
+        return self.values.get("gemini_api_key")
+
+
+@pytest.mark.asyncio
+async def test_gemini_embed_text_formats_query_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(
+            models=SimpleNamespace(
+                embed_content=AsyncMock(
+                    return_value=SimpleNamespace(
+                        embeddings=[SimpleNamespace(values=[0.1, 0.2, 0.3])]
+                    )
+                )
+            )
+        )
+    )
+    service = FakeSettingsService(
+        {
+            "embedding_provider": "gemini",
+            "embedding_model": "gemini-embedding-2",
+            "embedding_dimensions": "768",
+            "gemini_api_key": "gemini-key",
+        }
+    )
+
+    monkeypatch.setattr(embedder_module, "get_settings_service", lambda: service)
+    monkeypatch.setattr(embedder_module.genai, "Client", lambda api_key: fake_client)
+
+    embedding = await EmbeddingService().embed_text("find vector search docs")
+
+    assert embedding == [0.1, 0.2, 0.3]
+    call = fake_client.aio.models.embed_content.await_args.kwargs
+    assert call["model"] == "gemini-embedding-2"
+    assert call["contents"][0].parts[0].text == (
+        "task: search result | query: find vector search docs"
+    )
+    assert call["config"].output_dimensionality == 768
+
+
+@pytest.mark.asyncio
+async def test_gemini_embed_chunks_formats_document_titles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(
+            models=SimpleNamespace(
+                embed_content=AsyncMock(
+                    return_value=SimpleNamespace(
+                        embeddings=[SimpleNamespace(values=[0.4, 0.5, 0.6])]
+                    )
+                )
+            )
+        )
+    )
+    service = FakeSettingsService(
+        {
+            "embedding_provider": "gemini",
+            "embedding_model": "gemini-embedding-2",
+            "embedding_dimensions": "1536",
+            "gemini_api_key": "gemini-key",
+        }
+    )
+
+    monkeypatch.setattr(embedder_module, "get_settings_service", lambda: service)
+    monkeypatch.setattr(embedder_module.genai, "Client", lambda api_key: fake_client)
+
+    chunks = [
+        Chunk(
+            content="Chunk body",
+            context="Surrounding context",
+            heading_path=["Guide", "Embeddings"],
+        )
+    ]
+
+    embeddings = await EmbeddingService().embed_chunks(chunks)
+
+    assert embeddings == [[0.4, 0.5, 0.6]]
+    call = fake_client.aio.models.embed_content.await_args.kwargs
+    assert call["contents"][0].parts[0].text == (
+        "title: Guide / Embeddings | text: Surrounding context\n\nChunk body"
+    )

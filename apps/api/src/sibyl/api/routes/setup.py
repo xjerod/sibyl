@@ -34,11 +34,15 @@ class SetupStatus(BaseModel):
     has_orgs: bool = Field(description="True if at least one org exists")
     openai_configured: bool = Field(description="True if OpenAI API key is set")
     anthropic_configured: bool = Field(description="True if Anthropic API key is set")
+    gemini_configured: bool = Field(description="True if Gemini API key is set")
     openai_valid: bool | None = Field(
         default=None, description="True if OpenAI key works (only checked if configured)"
     )
     anthropic_valid: bool | None = Field(
         default=None, description="True if Anthropic key works (only checked if configured)"
+    )
+    gemini_valid: bool | None = Field(
+        default=None, description="True if Gemini key works (only checked if configured)"
     )
 
 
@@ -47,10 +51,12 @@ class ApiKeyValidation(BaseModel):
 
     openai_valid: bool = Field(description="True if OpenAI API key works")
     anthropic_valid: bool = Field(description="True if Anthropic API key works")
+    gemini_valid: bool = Field(description="True if Gemini API key works")
     openai_error: str | None = Field(default=None, description="Error message if OpenAI fails")
     anthropic_error: str | None = Field(
         default=None, description="Error message if Anthropic fails"
     )
+    gemini_error: str | None = Field(default=None, description="Error message if Gemini fails")
 
 
 async def _check_openai_key(key: str | None = None) -> tuple[bool, str | None]:
@@ -126,6 +132,45 @@ async def _check_anthropic_key(key: str | None = None) -> tuple[bool, str | None
         return False, str(e)
 
 
+async def _check_gemini_key(key: str | None = None) -> tuple[bool, str | None]:
+    """Validate Gemini API key by calling the embeddings endpoint.
+
+    Args:
+        key: API key to validate. If None, fetches from SettingsService.
+    """
+    if key is None:
+        service = get_settings_service()
+        key = await service.get_gemini_key()
+
+    if not key:
+        return False, "No API key configured"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://generativelanguage.googleapis.com/v1beta/"
+                "models/gemini-embedding-2:embedContent",
+                headers={
+                    "x-goog-api-key": key,
+                    "content-type": "application/json",
+                },
+                json={
+                    "content": {"parts": [{"text": "sibyl api key validation"}]},
+                    "outputDimensionality": 128,
+                },
+            )
+            if response.status_code == 200:
+                return True, None
+            if response.status_code in (400, 401, 403):
+                return False, "Invalid API key"
+            return False, f"API error: {response.status_code}"
+    except httpx.TimeoutException:
+        return False, "Connection timeout"
+    except Exception as e:
+        log.warning("Gemini validation failed", error=str(e))
+        return False, str(e)
+
+
 @router.get("/status", response_model=SetupStatus)
 async def get_setup_status(
     validate_keys: bool = False,
@@ -146,18 +191,23 @@ async def get_setup_status(
     service = get_settings_service()
     openai_key = await service.get_openai_key()
     anthropic_key = await service.get_anthropic_key()
+    gemini_key = await service.get_gemini_key()
     openai_configured = bool(openai_key)
     anthropic_configured = bool(anthropic_key)
+    gemini_configured = bool(gemini_key)
 
     # Optionally validate keys work
     openai_valid: bool | None = None
     anthropic_valid: bool | None = None
+    gemini_valid: bool | None = None
 
     if validate_keys:
         if openai_configured:
             openai_valid, _ = await _check_openai_key(openai_key)
         if anthropic_configured:
             anthropic_valid, _ = await _check_anthropic_key(anthropic_key)
+        if gemini_configured:
+            gemini_valid, _ = await _check_gemini_key(gemini_key)
 
     return SetupStatus(
         needs_setup=not setup_status.has_users,
@@ -165,8 +215,10 @@ async def get_setup_status(
         has_orgs=setup_status.has_orgs,
         openai_configured=openai_configured,
         anthropic_configured=anthropic_configured,
+        gemini_configured=gemini_configured,
         openai_valid=openai_valid,
         anthropic_valid=anthropic_valid,
+        gemini_valid=gemini_valid,
     )
 
 
@@ -186,12 +238,15 @@ async def validate_api_keys() -> ApiKeyValidation:
     """
     openai_valid, openai_error = await _check_openai_key()
     anthropic_valid, anthropic_error = await _check_anthropic_key()
+    gemini_valid, gemini_error = await _check_gemini_key()
 
     return ApiKeyValidation(
         openai_valid=openai_valid,
         anthropic_valid=anthropic_valid,
+        gemini_valid=gemini_valid,
         openai_error=openai_error,
         anthropic_error=anthropic_error,
+        gemini_error=gemini_error,
     )
 
 
@@ -224,6 +279,9 @@ class ConfigUpdateRequest(BaseModel):
     anthropic_api_key: str | None = Field(
         default=None, description="Anthropic API key (leave empty to keep existing)"
     )
+    gemini_api_key: str | None = Field(
+        default=None, description="Gemini API key (leave empty to keep existing)"
+    )
 
 
 class ConfigUpdateResponse(BaseModel):
@@ -232,16 +290,21 @@ class ConfigUpdateResponse(BaseModel):
     success: bool = Field(description="True if config was updated")
     openai_configured: bool = Field(description="True if OpenAI key is now configured")
     anthropic_configured: bool = Field(description="True if Anthropic key is now configured")
+    gemini_configured: bool = Field(description="True if Gemini key is now configured")
     openai_valid: bool | None = Field(
         default=None, description="True if OpenAI key works (validated if provided)"
     )
     anthropic_valid: bool | None = Field(
         default=None, description="True if Anthropic key works (validated if provided)"
     )
+    gemini_valid: bool | None = Field(
+        default=None, description="True if Gemini key works (validated if provided)"
+    )
     openai_error: str | None = Field(default=None, description="Error if OpenAI validation failed")
     anthropic_error: str | None = Field(
         default=None, description="Error if Anthropic validation failed"
     )
+    gemini_error: str | None = Field(default=None, description="Error if Gemini validation failed")
 
 
 @router.post("/config", response_model=ConfigUpdateResponse)
@@ -261,8 +324,10 @@ async def update_config(
 
     openai_valid: bool | None = None
     anthropic_valid: bool | None = None
+    gemini_valid: bool | None = None
     openai_error: str | None = None
     anthropic_error: str | None = None
+    gemini_error: str | None = None
 
     # Update OpenAI key if provided
     if body.openai_api_key is not None:
@@ -286,18 +351,32 @@ async def update_config(
         )
         log.info("Anthropic API key updated", valid=anthropic_valid)
 
+    if body.gemini_api_key is not None:
+        gemini_valid, gemini_error = await _check_gemini_key(body.gemini_api_key)
+        await service.set(
+            "gemini_api_key",
+            body.gemini_api_key,
+            is_secret=True,
+            description="Gemini API key for Google embeddings",
+        )
+        log.info("Gemini API key updated", valid=gemini_valid)
+
     # Get current config state
     openai_key = await service.get_openai_key()
     anthropic_key = await service.get_anthropic_key()
+    gemini_key = await service.get_gemini_key()
 
     return ConfigUpdateResponse(
         success=True,
         openai_configured=bool(openai_key),
         anthropic_configured=bool(anthropic_key),
+        gemini_configured=bool(gemini_key),
         openai_valid=openai_valid,
         anthropic_valid=anthropic_valid,
+        gemini_valid=gemini_valid,
         openai_error=openai_error,
         anthropic_error=anthropic_error,
+        gemini_error=gemini_error,
     )
 
 
@@ -306,10 +385,12 @@ class ConfigStatusResponse(BaseModel):
 
     openai_configured: bool = Field(description="True if OpenAI key is configured")
     anthropic_configured: bool = Field(description="True if Anthropic key is configured")
+    gemini_configured: bool = Field(description="True if Gemini key is configured")
     openai_source: str = Field(description="Source of OpenAI key: database, environment, or none")
     anthropic_source: str = Field(
         description="Source of Anthropic key: database, environment, or none"
     )
+    gemini_source: str = Field(description="Source of Gemini key: database, environment, or none")
 
 
 @router.get("/config", response_model=ConfigStatusResponse)
@@ -328,10 +409,13 @@ async def get_config_status(
 
     openai_value, openai_source = await service.get_with_source("openai_api_key")
     anthropic_value, anthropic_source = await service.get_with_source("anthropic_api_key")
+    gemini_value, gemini_source = await service.get_with_source("gemini_api_key")
 
     return ConfigStatusResponse(
         openai_configured=bool(openai_value),
         anthropic_configured=bool(anthropic_value),
+        gemini_configured=bool(gemini_value),
         openai_source=openai_source,
         anthropic_source=anthropic_source,
+        gemini_source=gemini_source,
     )

@@ -38,10 +38,17 @@ _CACHE_TTL = 60
 _SETTING_ENV_VARS: dict[str, list[str]] = {
     "openai_api_key": ["SIBYL_OPENAI_API_KEY", "OPENAI_API_KEY"],
     "anthropic_api_key": ["SIBYL_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"],
+    "gemini_api_key": ["SIBYL_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    "embedding_provider": ["SIBYL_EMBEDDING_PROVIDER"],
+    "embedding_model": ["SIBYL_EMBEDDING_MODEL"],
+    "embedding_dimensions": ["SIBYL_EMBEDDING_DIMENSIONS"],
+    "graph_embedding_provider": ["SIBYL_GRAPH_EMBEDDING_PROVIDER"],
+    "graph_embedding_model": ["SIBYL_GRAPH_EMBEDDING_MODEL"],
+    "graph_embedding_dimensions": ["SIBYL_GRAPH_EMBEDDING_DIMENSIONS"],
 }
 
 # Settings that should be encrypted
-_SECRET_SETTINGS = {"openai_api_key", "anthropic_api_key"}
+_SECRET_SETTINGS = {"openai_api_key", "anthropic_api_key", "gemini_api_key"}
 
 
 class _CacheEntry:
@@ -316,6 +323,10 @@ class SettingsService:
         """Get the Anthropic API key."""
         return await self.get("anthropic_api_key")
 
+    async def get_gemini_key(self) -> str | None:
+        """Get the Gemini API key."""
+        return await self.get("gemini_api_key")
+
 
 # Global service instance (initialized lazily)
 _settings_service: SettingsService | None = None
@@ -339,30 +350,43 @@ def reset_settings_service() -> None:
     _settings_service = None
 
 
-async def load_api_keys_from_db() -> list[str]:
-    """Load API keys from database into environment variables.
+async def load_runtime_settings_from_db() -> list[str]:
+    """Load runtime settings from database into environment variables.
 
-    Only loads keys that are not already set in the environment.
+    Only loads values that are not already set in the environment.
     This should be called at startup before GraphClient is initialized.
 
     Returns:
-        List of keys that were loaded from the database.
+        List of settings that were loaded from the database.
     """
     loaded: list[str] = []
     settings_svc = get_settings_service()
 
-    for setting_key, env_var in [
-        ("openai_api_key", "OPENAI_API_KEY"),
-        ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+    for setting_key, env_vars in [
+        ("openai_api_key", ["OPENAI_API_KEY"]),
+        ("anthropic_api_key", ["ANTHROPIC_API_KEY"]),
+        ("gemini_api_key", ["GEMINI_API_KEY", "GOOGLE_API_KEY"]),
+        ("embedding_provider", ["SIBYL_EMBEDDING_PROVIDER"]),
+        ("embedding_model", ["SIBYL_EMBEDDING_MODEL"]),
+        ("embedding_dimensions", ["SIBYL_EMBEDDING_DIMENSIONS"]),
+        ("graph_embedding_provider", ["SIBYL_GRAPH_EMBEDDING_PROVIDER"]),
+        ("graph_embedding_model", ["SIBYL_GRAPH_EMBEDDING_MODEL"]),
+        ("graph_embedding_dimensions", ["SIBYL_GRAPH_EMBEDDING_DIMENSIONS"]),
     ]:
         try:
-            if not os.environ.get(env_var):
-                key = await settings_svc.get(setting_key)
-                if key:
-                    os.environ[env_var] = key
+            if not any(os.environ.get(env_var) for env_var in env_vars):
+                value = await settings_svc.get(setting_key)
+                if value:
+                    for env_var in env_vars:
+                        os.environ.setdefault(env_var, value)
                     loaded.append(setting_key)
                     log.debug(f"Loaded {setting_key} from database settings")
         except Exception as e:
             log.warning(f"Failed to load {setting_key} from database", error=str(e))
 
     return loaded
+
+
+async def load_api_keys_from_db() -> list[str]:
+    """Load persisted runtime settings into environment variables."""
+    return await load_runtime_settings_from_db()
