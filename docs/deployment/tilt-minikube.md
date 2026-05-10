@@ -1,379 +1,148 @@
-# Tilt + Minikube Deployment
+# Tilt + Local Kubernetes
 
-Local Kubernetes development with Tilt for hot-reload and automatic rebuilds.
+Local Kubernetes development with Tilt for a small scalable Sibyl fleet.
 
-> **Note:** The current Tiltfile targets OrbStack by default (`k8s_context('orbstack')`). Adjust the
-> `k8s_context()` call in the Tiltfile if using Minikube.
+The current Tiltfile targets Minikube by default because the image builds use
+`minikube image build`. Override with `SIBYL_K8S_CONTEXT` only if you also adapt the image builder.
 
 ## Architecture
 
+```text
+Gateway API + cert-manager + Kong
+        |
+        v
+Sibyl frontend x2
+Sibyl backend  x2  -> SurrealDB x2 -> TiKV/PD x3
+Sibyl worker   x2  -> Valkey x3
 ```
-+------------------------------- Minikube Cluster --------------------------------+
-|                                                                                  |
-|  +------------------+     +------------------+     +------------------+          |
-|  |  Kong Operator   |     |  CNPG Operator   |     |  cert-manager    |          |
-|  |  (kong-system)   |     | (cnpg-system)    |     | (cert-manager)   |          |
-|  +--------+---------+     +--------+---------+     +--------+---------+          |
-|           |                        |                        |                    |
-|  +--------v---------+     +--------v---------+              |                    |
-|  |  Kong Gateway    |     |    PostgreSQL    |              |                    |
-|  |  (kong)          |     |    (sibyl)       |              |                    |
-|  +--------+---------+     +------------------+              |                    |
-|           |                                                 |                    |
-|  +--------v--------------------------------------------+    |                    |
-|  |                    sibyl namespace                   |    |                    |
-|  |  +----------+  +----------+  +----------+           |    |                    |
-|  |  | Backend  |  | Frontend |  |  Worker  |           |    |                    |
-|  |  +----------+  +----------+  +----------+           |    |                    |
-|  |  +------------------+                               |    |                    |
-|  |  |    FalkorDB      |                               |    |                    |
-|  |  +------------------+                               |    |                    |
-|  +-----------------------------------------------------+    |                    |
-|                                                              |                    |
-+------------------------------ sibyl.local -------------------+--------------------+
-                                    ^
-                                    |
-                     +--------------+---------------+
-                     |   Caddy Proxy (localhost)    |
-                     |   :443 -> Kong :8000         |
-                     +------------------------------+
-                                    ^
-                                    |
-                          https://sibyl.local
-```
+
+SurrealDB is the unified graph, content, and auth store. TiKV is the distributed storage engine for
+SurrealDB. Valkey is the coordination layer for arq jobs, distributed entity locks, WebSocket
+pub/sub, and shared rate limits.
+
+Legacy FalkorDB and PostgreSQL are not deployed by Tilt.
 
 ## Prerequisites
 
-Install the following tools:
-
 ```bash
-# macOS with Homebrew
 brew install minikube kubectl helm tilt caddy
 
-# Verify installations
-minikube version
 kubectl version --client
 helm version
 tilt version
-caddy version
+podman --version # or docker version
 ```
+
+For Minikube, give the demo enough room:
+
+```bash
+minikube start --cpus=6 --memory=12288 --driver=docker
+```
+
+Tilt builds images with Podman when available and falls back to Docker, then loads the image archive
+into Minikube.
 
 ## Quick Start
 
 ```bash
-# 1. Start your Kubernetes environment
-# If using Minikube:
-minikube start --cpus=4 --memory=8192 --driver=docker
-# If using OrbStack: no separate start needed (OrbStack manages the cluster)
+export SIBYL_JWT_SECRET="$(openssl rand -hex 32)"
+export SIBYL_SURREAL_PASSWORD="sibyl-local-dev"
+export SIBYL_REDIS_PASSWORD="sibyl-local-dev"
+export ANTHROPIC_API_KEY="sk-ant-..."
 
-# 2. Export API keys (picked up by Tiltfile)
-export OPENAI_API_KEY=sk-...
-# or
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# 3. Add sibyl.local to /etc/hosts
 echo "127.0.0.1 sibyl.local" | sudo tee -a /etc/hosts
 
-# 4. Start Tilt
 tilt up
 ```
 
-Open http://localhost:10350 to see the Tilt dashboard.
+Open the Tilt dashboard at `http://localhost:10350`.
 
-## Components Deployed
+## Components
 
-The Tiltfile orchestrates deployment of:
+| Component | Namespace | Source |
+| --- | --- | --- |
+| Gateway API CRDs | cluster | upstream Gateway API manifest |
+| cert-manager | `cert-manager` | `jetstack/cert-manager` |
+| Kong Operator | `kong-system` | `kong/kong-operator` |
+| TiDB Operator | `tidb-admin` | `pingcap/tidb-operator` |
+| TiKV/PD | `sibyl` | `infra/local/tidb-cluster.yaml` |
+| SurrealDB | `sibyl` | `surrealdb/surrealdb` |
+| Valkey | `sibyl` | `valkey/valkey` |
+| Sibyl | `sibyl` | `charts/sibyl` |
+| Caddy | local process | `infra/local/Caddyfile` |
 
-| Component          | Namespace    | Purpose                         |
-| ------------------ | ------------ | ------------------------------- |
-| Gateway API CRDs   | -            | Kubernetes Gateway API          |
-| cert-manager       | cert-manager | TLS certificate management      |
-| Kong Operator      | kong-system  | API Gateway operator            |
-| Kong Gateway       | kong         | Ingress/routing                 |
-| CNPG Operator      | cnpg-system  | PostgreSQL operator             |
-| PostgreSQL Cluster | sibyl        | CNPG-managed database           |
-| FalkorDB           | sibyl        | Graph database                  |
-| Sibyl Backend      | sibyl        | FastAPI + MCP server            |
-| Sibyl Frontend     | sibyl        | Next.js UI                      |
-| Sibyl Worker       | sibyl        | arq job processor               |
-| Caddy Proxy        | localhost    | TLS termination for sibyl.local |
+## Replica Shape
 
-## Secrets Configuration
+| Layer | Local demo shape |
+| --- | --- |
+| PD | 3 pods |
+| TiKV | 3 pods |
+| SurrealDB | 2 pods |
+| Valkey | 1 primary + 2 replicas |
+| Sibyl backend | 2 pods |
+| Sibyl worker | 2 pods |
+| Sibyl frontend | 2 pods |
 
-The Tiltfile automatically creates secrets from environment variables:
+## Values Files
 
-```python
-# From Tiltfile - reads from environment
-openai_key = os.getenv("SIBYL_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
-anthropic_key = os.getenv("SIBYL_ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
-jwt_secret = os.getenv("SIBYL_JWT_SECRET", "dev-jwt-secret-for-local-development-only")
-```
+- `infra/local/tidb-cluster.yaml` defines the TiKV/PD cluster.
+- `infra/local/surrealdb-values.yaml` points SurrealDB at `tikv://sibyl-tikv-pd:2379`.
+- `infra/local/valkey-values.yaml` configures the official Valkey chart with ACL auth and replicas.
+- `infra/local/sibyl-values.yaml` sets `store: surreal`, `authStore: surreal`, and
+  `coordinationBackend: redis`.
 
-For production-like secrets:
+## Access
 
-```bash
-export SIBYL_JWT_SECRET=$(openssl rand -hex 32)
-export SIBYL_OPENAI_API_KEY=sk-...
-export SIBYL_ANTHROPIC_API_KEY=sk-ant-...
-```
+With Caddy and Kong running:
 
-## Accessing Services
+| URL | Service |
+| --- | --- |
+| `https://sibyl.local` | Frontend UI |
+| `https://sibyl.local/api/docs` | API docs |
+| `https://sibyl.local/api/*` | REST API |
+| `https://sibyl.local/mcp` | MCP |
 
-### Via sibyl.local (Recommended)
-
-With Caddy proxy running (started by Tilt):
-
-| URL                          | Service           |
-| ---------------------------- | ----------------- |
-| https://sibyl.local          | Frontend UI       |
-| https://sibyl.local/api/docs | API Documentation |
-| https://sibyl.local/api/*    | REST API          |
-| https://sibyl.local/mcp      | MCP Protocol      |
-
-### Direct Port-Forward
-
-If you need direct access to services:
+Direct port-forwarding:
 
 ```bash
-# Backend API
 kubectl port-forward -n sibyl svc/sibyl-backend 3334:3334
-
-# Frontend
 kubectl port-forward -n sibyl svc/sibyl-frontend 3337:3337
-
-# FalkorDB
-kubectl port-forward -n sibyl svc/falkordb-redis-master 6379:6379
-
-# PostgreSQL
-kubectl port-forward -n sibyl svc/sibyl-postgres-rw 5432:5432
+kubectl port-forward -n sibyl svc/surrealdb 8000:8000
+kubectl port-forward -n sibyl svc/valkey 6379:6379
 ```
 
-## Tilt Dashboard
-
-The Tilt UI at http://localhost:10350 shows:
-
-- **Resources**: All deployed components with status
-- **Logs**: Aggregated logs from all services
-- **Build status**: Image build progress
-- **Trigger buttons**: Manual rebuild/restart
-
-### Resource Groups
-
-- **infrastructure**: Gateway API CRDs, cert-manager, Kong, CNPG, FalkorDB
-- **application**: Backend, Frontend, Worker
-- **networking**: Kong port-forward, Caddy proxy
-- **tools**: Convenience commands
-
-## Configuration
-
-### Local Values Override
-
-The `infra/local/sibyl-values.yaml` configures Sibyl for local development:
-
-```yaml
-backend:
-  image:
-    repository: sibyl-backend
-    pullPolicy: Never # Use local images
-    tag: dev
-
-  existingSecret: sibyl-secrets
-
-  database:
-    existingSecret: sibyl-postgres-app # CNPG auto-generated
-
-  falkordb:
-    host: falkordb-redis-master
-    port: "6379"
-    existingSecret: sibyl-falkordb
-
-  env:
-    SIBYL_ENVIRONMENT: "development"
-    SIBYL_PUBLIC_URL: "https://sibyl.local"
-    SIBYL_LLM_PROVIDER: "anthropic"
-    SIBYL_LLM_MODEL: "claude-haiku-4-5"
-
-  # Relaxed security for local dev
-  podSecurityContext:
-    runAsNonRoot: false
-  securityContext:
-    readOnlyRootFilesystem: false
-
-frontend:
-  image:
-    repository: sibyl-frontend
-    pullPolicy: Never
-    tag: dev
-
-  env:
-    NODE_ENV: "development"
-    SIBYL_API_URL: "http://sibyl-backend:3334/api"
-```
-
-### Skip Infrastructure
-
-To skip infrastructure deployment (use existing databases):
+## Checks
 
 ```bash
-tilt up -- --skip-infra
+kubectl get tidbcluster -n sibyl sibyl-tikv
+kubectl get pods -n sibyl
+kubectl get deploy -n sibyl sibyl-backend sibyl-worker sibyl-frontend
+kubectl get statefulset -n sibyl valkey
+kubectl get svc -n sibyl surrealdb valkey
 ```
 
-## Development Workflow
-
-### Rebuild Backend
-
-After code changes, Tilt automatically detects and rebuilds. For manual trigger:
-
-1. Click "backend" in Tilt UI
-2. Click "Trigger Update"
-
-Or use the CLI:
+SurrealDB:
 
 ```bash
-tilt trigger backend
+kubectl port-forward -n sibyl svc/surrealdb 8000:8000
+surreal sql \
+  --conn http://localhost:8000 \
+  --user root \
+  --pass "$SIBYL_SURREAL_PASSWORD"
 ```
 
-### View Logs
-
-In Tilt UI, click on any resource to see its logs.
-
-Or via kubectl:
+Valkey:
 
 ```bash
-kubectl logs -n sibyl -l app.kubernetes.io/component=backend -f
-```
-
-### Shell into Pod
-
-```bash
-kubectl exec -it -n sibyl deploy/sibyl-backend -- /bin/bash
-```
-
-## Database Access
-
-### PostgreSQL
-
-CNPG creates a secret with credentials:
-
-```bash
-# Get connection info
-kubectl get secret -n sibyl sibyl-postgres-app -o yaml
-
-# Connect via psql
-kubectl exec -it -n sibyl sibyl-postgres-1 -- psql -U sibyl sibyl
-```
-
-### FalkorDB
-
-```bash
-kubectl exec -it -n sibyl falkordb-0 -- redis-cli -a sibyl-local-dev
-```
-
-## Kong Gateway
-
-HTTPRoutes define routing:
-
-```yaml
-# infra/local/kong/httproutes.yaml
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: sibyl-api
-  namespace: sibyl
-spec:
-  parentRefs:
-    - name: sibyl-gateway
-      namespace: kong
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /api
-      backendRefs:
-        - name: sibyl-backend
-          port: 3334
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /mcp
-      backendRefs:
-        - name: sibyl-backend
-          port: 3334
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: sibyl-frontend
-  namespace: sibyl
-spec:
-  parentRefs:
-    - name: sibyl-gateway
-      namespace: kong
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - name: sibyl-frontend
-          port: 3337
+kubectl port-forward -n sibyl svc/valkey 6379:6379
+valkey-cli -a "$SIBYL_REDIS_PASSWORD" ping
 ```
 
 ## Cleanup
 
 ```bash
-# Stop Tilt (Ctrl+C in terminal running tilt up)
-
-# Delete all resources but keep minikube
 tilt down
-
-# Delete minikube entirely
-minikube delete
 ```
 
-## Troubleshooting
-
-### Tilt Stuck on Infrastructure
-
-Infrastructure deployment can take 3-5 minutes on first run. Check the Tilt UI for progress.
-
-### Kong Gateway Not Ready
-
-```bash
-# Check Kong operator
-kubectl get pods -n kong-system
-
-# Check gateway
-kubectl get gateway -n kong
-
-# Check dataplane
-kubectl get pods -n kong
-```
-
-### CNPG Database Not Starting
-
-```bash
-# Check operator
-kubectl get pods -n cnpg-system
-
-# Check cluster status
-kubectl get cluster -n sibyl sibyl-postgres
-
-# Check postgres pods
-kubectl get pods -n sibyl -l cnpg.io/cluster=sibyl-postgres
-```
-
-### Can't Reach sibyl.local
-
-1. Verify /etc/hosts entry: `grep sibyl.local /etc/hosts`
-2. Check Caddy proxy is running in Tilt UI
-3. Check Kong port-forward is running in Tilt UI
-4. Trust the Caddy CA certificate (macOS):
-   ```bash
-   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.local/share/caddy/pki/authorities/local/root.crt
-   ```
-
-## Next Steps
-
-- [Kubernetes Production Deployment](kubernetes.md)
-- [Helm Chart Reference](helm-chart.md)
+TiKV persistent volumes use `Retain` in the local manifest so the demo survives pod churn. Delete
+PVCs manually when you want a clean datastore.

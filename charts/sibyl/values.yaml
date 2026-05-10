@@ -121,7 +121,7 @@ backend:
     httpGet:
       path: /api/health
       port: http
-    initialDelaySeconds: 10
+    initialDelaySeconds: 60
     periodSeconds: 30
 
   # -- Readiness probe configuration
@@ -141,6 +141,10 @@ backend:
     SIBYL_LLM_MODEL: "claude-haiku-4-5"
     SIBYL_EMBEDDING_MODEL: "text-embedding-3-small"
     SIBYL_EMBEDDING_DIMENSIONS: "1536"
+    OPENBLAS_NUM_THREADS: "1"
+    OMP_NUM_THREADS: "1"
+    MKL_NUM_THREADS: "1"
+    NUMEXPR_NUM_THREADS: "1"
 
   # -- Reference to existing secret for sensitive env vars
   # Must contain: SIBYL_JWT_SECRET, SIBYL_OPENAI_API_KEY, SIBYL_ANTHROPIC_API_KEY
@@ -192,6 +196,25 @@ backend:
     port: "6379"
     # -- Reference to secret containing SIBYL_FALKORDB_PASSWORD
     existingSecret: ""
+
+  # -- Redis/Valkey connection settings (used when coordinationBackend is "redis")
+  redis:
+    # -- Redis/Valkey host
+    host: "valkey"
+    # -- Redis/Valkey port
+    port: "6379"
+    # -- Redis database number for arq job queue
+    jobsDb: "1"
+    # -- Redis database number for API rate limits
+    rateLimitDb: "4"
+    # -- Reference to secret containing Redis/Valkey password
+    existingSecret: ""
+    # -- Secret key containing the password
+    secretKey: "password"
+    # -- Inline password (not recommended; prefer existingSecret)
+    password: ""
+    # -- Shared rate-limit storage URL. Leave empty to derive a redis:// URL from host/port/rateLimitDb.
+    rateLimitStorage: ""
 
   # -- Pod annotations
   podAnnotations: {}

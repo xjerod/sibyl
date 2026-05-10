@@ -137,6 +137,18 @@ spec:
                   key: password
                   {{- end }}
             {{- end }}
+            {{- if eq .Values.coordinationBackend "redis" }}
+            - name: SIBYL_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.backend.redis.existingSecret }}
+                  name: {{ .Values.backend.redis.existingSecret }}
+                  key: {{ .Values.backend.redis.secretKey | default "password" }}
+                  {{- else }}
+                  name: {{ include "sibyl.fullname" . }}-redis
+                  key: password
+                  {{- end }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
           readinessProbe:

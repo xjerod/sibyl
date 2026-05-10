@@ -2,8 +2,8 @@
 # Sibyl Local Development with Tilt
 # Run with: tilt up
 
-# Force minikube context
-k8s_context('orbstack')
+# The scalable local stack uses minikube image builds by default.
+k8s_context(os.getenv('SIBYL_K8S_CONTEXT', 'minikube'))
 
 # Increase timeout for large charts and suppress known-intentional image warnings.
 update_settings(
@@ -17,14 +17,36 @@ load('ext://helm_resource', 'helm_resource', 'helm_repo')
 config.define_bool("skip-infra")
 cfg = config.parse()
 
+
+def minikube_image_build_cmd(dockerfile):
+    return '''
+        set -eu
+        image_ref="docker.io/$EXPECTED_IMAGE:$EXPECTED_TAG"
+        archive="$(mktemp -t sibyl-image.XXXXXX.tar)"
+        cleanup() {
+            rm -f "$archive"
+        }
+        trap cleanup EXIT
+
+        if command -v podman >/dev/null 2>&1; then
+            podman build -t "$image_ref" -f ''' + dockerfile + ''' .
+            podman save "$image_ref" -o "$archive"
+            minikube image load "$archive"
+        else
+            docker build -t "$image_ref" -f ''' + dockerfile + ''' .
+            minikube image load --daemon "$image_ref"
+        fi
+    '''
+
 # =============================================================================
 # HELM REPOSITORIES
 # =============================================================================
 
-helm_repo('cnpg', 'https://cloudnative-pg.github.io/charts')
-helm_repo('bitnami', 'https://charts.bitnami.com/bitnami')
 helm_repo('kong', 'https://charts.konghq.com')
 helm_repo('jetstack', 'https://charts.jetstack.io')
+helm_repo('surrealdb-helm', 'https://helm.surrealdb.com')
+helm_repo('pingcap', 'https://charts.pingcap.org')
+helm_repo('valkey-helm', 'https://valkey-io.github.io/valkey-helm')
 
 # =============================================================================
 # INFRASTRUCTURE
@@ -94,6 +116,8 @@ if not cfg.get("skip-infra"):
     openai_key = os.getenv("SIBYL_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
     anthropic_key = os.getenv("SIBYL_ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
     jwt_secret = os.getenv("SIBYL_JWT_SECRET", "dev-jwt-secret-for-local-development-only")
+    surreal_password = os.getenv("SIBYL_SURREAL_PASSWORD", "sibyl-local-dev")
+    redis_password = os.getenv("SIBYL_REDIS_PASSWORD", "sibyl-local-dev")
 
     if not openai_key and not anthropic_key:
         warn("⚠️  No API keys found! Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable.")
@@ -109,19 +133,22 @@ stringData:
   SIBYL_JWT_SECRET: "{jwt_secret}"
   SIBYL_OPENAI_API_KEY: "{openai_key}"
   SIBYL_ANTHROPIC_API_KEY: "{anthropic_key}"
----
-# Note: Database password comes from CNPG auto-generated secret (sibyl-postgres-app)
----
-# FalkorDB credentials (used by both FalkorDB StatefulSet and Sibyl apps)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: sibyl-falkordb
-  namespace: sibyl
-type: Opaque
-stringData:
-  password: "sibyl-local-dev"
-""".format(jwt_secret=jwt_secret, openai_key=openai_key, anthropic_key=anthropic_key)))
+  SIBYL_SURREAL_PASSWORD: "{surreal_password}"
+  SIBYL_REDIS_PASSWORD: "{redis_password}"
+""".format(
+    jwt_secret=jwt_secret,
+    openai_key=openai_key,
+    anthropic_key=anthropic_key,
+    surreal_password=surreal_password,
+    redis_password=redis_password,
+)))
+
+    k8s_resource(
+        objects=['sibyl-secrets:secret:sibyl'],
+        new_name='sibyl-secrets',
+        labels=['infrastructure'],
+        pod_readiness='ignore',
+    )
 
     # -------------------------------------------------------------------------
     # Kong Operator
@@ -163,51 +190,78 @@ stringData:
 
     # Kong Gateway DataPlane is created dynamically by Kong operator
     # Tilt will auto-discover it once created
-    # Access via: kubectl port-forward -n kong svc/dataplane-sibyl-gateway-proxy 8080:80 8443:443
+    # Access via: kubectl port-forward -n kong svc/<ingress service> 18080:80
 
-    # -------------------------------------------------------------------------
-    # CNPG Operator
-    # -------------------------------------------------------------------------
+    local_resource(
+        'tidb-crds',
+        cmd='''
+        kubectl apply --server-side --force-conflicts -f https://raw.githubusercontent.com/pingcap/tidb-operator/v1.6.5/manifests/crd.yaml
+        kubectl wait --for=condition=Established crd/tidbclusters.pingcap.com --timeout=120s
+        ''',
+        allow_parallel=True,
+    )
+
     helm_resource(
-        'cnpg-operator',
-        chart='cnpg/cloudnative-pg',
-        namespace='cnpg-system',
+        'tidb-operator',
+        chart='pingcap/tidb-operator',
+        namespace='tidb-admin',
         flags=[
             '--create-namespace',
             '--wait',
-            '--timeout=5m'
+            '--timeout=5m',
+            '--version=v1.6.5',
+            '--set=scheduler.create=false',
         ],
-        resource_deps=['gateway-api-crds']  # Parallel with Kong - only needs CRDs for timing
+        resource_deps=['tidb-crds'],
     )
 
-    # PostgreSQL Cluster
-    local_resource(
-        'postgres',
-        cmd='''
-        echo "⏳ Waiting for CNPG operator..."
-        kubectl wait --for=condition=available --timeout=120s \
-            deployment/cnpg-operator-cloudnative-pg \
-            -n cnpg-system
-
-        echo "✅ Applying PostgreSQL cluster..."
-        kubectl apply -f infra/local/postgres-cluster.yaml
-        ''',
-        deps=['infra/local/postgres-cluster.yaml'],
-        resource_deps=['cnpg-operator'],
-        trigger_mode=TRIGGER_MODE_AUTO
-    )
-
-    # -------------------------------------------------------------------------
-    # FalkorDB (direct deployment - Bitnami chart conflicts with FalkorDB image)
-    # -------------------------------------------------------------------------
-    k8s_yaml("infra/local/falkordb.yaml")
+    k8s_yaml("infra/local/tidb-cluster.yaml")
 
     k8s_resource(
-        workload='falkordb',
+        objects=['sibyl-tikv'],
+        new_name='sibyl-tikv',
         labels=['infrastructure'],
-        # No port-forward - FalkorDB stays in-cluster only
-        # Use Docker Compose FalkorDB for standalone local dev
-        resource_deps=['gateway-api-crds']  # Parallel with Kong/CNPG - just needs namespace
+        resource_deps=['tidb-operator'],
+        pod_readiness='ignore',
+    )
+
+    local_resource(
+        'tikv-ready',
+        cmd='''
+        kubectl wait --for=jsonpath='{.status.pd.statefulSet.readyReplicas}'=3 tidbcluster/sibyl-tikv -n sibyl --timeout=15m
+        kubectl wait --for=jsonpath='{.status.tikv.statefulSet.readyReplicas}'=3 tidbcluster/sibyl-tikv -n sibyl --timeout=15m
+        ''',
+        deps=['infra/local/tidb-cluster.yaml'],
+        labels=['infrastructure'],
+        resource_deps=['sibyl-tikv'],
+    )
+
+    helm_resource(
+        'surrealdb',
+        chart='surrealdb-helm/surrealdb',
+        namespace='sibyl',
+        flags=[
+            '--create-namespace',
+            '--wait',
+            '--timeout=5m',
+            '--version=0.4.0',
+            '--values=infra/local/surrealdb-values.yaml',
+        ],
+        resource_deps=['tikv-ready', 'sibyl-secrets']
+    )
+
+    helm_resource(
+        'valkey',
+        chart='valkey-helm/valkey',
+        namespace='sibyl',
+        flags=[
+            '--create-namespace',
+            '--wait',
+            '--timeout=5m',
+            '--version=0.9.4',
+            '--values=infra/local/valkey-values.yaml',
+        ],
+        resource_deps=['sibyl-secrets']
     )
 
 
@@ -215,11 +269,10 @@ stringData:
 # APPLICATION: Backend
 # =============================================================================
 
-docker_build(
+custom_build(
     'sibyl-backend',
-    context='.',
-    dockerfile='apps/api/Dockerfile',
-    only=[
+    minikube_image_build_cmd('apps/api/Dockerfile'),
+    deps=[
         'pyproject.toml',
         'uv.lock',
         'VERSION',
@@ -227,6 +280,7 @@ docker_build(
         'apps/api/',
         'packages/python/sibyl-core/',
     ],
+    skips_local_docker=True,
 )
 
 k8s_yaml(
@@ -238,7 +292,7 @@ k8s_yaml(
     )
 )
 
-backend_deps = ['postgres', 'falkordb'] if not cfg.get('skip-infra') else []
+backend_deps = ['surrealdb', 'valkey'] if not cfg.get('skip-infra') else []
 k8s_resource(
     workload='sibyl-backend',
     new_name='backend',
@@ -248,41 +302,20 @@ k8s_resource(
     trigger_mode=TRIGGER_MODE_MANUAL,
 )
 
-# Migration — runs alembic via kubectl exec on the backend pod.
-# The Helm hook Job is disabled for local dev (Tilt can't reapply immutable Jobs).
-local_resource(
-    'migrate',
-    cmd='''
-    POD=$(kubectl get pod -n sibyl -l app.kubernetes.io/component=backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-    if [ -z "$POD" ]; then
-        echo "❌ No backend pod found — is the backend running?"
-        exit 1
-    fi
-    echo "🔄 Running alembic upgrade head on $POD..."
-    kubectl exec -n sibyl "$POD" -- alembic upgrade head
-    echo "✅ Migration complete"
-    ''',
-    labels=['application'],
-    resource_deps=['backend'],
-    auto_init=False,
-    trigger_mode=TRIGGER_MODE_MANUAL,
-)
-
-
 # =============================================================================
 # APPLICATION: Frontend
 # =============================================================================
 
-docker_build(
+custom_build(
     'sibyl-frontend',
-    context='.',
-    dockerfile='apps/web/Dockerfile',
-    only=[
+    minikube_image_build_cmd('apps/web/Dockerfile'),
+    deps=[
         'VERSION',
         'pnpm-lock.yaml',
         'pnpm-workspace.yaml',
         'apps/web/',
     ],
+    skips_local_docker=True,
 )
 
 frontend_deps = ['backend'] if not cfg.get('skip-infra') else ['backend']
@@ -313,7 +346,7 @@ k8s_resource(
 # LOCAL ACCESS: Port-forward + Caddy Proxy
 # =============================================================================
 
-# Port-forward Kong ingress to localhost:8000 (avoids port 80 conflicts)
+# Port-forward Kong ingress to localhost:18080 (avoids port 80 and SurrealDB 8000 conflicts)
 local_resource(
     'kong-port-forward',
     serve_cmd='''
@@ -323,8 +356,8 @@ local_resource(
     done
     SVC=$(kubectl get svc -n kong -o name | grep ingress | head -1 | cut -d/ -f2)
     echo "✅ Found Kong ingress: $SVC"
-    echo "🔗 Port-forwarding to localhost:8000..."
-    exec kubectl port-forward -n kong "svc/$SVC" 8000:80
+    echo "🔗 Port-forwarding to localhost:18080..."
+    exec kubectl port-forward -n kong "svc/$SVC" 18080:80
     ''',
     labels=['networking'],
     resource_deps=['kong-gateway-manifests'] if not cfg.get('skip-infra') else [],
@@ -333,7 +366,15 @@ local_resource(
 # Caddy reverse proxy for sibyl.local with automatic TLS
 local_resource(
     'caddy-proxy',
-    serve_cmd='caddy run --config infra/local/Caddyfile',
+    serve_cmd='''
+    if ! command -v caddy >/dev/null 2>&1; then
+        echo "Caddy not found; skipping https://sibyl.local proxy."
+        echo "Use kubectl port-forward or install caddy for local TLS access."
+        while true; do sleep 3600; done
+    fi
+
+    exec caddy run --config infra/local/Caddyfile
+    ''',
     deps=['infra/local/Caddyfile'],
     labels=['networking'],
     resource_deps=['kong-port-forward'],
@@ -363,15 +404,8 @@ local_resource(
 )
 
 local_resource(
-    'falkordb-cli',
-    cmd='echo "Use: kubectl exec -it -n sibyl falkordb-0 -- redis-cli -a sibyl-local-dev"',
-    auto_init=False,
-    labels=['tools'],
-)
-
-local_resource(
-    'psql',
-    cmd='echo "Use: kubectl exec -it -n sibyl sibyl-postgres-1 -- psql -U sibyl sibyl"',
+    'surrealdb-cli',
+    cmd='echo "Use: kubectl port-forward -n sibyl svc/surrealdb 8000:8000, then surreal sql --conn http://localhost:8000 --user root --pass $(kubectl get secret -n sibyl sibyl-secrets -o jsonpath={.data.SIBYL_SURREAL_PASSWORD} | base64 -d)"',
     auto_init=False,
     labels=['tools'],
 )

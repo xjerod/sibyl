@@ -151,7 +151,7 @@ backend:
     httpGet:
       path: /api/health
       port: http
-    initialDelaySeconds: 10
+    initialDelaySeconds: 60
     periodSeconds: 30
 
   readinessProbe:
@@ -192,7 +192,7 @@ Pick the active persistence runtime at the top level:
 ```yaml
 store: "surreal" # or "legacy" for FalkorDB
 authStore: "surreal" # or "postgres" for relational auth
-coordinationBackend: "auto"
+coordinationBackend: "auto" # use "redis" for multi-pod deployments
 ```
 
 See [storage-modes.md](../guide/storage-modes.md) for the mode matrix.
@@ -251,6 +251,25 @@ backend:
     # Key name in the secret (default: "password")
     secretKey: "password"
 ```
+
+### Redis or Valkey Coordination
+
+Used when `coordinationBackend: "redis"`. This is recommended when running more than one backend or
+worker pod because it backs arq jobs, distributed locks, WebSocket pub/sub, and shared rate limits.
+
+```yaml
+backend:
+  redis:
+    host: "valkey"
+    port: "6379"
+    jobsDb: "1"
+    rateLimitDb: "4"
+    existingSecret: "sibyl-secrets"
+    secretKey: "SIBYL_REDIS_PASSWORD"
+```
+
+The chart emits a password-free `SIBYL_RATE_LIMIT_STORAGE` ConfigMap value and Sibyl injects the
+Redis password from `SIBYL_REDIS_PASSWORD` at runtime.
 
 ### Security Contexts
 
@@ -573,6 +592,7 @@ The chart includes these templates:
 | pdb.yaml                 | PodDisruptionBudgets                         |
 | configmap.yaml           | Non-secret environment config                |
 | surreal-secret.yaml      | Auto-generated Surreal secret (default)      |
+| redis-secret.yaml        | Auto-generated Redis/Valkey secret           |
 | falkordb-secret.yaml     | Auto-generated FalkorDB secret (legacy only) |
 | migration-job.yaml       | Alembic migration Job (postgres auth only)   |
 | serviceaccount.yaml      | ServiceAccount                               |

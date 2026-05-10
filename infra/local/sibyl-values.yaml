@@ -1,13 +1,16 @@
 # Sibyl values for local development
-# Uses local infrastructure (CNPG, FalkorDB, Kong)
+# Uses local infrastructure (SurrealDB, Kong)
 
-# Disable Helm hook migration Job — Tilt can't handle immutable Job reapply.
-# Use the 'migrate' local_resource in Tilt instead.
+store: "surreal"
+authStore: "surreal"
+coordinationBackend: "redis"
+
+# Disable Helm hook migration Job. Surreal mode bootstraps schema at app startup.
 migrations:
   enabled: false
 
 backend:
-  replicaCount: 1
+  replicaCount: 2
 
   image:
     # For local dev with Tilt, this gets overridden
@@ -18,16 +21,21 @@ backend:
   # Reference secrets
   existingSecret: sibyl-secrets
 
-  # Database connection - pulls all values from CNPG auto-generated secret
-  # CNPG creates sibyl-postgres-app with: host, port, dbname, username, password, uri
-  database:
-    existingSecret: sibyl-postgres-app
+  surreal:
+    url: "ws://surrealdb:8000/rpc"
+    username: "root"
+    existingSecret: sibyl-secrets
+    secretKey: SIBYL_SURREAL_PASSWORD
+    namespacePrefix: "org_"
+    database: "graph"
 
-  # FalkorDB connection
-  falkordb:
-    host: falkordb-redis-master
+  redis:
+    host: "valkey"
     port: "6379"
-    existingSecret: sibyl-falkordb # Created by Tiltfile
+    jobsDb: "1"
+    rateLimitDb: "4"
+    existingSecret: sibyl-secrets
+    secretKey: SIBYL_REDIS_PASSWORD
 
   env:
     SIBYL_SERVER_HOST: "0.0.0.0"
@@ -39,6 +47,10 @@ backend:
     SIBYL_LLM_MODEL: "claude-haiku-4-5"
     SIBYL_EMBEDDING_MODEL: "text-embedding-3-small"
     SIBYL_EMBEDDING_DIMENSIONS: "1536"
+    OPENBLAS_NUM_THREADS: "1"
+    OMP_NUM_THREADS: "1"
+    MKL_NUM_THREADS: "1"
+    NUMEXPR_NUM_THREADS: "1"
 
   # Relaxed resources for local
   resources:
@@ -57,7 +69,7 @@ backend:
 
 frontend:
   enabled: true
-  replicaCount: 1
+  replicaCount: 2
 
   image:
     # For local dev with Tilt, this gets overridden
@@ -76,8 +88,6 @@ frontend:
 
   env:
     NODE_ENV: "development"
-    HOSTNAME: "0.0.0.0"
-    PORT: "3337"
     # Server-side API calls use internal K8s service
     SIBYL_API_URL: "http://sibyl-backend:3334/api"
     # Client-side uses relative paths through Kong ingress
@@ -91,7 +101,7 @@ frontend:
 # Worker configuration
 worker:
   enabled: true
-  replicaCount: 1
+  replicaCount: 2
 
   # Relaxed resources for local
   resources:

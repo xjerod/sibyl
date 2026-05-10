@@ -69,7 +69,7 @@ Create a `values-production.yaml` (Surreal default):
 # Storage mode (default is already "surreal" / "surreal")
 store: "surreal"
 authStore: "surreal"
-coordinationBackend: "auto"
+coordinationBackend: "redis"
 
 backend:
   replicaCount: 2
@@ -89,6 +89,15 @@ backend:
     existingSecret: sibyl-surreal
     namespacePrefix: "org_"
     database: "graph"
+
+  # Valkey/Redis coordination for multi-replica deployments
+  redis:
+    host: "valkey.example.svc.cluster.local"
+    port: "6379"
+    jobsDb: "1"
+    rateLimitDb: "4"
+    existingSecret: sibyl-secrets
+    secretKey: SIBYL_REDIS_PASSWORD
 
   env:
     SIBYL_SERVER_HOST: "0.0.0.0"
@@ -187,12 +196,19 @@ ingress:
 ### SurrealDB Requirements (default)
 
 - SurrealDB 2.x
-- RocksDB-backed storage (StatefulSet with PVC in-cluster, or managed service)
+- TiKV-backed storage for replicated SurrealDB pods, or RocksDB-backed storage for a single pod
 - Root credentials set at start (`--user` / `--pass`)
-- Persistence: backups are a single RocksDB directory; snapshot the PVC
+- Persistence and backups live in the selected SurrealDB storage engine
 
-Example in-cluster StatefulSet is out of scope for this chart — common patterns are the official
-SurrealDB Helm chart or a small custom StatefulSet mounting a PVC to `/data`.
+For a scalable in-cluster shape, deploy the TiDB Operator, create a small TiKV/PD cluster, and point
+the official SurrealDB Helm chart at `tikv://<pd-service>:2379`. For single-pod installs, a
+RocksDB-backed PVC is simpler.
+
+### Coordination Requirements
+
+Set `coordinationBackend: "redis"` when running multiple backend or worker replicas. Use Valkey or
+Redis for arq jobs, distributed locks, WebSocket pub/sub, and shared rate limits. The local Tilt demo
+uses the official `valkey/valkey` Helm chart.
 
 ### Legacy Stack (opt-in)
 

@@ -41,6 +41,7 @@ function getVersion(): string {
 }
 
 const SIBYL_VERSION = getVersion();
+const buildCpus = Number.parseInt(process.env.SIBYL_NEXT_BUILD_CPUS ?? '', 10);
 
 const nextConfig: NextConfig = {
   // Enable React Compiler for automatic memoization
@@ -53,6 +54,16 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_VERSION: SIBYL_VERSION,
   },
+
+  ...(Number.isFinite(buildCpus) && buildCpus > 0
+    ? {
+        experimental: {
+          cpus: buildCpus,
+          staticGenerationMaxConcurrency: buildCpus,
+          staticGenerationMinPagesPerWorker: 1000,
+        },
+      }
+    : {}),
 
   // Proxy API requests to the Sibyl backend during local development
   // Note: When deployed behind Kong/ingress, routing is handled externally

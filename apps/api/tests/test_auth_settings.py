@@ -89,6 +89,28 @@ def test_settings_coordination_backend_can_override_auto() -> None:
     assert s.resolved_coordination_backend == "redis"
 
 
+def test_settings_rate_limit_storage_uses_redis_password() -> None:
+    s = Settings(
+        _env_file=None,
+        redis_host="valkey",
+        redis_port=6379,
+        redis_password="p@ ss",
+        rate_limit_storage="redis://valkey:6379/4",
+    )
+
+    assert s.rate_limit_storage == "redis://:p%40%20ss@valkey:6379/4"
+
+
+def test_settings_rate_limit_storage_keeps_explicit_auth() -> None:
+    s = Settings(
+        _env_file=None,
+        redis_password="secret",
+        rate_limit_storage="redis://:already@valkey:6379/4",
+    )
+
+    assert s.rate_limit_storage == "redis://:already@valkey:6379/4"
+
+
 def test_settings_resolves_surreal_data_dir_url() -> None:
     s = Settings(_env_file=None, store="surreal", surreal_data_dir="./var/sibyl-surreal")
     assert s.resolved_surreal_url == "surrealkv://./var/sibyl-surreal"

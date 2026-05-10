@@ -4,6 +4,7 @@ import os
 import secrets
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import structlog
 from pydantic import Field, SecretStr, model_validator
@@ -43,6 +44,23 @@ def _get_or_create_jwt_secret() -> str:
         _log.warning("Failed to persist JWT key", error=str(e))
 
     return key
+
+
+def _redis_url_with_password(url: str, password: str) -> str:
+    """Inject the Redis password into a redis:// URL when it omits auth."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "redis" or "@" in parsed.netloc or not password:
+        return url
+
+    return urlunsplit(
+        (
+            parsed.scheme,
+            f":{quote(password, safe='')}@{parsed.netloc}",
+            parsed.path,
+            parsed.query,
+            parsed.fragment,
+        )
+    )
 
 
 class Settings(BaseSettings):
@@ -350,6 +368,12 @@ class Settings(BaseSettings):
             object.__setattr__(self, "redis_port", self.falkordb_port)
         if self.redis_password is None:
             object.__setattr__(self, "redis_password", SecretStr(self.falkordb_password))
+        if self.rate_limit_storage.startswith("redis://"):
+            storage_url = _redis_url_with_password(
+                self.rate_limit_storage,
+                self.redis_password_value,
+            )
+            object.__setattr__(self, "rate_limit_storage", storage_url)
 
         return self
 

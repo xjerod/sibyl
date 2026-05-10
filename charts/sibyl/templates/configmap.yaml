@@ -13,6 +13,16 @@ data:
   SIBYL_STORE: {{ .Values.store | quote }}
   SIBYL_AUTH_STORE: {{ .Values.authStore | quote }}
   SIBYL_COORDINATION_BACKEND: {{ .Values.coordinationBackend | quote }}
+  {{- if eq .Values.coordinationBackend "redis" }}
+  SIBYL_REDIS_HOST: {{ .Values.backend.redis.host | quote }}
+  SIBYL_REDIS_PORT: {{ .Values.backend.redis.port | quote }}
+  SIBYL_REDIS_JOBS_DB: {{ .Values.backend.redis.jobsDb | quote }}
+  {{- if .Values.backend.redis.rateLimitStorage }}
+  SIBYL_RATE_LIMIT_STORAGE: {{ .Values.backend.redis.rateLimitStorage | quote }}
+  {{- else }}
+  SIBYL_RATE_LIMIT_STORAGE: {{ printf "redis://%s:%s/%s" .Values.backend.redis.host .Values.backend.redis.port .Values.backend.redis.rateLimitDb | quote }}
+  {{- end }}
+  {{- end }}
   # SurrealDB connection (used when store or authStore is "surreal")
   {{- if or (eq .Values.store "surreal") (eq .Values.authStore "surreal") }}
   SIBYL_SURREAL_URL: {{ .Values.backend.surreal.url | quote }}

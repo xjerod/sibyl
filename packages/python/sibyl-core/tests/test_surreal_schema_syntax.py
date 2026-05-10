@@ -14,7 +14,11 @@ from sibyl_core.backends.surreal.content_schema import (
     CONTENT_TABLES,
     bootstrap_content_schema,
 )
-from sibyl_core.backends.surreal.schema import EDGE_DEFINITIONS, NODE_DEFINITIONS
+from sibyl_core.backends.surreal.schema import (
+    EDGE_DEFINITIONS,
+    NODE_DEFINITIONS,
+    render_fulltext_compatible_sql,
+)
 
 
 class _RecordingSchemaClient:
@@ -54,6 +58,15 @@ def test_runtime_schemafull_tables_are_altered_after_define() -> None:
             f"DEFINE TABLE IF NOT EXISTS {table} SCHEMAFULL;\n"
             f"ALTER TABLE IF EXISTS {table} SCHEMAFULL;"
         ) in schema
+
+
+def test_fulltext_indexes_render_with_surreal_2_search_syntax() -> None:
+    rendered = render_fulltext_compatible_sql(
+        CONTENT_SCHEMA_DEFINITIONS, url="ws://surrealdb:8000/rpc"
+    )
+
+    assert "SEARCH ANALYZER" in rendered
+    assert "FULLTEXT ANALYZER" not in rendered
 
 
 @pytest.mark.asyncio

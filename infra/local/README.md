@@ -1,88 +1,72 @@
 # Sibyl Local Infrastructure
 
-Local Kubernetes development environment using minikube.
+Local Kubernetes development for a small scalable Sibyl fleet.
 
-## Prerequisites
+The Tilt path runs Sibyl in its default SurrealDB-native mode, with TiKV as SurrealDB's distributed
+datastore and Valkey as the coordination plane for jobs, locks, pub/sub, and rate limits.
 
-- [minikube](https://minikube.sigs.k8s.io/docs/start/)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- [helm](https://helm.sh/docs/intro/install/)
-- [tilt](https://docs.tilt.dev/install.html)
+## Components
+
+| Component | Chart or manifest | Purpose |
+| --- | --- | --- |
+| Gateway API | upstream CRDs | Gateway resources for Kong |
+| cert-manager | `jetstack/cert-manager` | Local TLS certificate plumbing |
+| Kong Operator | `kong/kong-operator` | Gateway API implementation |
+| TiDB Operator | `pingcap/tidb-operator` | Manages the TiKV cluster |
+| TiKV/PD | `infra/local/tidb-cluster.yaml` | Distributed datastore for SurrealDB |
+| SurrealDB | `surrealdb/surrealdb` | Graph, content, and auth store |
+| Valkey | `valkey/valkey` | Distributed coordination for Sibyl replicas |
+| Sibyl | `../../charts/sibyl` | Backend, worker, and frontend deployments |
+
+## Shape
+
+- 3 PD pods and 3 TiKV pods for the datastore demo
+- 2 SurrealDB pods connected to `tikv://sibyl-tikv-pd:2379`
+- 3 Valkey pods: one primary plus two replicas
+- 2 Sibyl backend pods
+- 2 Sibyl worker pods
+- 2 Sibyl frontend pods
 
 ## Quick Start
 
 ```bash
-# Start minikube with enough resources
-minikube start --cpus=4 --memory=8192 --driver=docker
+# Start your Kubernetes environment first.
+minikube start --cpus=6 --memory=12288 --driver=docker
+podman --version # or docker version
 
-# From project root, run Tilt
+export SIBYL_JWT_SECRET="$(openssl rand -hex 32)"
+export SIBYL_SURREAL_PASSWORD="sibyl-local-dev"
+export SIBYL_REDIS_PASSWORD="sibyl-local-dev"
+export ANTHROPIC_API_KEY="sk-ant-..."
+
 tilt up
 ```
 
-## Components
+The Tiltfile creates the local `sibyl-secrets` Secret from those environment variables.
 
-| Component     | Chart                | Version | Purpose                                  |
-| ------------- | -------------------- | ------- | ---------------------------------------- |
-| CNPG Operator | cnpg/cloudnative-pg  | 0.27.0  | PostgreSQL operator                      |
-| CNPG Cluster  | cnpg/cluster         | 0.5.0   | PostgreSQL database                      |
-| FalkorDB      | bitnami/redis        | latest  | Graph database (Redis + FalkorDB module) |
-| Kong Operator | kong/kong-operator   | latest  | API Gateway                              |
-| Gateway API   | k8s-sigs/gateway-api | v1.4.1  | Gateway CRDs                             |
-| Sibyl         | ./charts/sibyl       | 0.1.0   | Application                              |
-
-## Manual Setup (without Tilt)
+## Manual Render Checks
 
 ```bash
-# Add Helm repos
-helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo add kong https://charts.konghq.com
-helm repo update
+helm template surrealdb surrealdb/surrealdb \
+  --version 0.4.0 \
+  -n sibyl \
+  -f surrealdb-values.yaml
 
-# Install Gateway API CRDs
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
+helm template valkey valkey/valkey \
+  --version 0.9.4 \
+  -n sibyl \
+  -f valkey-values.yaml
 
-# Install operators
-helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace -f cnpg-operator-values.yaml
-helm upgrade --install kong-operator kong/kong-operator -n kong-system --create-namespace
-
-# Install databases
-kubectl apply -f postgres-cluster.yaml
-helm upgrade --install falkordb bitnami/redis -n sibyl --create-namespace -f falkordb-values.yaml
-
-# Install Kong Gateway
-kubectl apply -f kong/
-
-# Install Sibyl
-helm upgrade --install sibyl ../../charts/sibyl -n sibyl -f sibyl-values.yaml
+helm template sibyl ../../charts/sibyl \
+  -n sibyl \
+  -f sibyl-values.yaml
 ```
 
-## Accessing Services
-
-With minikube:
+## Access
 
 ```bash
-# Sibyl frontend
-minikube service sibyl-frontend -n sibyl
-
-# Or use port forwarding
-kubectl port-forward svc/sibyl-frontend 3337:3337 -n sibyl
-kubectl port-forward svc/sibyl-backend 3334:3334 -n sibyl
-```
-
-## Secrets
-
-Create the secrets before deploying Sibyl:
-
-```bash
-kubectl create secret generic sibyl-secrets -n sibyl \
-  --from-literal=SIBYL_JWT_SECRET=$(openssl rand -hex 32) \
-  --from-literal=SIBYL_OPENAI_API_KEY=sk-... \
-  --from-literal=SIBYL_ANTHROPIC_API_KEY=sk-ant-...
-
-kubectl create secret generic sibyl-postgres-secret -n sibyl \
-  --from-literal=SIBYL_POSTGRES_PASSWORD=sibyl_dev
-
-kubectl create secret generic sibyl-falkordb-secret -n sibyl \
-  --from-literal=SIBYL_FALKORDB_PASSWORD=sibyl_dev
+kubectl port-forward -n sibyl svc/surrealdb 8000:8000
+kubectl port-forward -n sibyl svc/valkey 6379:6379
+kubectl port-forward -n sibyl svc/sibyl-backend 3334:3334
+kubectl port-forward -n sibyl svc/sibyl-frontend 3337:3337
 ```

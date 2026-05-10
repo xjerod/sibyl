@@ -9,7 +9,8 @@ keywords:
   - mcp
   - ai
   - graphrag
-  - falkordb
+  - surrealdb
+  - valkey
 home: https://github.com/hyperb1iss/sibyl
 sources:
   - https://github.com/hyperb1iss/sibyl

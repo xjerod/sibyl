@@ -5,9 +5,9 @@
 # ============================================================================
 
 # Stage 1: Dependencies
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 
-RUN corepack enable pnpm
+RUN corepack enable && corepack prepare pnpm@10.26.0 --activate
 
 WORKDIR /app
 
@@ -21,9 +21,9 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 
 
 # Stage 2: Builder
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
-RUN corepack enable pnpm
+RUN corepack enable && corepack prepare pnpm@10.26.0 --activate
 
 WORKDIR /app/apps/web
 
@@ -42,14 +42,15 @@ COPY apps/web .
 # SIBYL_BACKEND_URL uses Docker service name for server-side rewrites
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    SIBYL_BACKEND_URL=http://api:3334
+    SIBYL_BACKEND_URL=http://api:3334 \
+    SIBYL_NEXT_BUILD_CPUS=2
 
-# Build the app
-RUN pnpm build
+# Turbopack can exhaust worker threads in constrained cluster builders.
+RUN pnpm exec next build --webpack
 
 
 # Stage 3: Runtime
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 
 WORKDIR /app/apps/web
 

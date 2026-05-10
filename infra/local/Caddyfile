@@ -1,5 +1,5 @@
 # Sibyl Local Development - Caddy Reverse Proxy
-# Proxies sibyl.local to Kong Gateway via port-forward on 8080
+# Proxies sibyl.local to Kong Gateway via port-forward on 18080
 
 {
 	# Use internal CA for automatic local TLS
@@ -13,7 +13,7 @@
 
 sibyl.local {
 	# Proxy to Kong via port-forward (started by Tilt)
-	reverse_proxy localhost:8000 {
+	reverse_proxy localhost:18080 {
 		# Pass through host header for Kong routing
 		header_up Host sibyl.local
 	}

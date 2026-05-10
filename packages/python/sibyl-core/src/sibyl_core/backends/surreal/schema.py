@@ -32,7 +32,6 @@ def _index_names_from_info(value: object) -> list[str]:
 # embedder, which is configured separately from the OpenAI chunk embedder. Default
 # is 1024-dim; override via SIBYL_GRAPH_EMBEDDING_DIMENSIONS.
 EMBEDDING_DIM = core_config.graph_embedding_dimensions
-_EMBEDDED_SURREAL_SCHEMES = ("memory://", "surrealkv://")
 
 ANALYZER_DEFINITIONS = """
 DEFINE ANALYZER IF NOT EXISTS name_analyzer
@@ -192,8 +191,7 @@ GRAPH_EDGES = ("relates_to", "mentions", "has_episode", "next_episode", "has_mem
 
 
 def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
-    fulltext_keyword = "SEARCH" if url.startswith(_EMBEDDED_SURREAL_SCHEMES) else "FULLTEXT"
-    return sql.replace("FULLTEXT ANALYZER", f"{fulltext_keyword} ANALYZER")
+    return sql.replace("FULLTEXT ANALYZER", "SEARCH ANALYZER")
 
 
 async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> None:
