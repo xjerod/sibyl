@@ -529,20 +529,25 @@ assign tasks, and collaborate on the same graph.
 
 ### Is it production-ready?
 
-Sibyl is in active development (v0.1.x). The core features work well, but expect rough edges. **We
-use Sibyl to build Sibyl**. Every feature, task, and learning you see here was tracked inside the
-system itself.
+Sibyl is in active development (v0.6.x). SurrealDB is now the default runtime for graph, content,
+and auth, with legacy FalkorDB/PostgreSQL paths retained only for migration and archive rehearsal.
+**We use Sibyl to build Sibyl**. Every feature, task, and learning you see here was tracked inside
+the system itself.
 
 ## 🎯 Roadmap
 
-**Where we're headed:**
+**Where we're headed after v0.6.0:**
 
-- **Stronger project boundaries:** Finish project membership and permission flows end to end
-- **Deeper graph retrieval:** Better ranking, traversal, deduplication, and relationship-aware
-  search
-- **Brainstorming spaces:** Dedicated areas for ideation before execution
-- **External data connectors:** Feed more docs, repos, and notes into the graph
-- **Workflow polish:** Sharper epic/task planning, progress views, and review loops
+- **Pure Surreal cleanup:** keep legacy services out of default runtime, charts, and docs while
+  closing the remaining archive rollback policy.
+- **Native memory loop:** harden `recall -> act -> remember -> reflect` across CLI, MCP, API,
+  prompt hooks, and session startup.
+- **Context quality:** make wake, recall, and deep-search packs measurable for grounding,
+  permissions, latency, and token budgets.
+- **Native graph spike:** replace one Graphiti-backed path with direct SurrealQL, then compare
+  behavior before estimating full Graphiti removal.
+- **Human memory UX:** expose raw sources, visibility, correction, promotion, and agent access in
+  a way that feels legible instead of spooky.
 
 The graph gets smarter. The workflow gets sharper.
 

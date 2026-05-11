@@ -1,7 +1,7 @@
 # Sibyl Northstar
 
 - Status: living product and architecture spec
-- Last validated: 2026-04-26
+- Last validated: 2026-05-11
 
 This document defines Sibyl's northstar: the product shape, architecture principles, and deletion
 gates for the next form of the system.
@@ -198,15 +198,20 @@ automation.
 
 These pieces are part of the foundation and must not get lost while we push toward native SurrealDB:
 
-- SurrealDB is the default storage direction, with legacy FalkorDB and PostgreSQL still supported as
-  temporary migration paths for existing installs.
+- `v0.6.0` established SurrealDB as the default storage direction for graph, content, and auth.
+- Legacy FalkorDB and PostgreSQL services are out of the default local, CI, and Helm paths. They
+  remain migration/archive source surfaces only.
 - Graph archives can be exported, imported, verified, and dry-run merged.
 - Merge tooling can rewrite source org data into a target organization.
 - Surreal auth supports username/password sign-in plus optional token authentication.
 - Context packs exist across CLI, API, MCP, and prompt hooks.
 - `remember` exists as an MCP tool and CLI command.
 - `recall` exists as an intent-oriented CLI interface.
+- Raw memory capture and scoped raw recall exist through the API and CLI, including private/project
+  scope checks and agent diary metadata.
+- `reflect` exists across CLI, API, and MCP as the consolidation review/persist surface.
 - Context packs already include direct matches and one-hop related graph context.
+- Wake, recall, and deep-search layers exist on context packs and session wake bundles.
 - The Sibyl skill defines the agent memory contract: recall, act, remember, reflect.
 - Graphiti-on-Surreal is transition scaffolding, not northstar proof. Treat the current insertion
   path as suspect until a native Surreal path proves raw memory, graph writes, and recall end to
@@ -637,11 +642,10 @@ Deletion gate:
 
 ## Workstreams
 
-Workstreams are not strictly sequential. The first wave is W5, W1, W2, W2.5, and W6, with a small W9
-dogfood slice running early. The SDK spike comes first because driver result-shape changes can
-invalidate native graph work. The native raw-memory path, layered packs, evaluation harness, and
-native graph spike must land before heavier tenancy, adapters, reflection, synthesis, or
-collaborative surfaces.
+Workstreams are not strictly sequential. The `v0.6.0` release landed the first Surreal-default
+runtime slice plus the initial raw-memory, layered-context, reflection, and diary surfaces. The next
+wave should harden W1, W2, W2.5, W5, W6, and W9 with measured behavior before heavier tenancy,
+adapters, synthesis, or collaborative surfaces.
 
 ### W0. Northstar Tracking
 
@@ -649,6 +653,9 @@ Keep this northstar current as decisions harden. When implementation branches la
 "Current State Already Landed" section and remove stale gates.
 
 ### W1. Native Memory Primitive
+
+Status: first slice landed; next work is latency evidence, policy tightening, and deciding how the
+default `remember` surface should acknowledge raw capture before durable graph writes.
 
 Build the smallest shared primitive that every surface can call:
 
@@ -678,6 +685,9 @@ First-slice gates:
 - no embeddings, extraction, graph traversal, reflection, custom roles, or admin UI are required
 
 ### W2. Layered Context Packs
+
+Status: first slice landed; next work is stricter token budgets, clearer wake/recall naming, and
+quality gates around source grounding and authorization.
 
 Ship the context contract as product behavior:
 
