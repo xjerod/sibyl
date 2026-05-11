@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
+from sibyl_cli.client import SibylClientError
 from sibyl_cli.main import _derive_capture_title, app
 
 
@@ -495,6 +496,33 @@ def test_recall_command_outputs_markdown_context(
         include_related=True,
         related_limit=3,
     )
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_recall_command_reports_project_access_denied(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.context_pack = AsyncMock(
+        side_effect=SibylClientError(
+            "API error: Requires viewer access to project",
+            status_code=403,
+            detail="Requires viewer access to project project=project_123",
+        )
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["recall", "ship faster"])
+
+    assert result.exit_code == 1
+    assert "Access denied" in result.stdout
+    assert "Requires viewer access to project" in result.stdout
+    assert "Authentication required" not in result.stdout
+    assert "sibyl auth login" not in result.stdout
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 

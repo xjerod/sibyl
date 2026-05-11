@@ -237,7 +237,7 @@ def _handle_client_error(e: SibylClientError) -> None:
         console.print()
         console.print(f"    [{NEON_CYAN}]›[/{NEON_CYAN}] Check that the Sibyl server is running")
         console.print()
-    elif e.status_code in {401, 403}:
+    elif e.status_code == 401:
         console.print()
         console.print(f"  [{CORAL}]×[/{CORAL}] [bold]Authentication required[/bold]")
         console.print()
@@ -247,6 +247,13 @@ def _handle_client_error(e: SibylClientError) -> None:
         console.print(
             f"    [{NEON_CYAN}]›[/{NEON_CYAN}] [bold {NEON_CYAN}]sibyl auth signup[/bold {NEON_CYAN}]  [dim]Create account[/dim]"
         )
+        console.print()
+    elif e.status_code == 403:
+        console.print()
+        console.print(f"  [{CORAL}]×[/{CORAL}] [bold]Access denied[/bold]")
+        if e.detail:
+            console.print()
+            console.print(f"    [{NEON_CYAN}]›[/{NEON_CYAN}] {e.detail}")
         console.print()
     else:
         handle_client_error(e)

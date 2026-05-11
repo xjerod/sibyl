@@ -5,7 +5,7 @@ ensuring consistent event broadcasting and state management.
 """
 
 import os
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -85,6 +85,30 @@ class SibylClientError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail
+
+
+def _format_error_detail(detail: object) -> str:
+    if isinstance(detail, dict):
+        payload = cast("dict[str, object]", detail)
+        message = payload.get("message")
+        error_code = payload.get("error")
+        details = payload.get("details")
+        parts: list[str] = []
+        if message:
+            parts.append(str(message))
+        elif error_code:
+            parts.append(str(error_code))
+        if isinstance(details, dict):
+            detail_fields = cast("dict[str, object]", details)
+            project_id = detail_fields.get("project_id")
+            required_role = detail_fields.get("required_role")
+            if project_id:
+                parts.append(f"project={project_id}")
+            if required_role:
+                parts.append(f"required_role={required_role}")
+        if parts:
+            return " ".join(parts)
+    return str(detail)
 
 
 class SibylClient:
@@ -275,17 +299,19 @@ class SibylClient:
             if response.status_code >= 400:
                 try:
                     error_data = response.json()
-                    detail = error_data.get("detail", response.text)
+                    detail = _format_error_detail(error_data.get("detail", response.text))
                 except Exception:
                     detail = response.text
 
-                if response.status_code in {401, 403}:
+                if response.status_code == 401:
                     if refresh_failure:
                         detail = f"{detail}\n\nAutomatic token refresh failed: {refresh_failure}"
                     detail = (
                         f"{detail}\n\n"
                         "Auth required. Run 'sibyl auth login' or set SIBYL_AUTH_TOKEN."
                     )
+                elif response.status_code == 403:
+                    detail = f"{detail}\n\nAccess denied. Check org and project permissions."
 
                 raise SibylClientError(
                     f"API error: {detail}",
