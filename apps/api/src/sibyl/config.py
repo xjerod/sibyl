@@ -480,15 +480,14 @@ class Settings(BaseSettings):
 
     @property
     def postgres_url(self) -> str:
-        """Construct PostgreSQL connection URL for asyncpg."""
+        """Construct PostgreSQL connection URL for archive rehearsal tools."""
         password = self.postgres_password.get_secret_value()
-        return f"postgresql+asyncpg://{self.postgres_user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        return f"postgresql://{self.postgres_user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     @property
     def postgres_url_sync(self) -> str:
-        """Construct PostgreSQL connection URL for sync operations (Alembic)."""
-        password = self.postgres_password.get_secret_value()
-        return f"postgresql://{self.postgres_user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        """Backward-compatible alias for archive rehearsal tooling."""
+        return self.postgres_url
 
     @property
     def fully_surreal(self) -> bool:

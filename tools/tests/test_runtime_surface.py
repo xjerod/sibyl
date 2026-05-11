@@ -12,7 +12,7 @@ EXPECTED_HTTP_ROUTE_COUNT = 2
 EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
 EXPECTED_MCP_TOOL_COUNT = 8
 EXPECTED_MCP_RESOURCE_COUNT = 2
-EXPECTED_SQLMODEL_TABLE_COUNT = 24
+EXPECTED_SQLMODEL_TABLE_COUNT = 0
 
 
 def test_dependency_parser_strips_extras_and_markers() -> None:
@@ -38,9 +38,8 @@ def test_runtime_surface_finds_known_contracts() -> None:
     assert "search_router" in surface.rest_routers
     assert surface.websocket_routes[0].path == "/ws"
     assert {record.name for record in surface.mcp_tools} >= {"search", "explore", "add"}
-    assert "User" in surface.sqlmodel_tables
     raw_sql_paths = {record.path for record in surface.raw_sql_usage}
-    assert raw_sql_paths == {"apps/api/src/sibyl/db/models.py"}
+    assert raw_sql_paths == set()
     assert not any(
         record.path == "apps/api/src/sibyl/server.py" for record in surface.raw_sql_usage
     )
@@ -64,7 +63,7 @@ def test_dependency_inventory_covers_legacy_and_target_stack() -> None:
     assert (
         "packages/python/sibyl-core/pyproject.toml",
         "graphiti-core[anthropic,google-genai]>=0.28.2",
-        "legacy",
+        "graph",
     ) in dependencies
     assert (
         "apps/api/pyproject.toml",

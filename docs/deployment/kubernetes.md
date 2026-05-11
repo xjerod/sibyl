@@ -8,7 +8,6 @@ Deploy Sibyl to a production Kubernetes cluster using Helm.
 - kubectl configured for your cluster
 - Helm 3.x
 - **SurrealDB** instance (in-cluster StatefulSet, Surreal Cloud, or another external host)
-- Legacy mode only: External PostgreSQL with pgvector, external FalkorDB/Redis+FalkorDB module
 
 ## Architecture Overview
 
@@ -34,8 +33,8 @@ Deploy Sibyl to a production Kubernetes cluster using Helm.
                          +----------------------+
 ```
 
-For the legacy stack, swap SurrealDB for two external dependencies (PostgreSQL with pgvector and
-FalkorDB). See [storage-modes.md](../guide/storage-modes.md).
+SurrealDB is the active runtime. See [storage-modes.md](../guide/storage-modes.md) for local archive
+rehearsal notes.
 
 ## Quick Start
 
@@ -210,19 +209,10 @@ Set `coordinationBackend: "redis"` when running multiple backend or worker repli
 Redis for arq jobs, distributed locks, WebSocket pub/sub, and shared rate limits. The local Tilt
 demo uses the official `valkey/valkey` Helm chart.
 
-### Legacy Stack (opt-in)
+### Archive Rehearsal Sidecars
 
-**PostgreSQL** — PostgreSQL 15+ with pgvector:
-
-```sql
-CREATE USER sibyl WITH PASSWORD 'secure-password';
-CREATE DATABASE sibyl OWNER sibyl;
-\c sibyl
-CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-**FalkorDB** — FalkorDB or Redis + FalkorDB module with RDB/AOF persistence and enough memory for
-graph data.
+PostgreSQL is no longer part of the active Kubernetes runtime. Keep it outside the release chart and
+bring it up only for explicit legacy `postgres.sql` archive rehearsal or rollback validation.
 
 ## Secrets Management
 
@@ -268,32 +258,10 @@ kubeseal --format=yaml < sibyl-secrets.yaml > sibyl-secrets-sealed.yaml
 kubectl apply -f sibyl-secrets-sealed.yaml
 ```
 
-## Database Migrations
+## Schema Bootstrap
 
-The Helm chart ships an Alembic migration job that runs as a pre-upgrade hook **only when
-`authStore: postgres`**. Fully Surreal deployments bootstrap their schema inline at startup and skip
-this step entirely.
-
-```yaml
-migrations:
-  enabled: true
-  backoffLimit: 3
-  ttlSecondsAfterFinished: 600
-```
-
-When the hook runs, it executes `alembic upgrade head` before deploying new pods.
-
-To run migrations manually:
-
-```bash
-kubectl run sibyl-migration \
-  --rm -it --restart=Never \
-  --image=ghcr.io/hyperb1iss/sibyl:0.1.0 \
-  -n sibyl \
-  --env-from=secret/sibyl-secrets \
-  --env-from=configmap/sibyl-config \
-  -- alembic upgrade head
-```
+Sibyl bootstraps SurrealDB schema inline at startup. The Helm chart no longer runs an Alembic
+pre-upgrade hook for the active runtime.
 
 ## Ingress Configuration
 

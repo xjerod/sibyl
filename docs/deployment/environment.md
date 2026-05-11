@@ -403,8 +403,8 @@ The Settings class provides computed connection URLs:
 
 ```python
 settings.resolved_surreal_url  # ws://..., surrealkv://..., or memory://
-settings.postgres_url          # postgresql+asyncpg://user:pass@host:port/db
-settings.postgres_url_sync     # postgresql://user:pass@host:port/db (for Alembic)
+settings.postgres_url          # postgresql://user:pass@host:port/db
+settings.postgres_url_sync     # Backward-compatible alias
 settings.fully_surreal         # True when graph, content, and auth all use SurrealDB
 settings.requires_relational_support  # False after v0.6.0 sidecar removal
 ```

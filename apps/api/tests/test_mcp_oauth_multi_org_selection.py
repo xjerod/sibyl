@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import uuid4
@@ -11,7 +12,6 @@ from pydantic.networks import AnyUrl
 from starlette.requests import Request
 
 from sibyl.auth.mcp_oauth import SibylMcpOAuthProvider, _AuthedUser, _PendingAuth
-from sibyl.db.models import Organization, User
 
 
 def _make_get_request(*, path: str, query: dict[str, str]) -> Request:
@@ -54,9 +54,9 @@ def _make_form_post_request(*, path: str, data: dict[str, str]) -> Request:
 async def test_mcp_oauth_login_redirects_to_org_selection_for_multi_org_user(monkeypatch) -> None:
     provider = SibylMcpOAuthProvider()
 
-    user = User(id=uuid4(), name="Test User")
-    org1 = Organization(id=uuid4(), name="Org One", slug="org-one", is_personal=False)
-    org2 = Organization(id=uuid4(), name="Org Two", slug="org-two", is_personal=True)
+    user = SimpleNamespace(id=uuid4(), name="Test User")
+    org1 = SimpleNamespace(id=uuid4(), name="Org One", slug="org-one", is_personal=False)
+    org2 = SimpleNamespace(id=uuid4(), name="Org Two", slug="org-two", is_personal=True)
 
     params = AuthorizationParams(
         state="state123",
@@ -98,9 +98,9 @@ async def test_mcp_oauth_login_redirects_to_org_selection_for_multi_org_user(mon
 async def test_mcp_oauth_org_selection_issues_code(monkeypatch) -> None:
     provider = SibylMcpOAuthProvider()
 
-    user = User(id=uuid4(), name="Test User")
-    org1 = Organization(id=uuid4(), name="Org One", slug="org-one", is_personal=False)
-    org2 = Organization(id=uuid4(), name="Org Two", slug="org-two", is_personal=True)
+    user = SimpleNamespace(id=uuid4(), name="Test User")
+    org1 = SimpleNamespace(id=uuid4(), name="Org One", slug="org-one", is_personal=False)
+    org2 = SimpleNamespace(id=uuid4(), name="Org Two", slug="org-two", is_personal=True)
 
     params = AuthorizationParams(
         state="state123",

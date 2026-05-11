@@ -8,11 +8,11 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - WebSocket routes: 1
 - MCP tools: 8
 - MCP resources: 2
-- SQLModel tables: 24
-- Raw SQL query usage files: 1
+- SQLModel tables: 0
+- Raw SQL query usage files: 0
 - Session-backed storage access files: 0
 - Graphiti import files: 23
-- Dependency records: 8
+- Dependency records: 3
 
 ## API Surface
 
@@ -68,33 +68,8 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 ## Storage Coupling
 
 ### SQLModel tables
-- `User`
-- `LoginHistory`
-- `PasswordResetToken`
-- `Organization`
-- `OrganizationMember`
-- `ApiKey`
-- `UserSession`
-- `AuditLog`
-- `RawCapture`
-- `OrganizationInvitation`
-- `DeviceAuthorizationRequest`
-- `OAuthConnection`
-- `Team`
-- `TeamMember`
-- `Project`
-- `ProjectMember`
-- `TeamProject`
-- `ApiKeyProjectScope`
-- `CrawlSource`
-- `CrawledDocument`
-- `DocumentChunk`
-- `SystemSetting`
-- `BackupSettings`
-- `Backup`
 
 ### Raw SQL query usage files
-- `apps/api/src/sibyl/db/models.py` — session imports: none; query imports: `text`; session calls: none; query calls: `text`
 
 ### Session-backed storage access files
 
@@ -126,13 +101,11 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 ## Dependency Inventory
 
 ### Legacy and transition dependencies
+- none
+
+### Graph runtime dependencies
 | Project | Dependency |
 | ------- | ---------- |
-| `apps/api/pyproject.toml` | `alembic>=1.17.2` |
-| `apps/api/pyproject.toml` | `arq>=0.26.3` |
-| `apps/api/pyproject.toml` | `asyncpg>=0.31.0` |
-| `apps/api/pyproject.toml` | `pgvector>=0.4.2` |
-| `apps/api/pyproject.toml` | `sqlmodel>=0.0.27` |
 | `packages/python/sibyl-core/pyproject.toml` | `graphiti-core[anthropic,google-genai]>=0.28.2` |
 
 ### Target SurrealDB dependencies

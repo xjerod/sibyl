@@ -63,13 +63,12 @@ SQL_SESSION_CALLS = {
 }
 LEGACY_DEPENDENCY_NAMES = {
     "alembic",
-    "arq",
     "asyncpg",
-    "graphiti-core",
     "pgvector",
     "sqlalchemy",
     "sqlmodel",
 }
+GRAPH_DEPENDENCY_NAMES = {"graphiti-core"}
 TARGET_DEPENDENCY_NAMES = {"surrealdb"}
 
 
@@ -345,6 +344,8 @@ def collect_mcp_surface() -> tuple[tuple[McpDecoratorRecord, ...], tuple[McpDeco
 
 
 def collect_sqlmodel_tables() -> tuple[str, ...]:
+    if not MODELS_PATH.exists():
+        return ()
     tree = read_ast(MODELS_PATH)
     tables: list[str] = []
     for node in tree.body:
@@ -436,6 +437,8 @@ def collect_dependencies() -> tuple[DependencyRecord, ...]:
             classification: str | None = None
             if dependency_name in LEGACY_DEPENDENCY_NAMES or "falkordb" in requirement:
                 classification = "legacy"
+            elif dependency_name in GRAPH_DEPENDENCY_NAMES:
+                classification = "graph"
             elif dependency_name in TARGET_DEPENDENCY_NAMES:
                 classification = "target"
             if classification is None:
@@ -475,6 +478,9 @@ def collect_runtime_surface() -> RuntimeSurface:
 def render_markdown(surface: RuntimeSurface) -> str:
     legacy_dependencies = tuple(
         record for record in surface.dependencies if record.classification == "legacy"
+    )
+    graph_dependencies = tuple(
+        record for record in surface.dependencies if record.classification == "graph"
     )
     target_dependencies = tuple(
         record for record in surface.dependencies if record.classification == "target"
@@ -601,6 +607,8 @@ def render_markdown(surface: RuntimeSurface) -> str:
 
     lines.extend(["", "## Dependency Inventory", ""])
     lines.extend(render_dependency_table("Legacy and transition dependencies", legacy_dependencies))
+    lines.extend([""])
+    lines.extend(render_dependency_table("Graph runtime dependencies", graph_dependencies))
     lines.extend([""])
     lines.extend(render_dependency_table("Target SurrealDB dependencies", target_dependencies))
     lines.extend([""])

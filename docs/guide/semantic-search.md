@@ -282,7 +282,7 @@ sibyl search "Next.js middleware" --source-name "next-docs"
 sibyl search "routing" --include-documents
 ```
 
-Document search uses the same hybrid approach, with pgvector for document chunks.
+Document search uses the same hybrid approach over Surreal-backed document chunks.
 
 ## Understanding Results
 

@@ -337,7 +337,7 @@ async def search(
     """Unified semantic search across knowledge graph AND documentation.
 
     Searches both Sibyl's knowledge graph (patterns, rules, episodes, tasks)
-    AND crawled documentation (pgvector similarity search). Results are
+    AND crawled documentation (Surreal-backed vector search). Results are
     merged and ranked by relevance score.
 
     TASK MANAGEMENT WORKFLOW:
@@ -725,15 +725,9 @@ async def search(
             seen_ids[result.id] = result
 
     deduped_graph_results = [
-        result
-        for result in graph_results
-        if seen_ids.get(result.id) is result
+        result for result in graph_results if seen_ids.get(result.id) is result
     ]
-    deduped_doc_results = [
-        result
-        for result in doc_results
-        if seen_ids.get(result.id) is result
-    ]
+    deduped_doc_results = [result for result in doc_results if seen_ids.get(result.id) is result]
 
     all_results = _rank_fuse_search_results(deduped_graph_results, deduped_doc_results)
 

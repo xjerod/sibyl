@@ -15,13 +15,6 @@ from uuid import uuid4
 import typer
 
 from sibyl.cli.common import console, error, info, run_async, success, warn
-from sibyl.cli.db import (
-    _find_pg_tool,
-    _get_pg_connection_args,
-    _get_pg_env,
-    _restore_graph_payload,
-    _restore_pg_sql,
-)
 from sibyl.config import settings
 from sibyl.persistence.auth_archive import (
     AUTH_ARCHIVE_TABLES,
@@ -156,6 +149,82 @@ def _print_verify_summary(result: object) -> None:
         for issue in errors:
             console.print(f"  [dim]{issue}[/dim]")
         raise typer.Exit(code=1)
+
+
+def _get_pg_env() -> dict[str, str]:
+    """Build environment for retained archive rehearsal pg tools."""
+    import os
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = settings.postgres_password.get_secret_value()
+    return env
+
+
+def _get_pg_connection_args() -> list[str]:
+    """Build psql/pg_dump connection args for retained archive rehearsal."""
+    return [
+        "-h",
+        settings.postgres_host,
+        "-p",
+        str(settings.postgres_port),
+        "-U",
+        settings.postgres_user,
+        "-d",
+        settings.postgres_db,
+    ]
+
+
+def _find_pg_tool(tool: str) -> str:
+    """Find PostgreSQL client tools for explicit archive rehearsal."""
+    for path in (
+        f"/opt/homebrew/opt/libpq/bin/{tool}",
+        f"/opt/homebrew/opt/postgresql@18/bin/{tool}",
+        f"/opt/homebrew/opt/postgresql@17/bin/{tool}",
+        f"/opt/homebrew/opt/postgresql@16/bin/{tool}",
+        f"/usr/local/opt/libpq/bin/{tool}",
+        f"/usr/local/opt/postgresql@18/bin/{tool}",
+        f"/usr/local/opt/postgresql@17/bin/{tool}",
+        f"/usr/local/opt/postgresql@16/bin/{tool}",
+    ):
+        if Path(path).exists():
+            return path
+    return shutil.which(tool) or tool
+
+
+def _restore_pg_sql(sql_content: str, clean: bool) -> None:
+    """Restore a retained postgres.sql sidecar during explicit rehearsal."""
+    if clean:
+        drop_sql = """
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+    FOR r IN (SELECT typname FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid
+              WHERE n.nspname = 'public' AND t.typtype = 'e') LOOP
+        EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
+    END LOOP;
+END $$;
+DROP TABLE IF EXISTS alembic_version CASCADE;
+
+"""
+        sql_content = drop_sql + sql_content
+
+    cmd = [_find_pg_tool("psql"), *_get_pg_connection_args(), "--quiet", "--set", "ON_ERROR_STOP=1"]
+    result = subprocess.run(  # noqa: S603 - trusted psql command
+        cmd,
+        env=_get_pg_env(),
+        input=sql_content,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        error(f"PostgreSQL sidecar restore failed: {result.stderr}")
+        raise typer.Exit(code=1)
+
+    success("PostgreSQL sidecar restored")
 
 
 def _quote_pg_ident(identifier: str) -> str:
@@ -629,6 +698,40 @@ def _restore_content_payload(payload: dict[str, object], *, clean: bool) -> bool
             return result.success
         except Exception as exc:
             error(f"  Content restore failed: {exc}")
+            return False
+
+    return _restore()
+
+
+def _restore_graph_payload(backup_dict: dict[str, object], org_id: str, *, clean: bool) -> bool:
+    """Restore graph data from a decoded archive payload."""
+
+    @run_async
+    async def _restore() -> bool:
+        from sibyl.cli.db import _coerce_graph_backup_data, _prepare_graph_runtime_async
+        from sibyl_core.tools.admin import restore_backup
+
+        try:
+            backup_data = _coerce_graph_backup_data(backup_dict, org_id)
+            await _prepare_graph_runtime_async(org_id, clean=clean)
+
+            result = await restore_backup(
+                backup_data,
+                organization_id=org_id,
+                skip_existing=not clean,
+            )
+
+            if result.success:
+                success(
+                    f"  Graph restored: {result.entities_restored} entities, "
+                    f"{result.relationships_restored} relationships"
+                )
+            else:
+                warn(f"  Graph restore completed with errors: {len(result.errors)}")
+
+            return result.success
+        except Exception as exc:
+            error(f"  Graph restore failed: {exc}")
             return False
 
     return _restore()

@@ -26,7 +26,7 @@ documentation, or any web content as easily as they search your own patterns.
                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Embedding & Storage                         │
-│      Vector embeddings (pgvector) • Metadata extraction         │
+│       Vector embeddings • SurrealDB content storage            │
 └────────────────────────────────┬────────────────────────────────┘
                                  │
                                  ▼
@@ -92,7 +92,7 @@ When you add a source, Sibyl:
 3. **Crawls** pages up to the specified depth
 4. **Chunks** content into searchable segments
 5. **Embeds** each chunk using OpenAI embeddings
-6. **Stores** chunks in pgvector for semantic search
+6. **Stores** chunks in SurrealDB for semantic search
 
 ### Crawl Depth
 

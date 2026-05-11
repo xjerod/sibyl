@@ -468,7 +468,7 @@ def _register_tools(mcp: FastMCP) -> None:
         """Unified semantic search across knowledge graph AND documentation.
 
         Searches both Sibyl's knowledge graph (patterns, rules, episodes, tasks)
-        AND crawled documentation (pgvector similarity search). Results are
+        AND crawled documentation (Surreal-backed vector search). Results are
         merged and ranked by relevance score.
 
         IMPORTANT FOR AGENTS:

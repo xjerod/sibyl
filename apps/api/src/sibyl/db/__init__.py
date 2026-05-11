@@ -1,39 +1,7 @@
-"""Historical PostgreSQL schema models retained for migration policy.
+"""Retired PostgreSQL schema package.
 
-The active runtime is SurrealDB-backed. These SQLModel schemas remain only so
-Alembic can describe retained legacy PostgreSQL archive/migration history.
+The active runtime is SurrealDB-backed. Historical Alembic revisions remain as
+archive policy artifacts, but SQLModel runtime models are no longer shipped.
 """
 
-from sibyl.db.models import (
-    ApiKey,
-    AuditLog,
-    ChunkType,
-    CrawledDocument,
-    CrawlSource,
-    CrawlStatus,
-    DocumentChunk,
-    Organization,
-    OrganizationInvitation,
-    OrganizationMember,
-    OrganizationRole,
-    SourceType,
-    User,
-)
-
-__all__ = [
-    # Models
-    "ApiKey",
-    "AuditLog",
-    "CrawlSource",
-    "CrawledDocument",
-    "DocumentChunk",
-    "Organization",
-    "OrganizationMember",
-    "OrganizationRole",
-    "OrganizationInvitation",
-    "User",
-    # Enums
-    "ChunkType",
-    "CrawlStatus",
-    "SourceType",
-]
+__all__: list[str] = []

@@ -8,7 +8,7 @@ and ranked by relevance score.
 The `search` tool is the primary discovery mechanism for AI agents. It searches:
 
 - **Knowledge Graph**: Patterns, rules, episodes, tasks, projects
-- **Crawled Documentation**: pgvector similarity search on document chunks
+- **Crawled Documentation**: Surreal-backed similarity search on document chunks
 
 ## Input Schema
 
@@ -242,7 +242,7 @@ When `use_enhanced: true` (default), search uses hybrid retrieval:
 
 - **Limit**: Keep under 20 for interactive use
 - **Enhanced Mode**: Slightly slower but more relevant results
-- **Document Search**: Requires pgvector and embeddings
+- **Document Search**: Requires embeddings and SurrealDB content storage
 - **Timeout**: Search operations timeout after 30 seconds
 
 ## Error Handling

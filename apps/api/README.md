@@ -94,7 +94,6 @@ sibyld serve -t stdio     # Start stdio server (for MCP subprocess)
 sibyld worker             # Start Redis worker (local mode exits cleanly)
 sibyld up                 # Start all services (Supabase-style)
 sibyld down               # Stop all services
-sibyld db migrate         # Run migrations
 sibyld db clear           # Delete all data (dangerous!)
 sibyld generate realistic # Generate sample data
 ```

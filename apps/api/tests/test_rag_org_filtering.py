@@ -4,29 +4,25 @@ Verifies that all RAG endpoints properly scope queries to the user's organizatio
 preventing cross-org data access.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 
 from sibyl.auth.context import AuthContext
-from sibyl.db.models import Organization, User
 from sibyl_core.auth import OrganizationRole
 
 
-def make_mock_user(user_id=None) -> MagicMock:
+def make_mock_user(user_id=None) -> SimpleNamespace:
     """Create a mock User object."""
-    user = MagicMock(spec=User)
-    user.id = user_id or uuid4()
-    return user
+    return SimpleNamespace(id=user_id or uuid4())
 
 
-def make_mock_org(org_id=None) -> MagicMock:
+def make_mock_org(org_id=None) -> SimpleNamespace:
     """Create a mock Organization object."""
-    org = MagicMock(spec=Organization)
-    org.id = org_id or uuid4()
-    return org
+    return SimpleNamespace(id=org_id or uuid4())
 
 
 def make_auth_context(with_org: bool = True, org_id=None) -> AuthContext:
@@ -184,29 +180,6 @@ class TestDocumentOrgVerification:
 
         assert exc_info.value.status_code == 404
         assert "Document not found" in str(exc_info.value.detail)
-
-
-class TestCrawlSourceModel:
-    """Tests for CrawlSource model organization field."""
-
-    def test_crawl_source_has_organization_id_field(self) -> None:
-        """CrawlSource should have organization_id field."""
-        from sibyl.db.models import CrawlSource
-
-        # Check that organization_id is in the model fields
-        field_info = CrawlSource.model_fields.get("organization_id")
-        assert field_info is not None, "organization_id field should exist"
-
-    def test_crawl_source_organization_id_is_uuid(self) -> None:
-        """CrawlSource.organization_id should be a UUID type."""
-        from uuid import UUID
-
-        from sibyl.db.models import CrawlSource
-
-        field_info = CrawlSource.model_fields.get("organization_id")
-        assert field_info is not None
-        # The annotation should include UUID
-        assert field_info.annotation is UUID or "UUID" in str(field_info.annotation)
 
 
 class TestAuthContextProperties:

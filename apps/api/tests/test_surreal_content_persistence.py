@@ -8,11 +8,10 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
-from sibyl.db.models import CrawledDocument
 from sibyl.persistence import content_archive
 from sibyl.persistence.backups_common import BackupRecord, BackupSettingsRecord
 from sibyl.persistence.content_archive import restore_content_archive_payload
-from sibyl.persistence.content_common import RawCaptureRecord
+from sibyl.persistence.content_common import CrawledDocumentRecord, RawCaptureRecord
 from sibyl.persistence.settings_types import SystemSettingRecord
 from sibyl.persistence.surreal import (
     backups as surreal_backups,
@@ -601,7 +600,7 @@ async def test_surreal_content_write_helpers_round_trip(
 
         document = await save_crawled_document_record(
             None,
-            document=CrawledDocument(
+            document=CrawledDocumentRecord(
                 source_id=source.id,
                 url="https://docs.example.com/page",
                 title="Page",

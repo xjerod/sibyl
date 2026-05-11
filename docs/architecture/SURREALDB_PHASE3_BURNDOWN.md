@@ -30,16 +30,15 @@ Phase 3 is done when:
 
 From the generated inventory:
 
-- 24 SQLModel tables remain in the codebase.
-- 1 file still contains raw SQL query usage.
+- 0 SQLModel tables remain in the codebase.
+- 0 files contain raw SQL query usage.
 - 0 files show session-backed storage access outside direct query usage.
-- Legacy transition dependencies remain in `apps/api/pyproject.toml`: `alembic`, `asyncpg`,
-  `pgvector`, and `sqlmodel`.
+- No legacy transition dependencies remain in `apps/api/pyproject.toml`.
 - `graphiti-core[anthropic,google-genai]` remains as the active Graphiti integration; the FalkorDB
   extra and Python client are gone.
 
-This inventory does not mean every item is active in fully Surreal mode. It means every item needs a
-specific keep, migrate, or delete decision before dependency removal.
+This inventory now tracks the remaining active runtime surface, plus retained archive rehearsal
+paths that still need explicit policy decisions.
 
 ---
 
@@ -77,8 +76,7 @@ Delete or collapse:
 - The `postgres` branch in `apps/api/src/sibyl/persistence/auth_runtime.py`
 - The `postgres` branch in `apps/api/src/sibyl/persistence/organization_runtime.py`
 
-Move shared enums/value objects out of `apps/api/src/sibyl/db/models.py` before deleting ORM models
-that other modules still import.
+Shared enums/value objects now live outside the deleted SQLModel schema module.
 
 Verification:
 
@@ -158,16 +156,17 @@ Completed evidence:
 
 ### Lane 4 - Remove Ambient Relational Infrastructure
 
-Status: startup/session/RLS wiring complete. Historical schema helpers remain.
+Status: complete for active runtime. Historical Alembic revisions remain as archive policy artifacts
+only.
 
 Do this only after lanes 1-3 remove active consumers.
 
 Delete or retire:
 
-- `apps/api/src/sibyl/db/connection.py`
+- `apps/api/src/sibyl/db/connection.py` (deleted)
 - `apps/api/src/sibyl/db/project_sync.py` (deleted)
 - `apps/api/src/sibyl/db/sync.py` (deleted)
-- Alembic and `sibyld db` commands retained only for historical migration/archive policy.
+- SQLModel schemas, Alembic runtime config, and direct `sibyld db` PostgreSQL commands (deleted)
 
 Preserve historical Alembic revisions as history. Do not rewrite old migrations.
 
@@ -186,8 +185,10 @@ Completed evidence:
 - Migration-era graph-to-Postgres project sync helpers and CLI commands were deleted.
 - Live relational auth/content archive export was removed; JSON archive export now reads Surreal.
 - Legacy async PostgreSQL session helpers were deleted.
-- Runtime inventory now reports 1 raw SQL query usage file and 0 session-backed storage access
-  files.
+- SQLModel schemas, Alembic runtime config, active Alembic/asyncpg/pgvector/sqlmodel dependencies,
+  and direct `sibyld db` PostgreSQL commands were deleted.
+- Runtime inventory now reports 0 SQLModel tables, 0 raw SQL query usage files, 0 session-backed
+  storage access files, and no legacy transition dependencies.
 
 ### Lane 5 - Remove Legacy Graph and Dependencies
 
@@ -228,8 +229,7 @@ Completed evidence:
 1. Remove auth/RBAC legacy code.
 2. Remove legacy content/settings/backup branches after archive policy is settled.
 3. Finish PostgreSQL archive and migration policy.
-4. Remove `sqlmodel`, `asyncpg`, `pgvector`, and `alembic` from active dependencies.
-5. Remove FalkorDB compose/runtime support and Graphiti Falkor extras.
+4. Remove FalkorDB compose/runtime support and Graphiti Falkor extras.
 
 Each dependency removal requires a fresh inventory run and targeted route tests for the surface it
 used to support.
