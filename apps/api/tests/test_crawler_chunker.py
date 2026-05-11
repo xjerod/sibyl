@@ -15,7 +15,7 @@ from sibyl.crawler.chunker import (
     DocumentChunker,
     chunk_document,
 )
-from sibyl.db.models import ChunkType
+from sibyl_core.models import ChunkType
 
 # =============================================================================
 # Fixtures

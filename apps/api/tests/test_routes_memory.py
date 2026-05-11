@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from sibyl.api.routes.memory import recall_raw, remember_raw
 from sibyl.api.schemas import RawMemoryRecallRequest, RawMemoryRememberRequest
-from sibyl.db.models import OrganizationRole, ProjectRole
+from sibyl_core.auth import OrganizationRole, ProjectRole
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 
 

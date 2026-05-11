@@ -8,7 +8,7 @@ import pytest
 from starlette.requests import Request
 
 from sibyl.auth import dependencies, rls
-from sibyl.db.models import OrganizationRole
+from sibyl_core.auth import OrganizationRole
 
 
 def _make_request(*, user_id: str, org_id: str) -> Request:

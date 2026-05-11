@@ -9,8 +9,8 @@ from fastapi import BackgroundTasks
 from starlette.requests import Request
 
 from sibyl.api.routes import org_members as org_member_routes
-from sibyl.db.models import OrganizationRole
 from sibyl.persistence.organization_common import OrgMemberChange
+from sibyl_core.auth import OrganizationRole
 
 
 def _request() -> Request:

@@ -1,6 +1,7 @@
 from sqlalchemy import Enum, Index
 
-from sibyl.db.models import OrganizationMember, OrganizationRole
+from sibyl.db.models import OrganizationMember
+from sibyl_core.auth import OrganizationRole
 
 
 def test_org_membership_table_shape() -> None:

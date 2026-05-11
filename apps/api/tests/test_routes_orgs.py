@@ -10,8 +10,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from sibyl.api.routes import orgs as org_routes
-from sibyl.db.models import OrganizationRole
 from sibyl.persistence.organization_common import OrgAuthResult, OrgRoleResult, OrgSummary
+from sibyl_core.auth import OrganizationRole
 
 
 def _request() -> Request:

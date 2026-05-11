@@ -11,7 +11,8 @@ import pytest
 from fastapi import HTTPException
 
 from sibyl.auth.context import AuthContext
-from sibyl.db.models import Organization, OrganizationRole, User
+from sibyl.db.models import Organization, User
+from sibyl_core.auth import OrganizationRole
 
 
 def make_mock_user(user_id=None) -> MagicMock:

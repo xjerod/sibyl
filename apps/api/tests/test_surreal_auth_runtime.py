@@ -13,9 +13,8 @@ from sibyl.auth.api_key_common import api_key_prefix, hash_api_key
 from sibyl.auth.passwords import hash_password
 from sibyl.auth.primitives import DeviceTokenError
 from sibyl.auth.session_cache import access_session_cache
-from sibyl.db.models import ProjectRole
 from sibyl.persistence.surreal import auth as surreal_auth, auth_runtime as surreal_auth_runtime
-from sibyl_core.auth import AuthSession
+from sibyl_core.auth import AuthSession, ProjectRole
 
 
 class _StaticAuthClientScope:

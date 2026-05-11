@@ -9,9 +9,9 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 
-from sibyl.db.models import OrganizationRole, ProjectRole
 from sibyl.persistence import organization_common, organization_runtime
 from sibyl.persistence.surreal import organization_runtime as surreal_organization_runtime
+from sibyl_core.auth import OrganizationRole, ProjectRole
 
 
 def _request(*, authorization: str | None = "Bearer current-token") -> SimpleNamespace:

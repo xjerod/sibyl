@@ -5,12 +5,12 @@ from uuid import uuid4
 
 import pytest
 
-from sibyl.db.models import ProjectRole
 from sibyl.persistence import auth_runtime
 from sibyl.persistence.auth_common import InvalidAuthClaimsError, UserNotFoundError
 from sibyl.persistence.surreal import auth_runtime as surreal_auth_runtime
 from sibyl.persistence.surreal.auth import SurrealAuthContextResolver
 from sibyl.persistence.surreal.auth_runtime import SurrealSessionRepository
+from sibyl_core.auth import ProjectRole
 
 
 def test_auth_runtime_uses_shared_error_types() -> None:

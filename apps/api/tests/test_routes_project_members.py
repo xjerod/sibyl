@@ -10,8 +10,8 @@ import pytest
 from fastapi import BackgroundTasks
 
 from sibyl.api.routes import project_members as project_member_routes
-from sibyl.db.models import ProjectRole
 from sibyl.persistence.organization_common import ProjectMemberChange, ProjectMembersResult
+from sibyl_core.auth import ProjectRole
 
 
 class TestCanManageMembers:

@@ -8,11 +8,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
-from sibyl.db.models import (
-    ChunkType,
-    CrawledDocument,
-    SourceType,
-)
+from sibyl.db.models import CrawledDocument
 from sibyl.persistence import content_archive
 from sibyl.persistence.backups_common import BackupRecord, BackupSettingsRecord
 from sibyl.persistence.content_archive import restore_content_archive_payload
@@ -51,6 +47,7 @@ from sibyl.persistence.surreal.system_settings import (
     save_system_setting,
 )
 from sibyl_core.backends.surreal import SurrealContentClient, bootstrap_content_schema
+from sibyl_core.models import ChunkType, SourceType
 
 pytest.importorskip("surrealdb")
 

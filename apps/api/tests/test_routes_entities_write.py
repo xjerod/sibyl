@@ -10,7 +10,7 @@ import pytest
 from sibyl.api.routes.entities import create_entity, delete_entity, update_entity
 from sibyl.api.schemas import EntityCreate, EntityUpdate
 from sibyl.auth.errors import ProjectAccessDeniedError
-from sibyl.db.models import ProjectRole
+from sibyl_core.auth import ProjectRole
 from sibyl_core.models.entities import EntityType
 
 

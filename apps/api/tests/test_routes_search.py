@@ -10,7 +10,7 @@ import pytest
 from sibyl.api.routes.search import explore, search
 from sibyl.api.schemas import ExploreRequest, SearchRequest
 from sibyl.auth.errors import ProjectAccessDeniedError
-from sibyl.db.models import ProjectRole
+from sibyl_core.auth import ProjectRole
 
 
 @dataclass

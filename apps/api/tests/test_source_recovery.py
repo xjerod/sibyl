@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from sibyl.db.models import CrawlStatus
+from sibyl_core.models import CrawlStatus
 
 # =============================================================================
 # Fixtures
@@ -43,8 +43,6 @@ def create_mock_source():
         document_count: int = 0,
         chunk_count: int = 0,
     ):
-        from sibyl.db.models import CrawlStatus
-
         source = MagicMock()
         source.id = uuid4() if source_id is None else source_id
         source.name = name

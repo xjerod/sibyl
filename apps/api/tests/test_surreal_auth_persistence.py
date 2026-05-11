@@ -8,7 +8,6 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
-from sibyl.db.models import ProjectRole
 from sibyl.persistence import auth_archive
 from sibyl.persistence.auth_archive import restore_auth_archive_payload
 from sibyl.persistence.surreal import auth as surreal_auth, auth_runtime as surreal_auth_runtime
@@ -18,7 +17,7 @@ from sibyl.persistence.surreal.auth import (
     SurrealOrganizationRepository,
     SurrealUserRepository,
 )
-from sibyl_core.auth import GitHubUserIdentity, OrganizationRole, PasswordChange
+from sibyl_core.auth import GitHubUserIdentity, OrganizationRole, PasswordChange, ProjectRole
 from sibyl_core.backends.surreal import SurrealAuthClient, bootstrap_auth_schema
 
 pytest.importorskip("surrealdb")
