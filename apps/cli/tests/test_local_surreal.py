@@ -11,6 +11,7 @@ def test_local_compose_defaults_to_fully_surreal_runtime() -> None:
     services = local.COMPOSE_CONFIG["services"]
 
     assert "surrealdb" in services
+    assert services["surrealdb"]["image"] == "${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}"
     assert "falkordb" not in services
     assert "postgres" not in services
 

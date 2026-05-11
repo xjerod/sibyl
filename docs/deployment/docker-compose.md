@@ -60,7 +60,7 @@ The `docker-compose.yml` defines a Surreal-first local stack plus opt-in profile
 ```yaml
 services:
   surrealdb:
-    image: surrealdb/surrealdb:latest
+    image: ${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}
     container_name: sibyl-surrealdb
     ports:
       - "8000:8000"
@@ -81,8 +81,8 @@ volumes:
   postgres_data:
 ```
 
-`surrealdb/surrealdb:latest` is a local development convenience. Pin an explicit SurrealDB 3.x image
-tag for production-like rehearsal and production deployments.
+The default image is pinned to SurrealDB server `v3.0.5` for reproducible local and CI behavior.
+Override `SIBYL_SURREAL_IMAGE` when rehearsing a newer server patch.
 
 ## Port Mappings
 

@@ -133,7 +133,7 @@ COMPOSE_CONFIG = {
             "restart": "unless-stopped",
         },
         "surrealdb": {
-            "image": "surrealdb/surrealdb:latest",
+            "image": "${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}",
             "container_name": "sibyl-surrealdb",
             "command": [
                 "start",
