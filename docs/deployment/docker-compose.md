@@ -112,9 +112,6 @@ moon run docker-down
 # Start recommended Surreal local-dev stack
 moon run dev
 
-# Start legacy Falkor/Postgres stack
-moon run dev-legacy
-
 # Start API + Worker only (no frontend)
 moon run dev-api
 
@@ -247,12 +244,12 @@ curl http://localhost:8000/health
 docker exec -it sibyl-redis redis-cli
 ```
 
-### Legacy Runtime Services
+### Migration Runtime Services
 
-When you need the older stack for migration or debugging:
+When you need the older sidecars for archive migration rehearsal:
 
 ```bash
-docker compose --profile legacy up -d falkordb postgres
+docker compose --profile migration up -d falkordb postgres
 ```
 
 Then you can connect with:

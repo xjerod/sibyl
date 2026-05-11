@@ -13,7 +13,8 @@ now read as a roadmap ledger rather than future design.
 
 Sibyl now defaults to the Surreal runtime for graph, content, and auth in local development.
 `SIBYL_STORE=surreal` and `SIBYL_AUTH_STORE=surreal` are the default settings, `moon run dev` starts
-the Surreal path, and `moon run dev-legacy` is the explicit FalkorDB + PostgreSQL escape hatch.
+the Surreal path, and the local FalkorDB + PostgreSQL dev fallback has been retired after the v0.6.0
+compatibility release.
 
 The remaining Phase 2 work is no longer "make auth run without Postgres." That is working. The
 remaining work is release hardening: live cutover rehearsal, migration docs, noisy release guidance,
@@ -150,7 +151,7 @@ Phase 3 decision if they keep relational storage.
 - `moon run dev` prefers the fully Surreal runtime and detects local legacy data before starting.
 - `moon run dev -- --migrate-legacy` handles the common single-org local migration path without
   requiring users to know their org ID.
-- `moon run dev-legacy` remains the explicit FalkorDB + PostgreSQL fallback.
+- The local FalkorDB + PostgreSQL dev fallback was retired after the v0.6.0 compatibility release.
 - `SIBYL_STORE=surreal` and `SIBYL_AUTH_STORE=surreal` are the default runtime shape.
 - `apps/api/src/sibyl/persistence/auth_runtime.py` dispatches by auth backend instead of
   re-exporting the legacy PostgreSQL implementation.

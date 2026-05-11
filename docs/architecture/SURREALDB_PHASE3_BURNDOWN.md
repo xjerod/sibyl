@@ -191,6 +191,9 @@ Completed evidence:
 
 ### Lane 5 - Remove Legacy Graph and Dependencies
 
+Status: in progress. Local dev no longer exposes the FalkorDB/PostgreSQL runtime fallback; migration
+sidecars remain available only for archive rehearsal until the graph export/import policy is closed.
+
 Do this after graph archive restore, metrics, search, relationship, and admin surfaces are proven on
 SurrealDB with live data.
 
@@ -205,6 +208,13 @@ Verification:
 - Graph restore, search, entity CRUD, relationship traversal, metrics, and MCP tools pass in fully
   Surreal mode.
 - Inventory no longer lists Falkor-only graph runtime code as active.
+
+Completed evidence:
+
+- `moon run dev-legacy` was removed from the root moon tasks.
+- `sibyld up` now coerces `SIBYL_STORE=legacy` to SurrealDB instead of starting FalkorDB.
+- The root Docker Compose PostgreSQL service moved behind the `migration` profile so
+  `docker compose up -d` starts only SurrealDB by default.
 
 ---
 

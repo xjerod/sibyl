@@ -95,15 +95,20 @@ def test_up_starts_legacy_stack_when_store_is_legacy(tmp_path: Path, monkeypatch
     _clear_runtime_env(monkeypatch)
     (tmp_path / ".env").write_text("SIBYL_STORE=legacy\n")
     run_compose, start_foreground = _prepare_up_command(monkeypatch, tmp_path)
+    warn = MagicMock()
+    monkeypatch.setattr(up_cmd, "warn", warn)
 
     up_cmd.up()
 
-    run_compose.assert_called_once_with(["up", "-d", "falkordb", "surrealdb", "redis"], tmp_path)
+    run_compose.assert_called_once_with(["up", "-d", "surrealdb"], tmp_path)
     env = start_foreground.call_args.args[2]
-    assert env["SIBYL_STORE"] == "legacy"
+    assert env["SIBYL_STORE"] == "surreal"
     assert env["SIBYL_AUTH_STORE"] == "surreal"
-    assert up_cmd._resolve_coordination_backend(env) == "redis"
-    assert env["SIBYL_REDIS_HOST"] == "127.0.0.1"
+    assert up_cmd._resolve_coordination_backend(env) == "local"
+    assert "SIBYL_REDIS_HOST" not in env
+    warn.assert_called_once_with(
+        "SIBYL_STORE=legacy is no longer supported by `sibyld up`; using SurrealDB"
+    )
 
 
 def test_configure_requested_worker_mode_skips_extra_worker_for_local_runtime(
@@ -138,7 +143,7 @@ def test_configure_requested_worker_mode_defaults_to_local_runtime(monkeypatch) 
     warn.assert_not_called()
 
 
-def test_configure_requested_worker_mode_embeds_worker_in_legacy_mode(monkeypatch) -> None:
+def test_configure_requested_worker_mode_warns_for_removed_legacy_mode(monkeypatch) -> None:
     info = MagicMock()
     warn = MagicMock()
 
@@ -148,9 +153,11 @@ def test_configure_requested_worker_mode_embeds_worker_in_legacy_mode(monkeypatc
     env = {"SIBYL_STORE": "legacy", "SIBYL_COORDINATION_BACKEND": "auto"}
     up_cmd._configure_requested_worker_mode(env, with_worker=True)
 
-    assert env["SIBYL_RUN_WORKER"] == "true"
-    info.assert_called_once_with("Worker mode: running embedded arq worker in the API process")
-    warn.assert_not_called()
+    assert "SIBYL_RUN_WORKER" not in env
+    warn.assert_called_once_with("`--with-worker` is only supported with Redis coordination")
+    info.assert_called_once_with(
+        "Run `moon run api:worker` or `uv run sibyld worker` in another shell."
+    )
 
 
 def test_configure_requested_worker_mode_warns_for_surreal_redis(monkeypatch) -> None:
@@ -164,7 +171,7 @@ def test_configure_requested_worker_mode_warns_for_surreal_redis(monkeypatch) ->
     up_cmd._configure_requested_worker_mode(env, with_worker=True)
 
     assert "SIBYL_RUN_WORKER" not in env
-    warn.assert_called_once_with("`--with-worker` is only supported in legacy mode")
+    warn.assert_called_once_with("`--with-worker` is only supported with Redis coordination")
     info.assert_called_once_with(
         "Run `moon run api:worker` or `uv run sibyld worker` in another shell."
     )

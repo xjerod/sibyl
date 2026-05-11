@@ -29,16 +29,6 @@ tasks:
     options:
       persistent: true
 
-  dev-legacy:
-    command: bash tools/dev/run-surreal-dev.sh
-    env:
-      FORCE_COLOR: "1"
-      SIBYL_STORE: "legacy"
-      SIBYL_COORDINATION_BACKEND: "auto"
-    preset: server
-    options:
-      persistent: true
-
   migrate-local-surreal:
     command: bash tools/dev/migrate-local-surreal.sh
     env:

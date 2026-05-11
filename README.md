@@ -163,16 +163,13 @@ moon run install-dev
 # Launch the default (Surreal) local-dev path
 moon run dev
 
-# Legacy Falkor/Postgres dev path
-moon run dev-legacy
-
 # Verify
 curl http://localhost:3334/api/health
 ```
 
 `moon run dev` is the Surreal single-machine flow. It starts local SurrealDB and runs jobs plus
 schedules in-process under `sibyld serve`. Redis stays opt-in for multi-process or distributed dev
-work. `moon run dev-legacy` is the opt-in path for the FalkorDB + PostgreSQL stack.
+work. Existing local legacy installs should be migrated with `moon run dev -- --migrate-legacy`.
 
 ### Retrieval Benchmarks
 
@@ -379,8 +376,8 @@ sibyl/
 
 - **Backend:** Python 3.13 / FastMCP / FastAPI / Graphiti / SurrealDB
 - **Frontend:** Next.js 16 / React 19 / React Query / Tailwind 4
-- **Storage:** SurrealDB (graph + content + auth, unified). Legacy FalkorDB + PostgreSQL still
-  supported via `SIBYL_STORE=legacy`.
+- **Storage:** SurrealDB (graph + content + auth, unified). Legacy FalkorDB + PostgreSQL are
+  migration bridges, not new deployment targets.
 - **Build:** moonrepo + uv (Python) + pnpm (TypeScript)
 - **Integrations:** Claude Code, MCP clients, and project-local hooks
 
@@ -446,9 +443,6 @@ moon run install
 # Start everything (Surreal-first, default)
 moon run dev
 
-# Legacy FalkorDB + PostgreSQL path
-moon run dev-legacy
-
 # Move a local legacy install into local Surreal and verify it.
 moon run migrate-local-surreal
 
@@ -482,13 +476,8 @@ docker compose --profile redis up -d surrealdb redis
 moon run dev
 ```
 
-`moon run dev-legacy` is the opt-in path for the FalkorDB + PostgreSQL stack, kept for users who
-haven't migrated yet. See
-[`docs/guide/migrating-from-falkor.md`](docs/guide/migrating-from-falkor.md) for the migration
-playbook.
-
-If local legacy data exists and no local Surreal data has been created yet, `moon run dev` prints the
-migration path instead of starting SurrealDB. `moon run dev -- --migrate-legacy` runs the local
+If local legacy data exists and no local Surreal data has been created yet, `moon run dev` prints
+the migration path instead of starting SurrealDB. `moon run dev -- --migrate-legacy` runs the local
 migration first, then starts the Surreal dev runtime. `moon run migrate-local-surreal` is the same
 data move as a standalone command: it exports the only local org from legacy storage, imports it
 into the local Surreal server, and verifies the result. If there are multiple orgs, the command

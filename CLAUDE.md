@@ -92,7 +92,7 @@ cross-package dependencies. Never use raw `pnpm`/`uv` commands for lint, test, b
 ```bash
 # Lifecycle
 moon run dev              # Start everything (SurrealDB, API, worker, web). Default.
-moon run dev-legacy       # Opt-in legacy stack (FalkorDB + PostgreSQL + Redis)
+moon run migrate-local-surreal  # Move local legacy data into SurrealDB.
 moon run stop             # Stop all services
 
 # Quality (from any directory)

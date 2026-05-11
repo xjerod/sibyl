@@ -42,7 +42,7 @@ services:
   falkordb:
     image: falkordb/falkordb:latest
     container_name: ${COMPOSE_PROJECT_NAME:-sibyl}-falkordb
-    profiles: ["legacy"]
+    profiles: ["migration"]
     ports:
       - "${SIBYL_FALKORDB_PORT:-6380}:6379"
       - "${SIBYL_FALKORDB_BROWSER_PORT:-3335}:3000"
@@ -60,6 +60,7 @@ services:
   postgres:
     image: pgvector/pgvector:pg18
     container_name: ${COMPOSE_PROJECT_NAME:-sibyl}-postgres
+    profiles: ["migration"]
     ports:
       - "${SIBYL_POSTGRES_PORT:-5433}:5432"
     volumes:

@@ -97,9 +97,6 @@ warn_if_legacy_setup_detected() {
    Migrate the common single-org setup:
      moon run dev -- --migrate-legacy
 
-   Keep using FalkorDB + PostgreSQL:
-     moon run dev-legacy
-
    Start a fresh SurrealDB dev runtime:
      moon run dev -- --ignore-legacy
 EOF
@@ -110,11 +107,7 @@ resolve_coordination_backend() {
   local configured="${SIBYL_COORDINATION_BACKEND:-auto}"
 
   if [[ "$configured" == "auto" ]]; then
-    if [[ "${SIBYL_STORE:-surreal}" == "legacy" ]]; then
-      printf 'redis\n'
-    else
-      printf 'local\n'
-    fi
+    printf 'local\n'
     return
   fi
 
@@ -284,6 +277,11 @@ main() {
       export SIBYL_AUTH_STORE="postgres"
     fi
   fi
+  if [[ "$SIBYL_STORE" != "surreal" ]]; then
+    echo "⚠️  SIBYL_STORE=$SIBYL_STORE is no longer supported by dev; using SurrealDB"
+    export SIBYL_STORE="surreal"
+    export SIBYL_AUTH_STORE="surreal"
+  fi
   export SIBYL_COORDINATION_BACKEND="${SIBYL_COORDINATION_BACKEND:-auto}"
   export SIBYL_SERVER_HOST="${SIBYL_SERVER_HOST:-127.0.0.1}"
   export SIBYL_SERVER_PORT="${SIBYL_SERVER_PORT:-3334}"
@@ -297,7 +295,6 @@ main() {
   local coordination_backend=""
   local surreal_volume_dir=""
   local uses_surreal=false
-  local uses_postgres=false
   local services=()
   local web_command="${SIBYL_DEV_WEB_COMMAND:-moon run web:dev}"
   local worker_command="${SIBYL_DEV_WORKER_COMMAND:-uv run --directory apps/api arq sibyl.jobs.worker.WorkerSettings --watch src}"
@@ -313,18 +310,10 @@ main() {
   if [[ "$SIBYL_STORE" == "surreal" || "$SIBYL_AUTH_STORE" == "surreal" ]]; then
     uses_surreal=true
   fi
-  if [[ "$SIBYL_STORE" == "legacy" || "$SIBYL_AUTH_STORE" == "postgres" ]]; then
-    uses_postgres=true
-  fi
-
   trap 'cleanup 130' INT TERM
   trap 'cleanup $?' EXIT
 
   rm -f "$pid_file"
-
-  if [[ "$SIBYL_STORE" == "legacy" ]]; then
-    services+=(falkordb)
-  fi
 
   if [[ "$uses_surreal" == true ]] && is_local_service "$surreal_url"; then
     if [[ -n "${SIBYL_SURREAL_DATA_DIR:-}" ]]; then
@@ -344,18 +333,10 @@ main() {
     unset SURREAL_DATA_DIR
   fi
 
-  if [[ "$uses_postgres" == true ]]; then
-    services+=(postgres)
-  fi
-
   if [[ "$coordination_backend" == "redis" ]]; then
     local redis_host="${SIBYL_REDIS_HOST:-}"
 
-    if [[ "$SIBYL_STORE" == "legacy" ]]; then
-      export SIBYL_REDIS_HOST="${redis_host:-127.0.0.1}"
-      export SIBYL_REDIS_PORT="${SIBYL_REDIS_PORT:-6380}"
-      export SIBYL_REDIS_PASSWORD="${SIBYL_REDIS_PASSWORD:-${SIBYL_FALKORDB_PASSWORD:-sibyl_dev}}"
-    elif is_local_service "$redis_host"; then
+    if is_local_service "$redis_host"; then
       export SIBYL_REDIS_HOST="127.0.0.1"
       export SIBYL_REDIS_PORT="${SIBYL_REDIS_PORT:-6381}"
       export SIBYL_REDIS_PASSWORD="${SIBYL_REDIS_PASSWORD:-}"

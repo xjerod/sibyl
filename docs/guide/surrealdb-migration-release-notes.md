@@ -18,7 +18,7 @@ restore-only evidence for rehearsal or rollback validation.
 
 - `moon run dev` starts the SurrealDB runtime.
 - `SIBYL_STORE=surreal` and `SIBYL_AUTH_STORE=surreal` are the default settings.
-- `moon run dev-legacy` is the explicit FalkorDB + PostgreSQL fallback.
+- The local `moon run dev-legacy` fallback has been retired after the v0.6.0 compatibility release.
 - `moon run dev` detects local legacy data before creating a fresh Surreal dev runtime.
 - `moon run dev -- --migrate-legacy` migrates the common single-org local setup automatically.
 
@@ -37,12 +37,6 @@ If multiple organizations exist, Sibyl prints the available org IDs and asks you
 
 ```bash
 moon run migrate-local-surreal -- --org-id <org-uuid>
-```
-
-To keep using the old stack for debugging or migration work:
-
-```bash
-moon run dev-legacy
 ```
 
 ## Existing production installs
@@ -76,7 +70,6 @@ legacy-auth API and one Surreal-auth API, then pass distinct `--postgres-base-ur
 
 These paths stay available while Phase 3 removes the remaining legacy storage:
 
-- `moon run dev-legacy`
 - `SIBYL_STORE=legacy`
 - PostgreSQL content archive export
 - FalkorDB graph archive export

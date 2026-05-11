@@ -176,7 +176,8 @@ This starts:
 - Web frontend on port 3337
 - In-process background jobs and schedules
 
-The legacy FalkorDB/PostgreSQL path remains available with `moon run dev-legacy`.
+The local FalkorDB/PostgreSQL dev fallback was retired after the v0.6.0 compatibility release. Use
+`moon run dev -- --migrate-legacy` to move old local data into SurrealDB.
 
 ### Individual Services
 
@@ -256,9 +257,8 @@ redis-cli -p 6380
 ### Legacy Graph / Migration Errors
 
 ```bash
-# Start the legacy profile when you need the older graph and auth stack
-docker compose --profile legacy up -d falkordb postgres
-moon run dev-legacy
+# Start migration sidecars when rehearsing old archive data
+docker compose --profile migration up -d falkordb postgres
 ```
 
 ### OpenAI API Errors
