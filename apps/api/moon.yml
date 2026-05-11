@@ -84,9 +84,10 @@ tasks:
       - "@group(sources)"
       - tests/test_graph_integration.py
       - tests/test_concurrent_writes.py
-    preset: server  # Not cacheable - makes real API calls
     options:
+      cache: false
       envFile: .env
+      runInCI: true
 
   # Server
   serve:

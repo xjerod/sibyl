@@ -85,6 +85,9 @@ volumes:
   falkordb_data:
 ```
 
+`surrealdb/surrealdb:latest` is a local development convenience. Pin an explicit SurrealDB 2.x or
+3.x image tag for production-like rehearsal and production deployments.
+
 ## Port Mappings
 
 | Service     | Host Port | Container Port | Purpose                       |
