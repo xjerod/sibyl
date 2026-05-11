@@ -87,16 +87,8 @@ For distributed or multi-process dev, opt into Redis explicitly:
 docker compose --profile redis up -d surrealdb redis
 ```
 
-Legacy FalkorDB/PostgreSQL services still exist behind the `legacy` profile when you need the older
-runtime for migration or debugging work.
-
-### Legacy PostgreSQL Setup
-
-```bash
-# Migrations run automatically during moon run dev,
-# but you can also run them directly when needed
-moon run api:db-migrate
-```
+The PostgreSQL sidecar is available only through the `migration` profile when you need to rehearse
+or validate retained `postgres.sql` archive payloads.
 
 ## Configuration
 
@@ -139,7 +131,7 @@ SIBYL_ANTHROPIC_API_KEY=...        # For LLM operations
 
 | Variable                     | Default                  | Description                                 |
 | ---------------------------- | ------------------------ | ------------------------------------------- |
-| `SIBYL_STORE`                | `surreal`                | Persistence runtime (`surreal` or `legacy`) |
+| `SIBYL_STORE`                | `surreal`                | Active persistence runtime                  |
 | `SIBYL_COORDINATION_BACKEND` | `auto`                   | `local` or `redis` coordination backend     |
 | `SIBYL_SURREAL_URL`          | -                        | SurrealDB server URL                        |
 | `SIBYL_LOG_LEVEL`            | `INFO`                   | Logging level                               |
@@ -147,7 +139,7 @@ SIBYL_ANTHROPIC_API_KEY=...        # For LLM operations
 | `SIBYL_SERVER_URL`           | -                        | Public server URL (for OAuth callbacks)     |
 | `SIBYL_FRONTEND_URL`         | -                        | Frontend URL (for redirects)                |
 | `SIBYL_REDIS_HOST`           | `127.0.0.1`              | Redis/Valkey host when `coordination=redis` |
-| `SIBYL_POSTGRES_HOST`        | `localhost`              | Legacy PostgreSQL host                      |
+| `SIBYL_POSTGRES_HOST`        | `localhost`              | Migration-only PostgreSQL host              |
 
 ## Running Sibyl
 
@@ -223,13 +215,12 @@ Open [http://localhost:3337](http://localhost:3337) in your browser.
 
 ## Ports Reference
 
-| Service      | Port |
-| ------------ | ---- |
-| API + MCP    | 3334 |
-| Web Frontend | 3337 |
-| SurrealDB    | 8000 |
-| FalkorDB     | 6380 |
-| PostgreSQL   | 5433 |
+| Service            | Port |
+| ------------------ | ---- |
+| API + MCP          | 3334 |
+| Web Frontend       | 3337 |
+| SurrealDB          | 8000 |
+| PostgreSQL sidecar | 5433 |
 
 ## Troubleshooting
 
@@ -243,14 +234,13 @@ docker ps | grep surreal
 curl http://localhost:8000/health
 ```
 
-### Graph Corruption
+### Local Graph Reset
 
-If you encounter graph corruption errors:
+If a disposable local graph gets corrupted, stop Sibyl and remove the local SurrealDB data directory
+or reset the affected org namespace from SurrealQL.
 
-```bash
-# Nuclear option: delete the graph
-redis-cli -p 6380
-> GRAPH.DELETE <org-uuid>
+```surql
+REMOVE NAMESPACE org_<uuid_hex>;
 ```
 
 ### Legacy Graph / Migration Errors

@@ -88,8 +88,8 @@ Open the Tilt dashboard at `http://localhost:10350`.
 - `infra/local/tidb-cluster.yaml` defines the TiKV/PD cluster.
 - `infra/local/surrealdb-values.yaml` points SurrealDB at `tikv://sibyl-tikv-pd:2379`.
 - `infra/local/valkey-values.yaml` configures the official Valkey chart with ACL auth and replicas.
-- `infra/local/sibyl-values.yaml` sets `store: surreal`, `authStore: surreal`, and
-  `coordinationBackend: redis`.
+- `infra/local/sibyl-values.yaml` sets `coordinationBackend: redis`; storage and auth are fixed to
+  SurrealDB by the chart.
 
 ## Access
 

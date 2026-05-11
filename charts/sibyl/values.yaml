@@ -1,6 +1,6 @@
 # Sibyl Helm Chart Values
 # This chart deploys the Sibyl application (backend + frontend + worker).
-# It does NOT include infrastructure (SurrealDB, PostgreSQL, FalkorDB, Kong).
+# It does NOT include infrastructure (SurrealDB, Valkey/Redis, Kong).
 # Those should be deployed separately using their respective charts.
 
 # -- Global settings
@@ -8,28 +8,11 @@ global:
   # -- Image pull secrets for private registries
   imagePullSecrets: []
 
-# -- Storage mode configuration
-# Default: fully Surreal (graph + content + auth in one SurrealDB instance).
-# For the legacy FalkorDB + PostgreSQL stack, set:
-#   store: "legacy"
-#   authStore: "postgres"
-#   coordinationBackend: "redis"
-# See docs/guide/storage-modes.md for the full matrix.
-# -- Active persistence runtime: "surreal" or "legacy"
-store: "surreal"
-# -- Auth persistence runtime: "surreal" or "postgres"
-authStore: "surreal"
-# -- Coordination backend: "auto" (surreal→local, legacy→redis), "local", or "redis"
+# -- Storage mode configuration.
+# Sibyl's active Helm runtime is fully SurrealDB-backed.
+# Archive and legacy migration sidecars are operated outside this release chart.
+# -- Coordination backend: "auto", "local", or "redis"
 coordinationBackend: "auto"
-
-# -- Database migrations configuration
-migrations:
-  # -- Enable migration job (runs as pre-upgrade/pre-install hook)
-  enabled: true
-  # -- Number of retries before marking migration as failed
-  backoffLimit: 3
-  # -- Seconds to keep completed job before cleanup
-  ttlSecondsAfterFinished: 600
 
 # -- Backend configuration
 backend:
@@ -150,27 +133,7 @@ backend:
   # Must contain: SIBYL_JWT_SECRET, SIBYL_OPENAI_API_KEY, SIBYL_ANTHROPIC_API_KEY
   existingSecret: ""
 
-  # -- Database connection settings
-  # Option 1: Use CNPG-generated secret (recommended)
-  #   Set existingSecret to the CNPG app secret (e.g., "sibyl-postgres-app")
-  #   All connection values (host, port, dbname, username, password) are pulled automatically
-  # Option 2: Manual configuration
-  #   Leave existingSecret empty and set host, port, database, user manually
-  #   Password must be in a separate secret
-  database:
-    # -- Reference to CNPG-generated secret (contains host, port, dbname, username, password)
-    # When set, all other database values are ignored
-    existingSecret: ""
-    # -- PostgreSQL host (only used if existingSecret is empty)
-    host: "postgres"
-    # -- PostgreSQL port (only used if existingSecret is empty)
-    port: "5432"
-    # -- PostgreSQL database name (only used if existingSecret is empty)
-    database: "sibyl"
-    # -- PostgreSQL user (only used if existingSecret is empty)
-    user: "sibyl"
-
-  # -- SurrealDB connection settings (used when store or authStore is "surreal")
+  # -- SurrealDB connection settings
   surreal:
     # -- SurrealDB connection URL (ws:// or http:// to an external Surreal instance)
     url: "ws://surrealdb:8000/rpc"
@@ -187,15 +150,6 @@ backend:
     namespacePrefix: "org_"
     # -- Database name inside each org namespace
     database: "graph"
-
-  # -- FalkorDB connection settings (used only when store is "legacy")
-  falkordb:
-    # -- FalkorDB host
-    host: "falkordb"
-    # -- FalkorDB port
-    port: "6379"
-    # -- Reference to secret containing SIBYL_FALKORDB_PASSWORD
-    existingSecret: ""
 
   # -- Redis/Valkey connection settings (used when coordinationBackend is "redis")
   redis:

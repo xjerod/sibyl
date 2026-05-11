@@ -12,11 +12,10 @@ knowledge graph, ensuring security and separation.
 
 ### Isolated Namespaces
 
-Each organization gets its own isolated namespace. The exact mechanism depends on the active store:
+Each organization gets its own isolated SurrealDB namespace:
 
-- **SurrealDB (default):** per-org namespace named `org_<uuid_hex>` (hyphens stripped). All graph
-  tables live inside that namespace.
-- **FalkorDB (legacy):** a named graph keyed by the organization UUID.
+- **SurrealDB:** per-org namespace named `org_<uuid_hex>` (hyphens stripped). All graph tables live
+  inside that namespace.
 
 ```python
 # Sibyl derives the namespace/graph name from the organization UUID
@@ -208,39 +207,26 @@ sibyl --context org_xyz task list
 SIBYL_CONTEXT=org_xyz sibyl task list
 ```
 
-## Database Schema
+## Auth Schema
 
 ### Organization Table
 
-```sql
--- In PostgreSQL
-CREATE TABLE organizations (
-    id UUID PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- Users belong to organizations
-CREATE TABLE organization_members (
-    organization_id UUID REFERENCES organizations(id),
-    user_id UUID REFERENCES users(id),
-    role VARCHAR(50) DEFAULT 'member',
-    PRIMARY KEY (organization_id, user_id)
-);
+```surql
+DEFINE TABLE organizations SCHEMAFULL;
+DEFINE TABLE organization_members SCHEMAFULL;
 ```
 
 ### Graph Storage
 
 ```
-FalkorDB Instance
-├── Graph: "550e8400-e29b-41d4-a716-446655440000" (Org A)
+SurrealDB Instance
+├── Namespace: "org_550e8400e29b41d4a716446655440000" (Org A)
 │   ├── Entity nodes
 │   ├── Episodic nodes
 │   └── Relationships
-├── Graph: "6fa459ea-ee8a-3ca4-894e-db77e160355e" (Org B)
+├── Namespace: "org_6fa459eaee8a3ca4894edb77e160355e" (Org B)
 │   └── (completely isolated)
-└── Graph: "default" (system/anonymous)
+└── Namespace: "sibyl_auth" (auth/control plane)
 ```
 
 ## Security Considerations

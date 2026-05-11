@@ -83,35 +83,6 @@ spec:
                   key: SIBYL_ANTHROPIC_API_KEY
                   optional: true
             {{- end }}
-            {{- if and (eq .Values.authStore "postgres") .Values.backend.database.existingSecret }}
-            # Pull all database connection info from CNPG-generated secret
-            - name: SIBYL_POSTGRES_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.database.existingSecret }}
-                  key: host
-            - name: SIBYL_POSTGRES_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.database.existingSecret }}
-                  key: port
-            - name: SIBYL_POSTGRES_DB
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.database.existingSecret }}
-                  key: dbname
-            - name: SIBYL_POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.database.existingSecret }}
-                  key: username
-            - name: SIBYL_POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.database.existingSecret }}
-                  key: password
-            {{- end }}
-            {{- if or (eq .Values.store "surreal") (eq .Values.authStore "surreal") }}
             # SurrealDB password from existing secret or auto-generated
             - name: SIBYL_SURREAL_PASSWORD
               valueFrom:
@@ -123,20 +94,6 @@ spec:
                   name: {{ include "sibyl.fullname" . }}-surreal
                   key: password
                   {{- end }}
-            {{- end }}
-            {{- if eq .Values.store "legacy" }}
-            # FalkorDB password from existing secret or auto-generated
-            - name: SIBYL_FALKORDB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  {{- if .Values.backend.falkordb.existingSecret }}
-                  name: {{ .Values.backend.falkordb.existingSecret }}
-                  key: {{ .Values.backend.falkordb.secretKey | default "password" }}
-                  {{- else }}
-                  name: {{ include "sibyl.fullname" . }}-falkordb
-                  key: password
-                  {{- end }}
-            {{- end }}
             {{- if eq .Values.coordinationBackend "redis" }}
             - name: SIBYL_REDIS_PASSWORD
               valueFrom:

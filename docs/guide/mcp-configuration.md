@@ -279,9 +279,9 @@ upstream sibyl {
 
 For stateless scaling:
 
-1. Use Redis for session storage
-2. Ensure all instances share FalkorDB connection
-3. Configure shared PostgreSQL
+1. Use Redis/Valkey for shared coordination
+2. Ensure all instances share the same SurrealDB service
+3. Use sticky sessions for stateful MCP connections
 
 ## Monitoring
 
@@ -328,7 +328,7 @@ curl http://localhost:3334/api/metrics
 
 ### Slow Responses
 
-1. Check FalkorDB connection
+1. Check SurrealDB connection and query latency
 2. Verify embedding API connectivity
 3. Review query complexity
 

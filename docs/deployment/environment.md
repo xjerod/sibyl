@@ -27,12 +27,12 @@ versions as fallbacks.
 
 | Variable                     | Default   | Description                                       |
 | ---------------------------- | --------- | ------------------------------------------------- |
-| `SIBYL_STORE`                | `surreal` | Active persistence runtime: `surreal` or `legacy` |
+| `SIBYL_STORE`                | `surreal` | Active persistence runtime                        |
 | `SIBYL_AUTH_STORE`           | `surreal` | Auth persistence. Only `surreal` is supported     |
 | `SIBYL_COORDINATION_BACKEND` | `auto`    | Jobs, locks, pub/sub: `auto`, `local`, or `redis` |
 
-`auto` resolves to `local` when `SIBYL_STORE=surreal` and `redis` when `SIBYL_STORE=legacy`. See
-[storage-modes.md](../guide/storage-modes.md) for the full mode matrix.
+`auto` resolves to local in-process coordination for the default Surreal runtime. Use `redis` for
+multi-pod deployments. See [storage-modes.md](../guide/storage-modes.md) for the full mode matrix.
 
 ## SurrealDB
 
@@ -129,18 +129,19 @@ Used only by historical archive and migration commands that explicitly restore a
 and ambient runtime sidecars were removed after the v0.6.0 compatibility release; remove stale
 `SIBYL_AUTH_STORE=postgres` values before starting the API.
 
-| Variable                      | Default     | Description                          |
-| ----------------------------- | ----------- | ------------------------------------ |
-| `SIBYL_POSTGRES_HOST`         | `localhost` | PostgreSQL host                      |
-| `SIBYL_POSTGRES_PORT`         | `5433`      | PostgreSQL port (5433 for local dev) |
-| `SIBYL_POSTGRES_USER`         | `sibyl`     | PostgreSQL username                  |
-| `SIBYL_POSTGRES_PASSWORD`     | `sibyl_dev` | PostgreSQL password                  |
-| `SIBYL_POSTGRES_DB`           | `sibyl`     | PostgreSQL database name             |
-| `SIBYL_POSTGRES_POOL_SIZE`    | `10`        | Connection pool size                 |
-| `SIBYL_POSTGRES_MAX_OVERFLOW` | `20`        | Max overflow connections             |
+| Variable                      | Default     | Description                       |
+| ----------------------------- | ----------- | --------------------------------- |
+| `SIBYL_POSTGRES_HOST`         | `localhost` | Migration sidecar host            |
+| `SIBYL_POSTGRES_PORT`         | `5433`      | Migration sidecar port            |
+| `SIBYL_POSTGRES_USER`         | `sibyl`     | Migration sidecar username        |
+| `SIBYL_POSTGRES_PASSWORD`     | `sibyl_dev` | Migration sidecar password        |
+| `SIBYL_POSTGRES_DB`           | `sibyl`     | Migration sidecar database name   |
+| `SIBYL_POSTGRES_POOL_SIZE`    | `10`        | Migration sidecar connection pool |
+| `SIBYL_POSTGRES_MAX_OVERFLOW` | `20`        | Migration sidecar overflow limit  |
 
-Note: Port 5433 is the default for local development to avoid conflicts with a local PostgreSQL
-installation. In Kubernetes, the standard port 5432 is used.
+Note: Port 5433 is the default for local migration sidecars to avoid conflicts with a local
+PostgreSQL installation. Use the standard port 5432 only for external rehearsal databases that
+already expose it.
 
 ## Redis/Valkey Coordination
 
@@ -265,24 +266,22 @@ SIBYL_RESEND_API_KEY=re_...
 SIBYL_EMAIL_FROM=Sibyl <sibyl@example.com>
 ```
 
-### Production (Legacy compatibility only)
+### Migration Archive Rehearsal
 
-Use this only for existing installations that have not completed migration. New production
-deployments should use the fully Surreal example above.
+Use PostgreSQL settings only when explicitly restoring or validating a retained `postgres.sql`
+payload. New production deployments should use the fully Surreal example above.
 
 ```bash
 SIBYL_ENVIRONMENT=production
 SIBYL_JWT_SECRET=<generate with: openssl rand -hex 32>
 SIBYL_PUBLIC_URL=https://sibyl.example.com
 
-# Storage (legacy)
-SIBYL_STORE=legacy
-SIBYL_COORDINATION_BACKEND=redis
-
-# Databases
+# Surreal target
 SIBYL_SURREAL_URL=ws://prod-surrealdb.internal:8000/rpc
 SIBYL_SURREAL_USERNAME=root
 SIBYL_SURREAL_PASSWORD=<secure-password>
+
+# Optional migration/archive sidecar
 SIBYL_POSTGRES_HOST=prod-postgres.internal
 SIBYL_POSTGRES_PORT=5432
 SIBYL_POSTGRES_PASSWORD=<secure-password>
@@ -352,7 +351,7 @@ configuring different ports and container names.
 | `SIBYL_SERVER_PORT`   | `3334`  | API/MCP server port            |
 | `SIBYL_WEB_PORT`      | `3337`  | Web frontend port              |
 | `SIBYL_SURREAL_PORT`  | `8000`  | SurrealDB port (default store) |
-| `SIBYL_POSTGRES_PORT` | `5433`  | PostgreSQL port (legacy/mixed) |
+| `SIBYL_POSTGRES_PORT` | `5433`  | PostgreSQL sidecar port        |
 | `SIBYL_BACKEND_URL`   | (auto)  | Backend URL for web app        |
 
 ### Quick Setup: Test Instance
@@ -394,7 +393,7 @@ SIBYL_WEB_PORT=3347 SIBYL_BACKEND_URL=http://localhost:3344 pnpm -C apps/web dev
 ### Tips
 
 - Use `docker compose -p sibyl-test ps` to see test instance containers
-- Volumes are namespaced by project, for example `sibyl-test_postgres_data`
+- Volumes are namespaced by project, for example `sibyl-test_surreal_data`
 - CLI contexts let you switch between instances: `sibyl context use test`
 
 ## Computed Properties
@@ -403,8 +402,8 @@ The Settings class provides computed connection URLs:
 
 ```python
 settings.resolved_surreal_url  # ws://..., surrealkv://..., or memory://
-settings.postgres_url          # postgresql://user:pass@host:port/db
-settings.postgres_url_sync     # Backward-compatible alias
+settings.postgres_url          # migration sidecar URL
+settings.postgres_url_sync     # migration sidecar URL alias
 settings.fully_surreal         # True when graph, content, and auth all use SurrealDB
 settings.requires_relational_support  # False after v0.6.0 sidecar removal
 ```

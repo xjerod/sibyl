@@ -34,17 +34,10 @@ global:
   imagePullSecrets: []
 ```
 
-## Database Migrations
+## Schema Bootstrap
 
-```yaml
-migrations:
-  # Enable migration job (runs as pre-upgrade/pre-install hook)
-  enabled: true
-  # Number of retries before marking migration as failed
-  backoffLimit: 3
-  # Seconds to keep completed job before cleanup
-  ttlSecondsAfterFinished: 600
-```
+Sibyl bootstraps SurrealDB schemas at application startup. The chart does not run Alembic or
+PostgreSQL migration jobs.
 
 ## Backend Configuration
 
@@ -187,11 +180,10 @@ backend:
 
 ### Storage Mode
 
-Pick the active persistence runtime at the top level:
+The active persistence runtime is fixed to SurrealDB. Use Redis/Valkey coordination for multi-pod
+deployments:
 
 ```yaml
-store: "surreal" # or "legacy" for FalkorDB
-authStore: "surreal" # or "postgres" for relational auth
 coordinationBackend: "auto" # use "redis" for multi-pod deployments
 ```
 
@@ -209,47 +201,6 @@ backend:
     secretKey: "password"
     namespacePrefix: "org_"
     database: "graph"
-```
-
-### PostgreSQL Connection (legacy/mixed auth)
-
-Used when `authStore: "postgres"`.
-
-#### Option 1: CNPG Secret (Recommended)
-
-```yaml
-backend:
-  database:
-    # CNPG auto-generates this secret with host, port, dbname, username, password
-    existingSecret: "sibyl-postgres-app"
-```
-
-#### Option 2: Manual Configuration
-
-```yaml
-backend:
-  database:
-    existingSecret: "" # Leave empty
-    host: "postgres.example.com"
-    port: "5432"
-    database: "sibyl"
-    user: "sibyl"
-    # Password must be in a separate secret
-```
-
-### FalkorDB Connection (legacy)
-
-Used only when `store: "legacy"`.
-
-```yaml
-backend:
-  falkordb:
-    host: "falkordb"
-    port: "6379"
-    # Reference to secret containing password
-    existingSecret: ""
-    # Key name in the secret (default: "password")
-    secretKey: "password"
 ```
 
 ### Redis or Valkey Coordination
@@ -484,8 +435,6 @@ global:
   imagePullSecrets:
     - name: ghcr-pull-secret
 
-store: "surreal"
-authStore: "surreal"
 coordinationBackend: "auto"
 
 backend:
@@ -579,23 +528,21 @@ serviceAccount:
 
 The chart includes these templates:
 
-| Template                 | Purpose                                      |
-| ------------------------ | -------------------------------------------- |
-| backend-deployment.yaml  | Backend Deployment                           |
-| backend-service.yaml     | Backend ClusterIP Service                    |
-| backend-hpa.yaml         | Backend HorizontalPodAutoscaler              |
-| frontend-deployment.yaml | Frontend Deployment                          |
-| frontend-service.yaml    | Frontend ClusterIP Service                   |
-| frontend-hpa.yaml        | Frontend HorizontalPodAutoscaler             |
-| worker-deployment.yaml   | Worker Deployment                            |
-| worker-hpa.yaml          | Worker HorizontalPodAutoscaler               |
-| pdb.yaml                 | PodDisruptionBudgets                         |
-| configmap.yaml           | Non-secret environment config                |
-| surreal-secret.yaml      | Auto-generated Surreal secret (default)      |
-| redis-secret.yaml        | Auto-generated Redis/Valkey secret           |
-| falkordb-secret.yaml     | Auto-generated FalkorDB secret (legacy only) |
-| migration-job.yaml       | Alembic migration Job (legacy content only)  |
-| serviceaccount.yaml      | ServiceAccount                               |
+| Template                 | Purpose                                 |
+| ------------------------ | --------------------------------------- |
+| backend-deployment.yaml  | Backend Deployment                      |
+| backend-service.yaml     | Backend ClusterIP Service               |
+| backend-hpa.yaml         | Backend HorizontalPodAutoscaler         |
+| frontend-deployment.yaml | Frontend Deployment                     |
+| frontend-service.yaml    | Frontend ClusterIP Service              |
+| frontend-hpa.yaml        | Frontend HorizontalPodAutoscaler        |
+| worker-deployment.yaml   | Worker Deployment                       |
+| worker-hpa.yaml          | Worker HorizontalPodAutoscaler          |
+| pdb.yaml                 | PodDisruptionBudgets                    |
+| configmap.yaml           | Non-secret environment config           |
+| surreal-secret.yaml      | Auto-generated Surreal secret (default) |
+| redis-secret.yaml        | Auto-generated Redis/Valkey secret      |
+| serviceaccount.yaml      | ServiceAccount                          |
 
 ## Debugging
 

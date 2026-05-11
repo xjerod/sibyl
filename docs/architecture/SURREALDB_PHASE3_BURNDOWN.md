@@ -192,8 +192,8 @@ Completed evidence:
 
 ### Lane 5 - Remove Legacy Graph and Dependencies
 
-Status: in progress. Local dev no longer exposes the FalkorDB/PostgreSQL runtime fallback; migration
-sidecars remain available only for archive rehearsal until the graph export/import policy is closed.
+Status: complete for active runtime and deployment surfaces. Migration sidecars remain available
+only for archive rehearsal until the graph export/import policy is closed.
 
 Do this after graph archive restore, metrics, search, relationship, and admin surfaces are proven on
 SurrealDB with live data.
@@ -221,6 +221,9 @@ Completed evidence:
 - The FalkorDB Graphiti search adapter and package extra were removed from `sibyl-core`.
 - The local FalkorDB compose service, app/core Falkor settings, setup service check, and live local
   migration wrapper were removed. Local recovery now uses archive import.
+- The Helm chart no longer renders PostgreSQL auth migration jobs, FalkorDB secrets, or FalkorDB
+  environment, and local Kubernetes infra no longer carries FalkorDB or CNPG manifests.
+- Active guides now describe FalkorDB and PostgreSQL only as migration/archive source surfaces.
 
 ---
 

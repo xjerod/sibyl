@@ -98,7 +98,7 @@ Brief description of what this project does.
 
 ## Project Overview
 
-**Stack:** Python 3.12, FastAPI, PostgreSQL, Redis **Architecture:** Monorepo with apps/api,
+**Stack:** Python 3.13, FastAPI, SurrealDB, Redis/Valkey **Architecture:** Monorepo with apps/api,
 apps/web, packages/core
 
 ## Sibyl Integration
@@ -221,15 +221,15 @@ Every graph operation requires org context:
 
 \`\`\`python manager = EntityManager(client, group_id=str(org.id)) \`\`\`
 
-### FalkorDB Write Concurrency
+### SurrealDB Write Concurrency
 
-FalkorDB's connection pool handles write concurrency natively. No application-level locking is
-needed.
+The SurrealDB driver serializes WebSocket queries per client. Use scoped clients per org and avoid
+adding extra application-level locks around graph writes.
 
 ## Common Gotchas
 
-- **Port 6380** for FalkorDB (not 6379)
-- **Graph corruption** can crash - nuke with `GRAPH.DELETE <org-uuid>`
+- **Port 8000** for local SurrealDB
+- **Graph reset** for disposable local data uses `REMOVE NAMESPACE org_<uuid_hex>`
 - **Always query both labels:** `(n:Episodic OR n:Entity)`
 ```
 
@@ -316,8 +316,8 @@ Tell the agent what it's working on:
 ```markdown
 ## Project Overview
 
-**Sibyl** is a knowledge graph for durable project memory. We use FalkorDB for the graph database
-and OpenAI for embeddings.
+**Sibyl** is a knowledge graph for durable project memory. We use SurrealDB for graph, content,
+auth, and memory data, and OpenAI for embeddings.
 ```
 
 ### 2. Be Specific About Commands

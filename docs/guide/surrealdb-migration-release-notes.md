@@ -59,17 +59,19 @@ Release owners should execute the live gate checklist in
 legacy-auth API and one Surreal-auth API, then pass distinct `--postgres-base-url` and
 `--surreal-base-url` values. Use `--allow-same-base-url` only when debugging the harness itself.
 
-## Compatibility window
+## Phase 3 archive policy
 
-These paths stay available while Phase 3 removes the remaining legacy storage:
+These paths remain available as migration and rollback evidence while Phase 3 closes the old storage
+surface:
 
-- `SIBYL_STORE=legacy`
-- PostgreSQL content archive export
-- FalkorDB graph archive export
+- archive import, verify, and cutover commands for existing legacy installs
+- retained `postgres.sql` restore through explicit `--restore-database-dump` rehearsal commands
+- graph archive payload import into SurrealDB
 
-The old PostgreSQL auth/RBAC runtime and active PostgreSQL content sidecars have been removed.
-Remaining PostgreSQL consumers are archive readers/exporters and ambient legacy startup/sync code
-that will be retired in the Phase 3 storage cleanup.
+The old PostgreSQL auth/RBAC runtime, active PostgreSQL content sidecars, ambient PostgreSQL
+startup/sync code, local FalkorDB runtime fallback, and Graphiti FalkorDB adapter have been removed.
+`SIBYL_STORE=legacy` is now source-side migration context for old installs, not a supported product
+runtime for new deployments.
 
 ## Rollback posture
 

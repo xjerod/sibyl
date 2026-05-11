@@ -57,17 +57,15 @@ helm upgrade --install sibyl ./charts/sibyl \
   -f values-production.yaml
 ```
 
-For legacy mode, substitute `sibyl-surreal` with `sibyl-postgres` and `sibyl-falkordb` secrets, and
-set `store: legacy` + `authStore: postgres` in your values file.
+The Helm chart deploys the SurrealDB-backed runtime only. Keep PostgreSQL archive rehearsal sidecars
+and preserved FalkorDB source deployments outside this release chart.
 
 ## Values Configuration
 
 Create a `values-production.yaml` (Surreal default):
 
 ```yaml
-# Storage mode (default is already "surreal" / "surreal")
-store: "surreal"
-authStore: "surreal"
+# Coordination mode
 coordinationBackend: "redis"
 
 backend:

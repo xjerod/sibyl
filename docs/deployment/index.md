@@ -63,7 +63,7 @@ See [storage-modes.md](../guide/storage-modes.md) and
 
 - Single command startup
 - Hot reload for backend/frontend
-- Databases run in Docker containers
+- SurrealDB runs in Docker
 - [Docker Compose Guide](docker-compose.md)
 
 ### 2. Local Kubernetes (Tilt + Minikube)
@@ -72,7 +72,7 @@ See [storage-modes.md](../guide/storage-modes.md) and
 
 - Full Kubernetes environment locally
 - Kong Gateway for routing
-- CNPG for managed PostgreSQL
+- SurrealDB with TiKV and Valkey coordination
 - Automatic image builds on code changes
 - [Tilt/Minikube Guide](tilt-minikube.md)
 

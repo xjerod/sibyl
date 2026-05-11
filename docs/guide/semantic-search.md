@@ -343,7 +343,7 @@ the query.
 
 1. Reduce limit
 2. Add type filters
-3. Check FalkorDB connection
+3. Check SurrealDB connection and query telemetry
 
 ## Next Steps
 

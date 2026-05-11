@@ -118,7 +118,7 @@ Console output (development):
 
 ```
 14:32:15 INFO  api     request path=/api/health status=200 duration_ms=1.23
-14:32:16 INFO  api     graph_connected host=falkordb port=6379
+14:32:16 INFO  api     surreal_query_complete statement=select elapsed_ms=1.92
 14:32:17 WARN  api     rate_limit_exceeded client=192.168.1.100
 ```
 
@@ -378,8 +378,7 @@ service:sibyl-api status:error
 On startup, Sibyl logs connection status:
 
 ```
-14:32:15 INFO  api     PostgreSQL connected host=postgres
-14:32:15 INFO  api     FalkorDB connected host=falkordb
+14:32:15 INFO  api     SurrealDB running on surrealdb:8000
 14:32:15 INFO  api     WebSocket pub/sub enabled for multi-pod broadcasts
 14:32:15 INFO  api     Distributed entity locks enabled
 ```
@@ -387,7 +386,7 @@ On startup, Sibyl logs connection status:
 If connections fail, warnings are logged but startup continues:
 
 ```
-14:32:15 WARN  api     PostgreSQL unavailable at startup error="Connection refused"
+14:32:15 WARN  api     SurrealDB unavailable at startup error="Connection refused"
 14:32:15 WARN  api     Redis pub/sub unavailable - WebSocket broadcasts will be local only
 ```
 

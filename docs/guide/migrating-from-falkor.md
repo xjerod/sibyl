@@ -9,9 +9,9 @@ Sibyl ships CLI tooling to move an organization (or a whole install) from the le
 PostgreSQL stack to SurrealDB. The migration is an explicit, reversible operation — nothing happens
 automatically when you upgrade.
 
-SurrealDB is the default runtime now. Legacy graph/content mode remains as a compatibility path for
-existing installs during the migration window, but new deployments should not start on FalkorDB.
-Auth/RBAC always runs on SurrealDB.
+SurrealDB is the default runtime now. Legacy graph/content data is a source-side migration concern
+for existing installs, not a runtime mode for new deployments. Auth/RBAC always runs on SurrealDB in
+current releases.
 
 Read the [SurrealDB migration release notes](./surrealdb-migration-release-notes.md) first if you
 are upgrading an existing install.
@@ -38,7 +38,8 @@ SIBYL_STORE=legacy sibyld migrate export \
   --output /tmp/sibyl-migration.tar.gz
 ```
 
-This writes a versioned archive containing:
+Run this before upgrading the source install past the compatibility release, or from a preserved
+legacy source environment. It writes a versioned archive containing:
 
 - `graph.json` — Entities, relationships, and episodes from FalkorDB
 - `postgres.sql` — Optional retained relational dump for rehearsal or rollback validation
@@ -118,7 +119,8 @@ uv run --directory apps/api sibyld migrate import <archive> --yes --clean
 ## Cutover
 
 1. Export the current archive from legacy.
-2. Start a Surreal-backed API on a private cutover endpoint, but keep public traffic on legacy.
+2. Start a Surreal-backed API on a private cutover endpoint, but keep public traffic on the
+   preserved legacy source deployment.
 3. Stop writes to the legacy API (drain requests, flip the ingress).
 4. Run the Surreal cutover acceptance gate while writes are frozen:
 
@@ -149,8 +151,8 @@ moon run migrate-cutover -- \
 ```
 
 7. Point clients at the new Surreal-backed API (`SIBYL_STORE=surreal`, new `SIBYL_SURREAL_URL`).
-8. Keep legacy containers up for a few days as a rollback option. They hold read-only history until
-   you're confident.
+8. Keep the preserved legacy source deployment up for a few days as a rollback option. It holds
+   read-only history until you're confident.
 9. Decommission FalkorDB + PostgreSQL once traffic has run cleanly on Surreal and your rollback
    window has closed.
 
@@ -158,7 +160,7 @@ moon run migrate-cutover -- \
 
 If post-cutover verification reveals a problem:
 
-1. Point clients back at the legacy API (`SIBYL_STORE=legacy`).
+1. Point clients back at the preserved legacy API if Surreal has not accepted new writes yet.
 2. Remove the auth/RBAC read-only guard before resuming legacy writes:
 
 ```bash
@@ -170,9 +172,9 @@ moon run auth-readonly -- --mode unfreeze --apply --yes
 
 ## FAQ
 
-**Do I need to migrate?** Not immediately, but yes, you should plan it during the compatibility
-window. Legacy mode remains available for existing installs during the transition; SurrealDB is the
-default runtime and the path forward.
+**Do I need to migrate?** Yes, if you still have FalkorDB data. Legacy data should be exported from
+the source install, rehearsed, and imported into SurrealDB; current releases should run on the
+SurrealDB runtime.
 
 **Can I migrate org-by-org?** Yes. Each export is scoped to a single `--org-id`. Run them in
 whatever order suits your tenant sizing.

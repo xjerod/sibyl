@@ -13,7 +13,6 @@ fileGroups:
     - tests/**/*
   configs:
     - pyproject.toml
-    - alembic.ini
 
 tasks:
   # Linting & Formatting
@@ -104,17 +103,6 @@ tasks:
     options:
       envFile: .env
       persistent: true
-
-  # Database
-  db-migrate:
-    command: uv run alembic upgrade head
-    options:
-      envFile: .env
-
-  db-revision:
-    command: uv run alembic revision --autogenerate
-    options:
-      envFile: .env
 
   # Dependencies
   sync:

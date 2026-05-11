@@ -39,11 +39,12 @@ operational surface was heavier than the product itself.
   frameworks) is thinner than Postgres'. The remaining relational path exists to stage legacy
   content migration, not to keep two product stacks forever.
 
-## When to stay on legacy
+## Migrating existing legacy installs
 
-Run `SIBYL_STORE=legacy` if you already have FalkorDB in production and haven't planned a migration
-window. PostgreSQL is now an archive/export compatibility surface, not the active content runtime.
-See [storage-modes.md](./storage-modes.md) for the mode matrix and
+Do not start new runtime work on FalkorDB or PostgreSQL auth. If an existing install still has
+FalkorDB data, export an archive from that source install, rehearse the import, and cut over to
+SurrealDB deliberately. PostgreSQL is now a restore-only archive compatibility surface, not an
+active content runtime. See [storage-modes.md](./storage-modes.md) for the mode matrix and
 [migrating-from-falkor.md](./migrating-from-falkor.md) for the cutover playbook.
 
 For the larger product and architecture direction, see

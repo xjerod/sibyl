@@ -45,37 +45,32 @@ Common issues and solutions for Sibyl deployments.
 
 ### Database Connection Errors
 
-**PostgreSQL Connection Refused:**
+**SurrealDB Connection Refused:**
 
 ```
-sqlalchemy.exc.OperationalError: connection refused
+surrealdb error: connection refused
 ```
 
 **Solutions:**
 
-1. **Verify PostgreSQL is running:**
+1. **Verify SurrealDB is running:**
 
    ```bash
-   docker compose ps postgres
-   kubectl get pods -n sibyl -l app=postgres
+   docker compose ps surrealdb
+   kubectl get pods -n sibyl -l app=surrealdb
    ```
 
 2. **Check connection settings:**
 
    ```bash
    # Environment variables
-   echo $SIBYL_POSTGRES_HOST
-   echo $SIBYL_POSTGRES_PORT  # Should be 5433 for local dev
+   echo $SIBYL_SURREAL_URL
    ```
 
 3. **Test direct connection:**
 
    ```bash
-   # Docker Compose
-   docker exec -it sibyl-postgres psql -U sibyl sibyl
-
-   # From host
-   psql -h localhost -p 5433 -U sibyl sibyl
+   curl http://localhost:8000/health
    ```
 
 ## Authentication Issues
@@ -182,11 +177,7 @@ sqlalchemy.exc.OperationalError: connection refused
    kubectl top pods -n sibyl
    ```
 
-3. **Reduce connection pool sizes:**
-   ```bash
-   SIBYL_POSTGRES_POOL_SIZE=5
-   SIBYL_POSTGRES_MAX_OVERFLOW=10
-   ```
+3. **Reduce worker or API concurrency for memory-constrained pods.**
 
 ### Worker Queue Backlog
 
@@ -216,9 +207,9 @@ sqlalchemy.exc.OperationalError: connection refused
 
 ## Port Conflicts
 
-### PostgreSQL Port Conflict
+### PostgreSQL Sidecar Port Conflict
 
-**Error:** Port 5433 already in use
+**Error:** Port 5433 already in use while running a migration/archive sidecar
 
 **Solutions:**
 
@@ -289,25 +280,23 @@ sqlalchemy.exc.OperationalError: connection refused
    - Database not ready
    - Port already bound
 
-### CNPG PostgreSQL Not Starting
+### Migration PostgreSQL Sidecar Not Starting
 
 **Solutions:**
 
-1. **Check CNPG operator:**
+1. **Check the migration compose profile:**
 
    ```bash
-   kubectl get pods -n cnpg-system
-   kubectl logs -n cnpg-system deployment/cnpg-cloudnative-pg
+   docker compose --profile migration ps postgres
    ```
 
-2. **Check cluster status:**
+2. **Check sidecar logs:**
 
    ```bash
-   kubectl get cluster -n sibyl
-   kubectl describe cluster sibyl-postgres -n sibyl
+   docker compose --profile migration logs postgres
    ```
 
-3. **Check PVC:**
+3. **Check PVC when using a Kubernetes-managed sidecar:**
    ```bash
    kubectl get pvc -n sibyl
    ```

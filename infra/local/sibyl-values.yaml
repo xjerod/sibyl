@@ -1,13 +1,7 @@
-# Sibyl values for local development
-# Uses local infrastructure (SurrealDB, Kong)
+# Sibyl values for local development.
+# The chart fixes storage and auth to SurrealDB.
 
-store: "surreal"
-authStore: "surreal"
 coordinationBackend: "redis"
-
-# Disable Helm hook migration Job. Surreal mode bootstraps schema at app startup.
-migrations:
-  enabled: false
 
 backend:
   replicaCount: 2

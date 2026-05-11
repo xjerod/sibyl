@@ -10,8 +10,8 @@ data:
   {{ $key }}: {{ $value | quote }}
   {{- end }}
   # Storage mode
-  SIBYL_STORE: {{ .Values.store | quote }}
-  SIBYL_AUTH_STORE: {{ .Values.authStore | quote }}
+  SIBYL_STORE: "surreal"
+  SIBYL_AUTH_STORE: "surreal"
   SIBYL_COORDINATION_BACKEND: {{ .Values.coordinationBackend | quote }}
   {{- if eq .Values.coordinationBackend "redis" }}
   SIBYL_REDIS_HOST: {{ .Values.backend.redis.host | quote }}
@@ -23,22 +23,8 @@ data:
   SIBYL_RATE_LIMIT_STORAGE: {{ printf "redis://%s:%s/%s" .Values.backend.redis.host .Values.backend.redis.port .Values.backend.redis.rateLimitDb | quote }}
   {{- end }}
   {{- end }}
-  # SurrealDB connection (used when store or authStore is "surreal")
-  {{- if or (eq .Values.store "surreal") (eq .Values.authStore "surreal") }}
+  # SurrealDB connection
   SIBYL_SURREAL_URL: {{ .Values.backend.surreal.url | quote }}
   SIBYL_SURREAL_USERNAME: {{ .Values.backend.surreal.username | quote }}
   SIBYL_SURREAL_NAMESPACE_PREFIX: {{ .Values.backend.surreal.namespacePrefix | quote }}
   SIBYL_SURREAL_DATABASE: {{ .Values.backend.surreal.database | quote }}
-  {{- end }}
-  # PostgreSQL connection (used when authStore is "postgres" or for legacy mid-migration)
-  {{- if and (eq .Values.authStore "postgres") (not .Values.backend.database.existingSecret) }}
-  SIBYL_POSTGRES_HOST: {{ .Values.backend.database.host | quote }}
-  SIBYL_POSTGRES_PORT: {{ .Values.backend.database.port | quote }}
-  SIBYL_POSTGRES_DB: {{ .Values.backend.database.database | quote }}
-  SIBYL_POSTGRES_USER: {{ .Values.backend.database.user | quote }}
-  {{- end }}
-  # FalkorDB connection (used only when store is "legacy")
-  {{- if eq .Values.store "legacy" }}
-  SIBYL_FALKORDB_HOST: {{ .Values.backend.falkordb.host | quote }}
-  SIBYL_FALKORDB_PORT: {{ .Values.backend.falkordb.port | quote }}
-  {{- end }}
