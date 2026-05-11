@@ -119,7 +119,7 @@ Completed evidence:
 - Legacy crawler, document entity, and RAG persistence modules were deleted.
 - Live relational content archive export was removed; structured archive export now reads Surreal.
 - Focused content/RAG route tests passed with `32 passed`.
-- Runtime inventory now reports 1 raw SQL query usage file and 0 session-backed storage access
+- Runtime inventory now reports 0 raw SQL query usage files and 0 session-backed storage access
   files.
 
 ### Lane 3 - Prove and Retire Settings and Backup Sidecars
@@ -151,7 +151,7 @@ Completed evidence:
 - Legacy settings, system settings, and backup persistence modules were deleted.
 - Live relational auth/content archive export was removed from backup snapshots.
 - Focused API tests passed with `53 passed`.
-- Runtime inventory now reports 1 raw SQL query usage file and 0 session-backed storage access
+- Runtime inventory now reports 0 raw SQL query usage files and 0 session-backed storage access
   files.
 
 ### Lane 4 - Remove Ambient Relational Infrastructure
