@@ -134,11 +134,9 @@ jobs:
       SIBYL_SURREAL_URL: ws://localhost:8000/rpc
       SIBYL_SURREAL_USERNAME: root
       SIBYL_SURREAL_PASSWORD: root
-      SIBYL_OPENAI_API_KEY: ${{ secrets.SIBYL_OPENAI_API_KEY }}
-      OPENAI_API_KEY: ${{ secrets.SIBYL_OPENAI_API_KEY }}
-      SIBYL_ANTHROPIC_API_KEY: ${{ secrets.SIBYL_ANTHROPIC_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.SIBYL_ANTHROPIC_API_KEY }}
-      SIBYL_MOCK_LLM: false
+      SIBYL_OPENAI_API_KEY: sk-test-key
+      SIBYL_ANTHROPIC_API_KEY: sk-ant-test-key
+      SIBYL_MOCK_LLM: true
     steps:
       - uses: actions/checkout@v6
         with:

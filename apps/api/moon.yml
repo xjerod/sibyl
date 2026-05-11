@@ -76,13 +76,12 @@ tasks:
       - ~:typecheck
       - ~:test
 
-  # Live model tests (requires ANTHROPIC_API_KEY)
+  # Live SurrealDB runtime tests (requires the CI SurrealDB service)
   test-live:
-    command: uv run pytest tests/test_graph_integration.py tests/test_concurrent_writes.py -m live_model --no-cov -v
+    command: SIBYL_LIVE_SURREAL_TESTS=1 uv run pytest tests/test_surreal_live_runtime.py --no-cov -v
     inputs:
       - "@group(sources)"
-      - tests/test_graph_integration.py
-      - tests/test_concurrent_writes.py
+      - tests/test_surreal_live_runtime.py
     options:
       cache: false
       envFile: .env
