@@ -222,9 +222,8 @@ grant MCP access unless a more explicit “audience/scope” strategy is adopted
   - `apps/api/alembic/versions/0006_row_level_security.py#L64-L79`
   - RLS tests explicitly assert this behavior:
     - `apps/api/tests/test_rls_policies.py#L75-L86`
-- The app does not set `app.org_id` / `app.user_id` on its regular DB sessions
-  (`get_session_dependency()`).
-  - `apps/api/src/sibyl/db/connection.py#L109-L119`
+- The historical app did not set `app.org_id` / `app.user_id` on its regular DB sessions.
+  Active Surreal runtime paths no longer expose those PostgreSQL sessions.
 - A helper exists to set session variables (`get_rls_session()`), but it is not used anywhere, and
   it claims “policies should deny by default” which is not consistent with the policy design.
   - `apps/api/src/sibyl/auth/rls.py#L144-L146`

@@ -40,10 +40,7 @@ def test_runtime_surface_finds_known_contracts() -> None:
     assert {record.name for record in surface.mcp_tools} >= {"search", "explore", "add"}
     assert "User" in surface.sqlmodel_tables
     raw_sql_paths = {record.path for record in surface.raw_sql_usage}
-    assert raw_sql_paths == {
-        "apps/api/src/sibyl/db/connection.py",
-        "apps/api/src/sibyl/db/models.py",
-    }
+    assert raw_sql_paths == {"apps/api/src/sibyl/db/models.py"}
     assert not any(
         record.path == "apps/api/src/sibyl/server.py" for record in surface.raw_sql_usage
     )

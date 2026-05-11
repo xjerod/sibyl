@@ -201,15 +201,11 @@ await session.execute(select(Project))  # Only returns user's org projects
 
 ### Bypassing RLS
 
-For migrations and admin operations, use a session without RLS:
+Historical migration and archive operations use explicit migration commands
+rather than opening an application session:
 
-```python
-from sibyl.db.connection import get_session
-
-async with get_session() as session:
-    # No RLS context set, sees all data
-    # Use only for migrations/admin
-    ...
+```bash
+sibyld db restore-dump postgres.sql
 ```
 
 ## Project Members API

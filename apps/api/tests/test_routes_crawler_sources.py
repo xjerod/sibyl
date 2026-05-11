@@ -17,7 +17,7 @@ from sibyl.api.routes import crawler as crawler_module
 from sibyl.api.routes.crawler import create_source, get_health, list_sources
 from sibyl.api.schemas import CrawlSourceCreate
 from sibyl.crawler.service import SourceAlreadyExistsError
-from sibyl.db import CrawlStatus, SourceType
+from sibyl_core.models import CrawlStatus, SourceType
 
 
 def _make_source() -> SimpleNamespace:

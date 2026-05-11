@@ -10,7 +10,7 @@ import pytest
 
 import sibyl.jobs.crawl as crawl_jobs
 from sibyl.api.event_types import WSEvent
-from sibyl.db import CrawlStatus
+from sibyl_core.models import CrawlStatus
 
 
 def _make_source() -> SimpleNamespace:

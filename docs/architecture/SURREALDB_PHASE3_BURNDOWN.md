@@ -31,7 +31,7 @@ Phase 3 is done when:
 From the generated inventory:
 
 - 24 SQLModel tables remain in the codebase.
-- 2 files still contain raw SQL query usage.
+- 1 file still contains raw SQL query usage.
 - 0 files show session-backed storage access outside direct query usage.
 - Legacy transition dependencies remain in `apps/api/pyproject.toml`: `alembic`, `asyncpg`,
   `pgvector`, and `sqlmodel`.
@@ -121,7 +121,7 @@ Completed evidence:
 - Legacy crawler, document entity, and RAG persistence modules were deleted.
 - Live relational content archive export was removed; structured archive export now reads Surreal.
 - Focused content/RAG route tests passed with `32 passed`.
-- Runtime inventory now reports 2 raw SQL query usage files and 0 session-backed storage access
+- Runtime inventory now reports 1 raw SQL query usage file and 0 session-backed storage access
   files.
 
 ### Lane 3 - Prove and Retire Settings and Backup Sidecars
@@ -153,7 +153,7 @@ Completed evidence:
 - Legacy settings, system settings, and backup persistence modules were deleted.
 - Live relational auth/content archive export was removed from backup snapshots.
 - Focused API tests passed with `53 passed`.
-- Runtime inventory now reports 2 raw SQL query usage files and 0 session-backed storage access
+- Runtime inventory now reports 1 raw SQL query usage file and 0 session-backed storage access
   files.
 
 ### Lane 4 - Remove Ambient Relational Infrastructure
@@ -185,7 +185,8 @@ Completed evidence:
 - `sibyld up` no longer starts PostgreSQL for `SIBYL_STORE=legacy`.
 - Migration-era graph-to-Postgres project sync helpers and CLI commands were deleted.
 - Live relational auth/content archive export was removed; JSON archive export now reads Surreal.
-- Runtime inventory now reports 2 raw SQL query usage files and 0 session-backed storage access
+- Legacy async PostgreSQL session helpers were deleted.
+- Runtime inventory now reports 1 raw SQL query usage file and 0 session-backed storage access
   files.
 
 ### Lane 5 - Remove Legacy Graph and Dependencies
