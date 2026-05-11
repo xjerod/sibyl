@@ -98,9 +98,7 @@ async def test_legacy_content_writes_accept_neutral_records() -> None:
         content_hash="hash",
     )
 
-    saved_document = await legacy_crawler.save_crawled_document_record(
-        session, document=document
-    )
+    saved_document = await legacy_crawler.save_crawled_document_record(session, document=document)
     chunk = content_common.DocumentChunkRecord(
         document_id=saved_document.id,
         chunk_index=0,
@@ -220,19 +218,9 @@ async def test_content_runtime_get_session_uses_legacy_session_scope(
 
 
 @pytest.mark.asyncio
-async def test_settings_runtime_get_session_uses_legacy_session_scope(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = object()
-
-    @asynccontextmanager
-    async def mock_get_legacy_session():
-        yield session
-
-    monkeypatch.setattr(settings_runtime, "get_legacy_session", mock_get_legacy_session)
-
-    async with settings_runtime.get_session() as yielded:
-        assert yielded is session
+async def test_settings_runtime_session_is_surreal_only() -> None:
+    async with settings_runtime.get_settings_session() as yielded:
+        assert yielded is None
 
 
 @pytest.mark.asyncio

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable
 from importlib import import_module
-from types import ModuleType
 from typing import TYPE_CHECKING, Protocol, cast
-
-from sibyl.config import settings
 
 
 class RuntimeExport(Protocol):
@@ -46,9 +43,7 @@ if TYPE_CHECKING:
         def __call__(self, org_id: UUID, backup_id: str) -> Awaitable[BackupRecord]: ...
 
     class GetBackupRetention(Protocol):
-        def __call__(
-            self, org_id: UUID, requested_retention: int | None
-        ) -> Awaitable[int]: ...
+        def __call__(self, org_id: UUID, requested_retention: int | None) -> Awaitable[int]: ...
 
     class GetBackupSettings(Protocol):
         def __call__(self, org_id: UUID) -> Awaitable[BackupSettingsRecord]: ...
@@ -101,10 +96,7 @@ if TYPE_CHECKING:
     update_backup_record: UpdateBackupRecord
     update_backup_settings: UpdateBackupSettings
 
-_BACKEND_MODULES = {
-    "legacy": "sibyl.persistence.legacy.backups",
-    "surreal": "sibyl.persistence.surreal.backups",
-}
+_BACKEND_MODULE = "sibyl.persistence.surreal.backups"
 
 _RUNTIME_EXPORTS = [
     "attach_backup_job",
@@ -122,8 +114,8 @@ _RUNTIME_EXPORTS = [
 __all__ = list(_RUNTIME_EXPORTS)
 
 
-def _backend_module() -> ModuleType:
-    return import_module(_BACKEND_MODULES[settings.store])
+def _backend_module() -> object:
+    return import_module(_BACKEND_MODULE)
 
 
 def _make_runtime_proxy(name: str) -> RuntimeExport:

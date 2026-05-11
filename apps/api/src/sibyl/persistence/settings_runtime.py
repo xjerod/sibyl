@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import asynccontextmanager
 from importlib import import_module
-from types import ModuleType
 from typing import TYPE_CHECKING, Protocol, cast
-
-from sibyl.config import settings
 
 
 class RuntimeExport(Protocol):
@@ -41,10 +38,7 @@ if TYPE_CHECKING:
     list_system_settings: ListSystemSettings
     save_system_setting: SaveSystemSetting
 
-_BACKEND_MODULES = {
-    "legacy": "sibyl.persistence.legacy.system_settings",
-    "surreal": "sibyl.persistence.surreal.system_settings",
-}
+_BACKEND_MODULE = "sibyl.persistence.surreal.system_settings"
 
 _RUNTIME_EXPORTS = [
     "delete_system_setting",
@@ -57,29 +51,13 @@ _RUNTIME_EXPORTS = [
 __all__ = list(_RUNTIME_EXPORTS)
 
 
-def _backend_module() -> ModuleType:
-    return import_module(_BACKEND_MODULES[settings.store])
-
-
-def get_legacy_session() -> AbstractAsyncContextManager[object]:
-    from sibyl.persistence.legacy.session import get_legacy_session as _get_legacy_session
-
-    return _get_legacy_session()
-
-
-@asynccontextmanager
-async def get_session() -> AsyncGenerator[object]:
-    async with get_legacy_session() as session:
-        yield session
+def _backend_module() -> object:
+    return import_module(_BACKEND_MODULE)
 
 
 @asynccontextmanager
 async def get_settings_session() -> AsyncGenerator[object | None]:
-    if settings.store == "surreal":
-        yield None
-        return
-    async with get_session() as session:
-        yield session
+    yield None
 
 
 def _make_runtime_proxy(name: str) -> RuntimeExport:

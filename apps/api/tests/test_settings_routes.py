@@ -1,7 +1,6 @@
 """Tests for settings route auth gating."""
 
 import os
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,59 +8,10 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from sibyl.api.routes import settings as settings_routes
-from sibyl.db.models import OrganizationRole
-from sibyl.persistence.legacy import settings as legacy_settings
 
 
 def _request() -> Request:
     return Request({"type": "http", "method": "GET", "path": "/settings", "headers": []})
-
-
-@pytest.mark.asyncio
-async def test_require_legacy_settings_admin_allows_setup_mode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    auth_mock = AsyncMock()
-
-    monkeypatch.setattr(legacy_settings, "is_setup_mode", AsyncMock(return_value=True))
-    monkeypatch.setattr(legacy_settings, "build_auth_context", auth_mock)
-
-    await legacy_settings.require_legacy_settings_admin(_request())
-
-    auth_mock.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_require_legacy_settings_admin_rejects_non_admin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    session = AsyncMock()
-    session_manager = AsyncMock()
-    session_manager.__aenter__.return_value = session
-    session_manager.__aexit__.return_value = False
-
-    monkeypatch.setattr(legacy_settings, "is_setup_mode", AsyncMock(return_value=False))
-    monkeypatch.setattr(
-        legacy_settings,
-        "build_auth_context",
-        AsyncMock(
-            return_value=SimpleNamespace(
-                organization=object(),
-                org_role=OrganizationRole.MEMBER,
-            )
-        ),
-    )
-    monkeypatch.setattr(legacy_settings, "get_session", lambda: session_manager)
-
-    with pytest.raises(HTTPException, match="Admin or owner role required") as exc_info:
-        await legacy_settings.require_legacy_settings_admin(_request())
-
-    assert exc_info.value.status_code == 403
-
-
-def test_legacy_settings_keeps_compat_aliases_pointed_at_neutral_exports() -> None:
-    assert legacy_settings.is_legacy_setup_mode is legacy_settings.is_setup_mode
-    assert legacy_settings.require_legacy_settings_admin is legacy_settings.require_settings_admin
 
 
 @pytest.mark.asyncio

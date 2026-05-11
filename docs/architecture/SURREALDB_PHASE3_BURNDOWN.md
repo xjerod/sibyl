@@ -31,8 +31,8 @@ Phase 3 is done when:
 From the generated inventory:
 
 - 24 SQLModel tables remain in the codebase.
-- 30 files still contain raw SQL query usage.
-- 1 file still shows session-backed storage access outside direct query usage.
+- 12 files still contain raw SQL query usage.
+- 0 files show session-backed storage access outside direct query usage.
 - Legacy transition dependencies remain in `apps/api/pyproject.toml`: `alembic`, `asyncpg`,
   `pgvector`, and `sqlmodel`.
 - `graphiti-core[falkordb,anthropic,google-genai]` remains while the legacy graph backend and
@@ -61,6 +61,8 @@ gates.
 
 ### Lane 1 - Delete Legacy Auth/RBAC
 
+Status: complete after `v0.6.0`.
+
 Start after one compatibility release on `SIBYL_AUTH_STORE=surreal`.
 
 Delete or collapse:
@@ -84,6 +86,12 @@ Verification:
 - `auth-flow` passes against the Surreal API.
 - Inventory no longer lists legacy auth/RBAC modules as active SQL users.
 
+Completed evidence:
+
+- Legacy auth/RBAC adapters, setup/user persistence, and route tests were removed.
+- `moon run api:test` passed with `1689 passed, 7 skipped`.
+- GitHub Actions CI run `25653206701` passed with SurrealDB as the only database service.
+
 ### Lane 2 - Prove and Retire Content Sidecars
 
 Content has Surreal runtime and archive paths. Phase 3 needs proof before deletion.
@@ -106,6 +114,8 @@ Verification:
 
 ### Lane 3 - Prove and Retire Settings and Backup Sidecars
 
+Status: settings and backup persistence sidecars complete. Archive policy remains open.
+
 Settings and backups already dispatch by runtime. Phase 3 decides when the legacy branches are no
 longer shipped.
 
@@ -114,13 +124,23 @@ Decide each legacy module:
 - `apps/api/src/sibyl/persistence/legacy/settings.py`
 - `apps/api/src/sibyl/persistence/legacy/system_settings.py`
 - `apps/api/src/sibyl/persistence/legacy/backups.py`
-- `apps/api/src/sibyl/persistence/backups_common.py`
+
+Retain `apps/api/src/sibyl/persistence/backups_common.py` until archive policy is settled. It now
+serves shared Surreal backup DTOs and runtime options, not legacy persistence dispatch.
 
 Verification:
 
 - Settings routes pass with `SIBYL_STORE=surreal`.
 - Backup create/list/delete flows pass with Surreal content/auth snapshots.
 - Backup archives no longer require `postgres.sql` unless the release policy explicitly keeps it.
+
+Completed evidence:
+
+- Settings and backup runtime dispatch now resolves directly to Surreal implementations.
+- Legacy settings, system settings, and backup persistence modules were deleted.
+- Focused API tests passed with `53 passed`.
+- Runtime inventory now reports 12 raw SQL query usage files and 0 session-backed storage access
+  files.
 
 ### Lane 4 - Remove Ambient Relational Infrastructure
 

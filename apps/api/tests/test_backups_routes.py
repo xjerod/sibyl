@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from sibyl.api.routes import backups as backup_routes
-from sibyl.persistence.legacy.backups import LegacyBackupList
+from sibyl.persistence.backups_common import BackupListResult
 
 
 def _org() -> SimpleNamespace:
@@ -197,7 +197,7 @@ async def test_list_backups_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         backup_routes,
         "list_backup_records",
-        AsyncMock(return_value=LegacyBackupList(backups=[backup], total=1)),
+        AsyncMock(return_value=BackupListResult(backups=[backup], total=1)),
     )
 
     response = await backup_routes.list_backups(org=_org(), limit=10, offset=0)
