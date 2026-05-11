@@ -201,8 +201,8 @@ await session.execute(select(Project))  # Only returns user's org projects
 
 ### Bypassing RLS
 
-Historical migration and archive operations use explicit migration commands
-rather than opening an application session:
+Historical migration and archive operations use explicit migration commands rather than opening an
+application session:
 
 ```bash
 sibyld db restore-dump postgres.sql
