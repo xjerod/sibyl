@@ -106,11 +106,15 @@ async def test_resolve_mcp_project_scope_requires_project_for_restricted_writes(
 async def test_remember_mcp_memory_scopes_project_metadata() -> None:
     ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
     add = AsyncMock(return_value={"success": True, "id": "decision_123"})
+    remember_raw = AsyncMock(
+        return_value=SimpleNamespace(id="raw_123", source_id="mcp:remember:decision")
+    )
 
     with (
         patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
         patch("sibyl.server._get_accessible_projects", AsyncMock(return_value={"project-a"})),
         patch("sibyl_core.tools.core.add", add),
+        patch("sibyl_core.services.surreal_content.remember_raw_memory", remember_raw),
         patch(
             "sibyl_core.tools.core.explore",
             AsyncMock(return_value=SimpleNamespace(entities=[])),
@@ -127,7 +131,32 @@ async def test_remember_mcp_memory_scopes_project_metadata() -> None:
             metadata={"source": "test"},
         )
 
-    assert result == {"success": True, "id": "decision_123"}
+    assert result == {
+        "success": True,
+        "id": "decision_123",
+        "raw_memory_id": "raw_123",
+        "raw_source_id": "mcp:remember:decision",
+    }
+    remember_raw.assert_awaited_once_with(
+        organization_id=ctx.org_id,
+        principal_id=ctx.user_id,
+        source_id="mcp:remember:decision",
+        raw_content="Remember writes should attach to the target project.",
+        title="Use scoped memory",
+        memory_scope="project",
+        scope_key="project-a",
+        tags=["memory"],
+        metadata={
+            "source": "test",
+            "capture_kind": "decision",
+            "organization_id": ctx.org_id,
+            "domain": "sibyl",
+            "project_id": "project-a",
+            "created_by": ctx.user_id,
+        },
+        provenance={"remember_kind": "decision", "related_to": ["plan_1"]},
+        capture_surface="mcp",
+    )
     add.assert_awaited_once_with(
         title="Use scoped memory",
         content="Remember writes should attach to the target project.",
@@ -142,6 +171,8 @@ async def test_remember_mcp_memory_scopes_project_metadata() -> None:
             "domain": "sibyl",
             "project_id": "project-a",
             "created_by": ctx.user_id,
+            "raw_memory_id": "raw_123",
+            "raw_source_id": "mcp:remember:decision",
         },
         project="project-a",
     )
@@ -151,12 +182,16 @@ async def test_remember_mcp_memory_scopes_project_metadata() -> None:
 async def test_remember_mcp_memory_links_single_active_project_task() -> None:
     ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
     add = AsyncMock(return_value={"success": True, "id": "decision_123"})
+    remember_raw = AsyncMock(
+        return_value=SimpleNamespace(id="raw_123", source_id="mcp:remember:decision")
+    )
     explore = AsyncMock(return_value=SimpleNamespace(entities=[SimpleNamespace(id="task_active")]))
 
     with (
         patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
         patch("sibyl.server._get_accessible_projects", AsyncMock(return_value={"project-a"})),
         patch("sibyl_core.tools.core.add", add),
+        patch("sibyl_core.services.surreal_content.remember_raw_memory", remember_raw),
         patch("sibyl_core.tools.core.explore", explore),
     ):
         await _remember_mcp_memory(
@@ -173,6 +208,12 @@ async def test_remember_mcp_memory_links_single_active_project_task() -> None:
 
     add.assert_awaited_once()
     assert add.await_args.kwargs["related_to"] == ["plan_1", "task_manual", "task_active"]
+    assert add.await_args.kwargs["metadata"]["raw_memory_id"] == "raw_123"
+    assert remember_raw.await_args.kwargs["provenance"]["related_to"] == [
+        "plan_1",
+        "task_manual",
+        "task_active",
+    ]
     explore.assert_awaited_once_with(
         mode="list",
         types=["task"],

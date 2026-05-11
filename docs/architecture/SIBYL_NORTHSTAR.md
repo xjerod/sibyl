@@ -654,8 +654,9 @@ Keep this northstar current as decisions harden. When implementation branches la
 
 ### W1. Native Memory Primitive
 
-Status: first slice landed; next work is latency evidence, policy tightening, and deciding how the
-default `remember` surface should acknowledge raw capture before durable graph writes.
+Status: first slice landed; default CLI and MCP `remember` now preserve raw source material before
+durable graph writes and return raw source identifiers. Next work is latency evidence and policy
+tightening.
 
 Build the smallest shared primitive that every surface can call:
 
@@ -767,8 +768,9 @@ First large-corpus gate:
 
 ### W5. SurrealDB SDK and Runtime Hardening
 
-Status: SDK 2.0 compatibility slice landed. The lockfile now resolves `surrealdb` 2.0.0, and the
-core/API/CLI Surreal contract tests pass against it.
+Status: SDK 2.0 compatibility slice landed. The lockfile now resolves `surrealdb` 2.0.0, the default
+local/CI server image is pinned to `surrealdb/surrealdb:v3.0.5`, and the core/API/CLI Surreal
+contract tests pass against it.
 
 The official Python SDK's latest stable PyPI release is `surrealdb` 2.0.0, released 2026-04-23.
 Sibyl currently needs a compatibility spike before building new Cloud or live-query work on old SDK

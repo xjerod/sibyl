@@ -136,6 +136,9 @@ def test_remember_command_records_domain_memory_with_links(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "raw_123", "source_id": "cli:manual"}
+    )
     mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
     mock_client.explore = AsyncMock(return_value={"entities": []})
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -159,6 +162,29 @@ def test_remember_command_records_domain_memory_with_links(
     )
 
     assert result.exit_code == 0
+    mock_client.remember_raw_memory.assert_awaited_once_with(
+        title="Use context packs",
+        raw_content="Agents should receive grouped memory before building.",
+        source_id=None,
+        memory_scope="private",
+        scope_key=None,
+        diary=False,
+        agent_id=None,
+        project_id=None,
+        tags=["agents", "context"],
+        metadata={
+            "capture_mode": "remember",
+            "capture_surface": "cli",
+            "remember_kind": "decision",
+            "domain": "agent-memory",
+            "project_id": "project_123",
+        },
+        provenance={
+            "remember_kind": "decision",
+            "related_to": ["plan_1", "idea_2"],
+        },
+        capture_surface="cli",
+    )
     mock_client.create_entity.assert_awaited_once_with(
         name="Use context packs",
         content="Agents should receive grouped memory before building.",
@@ -172,6 +198,8 @@ def test_remember_command_records_domain_memory_with_links(
             "remember_kind": "decision",
             "domain": "agent-memory",
             "project_id": "project_123",
+            "raw_memory_id": "raw_123",
+            "raw_source_id": "cli:manual",
         },
         sync=False,
     )
@@ -186,6 +214,57 @@ def test_remember_command_records_domain_memory_with_links(
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_writes_project_raw_source_before_graph_entity(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
+    async def remember_raw_memory(**kwargs: object) -> dict[str, str]:
+        events.append(("raw", dict(kwargs)))
+        return {"id": "raw_project_123", "source_id": "cli:manual"}
+
+    async def create_entity(**kwargs: object) -> dict[str, str]:
+        events.append(("graph", dict(kwargs)))
+        return {"id": "decision_123"}
+
+    mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(side_effect=remember_raw_memory)
+    mock_client.create_entity = AsyncMock(side_effect=create_entity)
+    mock_client.explore = AsyncMock(return_value={"entities": []})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "remember",
+            "Project raw source",
+            "Preserve the exact source before graph summarization.",
+            "--kind",
+            "decision",
+            "--scope",
+            "project",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert [event_name for event_name, _ in events] == ["raw", "graph"]
+    assert events[0][1]["memory_scope"] == "project"
+    assert events[0][1]["scope_key"] == "project_123"
+    assert events[1][1]["metadata"] == {
+        "capture_mode": "remember",
+        "capture_surface": "cli",
+        "remember_kind": "decision",
+        "project_id": "project_123",
+        "raw_memory_id": "raw_project_123",
+        "raw_source_id": "cli:manual",
+    }
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value=None)
 @patch("sibyl_cli.main.get_client")
 def test_remember_command_reads_body_from_stdin(
@@ -193,6 +272,9 @@ def test_remember_command_reads_body_from_stdin(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "raw_123", "source_id": "cli:manual"}
+    )
     mock_client.create_entity = AsyncMock(return_value={"id": "idea_123"})
     mock_client.explore = AsyncMock()
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -212,6 +294,8 @@ def test_remember_command_reads_body_from_stdin(
             "capture_mode": "remember",
             "capture_surface": "cli",
             "remember_kind": "idea",
+            "raw_memory_id": "raw_123",
+            "raw_source_id": "cli:manual",
         },
         sync=False,
     )
@@ -341,6 +425,9 @@ def test_remember_command_project_option_overrides_path_context(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "raw_123", "source_id": "cli:manual"}
+    )
     mock_client.create_entity = AsyncMock(return_value={"id": "plan_123"})
     mock_client.explore = AsyncMock(return_value={"entities": []})
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -361,6 +448,7 @@ def test_remember_command_project_option_overrides_path_context(
     mock_client.create_entity.assert_awaited_once()
     payload = mock_client.create_entity.await_args.kwargs
     assert payload["metadata"]["project_id"] == "project_explicit"
+    assert payload["metadata"]["raw_memory_id"] == "raw_123"
     mock_client.explore.assert_awaited_once_with(
         mode="list",
         types=["task"],
@@ -378,6 +466,9 @@ def test_remember_command_auto_links_single_active_project_task(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "raw_123", "source_id": "cli:manual"}
+    )
     mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
     mock_client.explore = AsyncMock(return_value={"entities": [{"id": "task_active"}]})
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -398,6 +489,7 @@ def test_remember_command_auto_links_single_active_project_task(
     mock_client.create_entity.assert_awaited_once()
     payload = mock_client.create_entity.await_args.kwargs
     assert payload["related_to"] == ["task_active"]
+    assert payload["metadata"]["raw_memory_id"] == "raw_123"
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
@@ -408,6 +500,9 @@ def test_remember_command_skips_ambiguous_active_project_tasks(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "raw_123", "source_id": "cli:manual"}
+    )
     mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
     mock_client.explore = AsyncMock(
         return_value={"entities": [{"id": "task_one"}, {"id": "task_two"}]}
@@ -429,6 +524,7 @@ def test_remember_command_skips_ambiguous_active_project_tasks(
     assert result.exit_code == 0
     payload = mock_client.create_entity.await_args.kwargs
     assert payload["related_to"] == ["plan_1"]
+    assert payload["metadata"]["raw_memory_id"] == "raw_123"
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
@@ -439,6 +535,9 @@ def test_remember_command_explicit_task_links_and_no_active_task(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "raw_123", "source_id": "cli:manual"}
+    )
     mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
     mock_client.explore = AsyncMock()
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -461,6 +560,7 @@ def test_remember_command_explicit_task_links_and_no_active_task(
     assert result.exit_code == 0
     payload = mock_client.create_entity.await_args.kwargs
     assert payload["related_to"] == ["plan_1", "task_1"]
+    assert payload["metadata"]["raw_memory_id"] == "raw_123"
     mock_client.explore.assert_not_called()
     mock_resolve_project_from_cwd.assert_called_once_with()
 

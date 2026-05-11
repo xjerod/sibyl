@@ -754,6 +754,33 @@ def remember_memory(
                     task_ids=task_ids,
                     active_task=active_task,
                 )
+                raw_scope_key = scope_key
+                if memory_scope == "project" and raw_scope_key is None:
+                    raw_scope_key = effective_project
+                raw_memory = await client.remember_raw_memory(
+                    title=title,
+                    raw_content=resolved_content,
+                    source_id=source_id,
+                    memory_scope=memory_scope,
+                    scope_key=raw_scope_key,
+                    diary=False,
+                    agent_id=None,
+                    project_id=None,
+                    tags=parsed_tags,
+                    metadata=metadata,
+                    provenance={
+                        "remember_kind": kind,
+                        "related_to": resolved_links or [],
+                    },
+                    capture_surface=surface,
+                )
+                raw_memory_id = raw_memory.get("id")
+                raw_source_id = raw_memory.get("source_id")
+                graph_metadata = dict(metadata)
+                if raw_memory_id:
+                    graph_metadata["raw_memory_id"] = raw_memory_id
+                if raw_source_id:
+                    graph_metadata["raw_source_id"] = raw_source_id
                 data = await client.create_entity(
                     name=title,
                     content=resolved_content,
@@ -761,13 +788,15 @@ def remember_memory(
                     category=domain,
                     tags=parsed_tags,
                     related_to=resolved_links,
-                    metadata=metadata,
+                    metadata=graph_metadata,
                     sync=wait_searchable,
                 )
 
                 entity_id = data.get("id", "unknown")
 
                 if json_output:
+                    data["raw_memory_id"] = raw_memory_id
+                    data["raw_source_id"] = raw_source_id
                     print_json(data)
                     return
 
@@ -776,6 +805,8 @@ def remember_memory(
                 else:
                     info(f"Queued {kind}: {title}")
                 console.print(f"  [dim]ID: {entity_id}[/dim]")
+                if raw_memory_id:
+                    console.print(f"  [dim]Raw: {raw_memory_id}[/dim]")
         except SibylClientError as e:
             _handle_client_error(e)
 

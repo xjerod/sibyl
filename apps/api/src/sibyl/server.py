@@ -226,6 +226,7 @@ async def _remember_mcp_memory(
     active_task: bool = True,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from sibyl_core.services.surreal_content import remember_raw_memory
     from sibyl_core.tools.core import add
 
     ctx = await _require_mcp_context()
@@ -234,6 +235,8 @@ async def _remember_mcp_memory(
         project,
         require_project_when_restricted=True,
     )
+    if not ctx.user_id:
+        raise ValueError("User context required to remember raw source material.")
 
     full_metadata = dict(metadata or {})
     full_metadata["capture_kind"] = kind
@@ -251,6 +254,24 @@ async def _remember_mcp_memory(
         task_ids=task_ids,
         active_task=active_task,
     )
+    raw_memory = await remember_raw_memory(
+        organization_id=ctx.org_id,
+        principal_id=ctx.user_id,
+        source_id=f"mcp:remember:{kind}",
+        raw_content=content,
+        title=title,
+        memory_scope="project" if project else "private",
+        scope_key=project,
+        tags=tags,
+        metadata=dict(full_metadata),
+        provenance={
+            "remember_kind": kind,
+            "related_to": resolved_links or [],
+        },
+        capture_surface="mcp",
+    )
+    full_metadata["raw_memory_id"] = raw_memory.id
+    full_metadata["raw_source_id"] = raw_memory.source_id
 
     result = await add(
         title=title,
@@ -262,7 +283,10 @@ async def _remember_mcp_memory(
         metadata=full_metadata,
         project=project,
     )
-    return _to_dict(result)
+    payload = _to_dict(result)
+    payload["raw_memory_id"] = raw_memory.id
+    payload["raw_source_id"] = raw_memory.source_id
+    return payload
 
 
 async def _reflect_mcp_memory(
