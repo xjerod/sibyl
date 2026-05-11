@@ -215,6 +215,8 @@ Completed evidence:
 - `sibyld up` now coerces `SIBYL_STORE=legacy` to SurrealDB instead of starting FalkorDB.
 - The root Docker Compose PostgreSQL service moved behind the `migration` profile so
   `docker compose up -d` starts only SurrealDB by default.
+- `GraphClient` no longer imports or constructs the FalkorDB driver; it always connects through the
+  SurrealDB driver.
 
 ---
 

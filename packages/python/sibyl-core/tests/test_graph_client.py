@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import graphiti_core
 import pytest
-from graphiti_core.driver.falkordb_driver import FalkorDriver
 
 import sibyl_core.graph.cached_embedder as cached_embedder
 from sibyl_core.backends.surreal import SurrealDriver
@@ -11,38 +10,6 @@ from sibyl_core.config import CoreConfig
 from sibyl_core.errors import GraphConnectionError
 from sibyl_core.graph import client as _graph_client
 from sibyl_core.graph.client import GraphClient
-from sibyl_core.graph.search_interface import FalkorDBSearchInterface
-
-
-def test_build_fulltext_query_uses_unquoted_group_ids_for_falkordb() -> None:
-    _graph_client._patch_falkordb_driver()
-    driver = object.__new__(FalkorDriver)
-
-    query = driver.build_fulltext_query(
-        "vibes whimsy adding cheese",
-        ["e7b94a25-dd4c-4fb8-b300-0c75e83998e2"],
-        128,
-    )
-
-    assert query.startswith("(@group_id:e7b94a25-dd4c-4fb8-b300-0c75e83998e2)")
-    assert '"e7b94a25-dd4c-4fb8-b300-0c75e83998e2"' not in query
-    assert "(vibes | whimsy | adding | cheese)" in query
-
-
-def test_clone_preserves_search_interface() -> None:
-    _graph_client._patch_falkordb_driver()
-    driver = object.__new__(FalkorDriver)
-    driver._database = "default"  # type: ignore[attr-defined]
-    driver.search_interface = FalkorDBSearchInterface()
-    driver.some_shared_state = SimpleNamespace(marker="shared")
-
-    cloned = driver.clone("org-123")
-
-    assert cloned is not driver
-    assert cloned._database == "org-123"  # type: ignore[attr-defined]
-    assert driver._database == "default"  # type: ignore[attr-defined]
-    assert cloned.search_interface is driver.search_interface
-    assert cloned.some_shared_state is driver.some_shared_state
 
 
 def test_core_config_uses_store_env(monkeypatch) -> None:
@@ -74,32 +41,26 @@ def test_core_config_ignores_removed_graph_backend_alias(monkeypatch) -> None:
 async def test_connect_dispatches_to_surreal_runtime(monkeypatch) -> None:
     client = GraphClient()
     connect_surreal = AsyncMock()
-    connect_legacy = AsyncMock()
 
     monkeypatch.setattr(_graph_client.settings, "store", "surreal")
     monkeypatch.setattr(client, "_connect_surreal", connect_surreal)
-    monkeypatch.setattr(client, "_connect_legacy", connect_legacy)
 
     await client.connect()
 
     connect_surreal.assert_awaited_once_with()
-    connect_legacy.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_connect_dispatches_to_legacy_runtime(monkeypatch) -> None:
+async def test_connect_ignores_removed_legacy_runtime(monkeypatch) -> None:
     client = GraphClient()
     connect_surreal = AsyncMock()
-    connect_legacy = AsyncMock()
 
     monkeypatch.setattr(_graph_client.settings, "store", "legacy")
     monkeypatch.setattr(client, "_connect_surreal", connect_surreal)
-    monkeypatch.setattr(client, "_connect_legacy", connect_legacy)
 
     await client.connect()
 
-    connect_legacy.assert_awaited_once_with()
-    connect_surreal.assert_not_awaited()
+    connect_surreal.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -202,7 +163,7 @@ async def test_default_execute_write_refuses_surreal_store() -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_execute_read_remains_available_for_legacy_store() -> None:
+async def test_default_execute_read_refuses_removed_legacy_store() -> None:
     driver = MagicMock()
     driver.execute_query = AsyncMock(return_value=([{"ok": True}], None, None))
     client = GraphClient()
@@ -210,10 +171,10 @@ async def test_default_execute_read_remains_available_for_legacy_store() -> None
     client._client = SimpleNamespace(driver=driver)
     client._connected = True
 
-    rows = await client.execute_read("MATCH (n) RETURN n")
+    with pytest.raises(GraphConnectionError, match="org-scoped"):
+        await client.execute_read("MATCH (n) RETURN n")
 
-    assert rows == [{"ok": True}]
-    driver.execute_query.assert_awaited_once_with("MATCH (n) RETURN n")
+    driver.execute_query.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -10,8 +10,7 @@ from dotenv import load_dotenv
 
 from sibyl_core.config import core_config as settings
 
-# Load .env BEFORE graphiti is imported to ensure SEMAPHORE_LIMIT is set
-# This prevents FalkorDB race condition crashes by serializing Graphiti operations
+# Load .env BEFORE graphiti is imported to ensure SEMAPHORE_LIMIT is set.
 _env_path = Path(__file__).parent.parent.parent.parent / ".env"
 if _env_path.exists():
     load_dotenv(_env_path)
@@ -35,15 +34,8 @@ def _patch_semaphore_gather() -> None:
     """Remove Graphiti's semaphore bottleneck by replacing semaphore_gather with asyncio.gather.
 
     Graphiti uses a global semaphore (SEMAPHORE_LIMIT) for ALL concurrent operations,
-    including both LLM calls and FalkorDB queries. This was designed for LLM rate limiting,
-    but applying it to DB operations creates artificial serialization.
-
-    Our FalkorDB setup already has proper concurrency controls:
-    - BlockingConnectionPool (50 connections, 60s wait timeout)
-    - FalkorDB/Redis handles concurrent queries natively
-
-    This patch replaces semaphore_gather with plain asyncio.gather, eliminating the
-    Python-level bottleneck while preserving FalkorDB's natural concurrency handling.
+    including both LLM calls and store queries. This was designed for LLM rate limiting,
+    but applying it to SurrealDB operations creates artificial serialization.
     """
     import asyncio
     from collections.abc import Coroutine
@@ -62,63 +54,6 @@ def _patch_semaphore_gather() -> None:
 
 
 _patch_semaphore_gather()
-
-
-def _patch_falkordb_driver() -> None:
-    """Monkey-patch FalkorDriver FalkorDB behavior we rely on.
-
-    Graphiti's FalkorDriver auto-runs build_indices_and_constraints() on every __init__,
-    including when clone() creates a new driver for a different database. This causes
-    44+ second blocks on every clone() as FalkorDB re-verifies all indexes.
-
-    This patch replaces clone() with the base class's with_database() approach,
-    which uses copy.copy() instead of creating a new instance. This avoids __init__
-    entirely, eliminating redundant index rebuilds while preserving the shared connection.
-
-    Upstream PR: https://github.com/getzep/graphiti/pull/XXX
-    """
-    import copy
-
-    from graphiti_core.driver.falkordb import STOPWORDS
-    from graphiti_core.driver.falkordb_driver import FalkorDriver
-    from graphiti_core.search.search_utils import validate_group_ids
-
-    def patched_clone(self, database: str):
-        """Clone using shallow copy to avoid triggering __init__ and index rebuilding."""
-        if database == self._database:
-            return self
-
-        # Use copy.copy() like the base class with_database() method
-        # This creates a shallow copy without calling __init__, avoiding index rebuilds
-        cloned = copy.copy(self)
-        cloned._database = database
-        return cloned
-
-    def patched_build_fulltext_query(
-        self, query: str, group_ids: list[str] | None = None, max_query_length: int = 128
-    ) -> str:
-        """Build FalkorDB fulltext queries without quoting org UUID filters.
-
-        Graphiti 0.28.2 started quoting FalkorDB group_id filters, producing
-        `@group_id:"uuid"`. FalkorDB rejects that syntax for our UUID-backed
-        group_ids with `Syntax error at offset 20`, while the unquoted form works.
-        """
-        validate_group_ids(group_ids)
-
-        group_filter = "" if not group_ids else f"(@group_id:{'|'.join(group_ids)})"
-
-        sanitized_query = self.sanitize(query)
-        query_words = sanitized_query.split()
-        filtered_words = [word for word in query_words if word and word.lower() not in STOPWORDS]
-        sanitized_query = " | ".join(filtered_words)
-
-        if len(sanitized_query.split(" ")) + len(group_ids or []) >= max_query_length:
-            return ""
-
-        return group_filter + " (" + sanitized_query + ")"
-
-    FalkorDriver.clone = patched_clone
-    FalkorDriver.build_fulltext_query = patched_build_fulltext_query
 
 
 from sibyl_core.errors import GraphConnectionError  # noqa: E402
@@ -144,7 +79,7 @@ class GraphClient:
         """Initialize the graph client."""
         self._client: Graphiti | None = None
         self._connected = False
-        self._store = settings.store
+        self._store = "surreal"
         self._org_drivers: dict[str, GraphDriver] = {}
 
     def _create_llm_client(self) -> "LLMClient":
@@ -276,87 +211,6 @@ class GraphClient:
             max_size=2000,
         )
 
-    async def _connect_legacy(self) -> None:
-        """Establish the legacy FalkorDB runtime connection."""
-        try:
-            from falkordb.asyncio import FalkorDB
-            from graphiti_core import Graphiti
-            from graphiti_core.driver.falkordb_driver import FalkorDriver
-            from redis.asyncio import BlockingConnectionPool
-
-            _patch_falkordb_driver()
-
-            log.info(
-                "Connecting to FalkorDB",
-                host=settings.falkordb_host,
-                port=settings.falkordb_port,
-                llm_provider=settings.llm_provider,
-                llm_model=settings.llm_model,
-                max_connections=50,
-                semaphore_limit=os.getenv("SEMAPHORE_LIMIT", "20"),
-            )
-
-            # Create a BlockingConnectionPool - this is the key to stability!
-            # Unlike regular ConnectionPool which errors when exhausted,
-            # BlockingConnectionPool waits for a connection to become available.
-            # This prevents "connection reset by peer" errors under concurrent load.
-            # See: https://redis.io/docs/latest/develop/clients/pools-and-muxing/
-            #
-            # NOTE: Graphiti's add_episode() can take 60-90s under heavy load
-            # (edge_fulltext_search, LLM extraction, embedding). Set socket_timeout
-            # high enough to accommodate these operations without timing out.
-            connection_pool = BlockingConnectionPool(
-                host=settings.falkordb_host,
-                port=settings.falkordb_port,
-                password=settings.falkordb_password or None,
-                max_connections=50,  # Pool size (BlockingConnectionPool default)
-                timeout=60,  # Wait up to 60s for a connection from pool
-                socket_timeout=120.0,  # 120s timeout for operations (Graphiti needs time)
-                socket_connect_timeout=15.0,  # 15s timeout for initial connect
-                socket_keepalive=True,  # Keep connections alive
-                health_check_interval=15,  # Check connection health every 15s
-                decode_responses=True,  # FalkorDB expects decoded responses
-            )
-
-            # Create FalkorDB client with the blocking connection pool
-            falkor_client = FalkorDB(connection_pool=connection_pool)
-
-            # Create FalkorDB driver with our configured client
-            # Note: database is a placeholder - actual graph is set per-operation via group_id (org.id)
-            driver = FalkorDriver(
-                falkor_db=falkor_client,
-                database="default",
-            )
-
-            # Inject optimized search interface to avoid O(n²) edge lookups
-            # See search_interface.py for details on the performance issue
-            from sibyl_core.graph.search_interface import FalkorDBSearchInterface
-
-            driver.search_interface = FalkorDBSearchInterface()
-
-            # Create LLM client based on provider setting
-            llm_client = self._create_llm_client()
-
-            self._prepare_embedder_env()
-            embedder = self._create_embedder()
-
-            # Initialize Graphiti with the driver and LLM client
-            self._client = Graphiti(graph_driver=driver, llm_client=llm_client, embedder=embedder)
-
-            self._wrap_graphiti_embedder_cache()
-
-            self._connected = True
-            self._store = "legacy"
-            log.info("Connected to FalkorDB successfully", llm_provider=settings.llm_provider)
-
-        except Exception as e:
-            # Use log.error (not exception) to avoid traceback spam in CLI
-            log.error("Failed to connect to FalkorDB", error=str(e))
-            raise GraphConnectionError(
-                f"Failed to connect to FalkorDB: {e}",
-                details={"host": settings.falkordb_host, "port": settings.falkordb_port},
-            ) from e
-
     async def _connect_surreal(self) -> None:
         """Establish the SurrealDB runtime connection."""
         try:
@@ -402,11 +256,7 @@ class GraphClient:
 
     async def connect(self) -> None:
         """Establish connection to the configured graph runtime."""
-        if settings.store == "surreal":
-            await self._connect_surreal()
-            return
-
-        await self._connect_legacy()
+        await self._connect_surreal()
 
     async def disconnect(self) -> None:
         """Close the graph database connection."""
@@ -476,8 +326,8 @@ class GraphClient:
     def normalize_result(result: object) -> list[dict]:
         """Normalize graph driver query results to a consistent list of dicts.
 
-        FalkorDB returns a tuple, SurrealDB often returns a single dict or list,
-        and some call sites expect just a list of row dicts.
+        SurrealDB often returns a single dict or list, and some call sites
+        expect just a list of row dicts.
 
         Args:
             result: Raw result from execute_query
@@ -488,7 +338,6 @@ class GraphClient:
         if result is None:
             return []
         if isinstance(result, tuple):
-            # FalkorDB returns (records, header, metadata)
             records = result[0] if len(result) > 0 else []
             return records if records else []  # type: ignore[return-value]
         if isinstance(result, list):
@@ -519,10 +368,9 @@ class GraphClient:
         return self._org_drivers[organization_id]
 
     def _assert_default_query_allowed(self, operation: str) -> None:
-        if self._store == "surreal":
-            raise GraphConnectionError(
-                f"{operation} is unavailable with SurrealDB; use org-scoped graph operations"
-            )
+        raise GraphConnectionError(
+            f"{operation} is unavailable with SurrealDB; use org-scoped graph operations"
+        )
 
     async def ensure_indexes(self, organization_id: str) -> None:
         """Ensure required indexes exist for an organization's graph.
@@ -534,49 +382,8 @@ class GraphClient:
         """
         driver = self.get_org_driver(organization_id)
 
-        if self._store == "surreal":
-            await driver.build_indices_and_constraints()
-            log.info("Ensured SurrealDB schema", org=organization_id)
-            return
-
-        # First, let Graphiti create its standard indexes (range + fulltext)
-        # This is idempotent - safe to call if indexes exist
-        try:
-            await self.client.build_indices_and_constraints()
-        except Exception as e:
-            log.debug("Graphiti index creation skipped", error=str(e))
-
-        # Create vector index for Entity nodes (required for cosine similarity search)
-        # FalkorDB vector index syntax - idempotent (fails silently if exists)
-        graph_embedding_dimensions = self._graph_embedding_dimensions()
-        vector_index_query = f"""
-            CREATE VECTOR INDEX FOR (n:Entity) ON (n.name_embedding)
-            OPTIONS {{dimension: {graph_embedding_dimensions}, similarityFunction: 'cosine'}}
-        """
-        try:
-            await driver.execute_query(vector_index_query)
-            log.info("Created vector index on Entity.name_embedding", org=organization_id)
-        except Exception as e:
-            # Index likely already exists - this is fine
-            if "already indexed" not in str(e).lower() and "exists" not in str(e).lower():
-                log.debug("Vector index creation note", error=str(e))
-
-        # Create composite indexes for common query patterns
-        composite_indexes = [
-            # Task queries by project and status (most common filter combo)
-            "CREATE INDEX FOR (n:Entity) ON (n.project_id, n.status)",
-            # Entity type filtering (used in almost every query)
-            "CREATE INDEX FOR (n:Entity) ON (n.entity_type)",
-            # Episodic node type filtering
-            "CREATE INDEX FOR (n:Episodic) ON (n.entity_type)",
-        ]
-        for idx_query in composite_indexes:
-            try:
-                await driver.execute_query(idx_query)
-            except Exception as e:
-                # Index likely already exists - this is fine
-                if "already indexed" not in str(e).lower() and "exists" not in str(e).lower():
-                    log.debug("Index creation note", query=idx_query, error=str(e))
+        await driver.build_indices_and_constraints()
+        log.info("Ensured SurrealDB schema", org=organization_id)
 
     async def execute_read(self, query: str, **params: object) -> list[dict]:
         """Execute a read query on the default graph. DEPRECATED for multi-tenant ops.
@@ -600,9 +407,6 @@ class GraphClient:
 
         WARNING: This uses the default graph, not org-scoped. Use execute_write_org()
         for multi-tenant operations.
-
-        Uses a semaphore to prevent concurrent writes from corrupting the
-        FalkorDB connection. Returns the query results for verification.
 
         Args:
             query: Cypher query to execute
