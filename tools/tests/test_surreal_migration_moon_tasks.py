@@ -41,7 +41,6 @@ def test_surreal_migration_moon_tasks_match_cli_surface() -> None:
     tasks = _root_moon_tasks()
 
     expected = {
-        "migrate-local-surreal": ("bash", ["tools/dev/migrate-local-surreal.sh"]),
         "migrate-rehearse": ("uv", ["run", "sibyld", "migrate", "rehearse"]),
         "migrate-cutover": ("uv", ["run", "sibyld", "migrate", "cutover"]),
         "auth-flow-replay": ("uv", ["run", "sibyld", "migrate", "auth-flow"]),

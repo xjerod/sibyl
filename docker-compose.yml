@@ -39,24 +39,6 @@ services:
     command: ["valkey-server", "--save", "", "--appendonly", "no"]
     restart: unless-stopped
 
-  falkordb:
-    image: falkordb/falkordb:latest
-    container_name: ${COMPOSE_PROJECT_NAME:-sibyl}-falkordb
-    profiles: ["migration"]
-    ports:
-      - "${SIBYL_FALKORDB_PORT:-6380}:6379"
-      - "${SIBYL_FALKORDB_BROWSER_PORT:-3335}:3000"
-    volumes:
-      - falkordb_data:/var/lib/falkordb/data
-    environment:
-      - FALKORDB_ARGS=--requirepass ${SIBYL_FALKORDB_PASSWORD:-sibyl_dev}
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${SIBYL_FALKORDB_PASSWORD:-sibyl_dev}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
   postgres:
     image: pgvector/pgvector:pg18
     container_name: ${COMPOSE_PROJECT_NAME:-sibyl}-postgres
@@ -79,4 +61,3 @@ services:
 
 volumes:
   postgres_data:
-  falkordb_data:

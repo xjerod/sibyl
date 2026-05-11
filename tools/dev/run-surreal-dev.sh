@@ -30,7 +30,6 @@ usage() {
 Usage: moon run dev -- [options]
 
 Options:
-  --migrate-legacy  Migrate the local legacy setup to SurrealDB, then start dev
   --ignore-legacy   Start SurrealDB dev even if local legacy data is detected
   --print-env       Print resolved runtime environment and exit
   --help            Show this help
@@ -94,8 +93,8 @@ warn_if_legacy_setup_detected() {
 ⚠️  Local legacy data detected.
    `moon run dev` now starts the SurrealDB runtime by default.
 
-   Migrate the common single-org setup:
-     moon run dev -- --migrate-legacy
+   Import a previously exported archive with:
+     uv run --directory apps/api sibyld migrate import <archive> --yes --clean
 
    Start a fresh SurrealDB dev runtime:
      moon run dev -- --ignore-legacy
@@ -241,7 +240,6 @@ cleanup() {
 main() {
   local print_env=false
   local ignore_legacy=false
-  local migrate_legacy=false
 
   while (($# > 0)); do
     case "$1" in
@@ -251,10 +249,6 @@ main() {
         ;;
       --ignore-legacy)
         ignore_legacy=true
-        shift
-        ;;
-      --migrate-legacy)
-        migrate_legacy=true
         shift
         ;;
       --help|-h)
@@ -372,9 +366,7 @@ main() {
     return 0
   fi
 
-  if [[ "$migrate_legacy" == true ]]; then
-    bash "$repo_root/tools/dev/migrate-local-surreal.sh"
-  elif [[ "$ignore_legacy" != true ]] && ! warn_if_legacy_setup_detected; then
+  if [[ "$ignore_legacy" != true ]] && ! warn_if_legacy_setup_detected; then
     return 1
   fi
 

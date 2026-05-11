@@ -1,7 +1,7 @@
 """Core configuration for Sibyl graph runtimes, LLM, and embedding settings.
 
 This module contains settings required by sibyl-core operations.
-Server-specific settings (HTTP, PostgreSQL, auth middleware) remain in sibyl-server.
+Server-specific settings (HTTP and auth middleware) remain in sibyl-server.
 """
 
 import os
@@ -43,11 +43,6 @@ class CoreConfig(BaseSettings):
         default="surreal",
         description="Active persistence runtime for this process",
     )
-
-    # FalkorDB configuration
-    falkordb_host: str = Field(default="localhost", description="FalkorDB host")
-    falkordb_port: int = Field(default=6380, description="FalkorDB port")
-    falkordb_password: str = Field(default="sibyl_dev", description="FalkorDB password")
 
     # SurrealDB configuration
     surreal_url: str = Field(
@@ -153,9 +148,7 @@ class CoreConfig(BaseSettings):
                 object.__setattr__(self, "openai_api_key", SecretStr(fallback))
 
         if not self.gemini_api_key.get_secret_value():
-            fallback = os.environ.get("GEMINI_API_KEY", "") or os.environ.get(
-                "GOOGLE_API_KEY", ""
-            )
+            fallback = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
             if fallback:
                 object.__setattr__(self, "gemini_api_key", SecretStr(fallback))
 
@@ -237,11 +230,6 @@ class CoreConfig(BaseSettings):
         default=100,
         description="Token overlap between chunks",
     )
-
-    @property
-    def falkordb_url(self) -> str:
-        """Construct FalkorDB connection URL."""
-        return f"redis://:{self.falkordb_password}@{self.falkordb_host}:{self.falkordb_port}"
 
     @property
     def resolved_surreal_url(self) -> str:

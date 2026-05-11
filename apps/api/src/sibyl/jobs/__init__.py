@@ -1,4 +1,4 @@
-"""Async job queue using arq + Redis (via FalkorDB).
+"""Async job queue using arq + Redis/Valkey.
 
 Provides background job processing for:
 - Documentation crawling (crawl.py)

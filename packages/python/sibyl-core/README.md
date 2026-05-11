@@ -18,7 +18,7 @@ moon run core:test        # Pytest
 ## What's Here
 
 - **models/:** Domain entities (Task, Project, Epic, Source, etc.)
-- **graph/:** Graphiti client with pluggable backends (SurrealDB default, FalkorDB legacy)
+- **graph/:** Graphiti client on the SurrealDB backend
 - **backends/surreal/:** SurrealDB driver, schema, and per-table ops
 - **retrieval/:** Graphiti node-hybrid search, fusion, deduplication
 - **tools/:** MCP tool implementations (search, explore, add, manage)
@@ -138,8 +138,6 @@ RelationshipType.BELONGS_TO, DEPENDS_ON, BLOCKS, REFERENCES
 SIBYL_EMBEDDING_PROVIDER=openai     # openai | gemini
 SIBYL_OPENAI_API_KEY=sk-...         # Required when provider=openai
 SIBYL_GEMINI_API_KEY=...            # Required when provider=gemini
-SIBYL_FALKORDB_HOST=localhost
-SIBYL_FALKORDB_PORT=6380
 SIBYL_ANTHROPIC_API_KEY=...         # Entity extraction
 
 SIBYL_EMBEDDING_MODEL=text-embedding-3-small

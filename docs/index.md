@@ -77,7 +77,7 @@ Sibyl is a **knowledge graph and task workflow** that gives your team:
                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Sibyl Server                               │
-│  Knowledge Graph (FalkorDB) • Semantic Search • Task Management  │
+│  SurrealDB Graph • Semantic Search • Task Management             │
 └──────────────────────────────────────────────────────────────────┘
                              │
                              ▼

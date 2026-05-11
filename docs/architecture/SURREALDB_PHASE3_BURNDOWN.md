@@ -35,8 +35,8 @@ From the generated inventory:
 - 0 files show session-backed storage access outside direct query usage.
 - Legacy transition dependencies remain in `apps/api/pyproject.toml`: `alembic`, `asyncpg`,
   `pgvector`, and `sqlmodel`.
-- `graphiti-core[falkordb,anthropic,google-genai]` remains while the legacy graph backend and
-  Graphiti embedder compatibility paths exist.
+- `graphiti-core[anthropic,google-genai]` remains as the active Graphiti integration; the FalkorDB
+  extra and Python client are gone.
 
 This inventory does not mean every item is active in fully Surreal mode. It means every item needs a
 specific keep, migrate, or delete decision before dependency removal.
@@ -218,6 +218,8 @@ Completed evidence:
 - `GraphClient` no longer imports or constructs the FalkorDB driver; it always connects through the
   SurrealDB driver.
 - The FalkorDB Graphiti search adapter and package extra were removed from `sibyl-core`.
+- The local FalkorDB compose service, app/core Falkor settings, setup service check, and live local
+  migration wrapper were removed. Local recovery now uses archive import.
 
 ---
 

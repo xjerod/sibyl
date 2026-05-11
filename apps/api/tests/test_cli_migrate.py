@@ -376,7 +376,7 @@ def test_migrate_export_requires_org_id_when_multiple_orgs_exist(tmp_path: Path)
     assert "Multiple organizations found" in result.output
     assert "org-one" in result.output
     assert "org-two" in result.output
-    assert "moon run migrate-local-surreal" in result.output
+    assert "Rerun the export with --org-id ORG_UUID" in result.output
     assert "--org-id" in result.output
     assert "ORG_UUID" in result.output
     assert not archive_path.exists()

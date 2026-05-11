@@ -149,8 +149,8 @@ Phase 3 decision if they keep relational storage.
 ### Done on this branch
 
 - `moon run dev` prefers the fully Surreal runtime and detects local legacy data before starting.
-- `moon run dev -- --migrate-legacy` handles the common single-org local migration path without
-  requiring users to know their org ID.
+- The live local FalkorDB migration wrapper was retired after the v0.6.0 compatibility release;
+  archive import is the supported local recovery path.
 - The local FalkorDB + PostgreSQL dev fallback was retired after the v0.6.0 compatibility release.
 - `SIBYL_STORE=surreal` and `SIBYL_AUTH_STORE=surreal` are the default runtime shape.
 - `apps/api/src/sibyl/persistence/auth_runtime.py` dispatches by auth backend instead of

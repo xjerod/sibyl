@@ -146,8 +146,7 @@ SIBYL_ANTHROPIC_API_KEY=...        # For LLM operations
 | `SIBYL_EMBEDDING_MODEL`      | `text-embedding-3-small` | OpenAI embedding model                      |
 | `SIBYL_SERVER_URL`           | -                        | Public server URL (for OAuth callbacks)     |
 | `SIBYL_FRONTEND_URL`         | -                        | Frontend URL (for redirects)                |
-| `SIBYL_REDIS_HOST`           | -                        | Redis/Valkey host when `coordination=redis` |
-| `SIBYL_FALKORDB_HOST`        | `localhost`              | Legacy graph runtime host                   |
+| `SIBYL_REDIS_HOST`           | `127.0.0.1`              | Redis/Valkey host when `coordination=redis` |
 | `SIBYL_POSTGRES_HOST`        | `localhost`              | Legacy PostgreSQL host                      |
 
 ## Running Sibyl
@@ -177,7 +176,7 @@ This starts:
 - In-process background jobs and schedules
 
 The local FalkorDB/PostgreSQL dev fallback was retired after the v0.6.0 compatibility release. Use
-`moon run dev -- --migrate-legacy` to move old local data into SurrealDB.
+`sibyld migrate import <archive>` to move an exported archive into SurrealDB.
 
 ### Individual Services
 
@@ -257,8 +256,8 @@ redis-cli -p 6380
 ### Legacy Graph / Migration Errors
 
 ```bash
-# Start migration sidecars when rehearsing old archive data
-docker compose --profile migration up -d falkordb postgres
+# Start the migration sidecar when rehearsing old database dump payloads
+docker compose --profile migration up -d postgres
 ```
 
 ### OpenAI API Errors

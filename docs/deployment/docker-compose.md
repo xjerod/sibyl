@@ -74,15 +74,11 @@ services:
     ports:
       - "6381:6379"
 
-  falkordb:
-    profiles: ["legacy"]
-
   postgres:
-    profiles: ["legacy"]
+    profiles: ["migration"]
 
 volumes:
   postgres_data:
-  falkordb_data:
 ```
 
 `surrealdb/surrealdb:latest` is a local development convenience. Pin an explicit SurrealDB 3.x image
@@ -90,13 +86,11 @@ tag for production-like rehearsal and production deployments.
 
 ## Port Mappings
 
-| Service     | Host Port | Container Port | Purpose                       |
-| ----------- | --------- | -------------- | ----------------------------- |
-| SurrealDB   | 8000      | 8000           | Default local graph runtime   |
-| Redis       | 6381      | 6379           | Optional coordination backend |
-| FalkorDB    | 6380      | 6379           | Legacy graph runtime          |
-| FalkorDB UI | 3335      | 3000           | Legacy browser interface      |
-| PostgreSQL  | 5433      | 5432           | Legacy relational/auth data   |
+| Service    | Host Port | Container Port | Purpose                       |
+| ---------- | --------- | -------------- | ----------------------------- |
+| SurrealDB  | 8000      | 8000           | Default local graph runtime   |
+| Redis      | 6381      | 6379           | Optional coordination backend |
+| PostgreSQL | 5433      | 5432           | Migration/archive sidecar     |
 
 Ports are offset from defaults to avoid conflicts with local services.
 
@@ -159,19 +153,11 @@ services:
     ports:
       - "3334:3334"
     environment:
-      SIBYL_POSTGRES_HOST: postgres
-      SIBYL_POSTGRES_PORT: 5432
-      SIBYL_POSTGRES_USER: ${SIBYL_POSTGRES_USER:-sibyl}
-      SIBYL_POSTGRES_PASSWORD: ${SIBYL_POSTGRES_PASSWORD:-sibyl_dev}
-      SIBYL_POSTGRES_DB: ${SIBYL_POSTGRES_DB:-sibyl}
-      SIBYL_FALKORDB_HOST: falkordb
-      SIBYL_FALKORDB_PORT: 6379
+      SIBYL_SURREAL_URL: ws://surrealdb:8000/rpc
       SIBYL_JWT_SECRET: ${SIBYL_JWT_SECRET}
       SIBYL_OPENAI_API_KEY: ${SIBYL_OPENAI_API_KEY}
     depends_on:
-      postgres:
-        condition: service_healthy
-      falkordb:
+      surrealdb:
         condition: service_healthy
 
   worker:
@@ -180,19 +166,11 @@ services:
       dockerfile: apps/api/Dockerfile
     command: ["sibyld", "worker"]
     environment:
-      SIBYL_POSTGRES_HOST: postgres
-      SIBYL_POSTGRES_PORT: 5432
-      SIBYL_POSTGRES_USER: ${SIBYL_POSTGRES_USER:-sibyl}
-      SIBYL_POSTGRES_PASSWORD: ${SIBYL_POSTGRES_PASSWORD:-sibyl_dev}
-      SIBYL_POSTGRES_DB: ${SIBYL_POSTGRES_DB:-sibyl}
-      SIBYL_FALKORDB_HOST: falkordb
-      SIBYL_FALKORDB_PORT: 6379
+      SIBYL_SURREAL_URL: ws://surrealdb:8000/rpc
       SIBYL_JWT_SECRET: ${SIBYL_JWT_SECRET}
       SIBYL_OPENAI_API_KEY: ${SIBYL_OPENAI_API_KEY}
     depends_on:
-      postgres:
-        condition: service_healthy
-      falkordb:
+      surrealdb:
         condition: service_healthy
 
   frontend:
@@ -249,13 +227,12 @@ docker exec -it sibyl-redis redis-cli
 When you need the older sidecars for archive migration rehearsal:
 
 ```bash
-docker compose --profile migration up -d falkordb postgres
+docker compose --profile migration up -d postgres
 ```
 
 Then you can connect with:
 
 ```bash
-docker exec -it sibyl-falkordb redis-cli -a sibyl_dev
 docker exec -it sibyl-postgres psql -U sibyl sibyl
 ```
 
@@ -263,13 +240,12 @@ docker exec -it sibyl-postgres psql -U sibyl sibyl
 
 ### Port Conflicts
 
-If ports 8000, 6381, 6380, or 5433 are in use:
+If ports 8000, 6381, or 5433 are in use:
 
 ```bash
 # Check what's using the port
 lsof -i :8000
 lsof -i :6381
-lsof -i :6380
 lsof -i :5433
 
 # Stop conflicting services or modify docker-compose.yml ports
@@ -294,7 +270,6 @@ Ensure your `.env` uses the correct ports:
 ```bash
 SIBYL_SURREAL_URL=ws://127.0.0.1:8000/rpc
 SIBYL_REDIS_PORT=6381        # Only when coordination backend is redis
-SIBYL_FALKORDB_PORT=6380  # Not 6379!
 SIBYL_POSTGRES_PORT=5433  # Not 5432!
 ```
 

@@ -13,8 +13,7 @@ Sibyl consists of four components plus one unified storage backend (SurrealDB by
 | **Worker**    | arq job queue processor             | -      |
 | **Frontend**  | Next.js 16 web UI                   | 3337   |
 | **SurrealDB** | Graph + content + auth (default)    | 8000\* |
-| **FalkorDB**  | Graph database (legacy, opt-in)     | 6379\* |
-| **Postgres**  | Archive/export sidecar (legacy)     | 5432\* |
+| **Postgres**  | Archive/import sidecar              | 5432\* |
 
 \*Default internal ports. External mappings vary by deployment mode.
 
@@ -52,10 +51,8 @@ Sibyl consists of four components plus one unified storage backend (SurrealDB by
                                    +------------------+
 ```
 
-For the legacy FalkorDB stack (`SIBYL_STORE=legacy`), the Backend and Worker connect to FalkorDB for
-the knowledge graph while active content/auth paths stay on SurrealDB. PostgreSQL remains only for
-archive export/import and temporary legacy cleanup surfaces during Phase 3. See
-[storage-modes.md](../guide/storage-modes.md) and
+PostgreSQL remains only for archive import and temporary migration policy surfaces during Phase 3.
+See [storage-modes.md](../guide/storage-modes.md) and
 [migrating-from-falkor.md](../guide/migrating-from-falkor.md).
 
 ## Deployment Modes
@@ -112,9 +109,8 @@ archive export/import and temporary legacy cleanup surfaces during Phase 3. See
 | Backend             | 3334      | 3334           | API + MCP              |
 | Frontend            | 3337      | 3337           | Next.js UI             |
 | SurrealDB (default) | 8000      | 8000           | ws/http, RPC at `/rpc` |
-| FalkorDB (legacy)   | 6380      | 6379           | Avoids Redis conflicts |
-| FalkorDB (legacy)   | 3335      | 3000           | Browser UI             |
-| Postgres (legacy)   | 5433      | 5432           | Avoids local Postgres  |
+| Redis/Valkey        | 6381      | 6379           | Optional coordination  |
+| Postgres archive    | 5433      | 5432           | Migration profile      |
 
 ### Tilt/Minikube
 

@@ -63,8 +63,7 @@ Configuration:
       "env": {
         "SIBYL_OPENAI_API_KEY": "sk-...",
         "SIBYL_JWT_SECRET": "your-secret",
-        "SIBYL_FALKORDB_HOST": "localhost",
-        "SIBYL_FALKORDB_PORT": "6380"
+        "SIBYL_SURREAL_URL": "ws://127.0.0.1:8000/rpc"
       }
     }
   }
@@ -171,12 +170,11 @@ sibyl auth api-key create --name "MCP Client" --scopes mcp
 
 ### Database Settings
 
-| Variable                  | Default     | Description                  |
-| ------------------------- | ----------- | ---------------------------- |
-| `SIBYL_FALKORDB_HOST`     | `localhost` | FalkorDB host                |
-| `SIBYL_FALKORDB_PORT`     | `6380`      | FalkorDB port                |
-| `SIBYL_FALKORDB_PASSWORD` | `sibyl_dev` | FalkorDB password            |
-| `SIBYL_DATABASE_URL`      | -           | PostgreSQL connection string |
+| Variable             | Default     | Description                |
+| -------------------- | ----------- | -------------------------- |
+| `SIBYL_SURREAL_URL`  | `memory://` | SurrealDB connection URL   |
+| `SIBYL_REDIS_HOST`   | `127.0.0.1` | Optional Redis/Valkey host |
+| `SIBYL_POSTGRES_URL` | -           | Migration-only PostgreSQL  |
 
 ### Embedding Settings
 
@@ -376,8 +374,7 @@ curl http://localhost:3334/api/metrics
       "env": {
         "SIBYL_OPENAI_API_KEY": "sk-...",
         "SIBYL_JWT_SECRET": "...",
-        "SIBYL_FALKORDB_HOST": "falkordb.internal",
-        "SIBYL_DATABASE_URL": "postgresql+asyncpg://..."
+        "SIBYL_SURREAL_URL": "ws://surrealdb.internal:8000/rpc"
       }
     }
   }

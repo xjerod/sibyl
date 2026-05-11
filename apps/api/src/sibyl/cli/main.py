@@ -172,7 +172,7 @@ def worker(
     """Start the background job worker.
 
     Processes crawl jobs, sync tasks, and other background work.
-    Uses Redis (via FalkorDB) for job persistence and retries.
+    Uses Redis/Valkey for job persistence and retries when configured.
 
     Examples:
         sibyld worker              # Run continuously (production)
@@ -312,24 +312,9 @@ def _check_relational_sidecar_services(settings: Any) -> bool:
     return all_good
 
 
-def _check_falkordb_services(settings: Any) -> bool:
-    from sibyl.cli.common import error, success
-
-    if _tcp_service_running(settings.falkordb_host, settings.falkordb_port):
-        success(f"FalkorDB running on {settings.falkordb_host}:{settings.falkordb_port}")
-        return True
-
-    error(f"FalkorDB not running on {settings.falkordb_host}:{settings.falkordb_port}")
-    console.print(f"  [{NEON_CYAN}]Start with: docker compose up -d[/{NEON_CYAN}]")
-    return False
-
-
 def _check_runtime_services(settings: Any) -> bool:
     store = resolve_object_store(settings, default="surreal")
     all_good = True
-
-    if store == "legacy":
-        all_good = _check_falkordb_services(settings) and all_good
 
     if requires_object_surreal_support(settings, default_store=store):
         all_good = _check_surreal_services(settings) and all_good

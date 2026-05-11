@@ -126,7 +126,7 @@ def _resolve_export_org_id(requested_org_id: str) -> str:
         console.print(f"  [dim]{org_id}[/dim]")
     if len(org_ids) > 10:
         console.print(f"  [dim]... and {len(org_ids) - 10} more[/dim]")
-    info("For local migration, rerun: moon run migrate-local-surreal -- --org-id ORG_UUID")
+    info("Rerun the export with --org-id ORG_UUID")
     raise typer.Exit(code=1)
 
 

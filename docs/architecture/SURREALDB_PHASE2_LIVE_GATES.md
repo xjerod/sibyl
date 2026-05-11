@@ -91,14 +91,14 @@ Pass criteria:
 
 ---
 
-## Gate 3 - Local Single-Org Migration
+## Gate 3 - Local Archive Import
 
-Validate the default local path for existing single-org installs:
+Validate the local archive import path:
 
 ```bash
 SURREAL_DATA_DIR="$SIBYL_GATE_DIR/single-org-surreal" \
-moon run migrate-local-surreal -- \
-  --archive "$SIBYL_GATE_DIR/single-org.tar.gz" \
+uv run --directory apps/api sibyld migrate import "$SIBYL_GATE_DIR/single-org.tar.gz" \
+  --yes --clean \
   2>&1 | tee "$SIBYL_GATE_DIR/local-single-org.log"
 ```
 
@@ -111,15 +111,14 @@ Pass criteria:
 
 ---
 
-## Gate 4 - Local Multi-Org Migration
+## Gate 4 - Local Multi-Org Archive Import
 
-Validate the explicit-org path for local installs with more than one organization:
+Validate the explicit-org archive import path:
 
 ```bash
 SURREAL_DATA_DIR="$SIBYL_GATE_DIR/multi-org-surreal" \
-moon run migrate-local-surreal -- \
-  --org-id <org-uuid> \
-  --archive "$SIBYL_GATE_DIR/multi-org.tar.gz" \
+uv run --directory apps/api sibyld migrate import "$SIBYL_GATE_DIR/multi-org.tar.gz" \
+  --org-id <org-uuid> --yes --clean \
   2>&1 | tee "$SIBYL_GATE_DIR/local-multi-org.log"
 ```
 
@@ -127,9 +126,7 @@ Pass criteria:
 
 - command uses the requested organization
 - import and verify exit 0
-- `$SIBYL_GATE_DIR/multi-org-surreal/.sibyl-migrated` exists
-- if `moon run dev -- --migrate-legacy` is run without `--org-id` on the same multi-org source, it
-  prints the available org IDs and refuses to guess
+- imported graph counts match the archive manifest
 
 ---
 

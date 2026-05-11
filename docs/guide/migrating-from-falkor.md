@@ -105,24 +105,14 @@ authorization pending errors, session listing behavior, and logout revocation.
 The compare command rejects identical base URLs by default so it cannot accidentally compare one API
 to itself. `--allow-same-base-url` is only for debugging the harness.
 
-## Local shortcut
+## Local archive import
 
-For single-org local dev moves:
-
-```bash
-moon run dev -- --migrate-legacy
-```
-
-`moon run dev` detects local legacy data before it starts a fresh Surreal runtime. If there is
-exactly one legacy organization, `--migrate-legacy` selects it automatically, exports it, imports it
-into the local Surreal instance, verifies the archive, and writes a migrated marker so future starts
-go straight to Surreal.
-
-If there are multiple organizations, the command lists their IDs and asks you to rerun with
-`--org-id <org-uuid>`. You can also run the same wrapper directly:
+`moon run dev` detects local legacy data before it starts a fresh Surreal runtime. The live local
+FalkorDB export wrapper was retired after the v0.6.0 compatibility release, so local recovery now
+uses the same archive import path as production rehearsal:
 
 ```bash
-moon run migrate-local-surreal -- --org-id <org-uuid>
+uv run --directory apps/api sibyld migrate import <archive> --yes --clean
 ```
 
 ## Cutover

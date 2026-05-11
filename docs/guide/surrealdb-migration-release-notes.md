@@ -8,11 +8,10 @@ description: Release guidance for the SurrealDB-first storage cutover
 Sibyl now starts the SurrealDB runtime by default. New installs should use SurrealDB for graph,
 content, and auth. Do not start new deployments on FalkorDB or PostgreSQL auth.
 
-Legacy FalkorDB support remains available for existing installs during the migration window. It is a
-compatibility bridge, not the long-term runtime. PostgreSQL auth was removed after the v0.6.0
-compatibility release, and active content/RAG runtime paths now resolve through SurrealDB.
-Structured auth/content archive export now reads SurrealDB; retained `postgres.sql` payloads are
-restore-only evidence for rehearsal or rollback validation.
+Legacy FalkorDB runtime support was retired after the v0.6.0 compatibility release. PostgreSQL auth
+was removed after the same release, and active content/RAG runtime paths now resolve through
+SurrealDB. Structured auth/content archive export now reads SurrealDB; retained `postgres.sql`
+payloads are restore-only evidence for rehearsal or rollback validation.
 
 ## What changed
 
@@ -20,24 +19,18 @@ restore-only evidence for rehearsal or rollback validation.
 - `SIBYL_STORE=surreal` and `SIBYL_AUTH_STORE=surreal` are the default settings.
 - The local `moon run dev-legacy` fallback has been retired after the v0.6.0 compatibility release.
 - `moon run dev` detects local legacy data before creating a fresh Surreal dev runtime.
-- `moon run dev -- --migrate-legacy` migrates the common single-org local setup automatically.
+- The live local FalkorDB migration wrapper has been retired; use archive import instead.
 
 ## Existing local installs
 
-If you have an old local FalkorDB + PostgreSQL install, run:
+If you have an old local FalkorDB + PostgreSQL install, export an archive before upgrading, then
+import it into SurrealDB:
 
 ```bash
-moon run dev -- --migrate-legacy
+uv run --directory apps/api sibyld migrate import <archive> --yes --clean
 ```
 
-For the common single-org setup, Sibyl selects the only organization automatically. You do not need
-to know the org ID.
-
-If multiple organizations exist, Sibyl prints the available org IDs and asks you to rerun with:
-
-```bash
-moon run migrate-local-surreal -- --org-id <org-uuid>
-```
+Use `--restore-database-dump` only for rehearsal or rollback validation.
 
 ## Existing production installs
 

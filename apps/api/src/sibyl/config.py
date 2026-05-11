@@ -115,11 +115,6 @@ class Settings(BaseSettings):
                     "CRITICAL: disable_auth=True is forbidden in production environment. "
                     "Set SIBYL_ENVIRONMENT=development to use disable_auth for testing."
                 )
-            if self.store == "legacy" and self.falkordb_password == "sibyl_dev":  # noqa: S105
-                raise ValueError(
-                    "CRITICAL: Default FalkorDB password 'sibyl_dev' is forbidden in production. "
-                    "Set SIBYL_FALKORDB_PASSWORD to a secure value."
-                )
             if (
                 requires_relational_support(store=self.store, auth_store=self.auth_store)
                 and self.postgres_password.get_secret_value() == "sibyl_dev"
@@ -237,21 +232,17 @@ class Settings(BaseSettings):
         description="Optional JSONL outbox path for local/staging email capture",
     )
 
-    # FalkorDB configuration
-    falkordb_host: str = Field(default="localhost", description="FalkorDB host")
-    falkordb_port: int = Field(default=6380, description="FalkorDB port")
-    falkordb_password: str = Field(default="sibyl_dev", description="FalkorDB password")
     redis_jobs_db: int = Field(
         default=1,
         description="Redis database number for job queue",
     )
-    redis_host: str | None = Field(
-        default=None,
+    redis_host: str = Field(
+        default="127.0.0.1",
         description="Redis/Valkey host for jobs, locks, and pub/sub",
     )
-    redis_port: int | None = Field(default=None, description="Redis/Valkey port")
-    redis_password: SecretStr | None = Field(
-        default=None,
+    redis_port: int = Field(default=6381, description="Redis/Valkey port")
+    redis_password: SecretStr = Field(
+        default=SecretStr(""),
         description="Redis/Valkey password",
     )
 
@@ -373,12 +364,6 @@ class Settings(BaseSettings):
         if self.surreal_url and self.surreal_data_dir:
             raise ValueError("Configure only one of surreal_url or surreal_data_dir")
 
-        if self.redis_host is None:
-            object.__setattr__(self, "redis_host", self.falkordb_host)
-        if self.redis_port is None:
-            object.__setattr__(self, "redis_port", self.falkordb_port)
-        if self.redis_password is None:
-            object.__setattr__(self, "redis_password", SecretStr(self.falkordb_password))
         if self.rate_limit_storage.startswith("redis://"):
             storage_url = _redis_url_with_password(
                 self.rate_limit_storage,
@@ -474,15 +459,8 @@ class Settings(BaseSettings):
     )
 
     @property
-    def falkordb_url(self) -> str:
-        """Construct FalkorDB connection URL."""
-        return f"redis://:{self.falkordb_password}@{self.falkordb_host}:{self.falkordb_port}"
-
-    @property
     def redis_password_value(self) -> str:
-        """Resolve the active Redis password with FalkorDB fallback."""
-        if self.redis_password is None:
-            return self.falkordb_password
+        """Resolve the active Redis password."""
         return self.redis_password.get_secret_value()
 
     @property

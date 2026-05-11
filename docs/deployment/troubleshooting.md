@@ -78,101 +78,6 @@ sqlalchemy.exc.OperationalError: connection refused
    psql -h localhost -p 5433 -U sibyl sibyl
    ```
 
-**FalkorDB Connection Refused:**
-
-```
-redis.exceptions.ConnectionError: Connection refused
-```
-
-**Solutions:**
-
-1. **Verify FalkorDB is running:**
-
-   ```bash
-   docker compose ps falkordb
-   kubectl get pods -n sibyl -l app=falkordb
-   ```
-
-2. **Check connection settings:**
-
-   ```bash
-   echo $SIBYL_FALKORDB_HOST
-   echo $SIBYL_FALKORDB_PORT  # Should be 6380 for local dev
-   ```
-
-3. **Test direct connection:**
-
-   ```bash
-   # Docker Compose
-   docker exec -it sibyl-falkordb redis-cli -a sibyl_dev PING
-
-   # From host
-   redis-cli -h localhost -p 6380 -a sibyl_dev PING
-   ```
-
-## Graph Corruption
-
-FalkorDB can occasionally become corrupted, especially after crashes or improper shutdowns.
-
-### Symptoms
-
-- Queries returning unexpected errors
-- "Graph does not exist" errors
-- Timeout errors on simple queries
-- Server crash when accessing graph
-
-### Recovery Options
-
-**Option 1: Delete and Recreate Graph**
-
-```bash
-# Connect to FalkorDB
-redis-cli -h localhost -p 6380 -a sibyl_dev
-
-# List all graphs
-GRAPH.LIST
-
-# Delete corrupted graph (USE CAUTION - DATA LOSS)
-GRAPH.DELETE <org-uuid>
-```
-
-After deletion, the graph will be recreated on first use, but all data is lost.
-
-**Option 2: Restore from Backup**
-
-If you have a backup (created via `/api/admin/backup`):
-
-```bash
-# Via API
-curl -X POST https://sibyl.local/api/admin/restore \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d @backup.json
-```
-
-**Option 3: Rebuild from PostgreSQL**
-
-If graph data is lost but PostgreSQL data exists:
-
-1. Re-run document ingestion from crawl sources
-2. Entities will be re-extracted from documents
-
-### Prevention
-
-1. **Enable FalkorDB persistence:**
-
-   ```bash
-   # In compose or k8s, ensure data volume is mounted
-   volumes:
-     - falkordb_data:/var/lib/falkordb/data
-   ```
-
-2. **Graceful shutdowns:**
-   ```bash
-   docker compose stop  # Not docker compose kill
-   kubectl delete pod <pod> --grace-period=30
-   ```
-
 ## Authentication Issues
 
 ### JWT Token Invalid
@@ -246,13 +151,7 @@ If graph data is lost but PostgreSQL data exists:
    - Use `limit` parameter on list endpoints
    - Paginate large result sets
 
-3. **Check FalkorDB memory:**
-
-   ```bash
-   redis-cli -h localhost -p 6380 -a sibyl_dev INFO memory
-   ```
-
-4. **Increase Graphiti semaphore:**
+3. **Increase Graphiti semaphore:**
    ```bash
    SIBYL_GRAPHITI_SEMAPHORE_LIMIT=20  # Default is 10
    ```
@@ -316,37 +215,6 @@ If graph data is lost but PostgreSQL data exists:
    ```
 
 ## Port Conflicts
-
-### FalkorDB Port Conflict
-
-**Error:** Port 6380 already in use
-
-This commonly happens if you have Redis running locally.
-
-**Solutions:**
-
-1. **Stop conflicting service:**
-
-   ```bash
-   # macOS
-   brew services stop redis
-
-   # Linux
-   sudo systemctl stop redis
-   ```
-
-2. **Change port in compose:**
-
-   ```yaml
-   falkordb:
-     ports:
-       - "6381:6379" # Use different host port
-   ```
-
-3. **Update environment:**
-   ```bash
-   SIBYL_FALKORDB_PORT=6381
-   ```
 
 ### PostgreSQL Port Conflict
 

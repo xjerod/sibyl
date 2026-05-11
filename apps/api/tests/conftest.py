@@ -17,7 +17,6 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "slow: tests taking >30s")
     config.addinivalue_line("markers", "requires_worktree: tests requiring git worktree setup")
     config.addinivalue_line("markers", "requires_redis: tests requiring Redis connection")
-    config.addinivalue_line("markers", "requires_falkordb: tests requiring FalkorDB connection")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

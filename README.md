@@ -169,7 +169,8 @@ curl http://localhost:3334/api/health
 
 `moon run dev` is the Surreal single-machine flow. It starts local SurrealDB and runs jobs plus
 schedules in-process under `sibyld serve`. Redis stays opt-in for multi-process or distributed dev
-work. Existing local legacy installs should be migrated with `moon run dev -- --migrate-legacy`.
+work. Existing local legacy installs should be migrated from a previously exported archive with
+`sibyld migrate import`.
 
 ### Retrieval Benchmarks
 
@@ -219,8 +220,8 @@ measurement ladder, artifact expectations, and how to avoid benchmark drift.
 | API + MCP           | 3334 | http://localhost:3334   |
 | Web UI              | 3337 | http://localhost:3337   |
 | SurrealDB           | 8000 | ws://localhost:8000/rpc |
-| FalkorDB (legacy)   | 6380 | -                       |
-| PostgreSQL (legacy) | 5433 | -                       |
+| Redis/Valkey        | 6381 | optional                |
+| PostgreSQL archive  | 5433 | migration profile only  |
 
 ## 🔮 Core Workflow
 
@@ -376,8 +377,8 @@ sibyl/
 
 - **Backend:** Python 3.13 / FastMCP / FastAPI / Graphiti / SurrealDB
 - **Frontend:** Next.js 16 / React 19 / React Query / Tailwind 4
-- **Storage:** SurrealDB (graph + content + auth, unified). Legacy FalkorDB + PostgreSQL are
-  migration bridges, not new deployment targets.
+- **Storage:** SurrealDB (graph + content + auth, unified). PostgreSQL remains only for retained
+  migration/archive policy.
 - **Build:** moonrepo + uv (Python) + pnpm (TypeScript)
 - **Integrations:** Claude Code, MCP clients, and project-local hooks
 
@@ -443,9 +444,6 @@ moon run install
 # Start everything (Surreal-first, default)
 moon run dev
 
-# Move a local legacy install into local Surreal and verify it.
-moon run migrate-local-surreal
-
 # Individual services
 moon run dev-api          # API only
 moon run dev-web          # Frontend only
@@ -477,12 +475,9 @@ moon run dev
 ```
 
 If local legacy data exists and no local Surreal data has been created yet, `moon run dev` prints
-the migration path instead of starting SurrealDB. `moon run dev -- --migrate-legacy` runs the local
-migration first, then starts the Surreal dev runtime. `moon run migrate-local-surreal` is the same
-data move as a standalone command: it exports the only local org from legacy storage, imports it
-into the local Surreal server, and verifies the result. If there are multiple orgs, the command
-lists them and asks for `--org-id`. Use `--restore-database-dump` only if you also want to replay
-the database dump sidecar.
+the archive import path instead of starting SurrealDB. Import a previously exported archive with
+`uv run --directory apps/api sibyld migrate import <archive> --yes --clean`, then start dev again.
+Use `--restore-database-dump` only for migration rehearsal or rollback validation.
 
 ## Entity Types
 

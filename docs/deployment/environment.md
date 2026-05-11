@@ -142,22 +142,16 @@ and ambient runtime sidecars were removed after the v0.6.0 compatibility release
 Note: Port 5433 is the default for local development to avoid conflicts with a local PostgreSQL
 installation. In Kubernetes, the standard port 5432 is used.
 
-## FalkorDB (Legacy)
+## Redis/Valkey Coordination
 
-Used only when `SIBYL_STORE=legacy`. Retained for users who haven't migrated to SurrealDB yet.
+Redis/Valkey is optional. The default Surreal runtime uses local in-process coordination.
 
-Do not use FalkorDB for new installs. It is kept as a migration bridge for existing deployments that
-still need the legacy graph stack.
-
-| Variable                  | Default     | Description                             |
-| ------------------------- | ----------- | --------------------------------------- |
-| `SIBYL_FALKORDB_HOST`     | `localhost` | FalkorDB host                           |
-| `SIBYL_FALKORDB_PORT`     | `6380`      | FalkorDB port (6380 for local dev)      |
-| `SIBYL_FALKORDB_PASSWORD` | `sibyl_dev` | FalkorDB password                       |
-| `SIBYL_REDIS_JOBS_DB`     | `1`         | Redis DB for job queue (0 = graph data) |
-
-Note: Port 6380 is the default for local development to avoid conflicts with a local Redis
-installation.
+| Variable               | Default     | Description            |
+| ---------------------- | ----------- | ---------------------- |
+| `SIBYL_REDIS_HOST`     | `127.0.0.1` | Redis/Valkey host      |
+| `SIBYL_REDIS_PORT`     | `6381`      | Redis/Valkey port      |
+| `SIBYL_REDIS_PASSWORD` | -           | Redis/Valkey password  |
+| `SIBYL_REDIS_JOBS_DB`  | `1`         | Redis DB for job queue |
 
 ## LLM Configuration
 
@@ -292,9 +286,6 @@ SIBYL_SURREAL_PASSWORD=<secure-password>
 SIBYL_POSTGRES_HOST=prod-postgres.internal
 SIBYL_POSTGRES_PORT=5432
 SIBYL_POSTGRES_PASSWORD=<secure-password>
-SIBYL_FALKORDB_HOST=prod-falkordb.internal
-SIBYL_FALKORDB_PORT=6379
-SIBYL_FALKORDB_PASSWORD=<secure-password>
 
 # LLM
 SIBYL_OPENAI_API_KEY=sk-...
@@ -342,9 +333,8 @@ stringData:
   SIBYL_OPENAI_API_KEY: "sk-..." # Optional if using DB-stored keys
   SIBYL_ANTHROPIC_API_KEY: "sk-ant-..." # Optional if using DB-stored keys
   SIBYL_SURREAL_PASSWORD: "<surreal-password>" # For surreal mode
-  # Legacy only:
+  # Migration/archive only:
   # SIBYL_POSTGRES_PASSWORD: "<db-password>"
-  # SIBYL_FALKORDB_PASSWORD: "<falkordb-password>"
 ```
 
 ## Running Multiple Instances
@@ -354,19 +344,16 @@ configuring different ports and container names.
 
 ### Port Configuration
 
-> **Note:** `SIBYL_WEB_PORT` and `SIBYL_FALKORDB_BROWSER_PORT` are docker-compose-level variables
-> used only for port mapping in `docker-compose.yml`. They are not consumed by Pydantic Settings or
-> the Python application. The remaining variables in this table are read by the application.
+> **Note:** `SIBYL_WEB_PORT` is a docker-compose-level variable used only for port mapping in
+> `docker-compose.yml`. It is not consumed by Pydantic Settings or the Python application.
 
-| Variable                      | Default | Description                    |
-| ----------------------------- | ------- | ------------------------------ |
-| `SIBYL_SERVER_PORT`           | `3334`  | API/MCP server port            |
-| `SIBYL_WEB_PORT`              | `3337`  | Web frontend port              |
-| `SIBYL_SURREAL_PORT`          | `8000`  | SurrealDB port (default store) |
-| `SIBYL_FALKORDB_PORT`         | `6380`  | FalkorDB port (legacy)         |
-| `SIBYL_FALKORDB_BROWSER_PORT` | `3335`  | FalkorDB Browser UI (legacy)   |
-| `SIBYL_POSTGRES_PORT`         | `5433`  | PostgreSQL port (legacy/mixed) |
-| `SIBYL_BACKEND_URL`           | (auto)  | Backend URL for web app        |
+| Variable              | Default | Description                    |
+| --------------------- | ------- | ------------------------------ |
+| `SIBYL_SERVER_PORT`   | `3334`  | API/MCP server port            |
+| `SIBYL_WEB_PORT`      | `3337`  | Web frontend port              |
+| `SIBYL_SURREAL_PORT`  | `8000`  | SurrealDB port (default store) |
+| `SIBYL_POSTGRES_PORT` | `5433`  | PostgreSQL port (legacy/mixed) |
+| `SIBYL_BACKEND_URL`   | (auto)  | Backend URL for web app        |
 
 ### Quick Setup: Test Instance
 
@@ -376,7 +363,6 @@ configuring different ports and container names.
 COMPOSE_PROJECT_NAME=sibyl-test
 SIBYL_SERVER_PORT=3344
 SIBYL_WEB_PORT=3347
-SIBYL_FALKORDB_PORT=6390
 SIBYL_POSTGRES_PORT=5443
 SIBYL_POSTGRES_DB=sibyl_test
 ```
@@ -401,14 +387,14 @@ SIBYL_WEB_PORT=3347 SIBYL_BACKEND_URL=http://localhost:3344 pnpm -C apps/web dev
 
 ### How It Works
 
-- `COMPOSE_PROJECT_NAME` isolates Docker containers and volumes (e.g., `sibyl-test-falkordb`)
+- `COMPOSE_PROJECT_NAME` isolates Docker containers and volumes
 - Each port variable controls the corresponding service
 - `SIBYL_BACKEND_URL` tells the web frontend where to proxy API requests
 
 ### Tips
 
 - Use `docker compose -p sibyl-test ps` to see test instance containers
-- Volumes are namespaced by project: `sibyl-test_falkordb_data` vs `sibyl_falkordb_data`
+- Volumes are namespaced by project, for example `sibyl-test_postgres_data`
 - CLI contexts let you switch between instances: `sibyl context use test`
 
 ## Computed Properties
@@ -417,7 +403,6 @@ The Settings class provides computed connection URLs:
 
 ```python
 settings.resolved_surreal_url  # ws://..., surrealkv://..., or memory://
-settings.falkordb_url          # redis://:password@host:port  (legacy)
 settings.postgres_url          # postgresql+asyncpg://user:pass@host:port/db
 settings.postgres_url_sync     # postgresql://user:pass@host:port/db (for Alembic)
 settings.fully_surreal         # True when graph, content, and auth all use SurrealDB
