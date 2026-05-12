@@ -17,6 +17,7 @@ DEFAULT_MAX_RECORDS = 50
 
 REQUIRED_CONTEXT_METRICS: dict[str, tuple[str, float]] = {
     "pass_rate": ("minimum", 1.0),
+    "latency_p95_ms": ("maximum", 1000.0),
     "source_metadata_coverage": ("minimum", 1.0),
     "facet_order_match_rate": ("minimum", 1.0),
     "leak_count": ("maximum", 0.0),

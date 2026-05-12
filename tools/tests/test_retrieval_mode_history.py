@@ -6,12 +6,15 @@ from pathlib import Path
 from tools.inventory import retrieval_mode_history
 
 EXPECTED_CONSECUTIVE_RUNS = 2
+EXPECTED_LATENCY_P95_MS = 500.0
+SLOW_LATENCY_P95_MS = 1250.0
 
 
 def _report(
     *,
     retrieval_mode: str = "compare",
     pass_rate: float = 1.0,
+    latency_p95_ms: float = EXPECTED_LATENCY_P95_MS,
     leak_count: float = 0.0,
 ) -> dict[str, object]:
     return {
@@ -25,6 +28,7 @@ def _report(
             "leak_count": leak_count,
             "forbidden_term_matches": 0.0,
             "latency_ms": 250.0,
+            "latency_p95_ms": latency_p95_ms,
         },
         "per_case": [{"name": "context-pack-smoke", "passed": True, "error": None}],
     }
@@ -87,12 +91,16 @@ def test_main_records_history_and_reports_not_ready(
     assert "consecutive_main_qualifying: 1/3" in captured.out
     assert history["records"][0]["qualifies"] is True
     assert history["records"][0]["retrieval_mode"] == "compare"
+    assert history["records"][0]["metrics"]["latency_p95_ms"] == EXPECTED_LATENCY_P95_MS
 
 
 def test_main_returns_failure_for_current_nonqualifying_run(tmp_path: Path) -> None:
     report_path = tmp_path / "report.json"
     history_path = tmp_path / "history.json"
-    report_path.write_text(json.dumps(_report(pass_rate=0.5)), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(_report(pass_rate=0.5, latency_p95_ms=SLOW_LATENCY_P95_MS)),
+        encoding="utf-8",
+    )
 
     exit_code = retrieval_mode_history.main(
         [
@@ -108,3 +116,4 @@ def test_main_returns_failure_for_current_nonqualifying_run(tmp_path: Path) -> N
     assert exit_code == 1
     assert history["records"][0]["qualifies"] is False
     assert "metric 'pass_rate' below 1.0000: 0.5000" in history["records"][0]["blockers"]
+    assert "metric 'latency_p95_ms' above 1000.0000: 1250.0000" in history["records"][0]["blockers"]
