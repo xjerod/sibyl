@@ -25,7 +25,7 @@ sibyl recall "goal"                     # Agent-ready context before work
 sibyl add "title" "content"             # Add knowledge
 sibyl capture "content"                 # Quick capture from the CLI
 sibyl remember "title" "content" --kind decision # Agent memory capture
-sibyl reflect "raw notes" --persist     # Extract candidates and preserve raw session source
+sibyl reflect "raw notes" --persist --review # Store source/candidates for promotion review
 sibyl session bundle                    # Wake up with active context
 sibyl task list --status todo,doing     # List tasks
 sibyl task start <id>                   # Start task
@@ -90,7 +90,7 @@ sibyl recall "ship the SurrealDB-native memory path" --intent build
 sibyl capture "Redis TTL mismatch caused the stale auth token bug"
 sibyl remember "Token TTL decision" "Keep refresh token TTL longer than access token TTL." --kind decision --domain auth
 sibyl remember "Worker routing decision" "Verifier agents run after non-trivial patches." --kind decision --task task_abc
-echo "Raw planning notes..." | sibyl reflect --title "Planning session" --persist --task task_abc
+echo "Raw planning notes..." | sibyl reflect --title "Planning session" --persist --review --task task_abc
 sibyl archive list --surface cli
 sibyl archive show <capture_id>
 ```
@@ -100,15 +100,17 @@ exists. Use `--task` for explicit links or `--no-active-task` to capture project
 task edge. Persisted `sibyl reflect` output follows the same task-linking rules for its raw session
 source and extracted candidates.
 
-`sibyl reflect` accepts either an argument or stdin. By default, `--persist` writes extracted
-candidates and keeps the raw notes as a `session` source for provenance. Add `--no-source` when the
-raw transcript is too noisy or sensitive, but the extracted candidates should still be saved.
+`sibyl reflect` accepts either an argument or stdin. With `--persist --review`, Sibyl stores the raw
+notes and extracted candidates in the review queue with source IDs, confidence, extraction metadata,
+and suggested memory scope. Without `--review`, persisted reflection follows the server's active
+write mode. Add `--no-source` when the raw transcript is too noisy or sensitive, but the extracted
+candidates should still be saved.
 
 Persisted reflect output prints the source ID when one is stored, the candidate count, and each
-persisted candidate ID:
+persisted candidate or review-capture ID:
 
 ```bash
-cat session-notes.md | sibyl reflect --title "Build checkpoint" --intent build --persist
+cat session-notes.md | sibyl reflect --title "Build checkpoint" --intent build --persist --review
 cat session-notes.md | sibyl reflect --title "Private checkpoint" --persist --no-source
 ```
 

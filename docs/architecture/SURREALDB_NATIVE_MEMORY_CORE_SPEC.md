@@ -391,13 +391,21 @@ Tracking: `8ea4beab-04ab-4e5a-9cbb-5143fcf6b067`
 
 Purpose: make raw captures become durable native memory.
 
+Status as of 2026-05-12: partially implemented. Reflection can now persist raw source and candidate
+records into the review queue, and the REST memory API can promote a reviewed candidate into native
+Surreal graph records after an explicit target scope policy check. Remaining Wave 4 work is the
+named `post-reflection-recall` fixture, native `supersedes` coverage, and a CLI/MCP promotion
+surface if we want promotion outside REST before the next release.
+
 Files:
 
 - `packages/python/sibyl-core/src/sibyl_core/tools/reflect.py` [expand]
 - `packages/python/sibyl-core/src/sibyl_core/models/reflection.py` [expand]
+- `packages/python/sibyl-core/src/sibyl_core/services/native_memory.py` [expand]
 - `packages/python/sibyl-core/src/sibyl_core/services/surreal_content.py` [expand]
 - `packages/python/sibyl-core/tests/test_reflect.py` [expand]
 - `apps/api/src/sibyl/api/routes/memory.py` [expand]
+- `apps/api/src/sibyl/api/schemas.py` [expand]
 - `apps/api/tests/test_routes_memory.py` [expand]
 
 Implementation:
@@ -411,7 +419,7 @@ Implementation:
 - Deny promotion when input raw captures span multiple memory scopes unless the caller passes
   `promote_to_scope` matching the broadest input scope and policy allows it.
 - Mark superseded decisions and facts with the v0.7 `supersedes` relation when a newer source
-  explicitly replaces them. Validity windows and bitemporal modeling are deferred.
+  explicitly replaces them. Validity windows and bitemporal modeling remain deferred.
 
 Acceptance:
 

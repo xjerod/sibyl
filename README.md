@@ -544,8 +544,8 @@ the system itself.
   prompt hooks, and session startup.
 - **Context quality:** make wake, recall, and deep-search packs measurable for grounding,
   permissions, latency, and token budgets.
-- **Native graph spike:** replace one Graphiti-backed path with direct SurrealQL, then compare
-  behavior before estimating full Graphiti removal.
+- **Native graph writes:** expand the first direct Surreal reflection promotion path into broader
+  default memory flows, then use the inventory to retire Graphiti dependencies deliberately.
 - **Human memory UX:** expose raw sources, visibility, correction, promotion, and agent access in
   a way that feels legible instead of spooky.
 
