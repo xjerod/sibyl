@@ -119,6 +119,9 @@ class RawMemory:
     principal_id: str
     memory_scope: MemoryScope = MemoryScope.PRIVATE
     scope_key: str | None = None
+    agent_id: str | None = None
+    project_id: str | None = None
+    review_state: str = "pending"
     title: str = ""
     raw_content: str = ""
     tags: list[str] = field(default_factory=list)
@@ -381,6 +384,7 @@ def _chunk_from_record(record: Mapping[str, object]) -> ContentChunk:
 
 
 def _raw_memory_from_record(record: Mapping[str, object]) -> RawMemory:
+    metadata = _coerce_dict(record.get("metadata"))
     return RawMemory(
         id=_coerce_str(record.get("uuid")),
         organization_id=_coerce_str(record.get("organization_id")),
@@ -388,10 +392,17 @@ def _raw_memory_from_record(record: Mapping[str, object]) -> RawMemory:
         principal_id=_coerce_str(record.get("principal_id")),
         memory_scope=_coerce_memory_scope(record.get("memory_scope")),
         scope_key=_coerce_optional_str(record.get("scope_key")),
+        agent_id=_coerce_optional_str(record.get("agent_id"))
+        or _coerce_optional_str(metadata.get("agent_id")),
+        project_id=_coerce_optional_str(record.get("project_id"))
+        or _coerce_optional_str(metadata.get("project_id")),
+        review_state=_coerce_str(
+            record.get("review_state") or metadata.get("review_state"), default="pending"
+        ),
         title=_coerce_str(record.get("title")),
         raw_content=_coerce_str(record.get("raw_content")),
         tags=_coerce_str_list(record.get("tags")),
-        metadata=_coerce_dict(record.get("metadata")),
+        metadata=metadata,
         provenance=_coerce_dict(record.get("provenance")),
         capture_surface=_coerce_optional_str(record.get("capture_surface")),
         captured_at=_coerce_datetime(record.get("captured_at")),
@@ -427,6 +438,9 @@ def _raw_memory_record(memory: RawMemory) -> SurrealRecord:
         "principal_id": memory.principal_id,
         "memory_scope": memory.memory_scope.value,
         "scope_key": memory.scope_key,
+        "agent_id": memory.agent_id,
+        "project_id": memory.project_id,
+        "review_state": memory.review_state,
         "title": memory.title,
         "raw_content": memory.raw_content,
         "entity_type": "raw_memory",
@@ -450,7 +464,9 @@ async def _select_many(
     return _normalize_records(result)
 
 
-def _normalize_raw_statement_records(result: object, *, statement_index: int) -> list[SurrealRecord]:
+def _normalize_raw_statement_records(
+    result: object, *, statement_index: int
+) -> list[SurrealRecord]:
     if isinstance(result, dict):
         payload = {str(key): value for key, value in result.items()}
         statements = payload.get("result")
@@ -639,13 +655,13 @@ def _memory_scope_where(
         clauses.append("scope_key = $scope_key")
         params["scope_key"] = scope_key
     if agent_id:
-        clauses.append("metadata.agent_id = $agent_id")
+        clauses.append("agent_id = $agent_id")
         params["agent_id"] = agent_id
     else:
         clauses.append("(capture_surface != $agent_diary_surface OR capture_surface = NONE)")
         params["agent_diary_surface"] = AGENT_DIARY_CAPTURE_SURFACE
     if project_id:
-        clauses.append("metadata.project_id = $project_id")
+        clauses.append("project_id = $project_id")
         params["project_id"] = project_id
     return " AND ".join(clauses), params
 
@@ -711,6 +727,9 @@ async def remember_raw_memory(
         principal_id=principal_id,
         memory_scope=normalized_scope,
         scope_key=scope_key,
+        agent_id=_coerce_optional_str((metadata or {}).get("agent_id")),
+        project_id=_coerce_optional_str((metadata or {}).get("project_id")),
+        review_state=_coerce_str((metadata or {}).get("review_state"), default="pending"),
         title=title,
         raw_content=raw_content,
         tags=list(tags or []),
@@ -1090,7 +1109,9 @@ async def search_document_chunks(
                 errors.append(str(exc))
 
         document_ids = _document_ids_from_search_rows(vector_rows, lexical_rows)
-        documents = await _load_search_documents_by_ids(client, document_ids) if document_ids else []
+        documents = (
+            await _load_search_documents_by_ids(client, document_ids) if document_ids else []
+        )
         documents_by_id = {document.id: document for document in documents}
 
     if errors and not vector_rows and not lexical_rows:

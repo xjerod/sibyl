@@ -784,6 +784,9 @@ class TestSurrealContentHelpers:
         assert saved_record["principal_id"] == "user-bliss"
         assert saved_record["memory_scope"] == "private"
         assert saved_record["created_by_user_id"] == "user-bliss"
+        assert saved_record["agent_id"] is None
+        assert saved_record["project_id"] is None
+        assert saved_record["review_state"] == "pending"
 
     @pytest.mark.asyncio
     async def test_recall_raw_memory_scopes_private_memories_to_principal(self) -> None:
@@ -869,11 +872,13 @@ class TestSurrealContentHelpers:
             )
 
         query, params = fake_client.calls[0]
-        assert "metadata.agent_id = $agent_id" in query
-        assert "metadata.project_id = $project_id" in query
+        assert "agent_id = $agent_id" in query
+        assert "project_id = $project_id" in query
         assert "capture_surface != $agent_diary_surface" not in query
         assert params["agent_id"] == "nova"
         assert params["project_id"] == "project_123"
+        assert memories[0].agent_id == "nova"
+        assert memories[0].project_id == "project_123"
         assert [memory.metadata["agent_id"] for memory in memories] == ["nova"]
 
     @pytest.mark.asyncio
