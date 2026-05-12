@@ -33,6 +33,7 @@ jobs:
       SIBYL_SURREAL_URL: ws://localhost:8000/rpc
       SIBYL_SURREAL_USERNAME: root
       SIBYL_SURREAL_PASSWORD: root
+      SIBYL_RETRIEVAL_MODE: compare
       SIBYL_OPENAI_API_KEY: sk-test-key
       SIBYL_ANTHROPIC_API_KEY: sk-ant-test-key
       SIBYL_MOCK_LLM: true
@@ -108,6 +109,28 @@ jobs:
 
       - name: Replay committed baseline corpus
         run: moon run baseline-replay-runtime
+
+      - name: Run context-pack retrieval compare benchmark
+        id: context-pack-compare
+        run: |
+          moon run core:bench-context -- --label retrieval-compare --metadata retrieval_mode=compare
+          latest_report="$(
+            find .moon/cache/evals -maxdepth 1 \
+              -name 'eval_context_pack_retrieval_compare_*.json' \
+              -printf '%T@ %p\n' \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          test -n "$latest_report"
+          moon run bench-gate -- "$latest_report" --profile context-pack
+          echo "report=$latest_report" >> "$GITHUB_OUTPUT"
+
+      - name: Upload context-pack retrieval compare report
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-pack-retrieval-compare
+          path: ${{ steps.context-pack-compare.outputs.report }}
 
       - name: Collect diagnostics on failure
         if: failure()
