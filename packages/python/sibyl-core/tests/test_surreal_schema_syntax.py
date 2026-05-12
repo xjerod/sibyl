@@ -79,12 +79,20 @@ def test_fulltext_indexes_keep_remote_server_syntax() -> None:
 def test_entity_fulltext_uses_top_level_description_and_content_indexes() -> None:
     assert "idx_entity_description_text_ft" in NODE_DEFINITIONS
     assert "idx_entity_content_text_ft" in NODE_DEFINITIONS
+    assert "REMOVE INDEX IF EXISTS idx_entity_description_ft ON TABLE entity" in NODE_DEFINITIONS
+    assert "REMOVE INDEX IF EXISTS idx_entity_content_ft ON TABLE entity" in NODE_DEFINITIONS
     assert "FIELDS description FULLTEXT" in NODE_DEFINITIONS
     assert "FIELDS content FULLTEXT" in NODE_DEFINITIONS
     assert "FIELDS attributes.description FULLTEXT" not in NODE_DEFINITIONS
     assert "FIELDS attributes.content FULLTEXT" not in NODE_DEFINITIONS
     assert "description = description ?? attributes.description" in NODE_DEFINITIONS
     assert "content = content ?? attributes.content" in NODE_DEFINITIONS
+    assert NODE_DEFINITIONS.index("REMOVE INDEX IF EXISTS idx_entity_description_ft") < (
+        NODE_DEFINITIONS.index("DEFINE INDEX IF NOT EXISTS idx_entity_description_text_ft")
+    )
+    assert NODE_DEFINITIONS.index("REMOVE INDEX IF EXISTS idx_entity_content_ft") < (
+        NODE_DEFINITIONS.index("DEFINE INDEX IF NOT EXISTS idx_entity_content_text_ft")
+    )
 
 
 @pytest.mark.asyncio

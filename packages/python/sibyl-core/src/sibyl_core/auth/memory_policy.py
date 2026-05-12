@@ -100,12 +100,6 @@ def authorize_memory_read(
         )
 
     if normalized_scope is MemoryScope.PRIVATE:
-        if agent_id and project_id:
-            return _allow(
-                reason="agent_diary_private_read_allowed",
-                memory_scope=normalized_scope,
-                scope_key=scope_key,
-            )
         if agent_id:
             return _allow(
                 reason="agent_diary_private_read_allowed",

@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 import pytest
 
+import sibyl_core.tools.context as context_module
 from sibyl_core.models.context import ContextFacet, ContextIntent, ContextLayer, ContextRelatedItem
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 from sibyl_core.tools.context import compile_context, context_pack_to_dict, context_pack_to_markdown
@@ -146,7 +147,17 @@ async def test_compile_context_runs_facet_searches_concurrently() -> None:
 
 
 @pytest.mark.asyncio
-async def test_compile_context_keeps_successful_facets_when_one_fails() -> None:
+async def test_compile_context_keeps_successful_facets_when_one_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    warnings: list[dict[str, str]] = []
+
+    class FakeLog:
+        def warning(self, _event: str, **kwargs: str) -> None:
+            warnings.append(kwargs)
+
+    monkeypatch.setattr(context_module, "log", FakeLog())
+
     async def fake_search(**kwargs: Any) -> SearchResponse:
         if kwargs["types"] == ["decision"]:
             raise RuntimeError("decision search unavailable")
@@ -168,6 +179,7 @@ async def test_compile_context_keeps_successful_facets_when_one_fails() -> None:
 
     assert pack.total_items == 1
     assert pack.items[0].id == "task-1"
+    assert warnings == [{"facet": "decisions", "error_type": "RuntimeError"}]
 
 
 @pytest.mark.asyncio

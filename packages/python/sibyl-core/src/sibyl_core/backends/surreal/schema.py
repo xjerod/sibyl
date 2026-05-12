@@ -79,6 +79,8 @@ DEFINE INDEX IF NOT EXISTS idx_entity_status ON entity FIELDS status;
 DEFINE INDEX IF NOT EXISTS idx_entity_priority ON entity FIELDS priority;
 DEFINE INDEX IF NOT EXISTS idx_entity_name_ft ON entity FIELDS name FULLTEXT ANALYZER name_analyzer BM25;
 DEFINE INDEX IF NOT EXISTS idx_entity_summary_ft ON entity FIELDS summary FULLTEXT ANALYZER content_analyzer BM25;
+REMOVE INDEX IF EXISTS idx_entity_description_ft ON TABLE entity;
+REMOVE INDEX IF EXISTS idx_entity_content_ft ON TABLE entity;
 UPDATE entity SET
     description = description ?? attributes.description,
     content = content ?? attributes.content

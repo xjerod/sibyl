@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
 from typing import Any
 
+import structlog
+
 from sibyl_core.auth.memory_policy import authorize_memory_read
 from sibyl_core.models.context import (
     ContextFacet,
@@ -30,6 +32,8 @@ from sibyl_core.tools.search import search as default_search
 SearchFn = Callable[..., Awaitable[SearchResponse]]
 RelatedFn = Callable[..., Awaitable[list[ContextRelatedItem]]]
 RawMemoryRecallFn = Callable[..., Awaitable[list[RawMemory]]]
+
+log = structlog.get_logger()
 
 FACET_TITLES = {
     ContextFacet.ACTIVE_WORK: "Active Work",
@@ -728,6 +732,11 @@ async def compile_context(
     sections: list[ContextSection] = []
     for facet, facet_section in zip(facets, facet_sections, strict=True):
         if isinstance(facet_section, BaseException):
+            log.warning(
+                "context_facet_search_failed",
+                facet=facet.value,
+                error_type=type(facet_section).__name__,
+            )
             continue
         items = list(facet_section.items) if facet_section is not None else []
         if raw_section is not None and facet == ContextFacet.RECENT_MEMORY:
