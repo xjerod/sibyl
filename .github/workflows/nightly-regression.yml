@@ -81,6 +81,14 @@ jobs:
           restore-keys: |
             uv-nightly-${{ runner.os }}-
 
+      - name: Cache retrieval mode history
+        uses: actions/cache@v5
+        with:
+          path: .moon/retrieval-mode-history.json
+          key: retrieval-mode-history-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            retrieval-mode-history-
+
       - name: Start backend server
         run: |
           cd apps/api
@@ -123,7 +131,15 @@ jobs:
               | cut -d' ' -f2-
           )"
           test -n "$latest_report"
-          moon run bench-gate -- "$latest_report" --profile context-pack
+          moon run bench-gate -- "$latest_report" --profile context-pack \
+            --require-metadata retrieval_mode=compare
+          moon run retrieval-mode-history -- "$latest_report" \
+            --branch "${GITHUB_REF_NAME}" \
+            --sha "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --event "${GITHUB_EVENT_NAME}" \
+            --workflow "${GITHUB_WORKFLOW}"
           echo "report=$latest_report" >> "$GITHUB_OUTPUT"
 
       - name: Upload context-pack retrieval compare report
@@ -131,6 +147,12 @@ jobs:
         with:
           name: context-pack-retrieval-compare
           path: ${{ steps.context-pack-compare.outputs.report }}
+
+      - name: Upload retrieval mode history
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-mode-history
+          path: .moon/retrieval-mode-history.json
 
       - name: Collect diagnostics on failure
         if: failure()

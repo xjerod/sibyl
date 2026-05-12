@@ -281,7 +281,9 @@ tasks:
       - pyproject.toml
 
   inventory-test:
-    command: uv run pytest tools/tests/test_runtime_surface.py -v
+    command:
+      uv run pytest tools/tests/test_runtime_surface.py
+      tools/tests/test_retrieval_mode_history.py -v
     inputs:
       - tools/**/*.py
       - docs/research/rust-port/INVENTORY.md
@@ -309,6 +311,12 @@ tasks:
     inputs:
       - tools/**/*.py
       - benchmarks/**/*.py
+      - pyproject.toml
+
+  retrieval-mode-history:
+    command: uv run python -m tools.inventory.retrieval_mode_history
+    inputs:
+      - tools/**/*.py
       - pyproject.toml
 
   bench-gate-test:
