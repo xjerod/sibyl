@@ -1023,6 +1023,9 @@ def test_context_pack_eval_report_exposes_pass_rate_metrics() -> None:
 
     assert payload["metrics"]["cases"] == 1
     assert payload["metrics"]["pass_rate"] == 1.0
+    assert payload["metrics"]["latency_ms"] == 5.0
+    assert payload["metrics"]["latency_p95_ms"] == 5.0
+    assert payload["metrics"]["max_latency_ms"] == 5.0
     assert payload["metrics"]["avg_items"] == 0.0
     assert payload["metrics"]["max_items"] == 0.0
     assert payload["metrics"]["avg_markdown_chars"] > 0

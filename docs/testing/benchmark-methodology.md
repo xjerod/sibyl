@@ -46,8 +46,8 @@ This is the live context-pack quality guard.
 - Runs the frozen fixture file at `benchmarks/context_pack_cases.json` for coding handoffs, personal
   memory, project recall, delegated recall, agent diary opt-in, private leak negatives,
   stale-decision replacement, and source grounding
-- Measures pass rate, source grounding, facet order, latency, token budget with the reported
-  estimator margin, forbidden terms, and per-case leak signals
+- Measures pass rate, source grounding, facet order, mean/p95/max latency, token budget with the
+  reported estimator margin, forbidden terms, and per-case leak signals
 - Writes timestamped JSON reports under `.moon/cache/evals/` by default
 - Writes the same JSON report shape used by the comparison and gate tools
 
@@ -100,6 +100,7 @@ The lighter `smoke` profile keeps just the fast guardrails:
 The `context-pack` profile gates dogfood context reports:
 
 - `pass_rate >= 1.00`
+- `latency_p95_ms <= 1000`
 - `source_metadata_coverage >= 1.00`
 - `facet_order_match_rate >= 1.00`
 - `leak_count <= 0`

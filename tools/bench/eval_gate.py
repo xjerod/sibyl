@@ -32,6 +32,7 @@ PROFILE_THRESHOLDS: dict[ProfileName, dict[str, MetricThreshold]] = {
     },
     "context-pack": {
         "pass_rate": MetricThreshold(minimum=1.0),
+        "latency_p95_ms": MetricThreshold(maximum=1000.0),
         "source_metadata_coverage": MetricThreshold(minimum=1.0),
         "facet_order_match_rate": MetricThreshold(minimum=1.0),
         "leak_count": MetricThreshold(maximum=0.0),

@@ -112,6 +112,15 @@ def _max(values: list[float]) -> float:
     return max(values) if values else 0.0
 
 
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = ceil((percentile / 100) * len(ordered))
+    index = min(max(rank - 1, 0), len(ordered) - 1)
+    return ordered[index]
+
+
 def _bool_case_rate(cases: list[ContextPackCaseResult], key: str) -> float:
     values = [
         case.result.metrics[key] for case in cases if isinstance(case.result.metrics.get(key), bool)
@@ -165,7 +174,7 @@ class ContextPackEvalReport:
     def to_dict(self) -> dict[str, Any]:
         case_count = len(self.cases)
         passed_cases = sum(1 for case in self.cases if case.result.passed and case.error is None)
-        latency_ms = sum(case.latency_ms for case in self.cases) / case_count if case_count else 0.0
+        latencies = [case.latency_ms for case in self.cases]
         item_counts = _numeric_case_values(self.cases, "items")
         markdown_chars = _numeric_case_values(self.cases, "markdown_chars")
         estimated_tokens = _numeric_case_values(self.cases, "estimated_tokens")
@@ -188,7 +197,9 @@ class ContextPackEvalReport:
                 "passed": passed_cases,
                 "failed": case_count - passed_cases,
                 "pass_rate": passed_cases / case_count if case_count else 0.0,
-                "latency_ms": latency_ms,
+                "latency_ms": _average(latencies),
+                "latency_p95_ms": _percentile(latencies, 95),
+                "max_latency_ms": _max(latencies),
                 "avg_items": _average(item_counts),
                 "max_items": _max(item_counts),
                 "avg_markdown_chars": _average(markdown_chars),
@@ -242,6 +253,7 @@ class ContextPackEvalReport:
         print(f"  pass_rate: {metrics['pass_rate']:.3f}")
         print(f"  failed: {metrics['failed']}")
         print(f"  latency_ms: {metrics['latency_ms']:.1f}")
+        print(f"  latency_p95_ms: {metrics['latency_p95_ms']:.1f}")
 
 
 def _quality_value(item: ContextItem, key: str) -> Any:

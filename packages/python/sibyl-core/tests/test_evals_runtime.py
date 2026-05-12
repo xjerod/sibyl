@@ -257,6 +257,9 @@ def test_context_pack_report_exposes_leak_and_token_metrics() -> None:
         "characters_per_token": 4,
         "safety_margin_multiplier": 1.2,
     }
+    assert payload["metrics"]["latency_ms"] == 123.0
+    assert payload["metrics"]["latency_p95_ms"] == 123.0
+    assert payload["metrics"]["max_latency_ms"] == 123.0
     assert payload["metrics"]["max_estimated_tokens"] == 42
     assert payload["metrics"]["max_budgeted_estimated_tokens"] == 51
     assert payload["metrics"]["leak_count"] == 1

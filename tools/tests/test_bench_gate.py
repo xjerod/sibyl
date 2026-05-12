@@ -69,6 +69,7 @@ def test_evaluate_report_context_pack_profile_passes() -> None:
     report = {
         "metrics": {
             "pass_rate": 1.0,
+            "latency_p95_ms": 500.0,
             "source_metadata_coverage": 1.0,
             "facet_order_match_rate": 1.0,
             "leak_count": 0.0,
@@ -86,6 +87,7 @@ def test_evaluate_report_context_pack_profile_blocks_leaks() -> None:
     report = {
         "metrics": {
             "pass_rate": 0.95,
+            "latency_p95_ms": 1250.0,
             "source_metadata_coverage": 0.75,
             "facet_order_match_rate": 0.50,
             "leak_count": 1.0,
@@ -96,6 +98,7 @@ def test_evaluate_report_context_pack_profile_blocks_leaks() -> None:
     failures = eval_gate.evaluate_report(report, profile="context-pack")
 
     assert "metric 'pass_rate' below minimum 1.0000: 0.9500" in failures
+    assert "metric 'latency_p95_ms' above maximum 1000.0000: 1250.0000" in failures
     assert "metric 'source_metadata_coverage' below minimum 1.0000: 0.7500" in failures
     assert "metric 'facet_order_match_rate' below minimum 1.0000: 0.5000" in failures
     assert "metric 'leak_count' above maximum 0.0000: 1.0000" in failures
