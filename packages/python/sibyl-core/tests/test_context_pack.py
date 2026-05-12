@@ -183,6 +183,133 @@ async def test_compile_context_keeps_successful_facets_when_one_fails(
 
 
 @pytest.mark.asyncio
+async def test_compile_context_uses_native_retrieval_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_calls: list[dict[str, Any]] = []
+
+    async def fake_native_context_search(**kwargs: Any) -> SearchResponse:
+        native_calls.append(kwargs)
+        if kwargs["facet"] is not ContextFacet.DECISIONS:
+            return SearchResponse(results=[], total=0, query=kwargs["plan"].query, filters={})
+        return SearchResponse(
+            results=[
+                _result(
+                    "decision-native",
+                    "decision",
+                    "Use native Surreal retrieval",
+                    source="source:native",
+                    metadata={
+                        "source_id": "source:native",
+                        "visibility": "project",
+                        "freshness": 1.5,
+                        "policy_reason": "project_access_verified",
+                        "retrieval_signals": ["node_fulltext"],
+                    },
+                )
+            ],
+            total=1,
+            query=kwargs["plan"].query,
+            filters={},
+        )
+
+    async def unexpected_search(**_kwargs: Any) -> SearchResponse:
+        raise AssertionError("graphiti search should not run in native mode")
+
+    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+
+    pack = await compile_context(
+        "native retrieval mode",
+        intent="decide",
+        project="project_123",
+        accessible_projects={"project_123"},
+        principal_id="user-123",
+        organization_id="org-123",
+        search_fn=unexpected_search,
+        retrieval_mode="native",
+    )
+
+    assert [item.id for item in pack.items] == ["decision-native"]
+    assert native_calls[0]["plan"].scopes[1].policy_reason == "project_access_verified"
+    assert pack.items[0].metadata["retrieval_signals"] == ["node_fulltext"]
+
+
+@pytest.mark.asyncio
+async def test_compile_context_compare_mode_logs_policy_safe_diff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info_calls: list[dict[str, Any]] = []
+
+    class FakeLog:
+        def info(self, _event: str, **kwargs: Any) -> None:
+            info_calls.append(kwargs)
+
+        def warning(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+    async def fake_native_context_search(**kwargs: Any) -> SearchResponse:
+        if kwargs["facet"] is not ContextFacet.DECISIONS:
+            return SearchResponse(results=[], total=0, query=kwargs["plan"].query, filters={})
+        return SearchResponse(
+            results=[
+                _result(
+                    "decision-native",
+                    "decision",
+                    "Native decision",
+                    source="source:native",
+                    metadata={
+                        "source_id": "source:native",
+                        "policy_reason": "project_access_verified",
+                    },
+                )
+            ],
+            total=1,
+            query=kwargs["plan"].query,
+            filters={},
+        )
+
+    async def fallback_search(**kwargs: Any) -> SearchResponse:
+        if kwargs["types"] != ["decision"]:
+            return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
+        return SearchResponse(
+            results=[
+                _result(
+                    "decision-other-project",
+                    "decision",
+                    "Filtered fallback decision",
+                    metadata={
+                        "project_id": "project_other",
+                        "source_id": "source:filtered",
+                    },
+                )
+            ],
+            total=1,
+            query=kwargs["query"],
+            filters={},
+        )
+
+    monkeypatch.setattr(context_module, "log", FakeLog())
+    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+
+    pack = await compile_context(
+        "compare retrieval mode",
+        intent="decide",
+        project="project_123",
+        accessible_projects={"project_123"},
+        principal_id="user-123",
+        organization_id="org-123",
+        search_fn=fallback_search,
+        retrieval_mode="compare",
+    )
+
+    assert [item.id for item in pack.items] == ["decision-native"]
+    decision_log = next(call for call in info_calls if call["facet"] == "decisions")
+    assert decision_log["native_count"] == 1
+    assert decision_log["fallback_count"] == 0
+    assert decision_log["fallback_only_ids"] == []
+
+
+@pytest.mark.asyncio
 async def test_compile_context_includes_private_and_project_raw_memory() -> None:
     search_calls: list[dict[str, Any]] = []
     raw_calls: list[dict[str, Any]] = []

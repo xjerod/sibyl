@@ -29,6 +29,10 @@ def _node_filter_clause(search_filter: Any) -> tuple[list[str], dict[str, Any]]:
     if node_labels:
         clauses.append("labels CONTAINS $node_label")
         params["node_label"] = node_labels[0]
+    project_ids = getattr(search_filter, "project_ids", None)
+    if project_ids:
+        clauses.append("(project_id IN $project_ids OR attributes.project_id IN $project_ids)")
+        params["project_ids"] = list(project_ids)
     return clauses, params
 
 
@@ -55,6 +59,19 @@ def _edge_filter_clause(
     if node_labels:
         clauses.append("in.labels CONTAINS $node_label AND out.labels CONTAINS $node_label")
         params["node_label"] = node_labels[0]
+
+    project_ids = getattr(search_filter, "project_ids", None)
+    if project_ids:
+        clauses.append(
+            "("
+            "attributes.project_id IN $project_ids "
+            "OR in.project_id IN $project_ids "
+            "OR in.attributes.project_id IN $project_ids "
+            "OR out.project_id IN $project_ids "
+            "OR out.attributes.project_id IN $project_ids"
+            ")"
+        )
+        params["project_ids"] = list(project_ids)
 
     if source_node_uuid is not None:
         clauses.append("in.uuid = $source_node_uuid")
@@ -396,7 +413,8 @@ class SurrealSearchInterface(SearchInterface):
         group_ids: list[str] | None = None,
         limit: int = 100,
     ) -> list[Any]:
-        del search_filter
+        if getattr(search_filter, "project_ids", None):
+            return []
         search_query = driver.build_fulltext_query(query)
         if not search_query:
             return []

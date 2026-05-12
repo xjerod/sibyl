@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -117,6 +118,21 @@ class TestSurrealSearchInterface:
         assert params["valid_at_0_0"] == now
         assert "valid_at >= $valid_at_0_0" in query
         assert result[0].uuid == "edge-1"
+
+    @pytest.mark.asyncio
+    async def test_episode_fulltext_skips_project_filtered_search(self) -> None:
+        driver = FakeSurrealSearchDriver([])
+
+        result = await SurrealSearchInterface().episode_fulltext_search(
+            driver,
+            "raw memory",
+            SimpleNamespace(project_ids=("project-1",)),
+            ["org-1"],
+            5,
+        )
+
+        assert result == []
+        assert driver.queries == []
 
     def test_surreal_driver_installs_native_search_interface(self) -> None:
         assert isinstance(SurrealDriver("memory://").search_interface, SurrealSearchInterface)

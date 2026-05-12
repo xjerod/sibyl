@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict, replace
 from typing import Any
 
@@ -19,6 +19,13 @@ from sibyl_core.models.context import (
     ContextPack,
     ContextRelatedItem,
     ContextSection,
+)
+from sibyl_core.retrieval.native import (
+    NativeRetrievalMode,
+    build_native_context_retrieval_plan,
+    coerce_native_retrieval_mode,
+    native_context_search,
+    native_retrieval_mode_from_env,
 )
 from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.services.surreal_content import (
@@ -453,6 +460,10 @@ async def _compile_raw_memory_section(
     )
 
 
+async def _empty_context_section() -> None:
+    return None
+
+
 def _dedupe_sections(sections: list[ContextSection], limit: int) -> list[ContextSection]:
     seen: set[str] = set()
     remaining = limit
@@ -666,6 +677,95 @@ async def _compile_facet_section(
     return ContextSection(facet=facet, title=FACET_TITLES[facet], items=items)
 
 
+def _facet_for_search_types(types: Sequence[str] | None) -> ContextFacet | None:
+    if not types:
+        return None
+    normalized_types = [value.lower() for value in types]
+    for facet, facet_types in FACET_TYPES.items():
+        if normalized_types == facet_types:
+            return facet
+    return None
+
+
+def _compare_safe_response(
+    response: SearchResponse,
+    *,
+    principal_id: str | None,
+    project: str | None,
+    accessible_projects: set[str] | None,
+) -> SearchResponse:
+    filtered: list[SearchResult] = []
+    for result in response.results:
+        metadata = dict(result.metadata or {})
+        memory_scope = metadata.get("memory_scope")
+        project_id = _compact_metadata_value(metadata.get("project_id") or metadata.get("project"))
+
+        if isinstance(memory_scope, str):
+            decision = authorize_memory_read(
+                principal_id=principal_id,
+                memory_scope=memory_scope,
+                scope_key=_compact_metadata_value(metadata.get("scope_key")) or project_id,
+                project_id=project_id,
+                accessible_projects=accessible_projects,
+            )
+            if not decision.allowed:
+                continue
+            metadata["policy_reason"] = decision.reason
+        elif (project and project_id is not None and project_id != project) or (
+            accessible_projects is not None
+            and project_id is not None
+            and project_id not in accessible_projects
+        ):
+            continue
+
+        filtered.append(replace(result, metadata=metadata))
+
+    return SearchResponse(
+        results=filtered,
+        total=len(filtered),
+        query=response.query,
+        filters=dict(response.filters),
+        graph_count=len([result for result in filtered if result.result_origin == "graph"]),
+        document_count=len([result for result in filtered if result.result_origin == "document"]),
+        limit=response.limit,
+        offset=response.offset,
+        has_more=False,
+        usage_hint=response.usage_hint,
+    )
+
+
+def _log_compare_results(
+    *,
+    facet: ContextFacet | None,
+    native_response: SearchResponse,
+    fallback_response: SearchResponse,
+) -> None:
+    native_ids = {result.id for result in native_response.results}
+    fallback_ids = {result.id for result in fallback_response.results}
+    log.info(
+        "context_retrieval_compare",
+        facet=facet.value if facet else None,
+        native_count=len(native_ids),
+        fallback_count=len(fallback_ids),
+        native_only_ids=sorted(native_ids - fallback_ids)[:20],
+        fallback_only_ids=sorted(fallback_ids - native_ids)[:20],
+        native_policy_reasons=sorted(
+            {
+                str(result.metadata.get("policy_reason"))
+                for result in native_response.results
+                if result.metadata.get("policy_reason")
+            }
+        ),
+        fallback_policy_reasons=sorted(
+            {
+                str(result.metadata.get("policy_reason"))
+                for result in fallback_response.results
+                if result.metadata.get("policy_reason")
+            }
+        ),
+    )
+
+
 async def compile_context(
     goal: str,
     *,
@@ -683,6 +783,7 @@ async def compile_context(
     search_fn: SearchFn = default_search,
     related_fn: RelatedFn = _default_related_items,
     raw_memory_recall_fn: RawMemoryRecallFn = recall_raw_memory,
+    retrieval_mode: str | NativeRetrievalMode | None = None,
 ) -> ContextPack:
     """Build a small, structured context pack for an agent goal."""
 
@@ -700,16 +801,64 @@ async def compile_context(
     limit = max(1, min(limit, LAYER_LIMITS[normalized_layer]))
     facets = _facets_for_layer(normalized_intent, normalized_layer)
     per_facet_limit = max(2, min(8, (limit + len(facets) - 1) // len(facets)))
+    normalized_retrieval_mode = (
+        native_retrieval_mode_from_env()
+        if retrieval_mode is None
+        else coerce_native_retrieval_mode(retrieval_mode)
+    )
+    native_plan = None
+    selected_search_fn = search_fn
+    if normalized_retrieval_mode is not NativeRetrievalMode.GRAPHITI:
+        native_plan = build_native_context_retrieval_plan(
+            query=query,
+            organization_id=organization_id,
+            facets=facets,
+            facet_types=FACET_TYPES,
+            principal_id=principal_id,
+            project=project,
+            accessible_projects=accessible_projects,
+            agent_id=agent_id,
+            limit=limit,
+        )
 
-    raw_section_task = _compile_raw_memory_section(
-        query=query,
-        organization_id=organization_id,
-        principal_id=principal_id,
-        agent_id=agent_id,
-        project=project,
-        accessible_projects=accessible_projects,
-        limit=min(LAYER_RAW_LIMITS[normalized_layer], limit),
-        recall_fn=raw_memory_recall_fn,
+        async def selected_search_fn(**kwargs: Any) -> SearchResponse:
+            facet = _facet_for_search_types(kwargs.get("types"))
+            native_response = await native_context_search(
+                plan=native_plan,
+                types=kwargs.get("types"),
+                facet=facet,
+                limit=int(kwargs.get("limit") or per_facet_limit),
+                include_content=bool(kwargs.get("include_content", True)),
+                raw_memory_recall_fn=raw_memory_recall_fn,
+            )
+            if normalized_retrieval_mode is NativeRetrievalMode.COMPARE:
+                fallback = await search_fn(**kwargs)
+                fallback = _compare_safe_response(
+                    fallback,
+                    principal_id=principal_id,
+                    project=project,
+                    accessible_projects=accessible_projects,
+                )
+                _log_compare_results(
+                    facet=facet,
+                    native_response=native_response,
+                    fallback_response=fallback,
+                )
+            return native_response
+
+    raw_section_task = (
+        _empty_context_section()
+        if native_plan is not None
+        else _compile_raw_memory_section(
+            query=query,
+            organization_id=organization_id,
+            principal_id=principal_id,
+            agent_id=agent_id,
+            project=project,
+            accessible_projects=accessible_projects,
+            limit=min(LAYER_RAW_LIMITS[normalized_layer], limit),
+            recall_fn=raw_memory_recall_fn,
+        )
     )
     facet_section_tasks = [
         _compile_facet_section(
@@ -720,7 +869,7 @@ async def compile_context(
             accessible_projects=accessible_projects,
             organization_id=organization_id,
             limit=per_facet_limit,
-            search_fn=search_fn,
+            search_fn=selected_search_fn,
         )
         for facet in facets
     ]
@@ -755,7 +904,7 @@ async def compile_context(
                 accessible_projects=accessible_projects,
                 organization_id=organization_id,
                 limit=limit,
-                search_fn=search_fn,
+                search_fn=selected_search_fn,
             ),
             limit,
         )
