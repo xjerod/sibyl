@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import sibyl_core.retrieval.native as native_module
 from sibyl_core.models.context import ContextFacet
 from sibyl_core.retrieval.native import (
     DEFAULT_FILTER_SELECTIVITY_THRESHOLD,
+    NativeRetrievalCandidate,
     NativeRetrievalMode,
     NativeRetrievalSignal,
     build_native_context_retrieval_plan,
@@ -84,6 +86,22 @@ def test_build_native_context_retrieval_plan_denies_unverified_project_scope() -
     assert plan.denied_scopes[0].memory_scope is MemoryScope.PROJECT
     assert plan.denied_scopes[0].scope_key == "project_123"
     assert plan.denied_scopes[0].reason == "unverified_membership"
+    assert native_module._search_filter_for_plan(plan).project_ids == ()
+    assert not native_module._candidate_allowed(
+        NativeRetrievalCandidate(
+            id="task-1",
+            type="task",
+            name="Denied project task",
+            content="Project task should not render.",
+            score=1.0,
+            source=None,
+            metadata={},
+            project_id="project_123",
+        ),
+        plan=plan,
+        requested_types=set(),
+        facet=None,
+    )
 
 
 def test_build_native_context_retrieval_plan_requires_principal() -> None:

@@ -391,12 +391,24 @@ def _candidate_list_or_empty(result: object) -> list[NativeRetrievalCandidate]:
 
 
 def _search_filter_for_plan(plan: NativeRetrievalPlan) -> NativeSearchFilter:
-    project_ids: tuple[str, ...] = ()
+    return NativeSearchFilter(project_ids=_authorized_project_ids(plan))
+
+
+def _authorized_project_ids(plan: NativeRetrievalPlan) -> tuple[str, ...]:
     if plan.project:
-        project_ids = (plan.project,)
-    elif plan.accessible_projects:
-        project_ids = tuple(sorted(plan.accessible_projects))
-    return NativeSearchFilter(project_ids=project_ids)
+        if any(
+            scope.memory_scope is MemoryScope.PROJECT and scope.project_id == plan.project
+            for scope in plan.scopes
+        ):
+            return (plan.project,)
+        return ()
+    if plan.accessible_projects:
+        return tuple(sorted(plan.accessible_projects))
+    return ()
+
+
+def _explicit_project_denied(plan: NativeRetrievalPlan) -> bool:
+    return bool(plan.project and not _authorized_project_ids(plan))
 
 
 async def _recall_raw_candidates(
@@ -804,6 +816,8 @@ def _candidate_allowed(
     facet: ContextFacet | None,
 ) -> bool:
     if requested_types and not _candidate_matches_types(candidate, requested_types, facet):
+        return False
+    if _explicit_project_denied(plan) and candidate.type != "raw_memory":
         return False
     if candidate.type == "episode" and (plan.project or plan.accessible_projects is not None):
         return False
