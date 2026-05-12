@@ -176,22 +176,17 @@ async def test_native_surrealql_memory_path_renders_context_pack(
         async def raw_recall(**kwargs: Any) -> list[RawMemory]:
             return await recall_raw_memory(**kwargs)
 
-        class FakeEmbedder:
-            async def create(self, _input_data: object) -> list[float]:
-                return embedding
-
-        fake_graph_client = SimpleNamespace(
-            client=SimpleNamespace(embedder=FakeEmbedder()),
-            get_org_driver=lambda _organization_id: surreal_schema,
-        )
-
-        async def fake_get_graph_runtime(_organization_id: str) -> SimpleNamespace:
-            return SimpleNamespace(client=fake_graph_client)
+        async def fake_get_native_graph_runtime(_organization_id: str) -> SimpleNamespace:
+            return SimpleNamespace(client=surreal_schema)
 
         async def unexpected_search(**_kwargs: Any) -> None:
             raise AssertionError("Graphiti fallback search should not run in native mode")
 
-        monkeypatch.setattr(native_retrieval, "get_graph_runtime", fake_get_graph_runtime)
+        monkeypatch.setattr(
+            native_retrieval,
+            "get_native_graph_runtime",
+            fake_get_native_graph_runtime,
+        )
 
         pack = await compile_context(
             "Surreal native context pack source rendering",

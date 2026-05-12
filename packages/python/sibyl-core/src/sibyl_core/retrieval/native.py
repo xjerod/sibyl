@@ -12,9 +12,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, cast
 
 from sibyl_core.auth.memory_policy import MemoryPolicyDecision, authorize_memory_read
-from sibyl_core.graph.search_interface import SurrealSearchInterface
+from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.models.context import ContextFacet
-from sibyl_core.services import get_graph_runtime
+from sibyl_core.services.native_graph import get_native_graph_runtime, normalize_records
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory, recall_raw_memory
 
 if TYPE_CHECKING:
@@ -222,9 +222,8 @@ async def native_context_search(
     from sibyl_core.tools.responses import SearchResponse
 
     limit = max(1, min(limit, 50))
-    runtime = await get_graph_runtime(plan.organization_id)
-    driver = runtime.client.get_org_driver(plan.organization_id)
-    interface = SurrealSearchInterface()
+    runtime = await get_native_graph_runtime(plan.organization_id)
+    client = runtime.client
     search_filter = _search_filter_for_plan(plan)
     requested_types = {value.lower() for value in types or ()}
 
@@ -237,22 +236,19 @@ async def native_context_search(
     )
     graph_tasks = [
         _node_fulltext_candidates(
-            interface=interface,
-            driver=driver,
+            client=client,
             plan=plan,
             search_filter=search_filter,
             limit=plan.candidate_limits.node_fulltext,
         ),
         _episode_fulltext_candidates(
-            interface=interface,
-            driver=driver,
+            client=client,
             plan=plan,
             search_filter=search_filter,
             limit=plan.candidate_limits.episode_fulltext,
         ),
         _edge_fulltext_candidates(
-            interface=interface,
-            driver=driver,
+            client=client,
             plan=plan,
             search_filter=search_filter,
             limit=plan.candidate_limits.edge_fulltext,
@@ -261,14 +257,12 @@ async def native_context_search(
     raw_candidates, graph_candidate_lists = await _gather_candidate_sources(raw_task, graph_tasks)
 
     vector_candidate_lists = await _vector_candidate_sources(
-        interface=interface,
-        driver=driver,
+        client=client,
         plan=plan,
         search_filter=search_filter,
     )
     graph_expansion_candidates = await _graph_expansion_candidates(
-        interface=interface,
-        driver=driver,
+        client=client,
         plan=plan,
         search_filter=search_filter,
         seed_candidates=[
@@ -466,137 +460,144 @@ async def _recall_raw_candidates(
 
 async def _node_fulltext_candidates(
     *,
-    interface: SurrealSearchInterface,
-    driver: Any,
+    client: Any,
     plan: NativeRetrievalPlan,
     search_filter: NativeSearchFilter,
     limit: int,
 ) -> list[NativeRetrievalCandidate]:
-    nodes = await interface.node_fulltext_search(
-        driver,
-        plan.query,
-        search_filter,
-        [plan.organization_id],
-        limit,
+    search_query = build_fulltext_query(plan.query)
+    if not search_query:
+        return []
+    filter_clauses, filter_params = _node_filter_clause(search_filter)
+    rows = normalize_records(
+        await client.execute_query(
+            """
+            SELECT *,
+                   math::max([
+                       search::score(0),
+                       search::score(1),
+                       search::score(2),
+                       search::score(3)
+                   ]) AS score
+            FROM entity
+            WHERE """
+            + _where_clause(["group_id = $group_id", *filter_clauses])
+            + """
+              AND (
+                  name @0@ $query
+                  OR summary @1@ $query
+                  OR description @2@ $query
+                  OR content @3@ $query
+              )
+            ORDER BY score DESC, created_at DESC, uuid DESC
+            LIMIT $limit;
+            """,
+            group_id=plan.organization_id,
+            query=search_query,
+            limit=max(int(limit), 1),
+            **filter_params,
+        )
     )
     return [
-        _candidate_from_node(
-            node,
+        _candidate_from_node_record(
+            row,
             signal=NativeRetrievalSignal.NODE_FULLTEXT,
-            score=_node_score(node),
+            score=_record_score(row),
         )
-        for node in nodes
+        for row in rows
     ]
 
 
 async def _episode_fulltext_candidates(
     *,
-    interface: SurrealSearchInterface,
-    driver: Any,
+    client: Any,
     plan: NativeRetrievalPlan,
     search_filter: NativeSearchFilter,
     limit: int,
 ) -> list[NativeRetrievalCandidate]:
-    episodes = await interface.episode_fulltext_search(
-        driver,
-        plan.query,
-        search_filter,
-        [plan.organization_id],
-        limit,
+    if search_filter.project_ids:
+        return []
+    search_query = build_fulltext_query(plan.query)
+    if not search_query:
+        return []
+    rows = normalize_records(
+        await client.execute_query(
+            """
+            SELECT *, search::score(0) AS score
+            FROM episode
+            WHERE group_id = $group_id
+              AND content @0@ $query
+            ORDER BY score DESC, created_at DESC, uuid DESC
+            LIMIT $limit;
+            """,
+            group_id=plan.organization_id,
+            query=search_query,
+            limit=max(int(limit), 1),
+        )
     )
     return [
-        _candidate_from_episode(
-            episode,
+        _candidate_from_episode_record(
+            row,
             signal=NativeRetrievalSignal.EPISODE_FULLTEXT,
-            score=_node_score(episode),
+            score=_record_score(row),
         )
-        for episode in episodes
+        for row in rows
     ]
 
 
 async def _edge_fulltext_candidates(
     *,
-    interface: SurrealSearchInterface,
-    driver: Any,
+    client: Any,
     plan: NativeRetrievalPlan,
     search_filter: NativeSearchFilter,
     limit: int,
 ) -> list[NativeRetrievalCandidate]:
-    edges = await interface.edge_fulltext_search(
-        driver,
-        plan.query,
-        search_filter,
-        [plan.organization_id],
-        limit,
+    search_query = build_fulltext_query(plan.query)
+    if not search_query:
+        return []
+    filter_clauses, filter_params = _edge_filter_clause(search_filter)
+    rows = normalize_records(
+        await client.execute_query(
+            _edge_select("search::score(0) AS score")
+            + " WHERE "
+            + _where_clause(["group_id = $group_id", *filter_clauses])
+            + """
+              AND fact @0@ $query
+            ORDER BY score DESC, created_at DESC, uuid DESC
+            LIMIT $limit;
+            """,
+            group_id=plan.organization_id,
+            query=search_query,
+            limit=max(int(limit), 1),
+            **filter_params,
+        )
     )
     return [
-        _candidate_from_edge(
-            edge,
+        _candidate_from_edge_record(
+            row,
             signal=NativeRetrievalSignal.EDGE_FULLTEXT,
-            score=_node_score(edge),
+            score=_record_score(row),
         )
-        for edge in edges
+        for row in rows
     ]
 
 
 async def _vector_candidate_sources(
     *,
-    interface: SurrealSearchInterface,
-    driver: Any,
+    client: Any,
     plan: NativeRetrievalPlan,
     search_filter: NativeSearchFilter,
 ) -> list[list[NativeRetrievalCandidate]]:
-    try:
-        runtime = await get_graph_runtime(plan.organization_id)
-        vector = await runtime.client.client.embedder.create(plan.query)
-    except Exception:
-        return [[], []]
-
-    node_results, edge_results = await asyncio.gather(
-        interface.node_similarity_search(
-            driver,
-            vector,
-            search_filter,
-            [plan.organization_id],
-            plan.candidate_limits.node_vector,
-            plan.vector_min_score,
-        ),
-        interface.edge_similarity_search(
-            driver,
-            vector,
-            None,
-            None,
-            search_filter,
-            [plan.organization_id],
-            plan.candidate_limits.edge_vector,
-            plan.vector_min_score,
-        ),
-        return_exceptions=True,
-    )
+    del client, plan, search_filter
     return [
-        [
-            _candidate_from_node(
-                node,
-                signal=NativeRetrievalSignal.NODE_VECTOR,
-                score=_node_score(node),
-            )
-            for node in _object_list_or_empty(node_results)
-        ],
-        [
-            _candidate_from_edge(
-                edge,
-                signal=NativeRetrievalSignal.EDGE_VECTOR,
-                score=_node_score(edge),
-            )
-            for edge in _object_list_or_empty(edge_results)
-        ],
+        [],
+        [],
     ]
 
 
 async def _graph_expansion_candidates(
     *,
-    interface: SurrealSearchInterface,
-    driver: Any,
+    client: Any,
     plan: NativeRetrievalPlan,
     search_filter: NativeSearchFilter,
     seed_candidates: Sequence[NativeRetrievalCandidate],
@@ -610,28 +611,398 @@ async def _graph_expansion_candidates(
     if not seed_uuids:
         return []
 
-    nodes = await interface.node_bfs_search(
-        driver,
-        seed_uuids,
-        search_filter,
-        plan.graph_expansion_depth,
-        [plan.organization_id],
-        limit,
+    rows = await _node_bfs_records(
+        client=client,
+        origin_uuids=seed_uuids,
+        search_filter=search_filter,
+        group_id=plan.organization_id,
+        max_depth=plan.graph_expansion_depth,
+        limit=limit,
     )
     return [
-        _candidate_from_node(
-            node,
+        _candidate_from_node_record(
+            row,
             signal=NativeRetrievalSignal.GRAPH_EXPANSION,
             score=1.0,
         )
-        for node in nodes
+        for row in rows
     ]
 
 
-def _object_list_or_empty(result: object) -> list[Any]:
-    if isinstance(result, BaseException) or not isinstance(result, list):
+def _where_clause(clauses: Sequence[str]) -> str:
+    active = [clause for clause in clauses if clause]
+    return " AND ".join(active) if active else "true"
+
+
+def _node_filter_clause(search_filter: NativeSearchFilter) -> tuple[list[str], dict[str, Any]]:
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if search_filter.node_labels:
+        clauses.append("labels CONTAINS $node_label")
+        params["node_label"] = search_filter.node_labels[0]
+    if search_filter.project_ids:
+        clauses.append("(project_id IN $project_ids OR attributes.project_id IN $project_ids)")
+        params["project_ids"] = list(search_filter.project_ids)
+    return clauses, params
+
+
+def _edge_filter_clause(
+    search_filter: NativeSearchFilter,
+    *,
+    source_node_uuid: str | None = None,
+    target_node_uuid: str | None = None,
+) -> tuple[list[str], dict[str, Any]]:
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if search_filter.edge_uuids:
+        clauses.append("uuid IN $edge_uuids")
+        params["edge_uuids"] = list(search_filter.edge_uuids)
+    if search_filter.edge_types:
+        clauses.append("name IN $edge_types")
+        params["edge_types"] = list(search_filter.edge_types)
+    if search_filter.node_labels:
+        clauses.append("in.labels CONTAINS $node_label AND out.labels CONTAINS $node_label")
+        params["node_label"] = search_filter.node_labels[0]
+    if search_filter.project_ids:
+        clauses.append(
+            "("
+            "attributes.project_id IN $project_ids "
+            "OR in.project_id IN $project_ids "
+            "OR in.attributes.project_id IN $project_ids "
+            "OR out.project_id IN $project_ids "
+            "OR out.attributes.project_id IN $project_ids"
+            ")"
+        )
+        params["project_ids"] = list(search_filter.project_ids)
+    if source_node_uuid is not None:
+        clauses.append("in.uuid = $source_node_uuid")
+        params["source_node_uuid"] = source_node_uuid
+    if target_node_uuid is not None:
+        clauses.append("out.uuid = $target_node_uuid")
+        params["target_node_uuid"] = target_node_uuid
+    return clauses, params
+
+
+def _edge_select(extra: str | None = None) -> str:
+    extra_select = f", {extra}" if extra else ""
+    return f"""
+        SELECT uuid, name, fact, fact_embedding, group_id, episodes, attributes,
+               created_at, expired_at, valid_at, invalid_at,
+               in.uuid AS source_node_uuid,
+               out.uuid AS target_node_uuid{extra_select}
+        FROM relates_to
+    """
+
+
+async def _node_bfs_records(
+    *,
+    client: Any,
+    origin_uuids: Sequence[str],
+    search_filter: NativeSearchFilter,
+    group_id: str,
+    max_depth: int,
+    limit: int,
+) -> list[dict[str, object]]:
+    if not origin_uuids or max_depth < 1:
         return []
-    return result
+
+    discovered: list[str] = []
+    seen_discovered: set[str] = set()
+    visited_entities = set(origin_uuids)
+    entity_frontier = _dedupe_strings(origin_uuids)
+    episode_frontier = _dedupe_strings(origin_uuids)
+
+    for depth in range(1, max_depth + 1):
+        next_entities: list[str] = []
+        if depth == 1:
+            next_entities.extend(
+                await _mentioned_entity_uuids(
+                    client=client,
+                    episode_uuids=episode_frontier,
+                    group_id=group_id,
+                )
+            )
+        next_entities.extend(
+            await _relation_target_uuids(
+                client=client,
+                source_uuids=entity_frontier,
+                group_id=group_id,
+            )
+        )
+
+        for uuid in _dedupe_strings(next_entities):
+            if uuid in seen_discovered:
+                continue
+            seen_discovered.add(uuid)
+            discovered.append(uuid)
+            if len(discovered) >= limit:
+                return await _hydrate_entity_records(
+                    client=client,
+                    uuids=discovered,
+                    search_filter=search_filter,
+                    group_id=group_id,
+                    limit=limit,
+                )
+
+        entity_frontier = [
+            uuid for uuid in _dedupe_strings(next_entities) if uuid not in visited_entities
+        ]
+        visited_entities.update(entity_frontier)
+        if not entity_frontier:
+            break
+
+    return await _hydrate_entity_records(
+        client=client,
+        uuids=discovered,
+        search_filter=search_filter,
+        group_id=group_id,
+        limit=limit,
+    )
+
+
+async def _mentioned_entity_uuids(
+    *,
+    client: Any,
+    episode_uuids: Sequence[str],
+    group_id: str,
+) -> list[str]:
+    if not episode_uuids:
+        return []
+    rows = normalize_records(
+        await client.execute_query(
+            """
+            SELECT out.uuid AS uuid
+            FROM mentions
+            WHERE in.uuid IN $episode_uuids
+              AND group_id = $group_id
+              AND out.group_id = $group_id;
+            """,
+            episode_uuids=list(episode_uuids),
+            group_id=group_id,
+        )
+    )
+    return _dedupe_strings(_record_uuids(rows))
+
+
+async def _relation_target_uuids(
+    *,
+    client: Any,
+    source_uuids: Sequence[str],
+    group_id: str,
+) -> list[str]:
+    if not source_uuids:
+        return []
+    rows = normalize_records(
+        await client.execute_query(
+            """
+            SELECT out.uuid AS uuid
+            FROM relates_to
+            WHERE in.uuid IN $source_uuids
+              AND group_id = $group_id
+              AND out.group_id = $group_id;
+            """,
+            source_uuids=list(source_uuids),
+            group_id=group_id,
+        )
+    )
+    return _dedupe_strings(_record_uuids(rows))
+
+
+async def _hydrate_entity_records(
+    *,
+    client: Any,
+    uuids: Sequence[str],
+    search_filter: NativeSearchFilter,
+    group_id: str,
+    limit: int,
+) -> list[dict[str, object]]:
+    if not uuids:
+        return []
+    filter_clauses, filter_params = _node_filter_clause(search_filter)
+    rows = normalize_records(
+        await client.execute_query(
+            "SELECT * FROM entity WHERE "
+            + _where_clause(["uuid IN $uuids", "group_id = $group_id", *filter_clauses])
+            + " LIMIT $limit;",
+            uuids=list(uuids),
+            group_id=group_id,
+            limit=max(int(limit), 1),
+            **filter_params,
+        )
+    )
+    rows_by_uuid = {str(row["uuid"]): row for row in rows if row.get("uuid")}
+    return [rows_by_uuid[uuid] for uuid in uuids if uuid in rows_by_uuid]
+
+
+def _record_uuids(rows: Sequence[Mapping[str, object]]) -> list[str]:
+    return [str(row["uuid"]) for row in rows if row.get("uuid")]
+
+
+def _dedupe_strings(values: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys(str(value) for value in values if str(value)))
+
+
+def _candidate_from_node_record(
+    row: Mapping[str, object],
+    *,
+    signal: NativeRetrievalSignal,
+    score: float,
+) -> NativeRetrievalCandidate:
+    attributes = _record_attributes(row)
+    entity_type = _entity_type_for_record(row, attributes)
+    content = _content_for_record(row, attributes)
+    project_id = _string_value(row.get("project_id") or attributes.get("project_id"))
+    source = _string_value(
+        attributes.get("source_id")
+        or attributes.get("source")
+        or attributes.get("source_file")
+        or row.get("uuid")
+    )
+    metadata = {
+        **attributes,
+        **_selected_record_metadata(row),
+        "entity_type": entity_type,
+        "source_id": source,
+        "retrieval_signals": [signal.value],
+    }
+    return NativeRetrievalCandidate(
+        id=str(row.get("uuid", "")),
+        type=entity_type,
+        name=str(row.get("name") or entity_type),
+        content=content,
+        score=score,
+        source=source,
+        metadata=metadata,
+        project_id=project_id,
+        created_at=_datetime_value(row.get("created_at")),
+        policy_reason="project_access_verified" if project_id else "graph_projection_allowed",
+        visibility="project" if project_id else "organization",
+    )
+
+
+def _candidate_from_episode_record(
+    row: Mapping[str, object],
+    *,
+    signal: NativeRetrievalSignal,
+    score: float,
+) -> NativeRetrievalCandidate:
+    source = _string_value(row.get("source_description")) or _string_value(row.get("uuid"))
+    return NativeRetrievalCandidate(
+        id=str(row.get("uuid", "")),
+        type="episode",
+        name=str(row.get("name") or "Episode"),
+        content=str(row.get("content") or ""),
+        score=score,
+        source=source,
+        metadata={
+            "entity_type": "episode",
+            "source_id": source,
+            "retrieval_signals": [signal.value],
+        },
+        created_at=_datetime_value(row.get("created_at")),
+        policy_reason="graph_projection_allowed",
+        visibility="organization",
+    )
+
+
+def _candidate_from_edge_record(
+    row: Mapping[str, object],
+    *,
+    signal: NativeRetrievalSignal,
+    score: float,
+) -> NativeRetrievalCandidate:
+    attributes = _record_attributes(row)
+    source = _string_value(attributes.get("source_id") or row.get("uuid"))
+    return NativeRetrievalCandidate(
+        id=str(row.get("uuid", "")),
+        type="claim",
+        name=str(row.get("name") or "Relationship"),
+        content=str(row.get("fact") or ""),
+        score=score,
+        source=source,
+        metadata={
+            **attributes,
+            "entity_type": "claim",
+            "relationship": _string_value(row.get("name")),
+            "source_id": source,
+            "source_node_uuid": _string_value(row.get("source_node_uuid")),
+            "target_node_uuid": _string_value(row.get("target_node_uuid")),
+            "retrieval_signals": [signal.value],
+        },
+        project_id=_string_value(attributes.get("project_id")),
+        created_at=_datetime_value(row.get("created_at")),
+        policy_reason="graph_projection_allowed",
+        visibility="organization",
+    )
+
+
+def _record_attributes(row: Mapping[str, object]) -> dict[str, Any]:
+    raw = row.get("attributes")
+    if not isinstance(raw, Mapping):
+        return {}
+    return {str(key): value for key, value in raw.items()}
+
+
+def _entity_type_for_record(
+    row: Mapping[str, object],
+    attributes: Mapping[str, Any],
+) -> str:
+    for value in (
+        attributes.get("entity_type"),
+        row.get("entity_type"),
+        *_labels_without_entity_record(row),
+    ):
+        if text := _string_value(value):
+            return text.lower()
+    return "artifact"
+
+
+def _labels_without_entity_record(row: Mapping[str, object]) -> list[str]:
+    labels = row.get("labels")
+    if not isinstance(labels, list | tuple):
+        return []
+    return [str(label) for label in labels if str(label).lower() != "entity"]
+
+
+def _content_for_record(
+    row: Mapping[str, object],
+    attributes: Mapping[str, Any],
+) -> str:
+    for value in (
+        attributes.get("content"),
+        attributes.get("description"),
+        row.get("content"),
+        row.get("description"),
+        row.get("summary"),
+    ):
+        if text := _string_value(value):
+            return text
+    return ""
+
+
+def _selected_record_metadata(row: Mapping[str, object]) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    for key in (
+        "status",
+        "priority",
+        "complexity",
+        "feature",
+        "tags",
+        "project_id",
+        "epic_id",
+        "task_id",
+    ):
+        value = row.get(key)
+        if value is not None:
+            metadata[key] = value
+    return metadata
+
+
+def _record_score(row: Mapping[str, object]) -> float:
+    raw = row.get("score")
+    if isinstance(raw, int | float):
+        return float(raw)
+    return 1.0
 
 
 def _candidate_from_raw_memory(

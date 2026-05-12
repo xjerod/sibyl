@@ -95,9 +95,17 @@ async def test_native_reflection_write_contract_renders_context_pack(
         assert organization_id == group_id
         return runtime
 
+    async def fake_get_native_retrieval_runtime(organization_id: str) -> SimpleNamespace:
+        assert organization_id == group_id
+        return SimpleNamespace(client=surreal_schema)
+
     monkeypatch.setenv("SIBYL_NATIVE_WRITE", "enabled")
     monkeypatch.setattr(native_memory, "get_native_graph_runtime", fake_get_graph_runtime)
-    monkeypatch.setattr(native_retrieval, "get_graph_runtime", fake_get_graph_runtime)
+    monkeypatch.setattr(
+        native_retrieval,
+        "get_native_graph_runtime",
+        fake_get_native_retrieval_runtime,
+    )
 
     await _seed_scope_entities(graph_client, group_id=group_id)
 
@@ -295,9 +303,17 @@ async def test_post_reflection_recall_promotes_review_candidate_into_native_cont
         assert organization_id == group_id
         return runtime
 
+    async def fake_get_native_retrieval_runtime(organization_id: str) -> SimpleNamespace:
+        assert organization_id == group_id
+        return SimpleNamespace(client=surreal_schema)
+
     monkeypatch.setenv("SIBYL_NATIVE_WRITE", "enabled")
     monkeypatch.setattr(native_memory, "get_native_graph_runtime", fake_get_graph_runtime)
-    monkeypatch.setattr(native_retrieval, "get_graph_runtime", fake_get_graph_runtime)
+    monkeypatch.setattr(
+        native_retrieval,
+        "get_native_graph_runtime",
+        fake_get_native_retrieval_runtime,
+    )
 
     try:
         await _seed_scope_entities(graph_client, group_id=group_id)
