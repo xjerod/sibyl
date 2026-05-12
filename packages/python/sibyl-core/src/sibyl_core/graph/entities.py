@@ -1251,6 +1251,12 @@ class EntityManager:
 
         try:
             _t0 = _time.perf_counter()
+            if (
+                entity.entity_type == EntityType.EPISODE
+                and self._surreal_episode_node_ops() is not None
+            ):
+                return await self._create_surreal_episode_direct(entity)
+
             surreal_entity_ops = self._surreal_entity_node_ops()
             node = self._build_entity_node(entity, marker_key="_direct_insert")
 

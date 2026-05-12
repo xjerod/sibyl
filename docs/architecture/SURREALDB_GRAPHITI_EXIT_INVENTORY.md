@@ -20,8 +20,8 @@ adapter package as one named compatibility surface.
   recall, graph expansion, and native related-item hydration without importing Graphiti.
 - `reflect`: persisted reflection sources and candidates write native graph records when
   `SIBYL_NATIVE_WRITE=enabled`. Review-mode raw candidate storage remains the explicit review path.
-- Graphiti remains only in named compatibility, compare-mode, admin, migration, and task-learning
-  distillation surfaces until their removal conditions below are met.
+- Graphiti remains only in named compatibility, compare-mode, admin, and migration surfaces until
+  their removal conditions below are met.
 
 ## Legacy Projection Rule
 
@@ -37,10 +37,10 @@ source metadata.
 ### `apps/api/src/sibyl/jobs/entities.py`
 
 - Behavior: async entity creation, explicit relationships, and task-learning artifact links.
-- Default-loop usage: fallback write path for `sibyl add` and task completion artifacts.
-- Status: fallback.
-- Removal condition: native entity creation and learning distillation write entity, episode, and
-  relationship records without Graphiti.
+- Default-loop usage: native async write path for `sibyl add` and task completion artifacts.
+- Status: native default loop.
+- Removal condition: replace the remaining compatibility fallback for non-structured entity types
+  after native exact lookup, deduplication, and search cover graph behavior.
 - Owner: v0.7 native write adapter.
 - Verify: `moon run api:test -- tests/test_jobs_entities.py`.
 
@@ -145,9 +145,11 @@ source metadata.
 ### `packages/python/sibyl-core/src/sibyl_core/tasks/workflow.py`
 
 - Behavior: task workflow transitions and completion learning extraction links.
-- Default-loop usage: task completion can still route learnings through Graphiti extraction.
-- Status: fallback.
-- Removal condition: task completion uses native reflection candidates and promotion for learnings.
+- Default-loop usage: task completion creates learning episodes and procedures with direct native
+  writes, then links them through explicit native relationships and episode mentions.
+- Status: native default loop.
+- Removal condition: episode mention writes move fully behind the native relationship manager and no
+  longer need Surreal driver compatibility helpers.
 - Owner: v0.7 reflection.
 - Verify: `moon run api:test -- tests/test_tasks_workflow.py`.
 

@@ -543,8 +543,7 @@ class TaskWorkflowEngine:
 
         episode = build_learning_episode(task)
 
-        # Use Graphiti create for proper relationship discovery from learnings
-        episode_id = await self._entity_manager.create(episode)
+        episode_id = await self._entity_manager.create_direct(episode)
 
         await self._create_learning_artifact_link(
             source_id=episode_id,

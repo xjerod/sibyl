@@ -409,6 +409,33 @@ class TestEntityCreateDirect:
         assert second_call_node.name_embedding is not None
 
     @pytest.mark.asyncio
+    async def test_create_direct_routes_surreal_episode_to_episode_ops(
+        self,
+        surreal_entity_manager: EntityManager,
+    ) -> None:
+        entity_ops = surreal_entity_manager._driver.entity_node_ops
+        episode_ops = surreal_entity_manager._driver.episode_node_ops
+        entity_ops.save = AsyncMock()
+        episode_ops.save = AsyncMock()
+        episode = Entity(
+            id="episode-001",
+            entity_type=EntityType.EPISODE,
+            name="Task learning",
+            description="Task completion knowledge",
+            content="Direct episode writes must land in the episode table.",
+        )
+
+        result = await surreal_entity_manager.create_direct(episode)
+
+        assert result == "episode-001"
+        episode_ops.save.assert_awaited_once()
+        entity_ops.save.assert_not_awaited()
+        saved_node = episode_ops.save.await_args.args[1]
+        assert isinstance(saved_node, EpisodicNode)
+        assert saved_node.uuid == "episode-001"
+        assert saved_node.content == "Direct episode writes must land in the episode table."
+
+    @pytest.mark.asyncio
     async def test_create_direct_preserves_provided_embedding(
         self,
         surreal_entity_manager: EntityManager,

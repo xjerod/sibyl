@@ -1,6 +1,6 @@
 """Tests for task workflow state machine and estimation."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -70,6 +70,8 @@ class MockEntityManager:
     entities: dict[str, Entity]
     search_results: list[tuple[Entity, float]]
     notes_by_task: dict[str, list[Entity]] | None = None
+    create_calls: list[Entity] = field(default_factory=list)
+    create_direct_calls: list[Entity] = field(default_factory=list)
 
     async def get(self, entity_id: str) -> Entity:
         """Get entity by ID."""
@@ -94,11 +96,13 @@ class MockEntityManager:
 
     async def create(self, entity: Entity) -> str:
         """Create new entity."""
+        self.create_calls.append(entity)
         self.entities[entity.id] = entity
         return entity.id
 
     async def create_direct(self, entity: Entity) -> str:
         """Create new structured entity."""
+        self.create_direct_calls.append(entity)
         self.entities[entity.id] = entity
         return entity.id
 
@@ -647,6 +651,7 @@ class TestWorkflowEngine:
     async def test_create_learning_episode_uses_episode_mentions(
         self,
         workflow_engine: TaskWorkflowEngine,
+        mock_entity_manager: MockEntityManager,
         mock_relationship_manager: MockRelationshipManager,
     ) -> None:
         task = make_task(
@@ -669,6 +674,10 @@ class TestWorkflowEngine:
         episode_id = await workflow_engine._create_learning_episode(task)
 
         assert episode_id == "episode_task_episode"
+        assert [entity.id for entity in mock_entity_manager.create_direct_calls] == [
+            "episode_task_episode"
+        ]
+        assert mock_entity_manager.create_calls == []
         assert len(mock_relationship_manager.relationships) == 1
         save_episode_mention.assert_any_await(
             episode_id="episode_task_episode",
