@@ -792,6 +792,8 @@ def _relationships_for_promotion(
     for superseded_id in supersedes or ():
         if superseded_id in excluded_targets:
             continue
+        source_ids = list(raw_source_ids or [])
+        valid_from = datetime.now(UTC).isoformat()
         relationships.append(
             _relationship(
                 entity_id,
@@ -799,7 +801,10 @@ def _relationships_for_promotion(
                 RelationshipType.SUPERSEDES,
                 metadata={
                     "native_write_path": "reflection_promotion",
-                    "raw_source_ids": list(raw_source_ids or []),
+                    "raw_source_ids": source_ids,
+                    "source_id": source_ids[0] if source_ids else None,
+                    "replacement_reason": "accepted_reflection_candidate",
+                    "valid_from": valid_from,
                 },
             )
         )
