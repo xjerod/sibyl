@@ -23,7 +23,6 @@ def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
 
 
 builtins.__import__ = guarded_import
-os.environ["SIBYL_RETRIEVAL_MODE"] = "native"
 os.environ["SIBYL_NATIVE_WRITE"] = "enabled"
 
 
@@ -99,7 +98,6 @@ async def main():
             organization_id=group_id,
             include_related=True,
             raw_memory_recall_fn=empty_raw_recall,
-            retrieval_mode="native",
         )
         assert pack.total_items >= 1
         markdown = context_module.context_pack_to_markdown(pack)
@@ -129,7 +127,6 @@ async def main():
             organization_id=group_id,
             include_related=False,
             raw_memory_recall_fn=empty_raw_recall,
-            retrieval_mode="native",
         )
         recall_markdown = context_module.context_pack_to_markdown(recall)
         assert "No Graphiti Reflection" in recall_markdown
