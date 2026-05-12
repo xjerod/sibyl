@@ -157,9 +157,7 @@ async def process_pending_operations(
     Returns:
         List of processed operations with their results
     """
-    from sibyl_core.graph.client import get_graph_client
-    from sibyl_core.graph.entities import EntityManager
-    from sibyl_core.graph.relationships import RelationshipManager
+    from sibyl_core.services.native_graph import get_native_graph_runtime
 
     ops = await get_pending_operations(entity_id)
     if not ops:
@@ -167,9 +165,9 @@ async def process_pending_operations(
 
     log.info("process_pending_operations_start", entity_id=entity_id, count=len(ops))
 
-    client = await get_graph_client()
-    entity_manager = EntityManager(client, group_id=group_id)
-    relationship_manager = RelationshipManager(client, group_id=group_id)
+    runtime = await get_native_graph_runtime(group_id)
+    entity_manager = runtime.entity_manager
+    relationship_manager = runtime.relationship_manager
 
     results = []
     for op in ops:

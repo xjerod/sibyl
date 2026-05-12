@@ -220,15 +220,16 @@ class TestProcessPendingOperations:
 
         mock_entity_manager = AsyncMock()
         mock_relationship_manager = AsyncMock()
-        mock_client = MagicMock()
+        mock_runtime = MagicMock(
+            entity_manager=mock_entity_manager,
+            relationship_manager=mock_relationship_manager,
+        )
 
         with (
             patch("sibyl.jobs.pending.get_pending", return_value=mock_registry),
-            patch("sibyl_core.graph.client.get_graph_client", return_value=mock_client),
-            patch("sibyl_core.graph.entities.EntityManager", return_value=mock_entity_manager),
             patch(
-                "sibyl_core.graph.relationships.RelationshipManager",
-                return_value=mock_relationship_manager,
+                "sibyl_core.services.native_graph.get_native_graph_runtime",
+                AsyncMock(return_value=mock_runtime),
             ),
         ):
             from sibyl.jobs.pending import process_pending_operations
@@ -257,17 +258,18 @@ class TestProcessPendingOperations:
         ]
         mock_registry.clear_pending_operations.return_value = 1
 
-        mock_client = MagicMock()
         mock_entity_manager = AsyncMock()
         mock_relationship_manager = AsyncMock()
+        mock_runtime = MagicMock(
+            entity_manager=mock_entity_manager,
+            relationship_manager=mock_relationship_manager,
+        )
 
         with (
             patch("sibyl.jobs.pending.get_pending", return_value=mock_registry),
-            patch("sibyl_core.graph.client.get_graph_client", return_value=mock_client),
-            patch("sibyl_core.graph.entities.EntityManager", return_value=mock_entity_manager),
             patch(
-                "sibyl_core.graph.relationships.RelationshipManager",
-                return_value=mock_relationship_manager,
+                "sibyl_core.services.native_graph.get_native_graph_runtime",
+                AsyncMock(return_value=mock_runtime),
             ),
         ):
             from sibyl.jobs.pending import process_pending_operations

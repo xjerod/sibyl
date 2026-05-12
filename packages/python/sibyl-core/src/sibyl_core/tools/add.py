@@ -23,8 +23,7 @@ from sibyl_core.models.tasks import (
     TaskPriority,
     TaskStatus,
 )
-from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
-from sibyl_core.tools.conflicts import detect_conflicts
+from sibyl_core.services.native_graph import get_native_graph_runtime
 from sibyl_core.tools.helpers import (
     MAX_CONTENT_LENGTH,
     MAX_TITLE_LENGTH,
@@ -58,7 +57,7 @@ DIRECT_ENTITY_TYPES = {
 
 
 async def get_graph_runtime(group_id: str):
-    return await _service_get_graph_runtime(group_id)
+    return await get_native_graph_runtime(group_id)
 
 
 def _build_relationship(rel_data: dict[str, Any]) -> Relationship:
@@ -106,7 +105,7 @@ async def add(
     depends_on: list[str] | None = None,
     # Project-specific parameters
     repository_url: str | None = None,
-    # Sync mode - wait for Graphiti processing instead of returning immediately
+    # Sync mode - wait for Surreal graph writes instead of returning immediately
     sync: bool = False,
     # Conflict detection - check for contradicting/duplicate knowledge
     check_conflicts: bool = True,
@@ -152,7 +151,7 @@ async def add(
         technologies: Technologies involved (for tasks).
         depends_on: Task IDs this depends on (creates DEPENDS_ON edges).
         repository_url: Repository URL for projects.
-        sync: If True, wait for Graphiti processing (slower but entity exists immediately).
+        sync: If True, wait for Surreal graph writes so the entity exists immediately.
               If False (default), return immediately and process in background.
         check_conflicts: If True (default), check for semantically similar existing entities
               that may contradict or duplicate this knowledge. Warnings returned in response.
@@ -237,6 +236,8 @@ async def add(
         ):
             # Only check for knowledge types, not workflow items (tasks/projects/epics)
             try:
+                from sibyl_core.tools.conflicts import detect_conflicts
+
                 conflicts = await detect_conflicts(
                     title=title,
                     content=content,
@@ -499,10 +500,9 @@ async def add(
                 ]
             )
 
-        # Sync mode: create entity + relationships immediately via Graphiti
+        # Sync mode: create entity + relationships immediately via Surreal
         if sync:
-            # Use create_direct() for structured entities (faster, generates embeddings)
-            # Use create() for episodes (LLM extraction may add value)
+            # Use create_direct() for structured entities and create() for episode-compatible managers.
             if entity_type in DIRECT_ENTITY_TYPES:
                 created_id = await entity_manager.create_direct(entity)
             else:
@@ -584,7 +584,7 @@ async def add(
         except Exception as e:
             # If arq queue fails, fall back to sync creation
             log.warning("arq_queue_failed_falling_back_to_sync", error=str(e))
-            # Use create_direct() for structured entities (faster, generates embeddings)
+            # Use create_direct() for structured entities and create() for episode-compatible managers.
             if entity_type in DIRECT_ENTITY_TYPES:
                 created_id = await entity_manager.create_direct(entity)
             else:

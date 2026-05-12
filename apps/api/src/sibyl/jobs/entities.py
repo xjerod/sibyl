@@ -1,6 +1,6 @@
 """Entity creation and update jobs.
 
-These jobs handle async entity operations via Graphiti, allowing
+These jobs handle async entity operations via SurrealDB, allowing
 the API to return quickly while background processing continues.
 """
 
@@ -185,10 +185,10 @@ async def create_entity(  # noqa: PLR0915
     relationships: list[dict[str, Any]] | None = None,
     auto_link_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create entity asynchronously via Graphiti.
+    """Create entity asynchronously via SurrealDB.
 
     This job runs in the background so callers get fast responses while
-    Graphiti handles LLM-powered entity extraction and relationship discovery.
+    SurrealDB handles native entity and relationship persistence.
 
     Args:
         ctx: arq context
@@ -201,9 +201,6 @@ async def create_entity(  # noqa: PLR0915
     Returns:
         Dict with creation results
     """
-    from sibyl_core.graph.client import get_graph_client
-    from sibyl_core.graph.entities import EntityManager
-    from sibyl_core.graph.relationships import RelationshipManager
     from sibyl_core.models.entities import (
         Entity,
         Episode,
@@ -213,6 +210,7 @@ async def create_entity(  # noqa: PLR0915
         RelationshipType,
     )
     from sibyl_core.models.tasks import Epic, Project, Task
+    from sibyl_core.services.native_graph import get_native_graph_runtime
 
     relationships = relationships or []
 
@@ -224,8 +222,8 @@ async def create_entity(  # noqa: PLR0915
     )
 
     try:
-        client = await get_graph_client()
-        entity_manager = EntityManager(client, group_id=group_id)
+        runtime = await get_native_graph_runtime(group_id)
+        entity_manager = runtime.entity_manager
 
         # Reconstruct the entity from serialized data
         entity: Entity
@@ -284,8 +282,7 @@ async def create_entity(  # noqa: PLR0915
             entity_type=entity_type,
         )
 
-        # Relationship manager for explicit and auto-discovered relationships
-        relationship_manager = RelationshipManager(client, group_id=group_id)
+        relationship_manager = runtime.relationship_manager
 
         # Link to existing duplicate if dedup matched (entity still created for ID stability)
         if deduplicated and dedup_target_id:

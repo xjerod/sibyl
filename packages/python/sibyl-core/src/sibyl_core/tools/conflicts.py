@@ -15,12 +15,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sibyl_core.services import (
-    get_graph_client as _service_get_graph_client,
-)
-from sibyl_core.services import (
-    get_graph_runtime as _service_get_graph_runtime,
-)
+from sibyl_core.services.native_graph import get_native_graph_runtime
 from sibyl_core.tools.responses import ConflictWarning
 
 if TYPE_CHECKING:
@@ -29,11 +24,10 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 __all__ = ["detect_conflicts", "find_similar_entities"]
-get_graph_client = _service_get_graph_client
 
 
 async def get_graph_runtime(group_id: str):
-    return await _service_get_graph_runtime(group_id)
+    return await get_native_graph_runtime(group_id)
 
 
 EntityManager = None

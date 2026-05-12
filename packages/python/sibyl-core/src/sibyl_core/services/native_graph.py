@@ -12,9 +12,10 @@ from typing import Any, cast
 from surrealdb import RecordID
 
 from sibyl_core.backends.surreal.dedicated_client import DedicatedSurrealClient
+from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.backends.surreal.schema import bootstrap_schema
 from sibyl_core.config import settings
-from sibyl_core.models.entities import Entity, Relationship
+from sibyl_core.models.entities import Entity, EntityType, Relationship
 
 type SurrealRecord = dict[str, object]
 
@@ -71,6 +72,53 @@ class NativeEntityManager:
         await _replace_entity(self._client, entity, group_id=self._group_id)
         return entity.id
 
+    async def create(self, entity: Entity) -> str:
+        return await self.create_direct(entity, generate_embedding=False)
+
+    async def search(
+        self,
+        *,
+        query: str,
+        entity_types: Sequence[EntityType] | None = None,
+        limit: int = 10,
+    ) -> list[tuple[Entity, float]]:
+        search_query = build_fulltext_query(query)
+        if not search_query:
+            return []
+        type_values = [entity_type.value for entity_type in entity_types or ()]
+        type_clause = "AND entity_type IN $entity_types" if type_values else ""
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT *,
+                       math::max([
+                           search::score(0),
+                           search::score(1),
+                           search::score(2),
+                           search::score(3)
+                       ]) AS score
+                FROM entity
+                WHERE group_id = $group_id
+                """
+                + type_clause
+                + """
+                  AND (
+                      name @0@ $search_query
+                      OR summary @1@ $search_query
+                      OR description @2@ $search_query
+                      OR content @3@ $search_query
+                  )
+                ORDER BY score DESC, created_at DESC, uuid DESC
+                LIMIT $limit;
+                """,
+                group_id=self._group_id,
+                search_query=search_query,
+                entity_types=type_values,
+                limit=max(int(limit), 1),
+            )
+        )
+        return [(_entity_from_row(row), _row_score(row)) for row in rows]
+
 
 class NativeRelationshipManager:
     def __init__(self, client: NativeSurrealGraphClient, *, group_id: str) -> None:
@@ -87,6 +135,10 @@ class NativeRelationshipManager:
             except Exception:
                 failed += 1
         return created, failed
+
+    async def create(self, relationship: Relationship) -> str:
+        await _replace_relationship(self._client, relationship, group_id=self._group_id)
+        return relationship.id
 
 
 async def get_native_graph_runtime(group_id: str) -> NativeGraphRuntime:
@@ -138,6 +190,70 @@ async def prepare_native_graph_schema(client: NativeSurrealGraphClient) -> None:
 def _namespace_for_group(prefix: str, group_id: str) -> str:
     sanitized = group_id.replace("-", "").lower() if group_id else "default"
     return f"{prefix}{sanitized}"
+
+
+def _entity_from_row(row: SurrealRecord) -> Entity:
+    attributes = row.get("attributes")
+    metadata = dict(attributes) if isinstance(attributes, dict) else {}
+    raw_metadata = metadata.get("metadata")
+    if isinstance(raw_metadata, str):
+        try:
+            parsed = json.loads(raw_metadata)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            metadata.update({str(key): value for key, value in parsed.items()})
+
+    return Entity(
+        id=str(row.get("uuid") or ""),
+        entity_type=_entity_type_from_row(row),
+        name=str(row.get("name") or ""),
+        description=str(row.get("description") or metadata.get("description") or ""),
+        content=str(row.get("content") or metadata.get("content") or ""),
+        organization_id=str(row.get("group_id") or "") or None,
+        metadata=metadata,
+        created_at=_row_datetime(row.get("created_at")) or datetime.now(UTC),
+        updated_at=_row_datetime(row.get("updated_at")) or datetime.now(UTC),
+        source_file=str(metadata.get("source_file") or "") or None,
+        embedding=_row_embedding(row.get("name_embedding")),
+    )
+
+
+def _entity_type_from_row(row: SurrealRecord) -> EntityType:
+    value = str(row.get("entity_type") or "").lower()
+    try:
+        return EntityType(value)
+    except ValueError:
+        return EntityType.ARTIFACT
+
+
+def _row_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _row_embedding(value: object) -> list[float] | None:
+    if not isinstance(value, list):
+        return None
+    embedding: list[float] = []
+    for item in value:
+        if not isinstance(item, int | float):
+            return None
+        embedding.append(float(item))
+    return embedding
+
+
+def _row_score(row: SurrealRecord) -> float:
+    score = row.get("score")
+    if isinstance(score, int | float):
+        return float(score)
+    return 1.0
 
 
 def _normalize_record(record: object) -> SurrealRecord | None:
