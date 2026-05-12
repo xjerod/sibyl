@@ -1,6 +1,6 @@
 # Sibyl v0.7 Native Memory Core Spec
 
-- Status: ready for implementation after cross-model spec review
+- Status: implementation in progress after cross-model spec review
 - Target release: v0.7
 - Tracking epic: `epic_564b41ff89d6`
 - Primary outcome: make `remember -> recall/context -> reflect` run on native SurrealDB primitives
@@ -146,7 +146,7 @@ v0.7 may add:
 - `sources`
 - `reflection_candidates`
 - `visibility_edges` or a relation equivalent for scoped sharing
-- `supersedes` relation for decision and fact replacement
+- `relates_to` edges with `name = "SUPERSEDES"` for decision and fact replacement
 
 Do not add new tables until a test needs the behavior. Prefer using existing Surreal graph tables
 for the first production write adapter.
@@ -246,7 +246,8 @@ Implementation:
   `docs/testing/benchmark-methodology.md`. Until that measurement lands, CI uses a 3x local latency
   threshold.
 - Keep `stale-decision-replacement` green with scripted superseded metadata on raw captures in
-  Wave 1. Upgrade the fixture to exercise native `supersedes` relations when Wave 4 lands.
+  Wave 1. Wave 4 now exercises native `SUPERSEDES` edges in the post-reflection recall fixture;
+  migrate scoreboard replacement evidence onto that path when the eval harness consumes it.
 - Persist eval reports under `.moon/cache/evals` for local runs and expose a concise summary.
 
 Acceptance:
@@ -391,11 +392,13 @@ Tracking: `8ea4beab-04ab-4e5a-9cbb-5143fcf6b067`
 
 Purpose: make raw captures become durable native memory.
 
-Status as of 2026-05-12: partially implemented. Reflection can now persist raw source and candidate
-records into the review queue, and the REST memory API can promote a reviewed candidate into native
-Surreal graph records after an explicit target scope policy check. Remaining Wave 4 work is the
-named `post-reflection-recall` fixture, native `supersedes` coverage, and a CLI/MCP promotion
-surface if we want promotion outside REST before the next release.
+Status as of 2026-05-12: core and REST implementation is in place. Reflection can persist raw source
+and candidate records into the review queue, and the REST memory API can promote a reviewed
+candidate into native Surreal graph records after an explicit target scope policy check. The named
+`post-reflection-recall` fixture now proves native-only recall from promoted review records, and
+native `SUPERSEDES` edges carry source ID, raw source IDs, replacement reason, and validity
+metadata. Remaining Wave 4 work is a CLI/MCP promotion surface if we want promotion outside REST
+before the next release.
 
 Files:
 
@@ -418,8 +421,9 @@ Implementation:
   the target scope and the memory policy helper allows the reflect action.
 - Deny promotion when input raw captures span multiple memory scopes unless the caller passes
   `promote_to_scope` matching the broadest input scope and policy allows it.
-- Mark superseded decisions and facts with the v0.7 `supersedes` relation when a newer source
-  explicitly replaces them. Validity windows and bitemporal modeling remain deferred.
+- Mark superseded decisions and facts with a v0.7 `SUPERSEDES` edge when a newer source explicitly
+  replaces them. The edge carries source ID, raw source IDs, replacement reason, and `valid_from`
+  metadata. Validity windows and bitemporal modeling remain deferred.
 
 Acceptance:
 
@@ -653,8 +657,9 @@ depending on passthrough test paths.
   storage is post-v0.7 unless Wave 5 proves it is needed.
 - Retrieval mode: `SIBYL_RETRIEVAL_MODE` owns the native/Graphiti switch with `graphiti`, `native`,
   and `compare` values.
-- Temporal replacement: v0.7 ships a `supersedes` relation on native records with replacement
-  reason, source ID, and `valid_from`. Validity windows and bitemporal modeling are post-v0.7.
+- Temporal replacement: v0.7 ships a `SUPERSEDES` edge on native records with replacement reason,
+  source ID, raw source IDs, and `valid_from`. Validity windows and bitemporal modeling are
+  post-v0.7.
 - Native vector search: v0.7 uses the embedder already configured for the current Graphiti path. The
   filtered-vector recall benchmark decides whether vector-only candidates remain first-class.
 - Promotion governance: scope-crossing reflection promotion requires an explicit `promote_to_scope`
