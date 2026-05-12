@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from sibyl_core.models.reflection import ReflectionCandidate
 from sibyl_core.services.surreal_content import (
     MemoryScope,
     _replace_record,
@@ -15,6 +16,7 @@ from sibyl_core.services.surreal_content import (
     load_search_scope,
     recall_raw_memory,
     remember_raw_memory,
+    remember_reflection_candidate_review,
     search_document_chunks,
 )
 
@@ -787,6 +789,71 @@ class TestSurrealContentHelpers:
         assert saved_record["agent_id"] is None
         assert saved_record["project_id"] is None
         assert saved_record["review_state"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_remember_reflection_candidate_review_stores_review_metadata(self) -> None:
+        persisted_memory = {
+            "uuid": "candidate-1",
+            "organization_id": "org-1",
+            "source_id": "source-session-1",
+            "principal_id": "user-bliss",
+            "memory_scope": "project",
+            "scope_key": "project_123",
+            "project_id": "project_123",
+            "review_state": "pending",
+            "entity_type": "decision",
+            "title": "Decision: Native queue",
+            "raw_content": "We decided reflection candidates need review.",
+            "metadata": {
+                "raw_source_ids": ["source-session-1"],
+                "suggested_memory_scope": "project",
+                "suggested_scope_key": "project_123",
+                "review_state": "pending",
+            },
+            "capture_surface": "reflection_candidate",
+        }
+        fake_client = FakeClient([_query_result([persisted_memory])])
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        candidate = ReflectionCandidate(
+            kind="decision",
+            title="Decision: Native queue",
+            content="We decided reflection candidates need review.",
+            reason="captures a durable choice",
+            confidence=0.88,
+            tags=["reflection", "decision"],
+            metadata={"project_id": "project_123"},
+        )
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            memory = await remember_reflection_candidate_review(
+                organization_id="org-1",
+                principal_id="user-bliss",
+                candidate=candidate,
+                raw_source_ids=["source-session-1"],
+                memory_scope=MemoryScope.PROJECT,
+                scope_key="project_123",
+                suggested_memory_scope=MemoryScope.PROJECT,
+                suggested_scope_key="project_123",
+                extraction_prompt_metadata={"extractor": "test"},
+            )
+
+        saved_record = fake_client.calls[0][1]["record"]
+        assert memory.entity_type == "decision"
+        assert memory.capture_surface == "reflection_candidate"
+        assert memory.review_state == "pending"
+        assert saved_record["entity_type"] == "decision"
+        assert saved_record["project_id"] == "project_123"
+        assert saved_record["review_state"] == "pending"
+        assert saved_record["metadata"]["raw_source_ids"] == ["source-session-1"]
+        assert saved_record["metadata"]["suggested_memory_scope"] == "project"
+        assert saved_record["metadata"]["extraction_prompt_metadata"] == {"extractor": "test"}
 
     @pytest.mark.asyncio
     async def test_recall_raw_memory_scopes_private_memories_to_principal(self) -> None:

@@ -15,6 +15,7 @@ from uuid import uuid4
 from sibyl_core.backends.surreal import SurrealContentClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.config import settings
+from sibyl_core.models.reflection import ReflectionCandidate
 from sibyl_core.utils.resilience import with_timeout
 
 _DEFAULT_BATCH_SIZE = 128
@@ -122,6 +123,7 @@ class RawMemory:
     agent_id: str | None = None
     project_id: str | None = None
     review_state: str = "pending"
+    entity_type: str = "raw_memory"
     title: str = ""
     raw_content: str = ""
     tags: list[str] = field(default_factory=list)
@@ -399,6 +401,7 @@ def _raw_memory_from_record(record: Mapping[str, object]) -> RawMemory:
         review_state=_coerce_str(
             record.get("review_state") or metadata.get("review_state"), default="pending"
         ),
+        entity_type=_coerce_str(record.get("entity_type"), default="raw_memory"),
         title=_coerce_str(record.get("title")),
         raw_content=_coerce_str(record.get("raw_content")),
         tags=_coerce_str_list(record.get("tags")),
@@ -443,7 +446,7 @@ def _raw_memory_record(memory: RawMemory) -> SurrealRecord:
         "review_state": memory.review_state,
         "title": memory.title,
         "raw_content": memory.raw_content,
-        "entity_type": "raw_memory",
+        "entity_type": memory.entity_type,
         "tags": list(memory.tags),
         "metadata": dict(memory.metadata),
         "provenance": dict(memory.provenance),
@@ -716,6 +719,7 @@ async def remember_raw_memory(
     metadata: dict[str, object] | None = None,
     provenance: dict[str, object] | None = None,
     capture_surface: str | None = None,
+    entity_type: str = "raw_memory",
 ) -> RawMemory:
     now = _utcnow()
     normalized_scope = _coerce_memory_scope(memory_scope)
@@ -730,6 +734,7 @@ async def remember_raw_memory(
         agent_id=_coerce_optional_str((metadata or {}).get("agent_id")),
         project_id=_coerce_optional_str((metadata or {}).get("project_id")),
         review_state=_coerce_str((metadata or {}).get("review_state"), default="pending"),
+        entity_type=entity_type,
         title=title,
         raw_content=raw_content,
         tags=list(tags or []),
@@ -747,6 +752,56 @@ async def remember_raw_memory(
             record=_raw_memory_record(memory),
         )
     return _raw_memory_from_record(record)
+
+
+async def remember_reflection_candidate_review(
+    *,
+    organization_id: str,
+    principal_id: str,
+    candidate: ReflectionCandidate,
+    raw_source_ids: list[str],
+    source_id: str | None = None,
+    memory_scope: MemoryScope | str = MemoryScope.PRIVATE,
+    scope_key: str | None = None,
+    suggested_memory_scope: MemoryScope | str | None = None,
+    suggested_scope_key: str | None = None,
+    extraction_prompt_metadata: dict[str, object] | None = None,
+) -> RawMemory:
+    normalized_scope = _coerce_memory_scope(memory_scope)
+    suggested_scope = (
+        _coerce_memory_scope(suggested_memory_scope)
+        if suggested_memory_scope is not None
+        else normalized_scope
+    )
+    source_ids = list(dict.fromkeys(raw_source_ids))
+    metadata: dict[str, object] = {
+        **candidate.metadata,
+        "capture_mode": "reflect",
+        "capture_surface": "reflection_candidate",
+        "remember_kind": candidate.kind,
+        "reflection_reason": candidate.reason,
+        "reflection_confidence": candidate.confidence,
+        "raw_source_ids": source_ids,
+        "source_ids": source_ids,
+        "extraction_prompt_metadata": dict(extraction_prompt_metadata or {}),
+        "suggested_memory_scope": suggested_scope.value,
+        "suggested_scope_key": suggested_scope_key,
+        "review_state": "pending",
+    }
+    return await remember_raw_memory(
+        organization_id=organization_id,
+        principal_id=principal_id,
+        source_id=source_id or (source_ids[0] if source_ids else "reflection:manual"),
+        raw_content=candidate.content,
+        title=candidate.title,
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+        tags=candidate.tags,
+        metadata=metadata,
+        provenance={"raw_source_ids": source_ids},
+        capture_surface="reflection_candidate",
+        entity_type=candidate.kind,
+    )
 
 
 async def recall_raw_memory(
@@ -1189,6 +1244,7 @@ __all__ = [
     "load_search_scope",
     "recall_raw_memory",
     "remember_raw_memory",
+    "remember_reflection_candidate_review",
     "search_document_chunks",
     "set_source_job_state",
     "source_exists",

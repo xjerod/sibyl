@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
+from datetime import UTC, datetime
 from typing import Any
 
 from sibyl_core.models.reflection import ReflectionCandidate, ReflectionPack
@@ -235,6 +236,7 @@ async def reflect_memory(
     scope_key: str | None = None,
     persist: bool = False,
     persist_source: bool = True,
+    persist_review: bool = False,
     limit: int = 12,
     add_fn: AddFn = default_add,
 ) -> ReflectionPack:
@@ -247,8 +249,19 @@ async def reflect_memory(
     if persist and organization_id is None:
         msg = "organization_id is required when persist=True"
         raise ValueError(msg)
+    if persist and persist_review and principal_id is None:
+        msg = "principal_id is required when persist_review=True"
+        raise ValueError(msg)
 
     limit = max(1, min(limit, 25))
+    resolved_scope = _resolve_reflection_scope(memory_scope, project)
+    resolved_scope_key = _resolve_reflection_scope_key(resolved_scope, scope_key, project)
+    extraction_prompt_metadata = _extraction_prompt_metadata(
+        intent=intent,
+        domain=domain,
+        project=project,
+        limit=limit,
+    )
     candidates = [
         candidate
         for index, segment in enumerate(_segments(content))
@@ -279,7 +292,20 @@ async def reflect_memory(
     source_id: str | None = None
     use_native_write = persist and _native_reflection_write_enabled()
     if persist and persist_source:
-        if use_native_write:
+        if persist_review:
+            source = await _persist_reflection_source_review(
+                title=source_title,
+                content=content,
+                organization_id=str(organization_id),
+                principal_id=str(principal_id),
+                domain=domain,
+                project=project,
+                related_to=related_to,
+                memory_scope=resolved_scope,
+                scope_key=resolved_scope_key,
+                extraction_prompt_metadata=extraction_prompt_metadata,
+            )
+        elif use_native_write:
             source = await _persist_reflection_source_native(
                 title=source_title,
                 content=content,
@@ -319,6 +345,19 @@ async def reflect_memory(
         if source.success:
             source_id = source.id
 
+    raw_source_ids = [source_id] if source_id else []
+    candidates = [
+        _candidate_with_review_metadata(
+            candidate,
+            raw_source_ids=raw_source_ids,
+            suggested_memory_scope=resolved_scope,
+            suggested_scope_key=resolved_scope_key,
+            extraction_prompt_metadata=extraction_prompt_metadata,
+            source_id=source_id,
+        )
+        for candidate in candidates
+    ]
+
     persisted: list[ReflectionCandidate] = []
     for candidate in candidates:
         if not persist:
@@ -341,6 +380,28 @@ async def reflect_memory(
             metadata["domain"] = domain
         if source_id:
             metadata["reflection_source_id"] = source_id
+        if persist_review:
+            review = await _persist_reflection_candidate_review(
+                candidate=replace(candidate, metadata=metadata),
+                organization_id=str(organization_id),
+                principal_id=str(principal_id),
+                raw_source_ids=raw_source_ids,
+                source_id=source_id,
+                memory_scope=resolved_scope,
+                scope_key=resolved_scope_key,
+                suggested_memory_scope=resolved_scope,
+                suggested_scope_key=resolved_scope_key,
+                extraction_prompt_metadata=extraction_prompt_metadata,
+            )
+            persisted.append(
+                replace(
+                    candidate,
+                    metadata={**metadata, "review_state": review.review_state},
+                    persisted_id=review.id,
+                    review_state=review.review_state,
+                )
+            )
+            continue
         if use_native_write:
             native_result = await _persist_reflection_candidate_native(
                 candidate=replace(candidate, metadata=metadata),
@@ -440,11 +501,121 @@ def _native_reflection_write_enabled() -> bool:
     return native_reflection_write_enabled()
 
 
+def _resolve_reflection_scope(
+    memory_scope: str | MemoryScope | None,
+    project: str | None,
+) -> MemoryScope:
+    if memory_scope is not None:
+        try:
+            return MemoryScope(memory_scope)
+        except ValueError:
+            return MemoryScope.PRIVATE
+    return MemoryScope.PROJECT if project else MemoryScope.PRIVATE
+
+
+def _resolve_reflection_scope_key(
+    memory_scope: MemoryScope,
+    scope_key: str | None,
+    project: str | None,
+) -> str | None:
+    if memory_scope is MemoryScope.PROJECT:
+        return scope_key or project
+    return scope_key
+
+
+def _extraction_prompt_metadata(
+    *,
+    intent: str,
+    domain: str | None,
+    project: str | None,
+    limit: int,
+) -> dict[str, object]:
+    return {
+        "extractor": "sibyl_reflect_heuristic",
+        "extractor_version": "v0.7",
+        "intent": intent,
+        "domain": domain,
+        "project": project,
+        "limit": limit,
+    }
+
+
+def _candidate_with_review_metadata(
+    candidate: ReflectionCandidate,
+    *,
+    raw_source_ids: list[str],
+    suggested_memory_scope: MemoryScope,
+    suggested_scope_key: str | None,
+    extraction_prompt_metadata: dict[str, object],
+    source_id: str | None,
+) -> ReflectionCandidate:
+    metadata = {
+        **candidate.metadata,
+        "raw_source_ids": list(raw_source_ids),
+        "source_ids": list(raw_source_ids),
+        "suggested_memory_scope": suggested_memory_scope.value,
+        "suggested_scope_key": suggested_scope_key,
+        "review_state": candidate.review_state,
+        "extraction_prompt_metadata": dict(extraction_prompt_metadata),
+    }
+    if source_id:
+        metadata["reflection_source_id"] = source_id
+    return replace(
+        candidate,
+        metadata=metadata,
+        raw_source_ids=list(raw_source_ids),
+        suggested_memory_scope=suggested_memory_scope.value,
+        suggested_scope_key=suggested_scope_key,
+    )
+
+
+async def _persist_reflection_source_review(**kwargs: Any) -> AddResponse:
+    from sibyl_core.services.surreal_content import remember_raw_memory
+
+    memory = await remember_raw_memory(
+        organization_id=kwargs["organization_id"],
+        principal_id=kwargs["principal_id"],
+        source_id=f"reflection:{kwargs['title']}",
+        raw_content=kwargs["content"],
+        title=kwargs["title"],
+        memory_scope=kwargs["memory_scope"],
+        scope_key=kwargs["scope_key"],
+        tags=_tags_for("session", kwargs.get("domain")),
+        metadata={
+            "organization_id": kwargs["organization_id"],
+            "capture_mode": "reflect",
+            "capture_surface": "reflection_source",
+            "remember_kind": "session",
+            "reflection_source": True,
+            "project_id": kwargs.get("project"),
+            "domain": kwargs.get("domain"),
+            "related_to": list(kwargs.get("related_to") or []),
+            "extraction_prompt_metadata": dict(kwargs["extraction_prompt_metadata"]),
+            "review_state": "pending",
+        },
+        provenance={"capture_mode": "reflect"},
+        capture_surface="reflection_source",
+        entity_type="session",
+    )
+    return AddResponse(
+        success=True,
+        id=memory.id,
+        message=f"Stored reflection source for review: {memory.title}",
+        timestamp=datetime.now(UTC),
+    )
+
+
 async def _persist_reflection_source_native(**kwargs: Any) -> AddResponse:
     from sibyl_core.services.native_memory import persist_reflection_source_native
 
     result = await persist_reflection_source_native(**kwargs)
     return result.response
+
+
+async def _persist_reflection_candidate_review(**kwargs: Any):
+    from sibyl_core.services.surreal_content import remember_reflection_candidate_review
+
+    return await remember_reflection_candidate_review(**kwargs)
 
 
 async def _persist_reflection_candidate_native(**kwargs: Any):

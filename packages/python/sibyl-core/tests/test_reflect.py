@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 from sibyl_core.tools.reflect import (
     reflect_memory,
     reflection_pack_to_dict,
@@ -72,6 +73,80 @@ async def test_reflect_memory_can_persist_candidates_with_provenance() -> None:
     assert calls[1]["metadata"]["reflection_source_id"] == "session_1"
     assert calls[1]["related_to"] == ["project_123", "session_1"]
     assert calls[1]["sync"] is True
+
+
+@pytest.mark.asyncio
+async def test_reflect_memory_can_persist_review_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    add_fn = AsyncMock(side_effect=AssertionError("graph add path should not run"))
+
+    async def fake_source_review(**kwargs: Any) -> AddResponse:
+        calls.append(("source", kwargs))
+        return AddResponse(
+            success=True,
+            id="raw-source-1",
+            message="stored",
+            timestamp=datetime.now(UTC),
+        )
+
+    async def fake_candidate_review(**kwargs: Any) -> RawMemory:
+        calls.append(("candidate", kwargs))
+        candidate = kwargs["candidate"]
+        return RawMemory(
+            id="raw-candidate-1",
+            organization_id=kwargs["organization_id"],
+            source_id=kwargs["source_id"],
+            principal_id=kwargs["principal_id"],
+            memory_scope=MemoryScope.PROJECT,
+            scope_key="project_123",
+            project_id="project_123",
+            review_state="pending",
+            entity_type=candidate.kind,
+            title=candidate.title,
+            raw_content=candidate.content,
+            tags=list(candidate.tags),
+            metadata=dict(candidate.metadata),
+            capture_surface="reflection_candidate",
+        )
+
+    monkeypatch.setattr(
+        "sibyl_core.tools.reflect._persist_reflection_source_review",
+        fake_source_review,
+    )
+    monkeypatch.setattr(
+        "sibyl_core.tools.reflect._persist_reflection_candidate_review",
+        fake_candidate_review,
+    )
+
+    pack = await reflect_memory(
+        "We decided reflection candidates should be reviewed before promotion.",
+        source_title="Reflection queue",
+        intent="build",
+        domain="sibyl",
+        project="project_123",
+        organization_id="org_123",
+        principal_id="user_123",
+        memory_scope="project",
+        scope_key="project_123",
+        persist=True,
+        persist_review=True,
+        add_fn=add_fn,
+    )
+
+    assert [kind for kind, _ in calls] == ["source", "candidate"]
+    assert pack.source_id == "raw-source-1"
+    assert pack.persisted_count == 1
+    assert pack.candidates[0].persisted_id == "raw-candidate-1"
+    assert pack.candidates[0].raw_source_ids == ["raw-source-1"]
+    assert pack.candidates[0].suggested_memory_scope == "project"
+    assert pack.candidates[0].suggested_scope_key == "project_123"
+    assert pack.candidates[0].metadata["raw_source_ids"] == ["raw-source-1"]
+    assert pack.candidates[0].metadata["review_state"] == "pending"
+    assert calls[1][1]["memory_scope"] is MemoryScope.PROJECT
+    assert calls[1][1]["extraction_prompt_metadata"]["extractor"] == "sibyl_reflect_heuristic"
+    assert add_fn.await_count == 0
 
 
 @pytest.mark.asyncio

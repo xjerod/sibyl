@@ -15,6 +15,10 @@ class ReflectionCandidate:
     confidence: float
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    raw_source_ids: list[str] = field(default_factory=list)
+    suggested_memory_scope: str | None = None
+    suggested_scope_key: str | None = None
+    review_state: str = "pending"
     persisted_id: str | None = None
 
 
