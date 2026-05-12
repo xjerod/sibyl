@@ -1,24 +1,7 @@
-"""Unified tools for Sibyl MCP Server.
+"""Lazy compatibility surface for Sibyl MCP tools."""
 
-This module provides backwards compatibility re-exports. The actual implementations
-are now split across focused modules:
-- responses.py: Response dataclasses (SearchResult, SearchResponse, etc.)
-- helpers.py: Utility functions and constants
-- search.py: Unified semantic search
-- explore.py: Graph navigation and traversal
-- add.py: Entity creation
-- health.py: Health checks and statistics
-"""
+from typing import Any
 
-# Re-export everything for backwards compatibility
-from sibyl_core.tools.add import add
-from sibyl_core.tools.context import (
-    compile_context,
-    context_pack_to_dict,
-    context_pack_to_markdown,
-)
-from sibyl_core.tools.explore import explore
-from sibyl_core.tools.health import get_health, get_stats
 from sibyl_core.tools.helpers import (
     MAX_CONTENT_LENGTH,
     MAX_TITLE_LENGTH,
@@ -32,7 +15,6 @@ from sibyl_core.tools.helpers import (
     get_project_tags,
 )
 from sibyl_core.tools.reflect import (
-    reflect_memory,
     reflection_pack_to_dict,
     reflection_pack_to_markdown,
 )
@@ -45,7 +27,61 @@ from sibyl_core.tools.responses import (
     SearchResponse,
     SearchResult,
 )
-from sibyl_core.tools.search import search
+
+
+async def add(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.add import add as _add
+
+    return await _add(*args, **kwargs)
+
+
+async def search(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.search import search as _search
+
+    return await _search(*args, **kwargs)
+
+
+async def explore(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.explore import explore as _explore
+
+    return await _explore(*args, **kwargs)
+
+
+async def get_health(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.health import get_health as _get_health
+
+    return await _get_health(*args, **kwargs)
+
+
+async def get_stats(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.health import get_stats as _get_stats
+
+    return await _get_stats(*args, **kwargs)
+
+
+async def compile_context(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.context import compile_context as _compile_context
+
+    return await _compile_context(*args, **kwargs)
+
+
+def context_pack_to_dict(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.context import context_pack_to_dict as _context_pack_to_dict
+
+    return _context_pack_to_dict(*args, **kwargs)
+
+
+def context_pack_to_markdown(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.context import context_pack_to_markdown as _context_pack_to_markdown
+
+    return _context_pack_to_markdown(*args, **kwargs)
+
+
+async def reflect_memory(*args: Any, **kwargs: Any) -> Any:
+    from sibyl_core.tools.reflect import reflect_memory as _reflect_memory
+
+    return await _reflect_memory(*args, **kwargs)
+
 
 __all__ = [
     # Helper functions (for internal use)

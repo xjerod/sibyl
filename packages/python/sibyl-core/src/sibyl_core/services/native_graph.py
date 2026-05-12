@@ -15,7 +15,7 @@ from sibyl_core.backends.surreal.dedicated_client import DedicatedSurrealClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.backends.surreal.schema import bootstrap_schema
 from sibyl_core.config import settings
-from sibyl_core.models.entities import Entity, EntityType, Relationship
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 type SurrealRecord = dict[str, object]
 
@@ -74,6 +74,22 @@ class NativeEntityManager:
 
     async def create(self, entity: Entity) -> str:
         return await self.create_direct(entity, generate_embedding=False)
+
+    async def get(self, entity_id: str) -> Entity:
+        row = await _select_one(
+            self._client,
+            """
+            SELECT *
+            FROM entity
+            WHERE group_id = $group_id AND uuid = $uuid
+            LIMIT 1;
+            """,
+            group_id=self._group_id,
+            uuid=entity_id,
+        )
+        if row is None:
+            raise KeyError(entity_id)
+        return _entity_from_row(row)
 
     async def search(
         self,
@@ -139,6 +155,74 @@ class NativeRelationshipManager:
     async def create(self, relationship: Relationship) -> str:
         await _replace_relationship(self._client, relationship, group_id=self._group_id)
         return relationship.id
+
+    async def get_related_entities(
+        self,
+        entity_id: str,
+        relationship_types: Sequence[RelationshipType] | None = None,
+        max_depth: int = 1,
+        limit: int = 50,
+    ) -> list[tuple[Entity, Relationship]]:
+        del max_depth
+        type_values = [rel_type.value for rel_type in relationship_types or ()]
+        type_clause = "AND name IN $relationship_types" if type_values else ""
+        edge_rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT uuid,
+                       name,
+                       fact,
+                       attributes,
+                       created_at,
+                       in.uuid AS source_uuid,
+                       out.uuid AS target_uuid
+                FROM relates_to
+                WHERE group_id = $group_id
+                  AND (in.uuid = $entity_id OR out.uuid = $entity_id)
+                """
+                + type_clause
+                + """
+                ORDER BY created_at DESC, uuid DESC
+                LIMIT $limit;
+                """,
+                group_id=self._group_id,
+                entity_id=entity_id,
+                relationship_types=type_values,
+                limit=max(int(limit), 1),
+            )
+        )
+        edge_pairs: list[tuple[SurrealRecord, str]] = []
+        for row in edge_rows:
+            other_id = (
+                row.get("target_uuid")
+                if row.get("source_uuid") == entity_id
+                else row.get("source_uuid")
+            )
+            if isinstance(other_id, str) and other_id:
+                edge_pairs.append((row, other_id))
+        other_ids = [other_id for _, other_id in edge_pairs]
+        if not other_ids:
+            return []
+
+        entity_rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT *
+                FROM entity
+                WHERE group_id = $group_id AND uuid IN $entity_ids;
+                """,
+                group_id=self._group_id,
+                entity_ids=other_ids,
+            )
+        )
+        entities_by_id = {str(row.get("uuid")): _entity_from_row(row) for row in entity_rows}
+        results: list[tuple[Entity, Relationship]] = []
+        for row, other_id in edge_pairs:
+            entity = entities_by_id.get(other_id)
+            if entity is None:
+                continue
+            results.append((entity, _relationship_from_row(row)))
+        return results
 
 
 async def get_native_graph_runtime(group_id: str) -> NativeGraphRuntime:
@@ -253,6 +337,38 @@ def _row_score(row: SurrealRecord) -> float:
     score = row.get("score")
     if isinstance(score, int | float):
         return float(score)
+    return 1.0
+
+
+def _relationship_from_row(row: SurrealRecord) -> Relationship:
+    attributes = row.get("attributes")
+    metadata = dict(attributes) if isinstance(attributes, dict) else {}
+    fact = row.get("fact")
+    if isinstance(fact, str):
+        metadata.setdefault("fact", fact)
+    return Relationship(
+        id=str(row.get("uuid") or ""),
+        relationship_type=_relationship_type_from_row(row),
+        source_id=str(row.get("source_uuid") or ""),
+        target_id=str(row.get("target_uuid") or ""),
+        weight=_metadata_weight(metadata),
+        metadata=metadata,
+        created_at=_row_datetime(row.get("created_at")) or datetime.now(UTC),
+    )
+
+
+def _relationship_type_from_row(row: SurrealRecord) -> RelationshipType:
+    value = str(row.get("name") or RelationshipType.RELATED_TO.value)
+    try:
+        return RelationshipType(value)
+    except ValueError:
+        return RelationshipType.RELATED_TO
+
+
+def _metadata_weight(metadata: dict[object, object]) -> float:
+    weight = metadata.get("weight")
+    if isinstance(weight, int | float):
+        return float(weight)
     return 1.0
 
 

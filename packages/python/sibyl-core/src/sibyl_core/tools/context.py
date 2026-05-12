@@ -27,14 +27,13 @@ from sibyl_core.retrieval.native import (
     native_context_search,
     native_retrieval_mode_from_env,
 )
-from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
+from sibyl_core.services.native_graph import get_native_graph_runtime
 from sibyl_core.services.surreal_content import (
     AGENT_DIARY_CAPTURE_SURFACE,
     RawMemory,
     recall_raw_memory,
 )
 from sibyl_core.tools.responses import SearchResponse, SearchResult
-from sibyl_core.tools.search import search as default_search
 
 SearchFn = Callable[..., Awaitable[SearchResponse]]
 RelatedFn = Callable[..., Awaitable[list[ContextRelatedItem]]]
@@ -225,7 +224,13 @@ def _reason_for(result: SearchResult, facet: ContextFacet) -> str:
 
 
 async def get_graph_runtime(group_id: str):
-    return await _service_get_graph_runtime(group_id)
+    return await get_native_graph_runtime(group_id)
+
+
+async def default_search(**kwargs: Any) -> SearchResponse:
+    from sibyl_core.tools.search import search
+
+    return await search(**kwargs)
 
 
 def _project_id_for(entity: Any) -> str | None:

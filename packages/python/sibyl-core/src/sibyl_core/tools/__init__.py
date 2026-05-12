@@ -1,91 +1,48 @@
-"""MCP tool implementations.
+"""Sibyl tool package exports."""
 
-Sibyl exposes 4 unified tools:
-- search: Semantic search across the knowledge graph
-- explore: Browse and traverse the graph
-- temporal_query: Bi-temporal queries (history, timeline, conflicts)
-- add: Add new knowledge
+from importlib import import_module
+from typing import Any
 
-Plus admin tools for CLI usage (not exposed via MCP):
-- health_check, rebuild_indices, get_stats
-"""
+_EXPORTS = {
+    "AddResponse": ("sibyl_core.tools.responses", "AddResponse"),
+    "ConflictWarning": ("sibyl_core.tools.responses", "ConflictWarning"),
+    "EntitySummary": ("sibyl_core.tools.responses", "EntitySummary"),
+    "ExploreResponse": ("sibyl_core.tools.responses", "ExploreResponse"),
+    "HealthStatus": ("sibyl_core.tools.admin", "HealthStatus"),
+    "RebuildResult": ("sibyl_core.tools.admin", "RebuildResult"),
+    "RelatedEntity": ("sibyl_core.tools.responses", "RelatedEntity"),
+    "SearchResponse": ("sibyl_core.tools.responses", "SearchResponse"),
+    "SearchResult": ("sibyl_core.tools.responses", "SearchResult"),
+    "TemporalEdge": ("sibyl_core.tools.responses", "TemporalEdge"),
+    "TemporalResponse": ("sibyl_core.tools.responses", "TemporalResponse"),
+    "add": ("sibyl_core.tools.core", "add"),
+    "compile_context": ("sibyl_core.tools.core", "compile_context"),
+    "context_pack_to_dict": ("sibyl_core.tools.core", "context_pack_to_dict"),
+    "context_pack_to_markdown": ("sibyl_core.tools.core", "context_pack_to_markdown"),
+    "detect_conflicts": ("sibyl_core.tools.conflicts", "detect_conflicts"),
+    "explore": ("sibyl_core.tools.core", "explore"),
+    "find_similar_entities": ("sibyl_core.tools.conflicts", "find_similar_entities"),
+    "find_temporal_conflicts": ("sibyl_core.tools.temporal", "find_conflicts"),
+    "get_entity_history": ("sibyl_core.tools.temporal", "get_entity_history"),
+    "get_health": ("sibyl_core.tools.core", "get_health"),
+    "get_stats": ("sibyl_core.tools.admin", "get_stats"),
+    "get_unified_stats": ("sibyl_core.tools.core", "get_stats"),
+    "health_check": ("sibyl_core.tools.admin", "health_check"),
+    "mark_server_started": ("sibyl_core.tools.admin", "mark_server_started"),
+    "rebuild_indices": ("sibyl_core.tools.admin", "rebuild_indices"),
+    "search": ("sibyl_core.tools.core", "search"),
+    "temporal_query": ("sibyl_core.tools.temporal", "temporal_query"),
+}
 
-# Primary unified tools (exposed via MCP)
-# Admin tools (CLI only, not exposed via MCP)
-from sibyl_core.tools.admin import (
-    HealthStatus,
-    RebuildResult,
-    get_stats,
-    health_check,
-    mark_server_started,
-    rebuild_indices,
-)
-from sibyl_core.tools.conflicts import detect_conflicts, find_similar_entities
-from sibyl_core.tools.core import (
-    AddResponse,
-    EntitySummary,
-    ExploreResponse,
-    RelatedEntity,
-    # Response types
-    SearchResponse,
-    SearchResult,
-    add,
-    compile_context,
-    context_pack_to_dict,
-    context_pack_to_markdown,
-    explore,
-    # Resources
-    get_health,
-    # Tools
-    search,
-)
-from sibyl_core.tools.core import (
-    get_stats as get_unified_stats,
-)
-from sibyl_core.tools.responses import ConflictWarning, TemporalEdge, TemporalResponse
-from sibyl_core.tools.temporal import (
-    find_conflicts as find_temporal_conflicts,
-)
-from sibyl_core.tools.temporal import (
-    get_entity_history,
-    temporal_query,
-)
+__all__ = sorted(_EXPORTS)
 
-__all__ = [
-    "AddResponse",
-    # Conflict detection
-    "ConflictWarning",
-    "EntitySummary",
-    "ExploreResponse",
-    # Admin (CLI only)
-    "HealthStatus",
-    "RebuildResult",
-    "RelatedEntity",
-    # Response types
-    "SearchResponse",
-    "SearchResult",
-    # Temporal response types
-    "TemporalEdge",
-    "TemporalResponse",
-    "add",
-    "compile_context",
-    "context_pack_to_dict",
-    "context_pack_to_markdown",
-    # Conflict detection functions
-    "detect_conflicts",
-    "explore",
-    # Temporal queries (renamed to avoid collision)
-    "find_similar_entities",
-    "find_temporal_conflicts",
-    # Resources
-    "get_entity_history",
-    "get_health",
-    "get_stats",
-    "get_unified_stats",
-    "health_check",
-    "mark_server_started",
-    "rebuild_indices",
-    # Unified tools (MCP)
-    "search",
-    "temporal_query",
-]
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attr_name = _EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    module = import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value

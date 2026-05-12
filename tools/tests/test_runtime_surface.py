@@ -39,15 +39,10 @@ def test_graphiti_exit_inventory_tracks_no_graphiti_smoke_plan() -> None:
 
     assert "## No-Graphiti Smoke Plan" in inventory
     assert "tests/test_no_graphiti_default_loop.py" in inventory
+    assert "blocks `graphiti_core` imports" in inventory
     for loop_name in ("remember", "recall", "context", "wake", "reflect"):
         assert f"- `{loop_name}`:" in inventory
-    for blocker_path in (
-        "packages/python/sibyl-core/src/sibyl_core/retrieval/native.py",
-        "packages/python/sibyl-core/src/sibyl_core/services/native_memory.py",
-        "packages/python/sibyl-core/src/sibyl_core/tools/add.py",
-        "apps/api/src/sibyl/api/routes/entities.py",
-    ):
-        assert blocker_path in inventory
+    assert "Current blockers:" not in inventory
 
 
 def test_runtime_surface_finds_known_contracts() -> None:

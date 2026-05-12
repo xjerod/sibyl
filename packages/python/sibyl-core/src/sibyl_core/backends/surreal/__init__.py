@@ -1,16 +1,29 @@
 """SurrealDB backend foundation for Sibyl's next-form runtime."""
 
-from sibyl_core.backends.surreal.auth_client import SurrealAuthClient
-from sibyl_core.backends.surreal.auth_schema import bootstrap_auth_schema
-from sibyl_core.backends.surreal.content_client import SurrealContentClient
-from sibyl_core.backends.surreal.content_schema import bootstrap_content_schema
-from sibyl_core.backends.surreal.driver import SurrealDriver, SurrealDriverSession
+from importlib import import_module
+from typing import Any
 
-__all__ = [
-    "SurrealAuthClient",
-    "SurrealContentClient",
-    "SurrealDriver",
-    "SurrealDriverSession",
-    "bootstrap_auth_schema",
-    "bootstrap_content_schema",
-]
+_EXPORTS = {
+    "SurrealAuthClient": ("sibyl_core.backends.surreal.auth_client", "SurrealAuthClient"),
+    "SurrealContentClient": ("sibyl_core.backends.surreal.content_client", "SurrealContentClient"),
+    "SurrealDriver": ("sibyl_core.backends.surreal.driver", "SurrealDriver"),
+    "SurrealDriverSession": ("sibyl_core.backends.surreal.driver", "SurrealDriverSession"),
+    "bootstrap_auth_schema": ("sibyl_core.backends.surreal.auth_schema", "bootstrap_auth_schema"),
+    "bootstrap_content_schema": (
+        "sibyl_core.backends.surreal.content_schema",
+        "bootstrap_content_schema",
+    ),
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attr_name = _EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    module = import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value

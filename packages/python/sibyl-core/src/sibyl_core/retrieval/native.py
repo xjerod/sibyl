@@ -484,16 +484,16 @@ async def _node_fulltext_candidates(
             + _where_clause(["group_id = $group_id", *filter_clauses])
             + """
               AND (
-                  name @0@ $query
-                  OR summary @1@ $query
-                  OR description @2@ $query
-                  OR content @3@ $query
+                  name @0@ $search_query
+                  OR summary @1@ $search_query
+                  OR description @2@ $search_query
+                  OR content @3@ $search_query
               )
             ORDER BY score DESC, created_at DESC, uuid DESC
             LIMIT $limit;
             """,
             group_id=plan.organization_id,
-            query=search_query,
+            search_query=search_query,
             limit=max(int(limit), 1),
             **filter_params,
         )
@@ -526,12 +526,12 @@ async def _episode_fulltext_candidates(
             SELECT *, search::score(0) AS score
             FROM episode
             WHERE group_id = $group_id
-              AND content @0@ $query
+              AND content @0@ $search_query
             ORDER BY score DESC, created_at DESC, uuid DESC
             LIMIT $limit;
             """,
             group_id=plan.organization_id,
-            query=search_query,
+            search_query=search_query,
             limit=max(int(limit), 1),
         )
     )
@@ -562,12 +562,12 @@ async def _edge_fulltext_candidates(
             + " WHERE "
             + _where_clause(["group_id = $group_id", *filter_clauses])
             + """
-              AND fact @0@ $query
+              AND fact @0@ $search_query
             ORDER BY score DESC, created_at DESC, uuid DESC
             LIMIT $limit;
             """,
             group_id=plan.organization_id,
-            query=search_query,
+            search_query=search_query,
             limit=max(int(limit), 1),
             **filter_params,
         )

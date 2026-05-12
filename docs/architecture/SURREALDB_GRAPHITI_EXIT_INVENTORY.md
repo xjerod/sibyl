@@ -14,12 +14,14 @@ adapter package as one named compatibility surface.
 
 ## Default Loop Position
 
-- `remember`: raw capture is native. Graph entity creation still has Graphiti compatibility paths
-  for `sibyl add`, async entity jobs, and task-learning distillation.
-- `recall`, `context`, and `wake`: native retrieval is implemented and selectable. Graphiti search
-  remains as fallback or compare-mode scaffolding until the seeded native gate owns the default.
-- `reflect`: candidate persistence and promotion can write native graph records. Task completion
-  learning extraction still has a Graphiti compatibility path.
+- `remember`: raw capture, summarized `sibyl add`, API entity creation, and async create jobs write
+  through native Surreal collaborators on the default path.
+- `recall`, `context`, and `wake`: native retrieval runs through direct Surreal fulltext, raw
+  recall, graph expansion, and native related-item hydration without importing Graphiti.
+- `reflect`: persisted reflection sources and candidates write native graph records when
+  `SIBYL_NATIVE_WRITE=enabled`. Review-mode raw candidate storage remains the explicit review path.
+- Graphiti remains only in named compatibility, compare-mode, admin, migration, and task-learning
+  distillation surfaces until their removal conditions below are met.
 
 ## Legacy Projection Rule
 
@@ -157,35 +159,22 @@ blocks Graphiti imports for those flows.
 
 ## No-Graphiti Smoke Plan
 
-The import-blocking smoke test lands after the remaining default-loop blockers below move to native
-Surreal collaborators. Until then, `moon run inventory-check` is the blocking proof that every
-Graphiti import has a named owner and removal condition.
+The import-blocking smoke test is now the default-loop proof alongside
+`moon run inventory-check`. It starts a fresh Python process, blocks `graphiti_core` imports, and
+exercises native Surreal memory writes, wake/recall context retrieval, related expansion, and
+persisted reflection.
 
-Target smoke command:
+Smoke command:
 
 - `moon run core:test -- tests/test_no_graphiti_default_loop.py`
 
 Default-loop cases:
 
-- `remember`: raw capture and summarized remember both persist source material before derived graph
-  records.
+- `remember`: summarized remember/add writes native graph records.
 - `recall`: native retrieval runs with `SIBYL_RETRIEVAL_MODE=native`.
 - `context`: context packs and wake packs run through native retrieval and raw memory recall.
 - `wake`: wake-layer context uses the same native context-pack path with wake limits.
 - `reflect`: persisted reflection runs with `SIBYL_NATIVE_WRITE=enabled`.
-
-Current blockers:
-
-- `packages/python/sibyl-core/src/sibyl_core/retrieval/native.py` still imports
-  `sibyl_core.graph.search_interface`, which imports Graphiti record parsers for native graph
-  candidate hydration.
-- `packages/python/sibyl-core/src/sibyl_core/services/native_memory.py` still resolves graph writes
-  through `get_graph_runtime`, which imports the Graphiti-backed `GraphClient`.
-- `packages/python/sibyl-core/src/sibyl_core/tools/add.py` and
-  `apps/api/src/sibyl/api/routes/entities.py` still use the Graphiti-compatible `add` flow for
-  summarized remember and entity creation.
-- Native vector search still reads the Graphiti embedder from the active graph client. A native
-  embedding service must own that dependency before imports can be blocked.
 
 Closure condition:
 
