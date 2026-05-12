@@ -159,10 +159,9 @@ blocks Graphiti imports for those flows.
 
 ## No-Graphiti Smoke Plan
 
-The import-blocking smoke test is now the default-loop proof alongside
-`moon run inventory-check`. It starts a fresh Python process, blocks `graphiti_core` imports, and
-exercises native Surreal memory writes, wake/recall context retrieval, related expansion, and
-persisted reflection.
+The import-blocking smoke test is now the default-loop proof alongside `moon run inventory-check`.
+It starts a fresh Python process, blocks `graphiti_core` imports, and exercises native Surreal
+memory writes, wake/recall context retrieval, related expansion, and persisted reflection.
 
 Smoke command:
 
