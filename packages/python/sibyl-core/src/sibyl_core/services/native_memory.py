@@ -156,6 +156,8 @@ async def persist_reflection_candidate_native(
             "native_write_mode": NativeWriteMode.ENABLED.value,
             "native_write_path": "reflection_promotion",
             "native_relationship_count": len(relationships),
+            "raw_source_ids": [source_id] if source_id else [],
+            "source_ids": [source_id] if source_id else [],
         },
     )
 
@@ -255,6 +257,7 @@ def _entity_from_candidate(
         "reflection_confidence": candidate.confidence,
         "raw_source_ids": source_ids,
         "source_ids": source_ids,
+        "native_write_path": "reflection_promotion",
         **dict(policy_metadata),
     }
     if project:
