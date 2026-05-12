@@ -10,11 +10,18 @@ from sibyl.api.schemas import (
     RawMemoryRecallResponse,
     RawMemoryRememberRequest,
     RawMemoryResponse,
+    ReflectionPromotionRequest,
+    ReflectionPromotionResponse,
 )
 from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
+from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
 from sibyl_core.auth import AuthOrganization, OrganizationRole, ProjectRole
+from sibyl_core.services.native_memory import (
+    NativeReflectionPromotionResult,
+    promote_reflection_candidate_review,
+)
 from sibyl_core.services.surreal_content import (
     AGENT_DIARY_CAPTURE_SURFACE,
     RawMemory,
@@ -135,6 +142,51 @@ def _raw_memory_response(memory: RawMemory) -> RawMemoryResponse:
     )
 
 
+def _promotion_response(result: NativeReflectionPromotionResult) -> ReflectionPromotionResponse:
+    metadata = dict(result.metadata or {})
+    policy_reasons = metadata.get("policy_reasons")
+    return ReflectionPromotionResponse(
+        success=result.success,
+        candidate_id=result.candidate_id,
+        promoted_id=result.promoted_id,
+        reason=result.reason,
+        review_state=result.review_state,
+        memory_scope=result.memory_scope.value if result.memory_scope else None,
+        scope_key=result.scope_key,
+        raw_source_ids=list(result.raw_source_ids),
+        policy_reasons=list(policy_reasons) if isinstance(policy_reasons, list) else [],
+        metadata=metadata,
+    )
+
+
+async def _accessible_projects_for_promotion(
+    *,
+    ctx: AuthContext,
+    request: ReflectionPromotionRequest,
+) -> set[str]:
+    project_ids: set[str] = set()
+    if request.project:
+        project_ids.add(request.project)
+    if request.promote_to_scope == "project":
+        target_project = request.promote_to_scope_key or request.project
+        if target_project:
+            project_ids.add(target_project)
+
+    for project_id in project_ids:
+        await verify_entity_project_access(
+            None,
+            ctx,
+            project_id,
+            required_role=ProjectRole.CONTRIBUTOR,
+            require_existing_project=True,
+        )
+
+    if project_ids:
+        return project_ids
+    accessible_projects = await list_accessible_project_graph_ids(ctx)
+    return {str(project_id) for project_id in accessible_projects or set()}
+
+
 @router.post(
     "/raw",
     response_model=RawMemoryResponse,
@@ -151,9 +203,7 @@ async def remember_raw(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        capture_surface = (
-            AGENT_DIARY_CAPTURE_SURFACE if request.diary else request.capture_surface
-        )
+        capture_surface = AGENT_DIARY_CAPTURE_SURFACE if request.diary else request.capture_surface
         source_id = request.source_id or f"{capture_surface}:manual"
         _validate_diary_request(
             diary=request.diary,
@@ -254,3 +304,56 @@ async def recall_raw(
     except Exception as e:
         log.exception("recall_raw_memory_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to recall raw memory.") from e
+
+
+@router.post(
+    "/reflection/promote",
+    response_model=ReflectionPromotionResponse,
+    dependencies=[Depends(require_org_role(*_WRITE_ROLES))],
+)
+async def promote_reflection_candidate(
+    request: ReflectionPromotionRequest,
+    org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> ReflectionPromotionResponse:
+    """Promote a reviewed reflection candidate into native Surreal memory."""
+    principal_id = ctx.user_id
+    if not principal_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        accessible_projects = await _accessible_projects_for_promotion(
+            ctx=ctx,
+            request=request,
+        )
+        result = await promote_reflection_candidate_review(
+            candidate_id=request.candidate_id,
+            organization_id=str(org.id),
+            principal_id=principal_id,
+            promote_to_scope=request.promote_to_scope,
+            promote_to_scope_key=request.promote_to_scope_key,
+            domain=request.domain,
+            project=request.project,
+            related_to=request.related_to,
+            accessible_projects=accessible_projects,
+        )
+        if result.reason == "candidate_not_found":
+            raise HTTPException(
+                status_code=404,
+                detail=f"Reflection candidate not found: {request.candidate_id}",
+            )
+        return _promotion_response(result)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        log.exception(
+            "promote_reflection_candidate_failed",
+            candidate_id=request.candidate_id,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to promote reflection candidate.",
+        ) from e

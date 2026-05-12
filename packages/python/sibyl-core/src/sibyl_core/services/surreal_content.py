@@ -804,6 +804,33 @@ async def remember_reflection_candidate_review(
     )
 
 
+async def get_raw_memory(
+    *,
+    organization_id: str,
+    memory_id: str,
+) -> RawMemory | None:
+    async with surreal_content_client() as client:
+        record = await _select_one(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE uuid = $memory_id AND organization_id = $organization_id LIMIT 1;",
+            memory_id=memory_id,
+            organization_id=organization_id,
+        )
+    return _raw_memory_from_record(record) if record is not None else None
+
+
+async def save_raw_memory(memory: RawMemory) -> RawMemory:
+    async with surreal_content_client() as client:
+        record = await _replace_record(
+            client,
+            "raw_captures",
+            uuid=memory.id,
+            record=_raw_memory_record(memory),
+        )
+    return _raw_memory_from_record(record)
+
+
 async def recall_raw_memory(
     *,
     organization_id: str,
@@ -1236,6 +1263,7 @@ __all__ = [
     "build_surreal_content_client",
     "close_shared_surreal_content_client",
     "get_or_create_source",
+    "get_raw_memory",
     "get_shared_surreal_content_client",
     "lexical_score",
     "lexical_score_from_tokens",
@@ -1245,6 +1273,7 @@ __all__ = [
     "recall_raw_memory",
     "remember_raw_memory",
     "remember_reflection_candidate_review",
+    "save_raw_memory",
     "search_document_chunks",
     "set_source_job_state",
     "source_exists",

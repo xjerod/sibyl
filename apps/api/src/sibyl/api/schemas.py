@@ -95,7 +95,7 @@ class RawCaptureSummary(BaseModel):
     tags: list[str] = Field(default_factory=list, description="Captured tags")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Original request metadata")
     capture_surface: str | None = Field(default=None, description="Where the capture originated")
-    review_state: Literal["pending", "deferred", "archived"] = Field(
+    review_state: Literal["pending", "deferred", "archived", "promoted"] = Field(
         default="pending",
         description="Review queue state",
     )
@@ -123,7 +123,7 @@ class RawCaptureListResponse(BaseModel):
 class RawCaptureReviewUpdate(BaseModel):
     """Review-state update for a raw capture."""
 
-    review_state: Literal["pending", "deferred", "archived"] = Field(
+    review_state: Literal["pending", "deferred", "archived", "promoted"] = Field(
         ...,
         description="Next review queue state",
     )
@@ -195,6 +195,41 @@ class RawMemoryRecallResponse(BaseModel):
     query: str = Field(..., description="Recall query")
     memories: list[RawMemoryResponse]
     limit: int
+
+
+class ReflectionPromotionRequest(BaseModel):
+    """Request to promote a reviewed reflection candidate into native memory."""
+
+    candidate_id: str = Field(..., description="Raw review candidate capture ID")
+    promote_to_scope: MemoryScopeLiteral | None = Field(
+        default=None,
+        description="Explicit target memory scope for promotion",
+    )
+    promote_to_scope_key: str | None = Field(
+        default=None,
+        description="Project/delegation key for scoped promotion targets",
+    )
+    domain: str | None = Field(default=None, description="Optional category/domain override")
+    project: str | None = Field(default=None, description="Project relation for promoted memory")
+    related_to: list[str] = Field(
+        default_factory=list,
+        description="Additional graph entity IDs to relate to the promoted memory",
+    )
+
+
+class ReflectionPromotionResponse(BaseModel):
+    """Promotion outcome with stable policy deny reasons."""
+
+    success: bool
+    candidate_id: str
+    promoted_id: str | None = None
+    reason: str
+    review_state: str
+    memory_scope: MemoryScopeLiteral | None = None
+    scope_key: str | None = None
+    raw_source_ids: list[str] = Field(default_factory=list)
+    policy_reasons: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 # =============================================================================

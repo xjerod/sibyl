@@ -7,9 +7,14 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from sibyl.api.routes.memory import recall_raw, remember_raw
-from sibyl.api.schemas import RawMemoryRecallRequest, RawMemoryRememberRequest
+from sibyl.api.routes.memory import promote_reflection_candidate, recall_raw, remember_raw
+from sibyl.api.schemas import (
+    RawMemoryRecallRequest,
+    RawMemoryRememberRequest,
+    ReflectionPromotionRequest,
+)
 from sibyl_core.auth import OrganizationRole, ProjectRole
+from sibyl_core.services.native_memory import NativeReflectionPromotionResult
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 
 
@@ -395,3 +400,136 @@ async def test_recall_raw_maps_scope_errors_to_400() -> None:
         )
 
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_promote_reflection_candidate_verifies_project_target() -> None:
+    org = _org()
+    ctx = _ctx()
+    result = NativeReflectionPromotionResult(
+        success=True,
+        candidate_id="candidate-1",
+        promoted_id="decision_123",
+        reason="promoted",
+        review_state="promoted",
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="project_123",
+        raw_source_ids=["source-1"],
+        metadata={
+            "policy_reasons": [
+                "same_scope_reflect_allowed",
+                "same_scope_write_allowed",
+            ],
+        },
+    )
+    with (
+        patch("sibyl.api.routes.memory.verify_entity_project_access", AsyncMock()) as verify,
+        patch(
+            "sibyl.api.routes.memory.promote_reflection_candidate_review",
+            AsyncMock(return_value=result),
+        ) as promote,
+    ):
+        response = await promote_reflection_candidate(
+            ReflectionPromotionRequest(
+                candidate_id="candidate-1",
+                promote_to_scope="project",
+                promote_to_scope_key="project_123",
+                project="project_123",
+                domain="sibyl",
+                related_to=["task_123"],
+            ),
+            org=org,
+            ctx=ctx,
+        )
+
+    verify.assert_awaited_once_with(
+        None,
+        ctx,
+        "project_123",
+        required_role=ProjectRole.CONTRIBUTOR,
+        require_existing_project=True,
+    )
+    promote.assert_awaited_once_with(
+        candidate_id="candidate-1",
+        organization_id=str(org.id),
+        principal_id="user-123",
+        promote_to_scope="project",
+        promote_to_scope_key="project_123",
+        domain="sibyl",
+        project="project_123",
+        related_to=["task_123"],
+        accessible_projects={"project_123"},
+    )
+    assert response.success is True
+    assert response.promoted_id == "decision_123"
+    assert response.policy_reasons == [
+        "same_scope_reflect_allowed",
+        "same_scope_write_allowed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_promote_reflection_candidate_returns_policy_denial() -> None:
+    org = _org()
+    result = NativeReflectionPromotionResult(
+        success=False,
+        candidate_id="candidate-1",
+        promoted_id=None,
+        reason="missing_promote_to_scope",
+        review_state="pending",
+        memory_scope=MemoryScope.PRIVATE,
+        scope_key=None,
+        raw_source_ids=["source-1"],
+        metadata={"policy_reasons": ["missing_promote_to_scope"]},
+    )
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project_123"}),
+        ),
+        patch(
+            "sibyl.api.routes.memory.promote_reflection_candidate_review",
+            AsyncMock(return_value=result),
+        ),
+    ):
+        response = await promote_reflection_candidate(
+            ReflectionPromotionRequest(candidate_id="candidate-1"),
+            org=org,
+            ctx=_ctx(),
+        )
+
+    assert response.success is False
+    assert response.reason == "missing_promote_to_scope"
+    assert response.policy_reasons == ["missing_promote_to_scope"]
+
+
+@pytest.mark.asyncio
+async def test_promote_reflection_candidate_returns_404_for_missing_candidate() -> None:
+    result = NativeReflectionPromotionResult(
+        success=False,
+        candidate_id="missing",
+        promoted_id=None,
+        reason="candidate_not_found",
+        review_state="missing",
+        memory_scope=None,
+        scope_key=None,
+        raw_source_ids=[],
+    )
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "sibyl.api.routes.memory.promote_reflection_candidate_review",
+            AsyncMock(return_value=result),
+        ),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await promote_reflection_candidate(
+            ReflectionPromotionRequest(candidate_id="missing"),
+            org=_org(),
+            ctx=_ctx(),
+        )
+
+    assert exc.value.status_code == 404
