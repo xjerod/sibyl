@@ -699,31 +699,36 @@ class EntityManager:
         tags: list[str] | None,
         include_archived: bool,
     ) -> list[Entity]:
-        requires_python_rechecks = any(
-            [
-                project_id is not None,
-                epic_id is not None,
-                no_epic,
-                bool(status_values),
-                bool(priority_values),
-                bool(complexity_values),
-                feature is not None,
-                bool(tags),
-                not include_archived,
-            ]
-        )
-        target_count = offset + limit if requires_python_rechecks else limit
-        query_offset = 0 if requires_python_rechecks else offset
-        page_size = (
-            min(max(target_count, 100), 1000)
-            if requires_python_rechecks
-            else min(max(limit, 1), 1000)
-        )
+        target_count = max(offset, 0) + limit
+        page_size = min(max(target_count, 100), 1000)
         entities: list[Entity] = []
         seen_entity_ids: set[str] = set()
+
+        def append_if_allowed(entity: Entity) -> bool:
+            if entity.id in seen_entity_ids:
+                return False
+            if not self._entity_matches_filters(
+                entity,
+                project_id=project_id,
+                epic_id=epic_id,
+                no_epic=no_epic,
+                status_values=status_values,
+                priority_values=priority_values,
+                complexity_values=complexity_values,
+                feature=feature,
+                tags=tags,
+                include_archived=include_archived,
+            ):
+                return False
+            seen_entity_ids.add(entity.id)
+            entities.append(entity)
+            return True
+
+        query_offset = 0
+        native_matches = 0
         seen_pages: set[tuple[str | None, ...]] = set()
 
-        while len(entities) < target_count:
+        while native_matches < target_count:
             records = await self._surreal_scan_recent_episode_records(
                 limit=page_size,
                 offset=query_offset,
@@ -751,34 +756,60 @@ class EntityManager:
                     log.debug("Failed to hydrate Surreal episode record", error=str(exc))
                     continue
 
-                if entity.id in seen_entity_ids:
-                    continue
-                if not self._entity_matches_filters(
-                    entity,
-                    project_id=project_id,
-                    epic_id=epic_id,
-                    no_epic=no_epic,
-                    status_values=status_values,
-                    priority_values=priority_values,
-                    complexity_values=complexity_values,
-                    feature=feature,
-                    tags=tags,
-                    include_archived=include_archived,
-                ):
-                    continue
-
-                seen_entity_ids.add(entity.id)
-                entities.append(entity)
-                if len(entities) >= target_count:
-                    break
+                if append_if_allowed(entity):
+                    native_matches += 1
 
             query_offset += len(records)
             if len(records) < page_size:
                 break
 
-        if requires_python_rechecks:
-            return entities[offset : offset + limit]
-        return entities[:limit]
+        legacy_offset = 0
+        legacy_matches = 0
+        legacy_seen_pages: set[tuple[str | None, ...]] = set()
+
+        while legacy_matches < target_count:
+            records = await self._surreal_select_entity_records(
+                entity_type=EntityType.EPISODE,
+                limit=page_size,
+                offset=legacy_offset,
+                project_id=project_id,
+                epic_id=epic_id,
+                no_epic=no_epic,
+                status_values=status_values,
+                priority_values=priority_values,
+                complexity_values=complexity_values,
+                feature=feature,
+                include_archived=include_archived,
+            )
+            if not records:
+                break
+
+            page_signature = tuple(
+                record_uuid if isinstance(record_uuid := record.get("uuid"), str) else None
+                for record in records
+            )
+            if page_signature in legacy_seen_pages:
+                log.warning(
+                    "Surreal legacy episode entity page repeated, stopping pagination",
+                    query_offset=legacy_offset,
+                    query_limit=page_size,
+                )
+                break
+            legacy_seen_pages.add(page_signature)
+
+            for record in records:
+                try:
+                    if append_if_allowed(self._record_to_entity(record)):
+                        legacy_matches += 1
+                except Exception as exc:
+                    log.debug("Failed to hydrate Surreal legacy episode entity", error=str(exc))
+
+            legacy_offset += len(records)
+            if len(records) < page_size:
+                break
+
+        entities.sort(key=self._entity_sort_key, reverse=True)
+        return entities[offset : offset + limit]
 
     async def _surreal_list_entities_direct(
         self,
