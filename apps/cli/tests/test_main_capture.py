@@ -137,7 +137,11 @@ def test_remember_command_records_domain_memory_with_links(
 ) -> None:
     mock_client = MagicMock()
     mock_client.remember_raw_memory = AsyncMock(
-        return_value={"id": "raw_123", "source_id": "cli:manual"}
+        return_value={
+            "id": "raw_123",
+            "source_id": "cli:manual",
+            "policy_reason": "private_principal_bound",
+        }
     )
     mock_client.create_entity = AsyncMock(return_value={"id": "decision_123"})
     mock_client.explore = AsyncMock(return_value={"entities": []})
@@ -200,6 +204,7 @@ def test_remember_command_records_domain_memory_with_links(
             "project_id": "project_123",
             "raw_memory_id": "raw_123",
             "raw_source_id": "cli:manual",
+            "raw_policy_reason": "private_principal_bound",
         },
         sync=False,
     )
@@ -211,6 +216,7 @@ def test_remember_command_records_domain_memory_with_links(
         limit=2,
     )
     assert "Queued decision" in result.stdout
+    assert "Policy: private_principal_bound" in result.stdout
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
@@ -310,7 +316,9 @@ def test_remember_command_can_store_raw_memory(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
-    mock_client.remember_raw_memory = AsyncMock(return_value={"id": "memory_123"})
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "memory_123", "policy_reason": "private_principal_bound"}
+    )
     mock_get_client.return_value = _FakeClientContext(mock_client)
 
     runner = CliRunner()
@@ -349,6 +357,7 @@ def test_remember_command_can_store_raw_memory(
         capture_surface="cli",
     )
     assert "Remembered raw memory" in result.stdout
+    assert "Policy: private_principal_bound" in result.stdout
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 

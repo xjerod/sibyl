@@ -43,7 +43,10 @@ def test_search_command_renders_longer_previews(
                     "id": "entity_123",
                     "name": "Result name",
                     "source": "example-source",
-                    "content": "[Docs > Search] " + ("alpha " * 18) + "MAGICLATE " + ("omega " * 20),
+                    "content": "[Docs > Search] "
+                    + ("alpha " * 18)
+                    + "MAGICLATE "
+                    + ("omega " * 20),
                     "metadata": {"heading_path": ["Docs", "Search"]},
                 }
             ]
@@ -180,6 +183,7 @@ def test_recall_command_can_render_raw_memories(
                     "title": "Context packs",
                     "source_id": "cli:test",
                     "memory_scope": "private",
+                    "policy_reason": "private_principal_bound",
                     "score": 1.0,
                     "raw_content": "Context packs should carry source ids.",
                 }
@@ -203,6 +207,7 @@ def test_recall_command_can_render_raw_memories(
     )
     assert "Context packs" in result.stdout
     assert "memory_123" in result.stdout
+    assert "policy=private_principal_bound" in result.stdout
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 

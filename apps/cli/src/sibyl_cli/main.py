@@ -218,13 +218,15 @@ def _print_raw_memory_results(memories: list[object]) -> None:
         content = str(memory.get("raw_content") or "")
         score = memory.get("score")
         scope = str(memory.get("memory_scope") or "private")
+        policy_reason = str(memory.get("policy_reason") or "")
 
         source_label = f" [dim]({source_id})[/dim]" if source_id else ""
         console.print(f"  [{NEON_CYAN}]{title}[/{NEON_CYAN}]{source_label}")
         if content:
             console.print(f"    {_format_search_preview(content)}", soft_wrap=True)
         score_label = f" score={score}" if score else ""
-        console.print(f"    [dim]scope={scope}{score_label}[/dim]")
+        policy_label = f" policy={policy_reason}" if policy_reason else ""
+        console.print(f"    [dim]scope={scope}{score_label}{policy_label}[/dim]")
         console.print(f"    [{CORAL}]{memory_id}[/{CORAL}]")
         console.print()
 
@@ -745,6 +747,8 @@ def remember_memory(
                     label = f"diary entry for {agent}" if diary else "raw memory"
                     success(f"Remembered {label}: {title}")
                     console.print(f"  [dim]ID: {memory_id}[/dim]")
+                    if policy_reason := data.get("policy_reason"):
+                        console.print(f"  [dim]Policy: {policy_reason}[/dim]")
                     return
 
                 resolved_links = await _resolve_capture_links(
@@ -776,11 +780,14 @@ def remember_memory(
                 )
                 raw_memory_id = raw_memory.get("id")
                 raw_source_id = raw_memory.get("source_id")
+                raw_policy_reason = raw_memory.get("policy_reason")
                 graph_metadata = dict(metadata)
                 if raw_memory_id:
                     graph_metadata["raw_memory_id"] = raw_memory_id
                 if raw_source_id:
                     graph_metadata["raw_source_id"] = raw_source_id
+                if raw_policy_reason:
+                    graph_metadata["raw_policy_reason"] = raw_policy_reason
                 data = await client.create_entity(
                     name=title,
                     content=resolved_content,
@@ -797,6 +804,7 @@ def remember_memory(
                 if json_output:
                     data["raw_memory_id"] = raw_memory_id
                     data["raw_source_id"] = raw_source_id
+                    data["raw_policy_reason"] = raw_policy_reason
                     print_json(data)
                     return
 
@@ -807,6 +815,8 @@ def remember_memory(
                 console.print(f"  [dim]ID: {entity_id}[/dim]")
                 if raw_memory_id:
                     console.print(f"  [dim]Raw: {raw_memory_id}[/dim]")
+                if raw_policy_reason:
+                    console.print(f"  [dim]Policy: {raw_policy_reason}[/dim]")
         except SibylClientError as e:
             _handle_client_error(e)
 
