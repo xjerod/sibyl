@@ -128,6 +128,7 @@ async def test_reflect_memory_can_persist_review_queue(
         project="project_123",
         organization_id="org_123",
         principal_id="user_123",
+        accessible_projects={"project_123"},
         memory_scope="project",
         scope_key="project_123",
         persist=True,
@@ -144,8 +145,62 @@ async def test_reflect_memory_can_persist_review_queue(
     assert pack.candidates[0].suggested_scope_key == "project_123"
     assert pack.candidates[0].metadata["raw_source_ids"] == ["raw-source-1"]
     assert pack.candidates[0].metadata["review_state"] == "pending"
+    assert pack.candidates[0].metadata["policy_allowed"] is True
+    assert pack.candidates[0].metadata["policy_reasons"] == [
+        "same_scope_reflect_allowed",
+        "same_scope_write_allowed",
+    ]
+    assert calls[0][1]["policy_metadata"]["policy_reasons"] == [
+        "same_scope_reflect_allowed",
+        "same_scope_write_allowed",
+    ]
     assert calls[1][1]["memory_scope"] is MemoryScope.PROJECT
     assert calls[1][1]["extraction_prompt_metadata"]["extractor"] == "sibyl_reflect_heuristic"
+    assert add_fn.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_reflect_memory_review_persistence_denies_unverified_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    add_fn = AsyncMock(side_effect=AssertionError("graph add path should not run"))
+    source_review = AsyncMock(side_effect=AssertionError("source review should not persist"))
+    candidate_review = AsyncMock(side_effect=AssertionError("candidate review should not persist"))
+
+    monkeypatch.setattr(
+        "sibyl_core.tools.reflect._persist_reflection_source_review",
+        source_review,
+    )
+    monkeypatch.setattr(
+        "sibyl_core.tools.reflect._persist_reflection_candidate_review",
+        candidate_review,
+    )
+
+    pack = await reflect_memory(
+        "We decided project review writes need verified membership.",
+        source_title="Reflection denial",
+        intent="build",
+        domain="sibyl",
+        project="project_123",
+        organization_id="org_123",
+        principal_id="user_123",
+        accessible_projects={"project_other"},
+        memory_scope="project",
+        scope_key="project_123",
+        persist=True,
+        persist_review=True,
+        add_fn=add_fn,
+    )
+
+    assert pack.source_id is None
+    assert pack.persisted_count == 0
+    assert pack.candidates[0].metadata["policy_allowed"] is False
+    assert pack.candidates[0].metadata["policy_reasons"] == [
+        "unverified_membership",
+        "unverified_membership",
+    ]
+    source_review.assert_not_awaited()
+    candidate_review.assert_not_awaited()
     assert add_fn.await_count == 0
 
 

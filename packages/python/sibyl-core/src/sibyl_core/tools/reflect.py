@@ -8,6 +8,11 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from typing import Any
 
+from sibyl_core.auth.memory_policy import (
+    MemoryPolicyDecision,
+    authorize_memory_reflect,
+    authorize_memory_write,
+)
 from sibyl_core.models.reflection import ReflectionCandidate, ReflectionPack
 from sibyl_core.services.surreal_content import MemoryScope
 from sibyl_core.tools.add import add as default_add
@@ -289,6 +294,41 @@ async def reflect_memory(
         ]
     candidates = _dedupe(candidates, limit)
 
+    review_policy_metadata: dict[str, Any] = {}
+    if persist and persist_review:
+        review_decisions = _authorize_reflection_review_write(
+            principal_id=principal_id,
+            memory_scope=resolved_scope,
+            scope_key=resolved_scope_key,
+            accessible_projects=accessible_projects,
+        )
+        review_policy_metadata = _reflect_policy_metadata(review_decisions)
+        if any(not decision.allowed for decision in review_decisions):
+            denied_candidates = [
+                _candidate_with_review_metadata(
+                    replace(
+                        candidate,
+                        metadata={**candidate.metadata, **review_policy_metadata},
+                    ),
+                    raw_source_ids=[],
+                    suggested_memory_scope=resolved_scope,
+                    suggested_scope_key=resolved_scope_key,
+                    extraction_prompt_metadata=extraction_prompt_metadata,
+                    source_id=None,
+                )
+                for candidate in candidates
+            ]
+            return ReflectionPack(
+                source_title=source_title,
+                source_id=None,
+                intent=intent,
+                domain=domain,
+                project=project,
+                candidates=denied_candidates,
+                total_candidates=len(candidates),
+                persisted_count=0,
+            )
+
     source_id: str | None = None
     use_native_write = persist and _native_reflection_write_enabled()
     if persist and persist_source:
@@ -304,6 +344,7 @@ async def reflect_memory(
                 memory_scope=resolved_scope,
                 scope_key=resolved_scope_key,
                 extraction_prompt_metadata=extraction_prompt_metadata,
+                policy_metadata=review_policy_metadata,
             )
         elif use_native_write:
             source = await _persist_reflection_source_native(
@@ -381,8 +422,9 @@ async def reflect_memory(
         if source_id:
             metadata["reflection_source_id"] = source_id
         if persist_review:
+            candidate_metadata = {**metadata, **review_policy_metadata}
             review = await _persist_reflection_candidate_review(
-                candidate=replace(candidate, metadata=metadata),
+                candidate=replace(candidate, metadata=candidate_metadata),
                 organization_id=str(organization_id),
                 principal_id=str(principal_id),
                 raw_source_ids=raw_source_ids,
@@ -396,7 +438,7 @@ async def reflect_memory(
             persisted.append(
                 replace(
                     candidate,
-                    metadata={**metadata, "review_state": review.review_state},
+                    metadata={**candidate_metadata, "review_state": review.review_state},
                     persisted_id=review.id,
                     review_state=review.review_state,
                 )
@@ -569,9 +611,42 @@ def _candidate_with_review_metadata(
     )
 
 
+def _authorize_reflection_review_write(
+    *,
+    principal_id: str | None,
+    memory_scope: MemoryScope,
+    scope_key: str | None,
+    accessible_projects: set[str] | None,
+) -> tuple[MemoryPolicyDecision, MemoryPolicyDecision]:
+    reflect_decision = authorize_memory_reflect(
+        principal_id=principal_id,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        accessible_projects=accessible_projects,
+    )
+    write_decision = authorize_memory_write(
+        principal_id=principal_id,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        accessible_projects=accessible_projects,
+    )
+    return reflect_decision, write_decision
+
+
+def _reflect_policy_metadata(decisions: tuple[MemoryPolicyDecision, ...]) -> dict[str, Any]:
+    return {
+        "memory_scope": decisions[0].memory_scope.value,
+        "scope_key": decisions[0].scope_key,
+        "policy_allowed": all(decision.allowed for decision in decisions),
+        "policy_reasons": [decision.reason for decision in decisions],
+        "policy_actions": [decision.action.value for decision in decisions],
+    }
+
+
 async def _persist_reflection_source_review(**kwargs: Any) -> AddResponse:
     from sibyl_core.services.surreal_content import remember_raw_memory
 
+    policy_metadata = dict(kwargs.get("policy_metadata") or {})
     memory = await remember_raw_memory(
         organization_id=kwargs["organization_id"],
         principal_id=kwargs["principal_id"],
@@ -592,6 +667,7 @@ async def _persist_reflection_source_review(**kwargs: Any) -> AddResponse:
             "related_to": list(kwargs.get("related_to") or []),
             "extraction_prompt_metadata": dict(kwargs["extraction_prompt_metadata"]),
             "review_state": "pending",
+            **policy_metadata,
         },
         provenance={"capture_mode": "reflect"},
         capture_surface="reflection_source",
