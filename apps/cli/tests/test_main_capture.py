@@ -706,6 +706,7 @@ def test_reflect_command_outputs_markdown_candidates(
         related_to=["project_123"],
         persist=True,
         persist_source=True,
+        persist_review=False,
         limit=12,
     )
     mock_client.explore.assert_awaited_once_with(
@@ -748,6 +749,7 @@ def test_reflect_command_reads_notes_from_stdin(
         related_to=None,
         persist=False,
         persist_source=True,
+        persist_review=False,
         limit=12,
     )
     mock_client.explore.assert_not_called()
@@ -800,6 +802,7 @@ def test_reflect_command_can_persist_candidates_without_source(
         related_to=None,
         persist=True,
         persist_source=False,
+        persist_review=False,
         limit=12,
     )
     mock_client.explore.assert_awaited_once_with(
@@ -848,6 +851,43 @@ def test_reflect_command_persist_auto_links_single_active_project_task(
     mock_client.reflect.assert_awaited_once()
     payload = mock_client.reflect.await_args.kwargs
     assert payload["related_to"] == ["task_active"]
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_reflect_command_can_persist_review_queue(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.reflect = AsyncMock(
+        return_value={
+            "source_title": "Planning",
+            "source_id": "raw-source-1",
+            "persisted_count": 1,
+            "total_candidates": 1,
+            "candidates": [{"kind": "decision", "persisted_id": "raw-candidate-1"}],
+            "markdown": "# Sibyl Reflection: Planning",
+        }
+    )
+    mock_client.explore = AsyncMock(return_value={"entities": []})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "reflect",
+            "We decided reviewed candidates should wait for promotion.",
+            "--persist",
+            "--review",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert mock_client.reflect.await_args.kwargs["persist"] is True
+    assert mock_client.reflect.await_args.kwargs["persist_review"] is True
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 

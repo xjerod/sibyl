@@ -429,6 +429,10 @@ class ReflectionRequest(BaseModel):
         default=True,
         description="When persisting, also store the raw source notes as a session memory",
     )
+    persist_review: bool = Field(
+        default=False,
+        description="Store persisted output in the raw review queue instead of graph promotion",
+    )
     limit: int = Field(default=12, ge=1, le=25, description="Maximum candidates")
 
 
@@ -442,6 +446,10 @@ class ReflectionCandidateResponse(BaseModel):
     confidence: float
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    raw_source_ids: list[str] = Field(default_factory=list)
+    suggested_memory_scope: MemoryScopeLiteral | None = None
+    suggested_scope_key: str | None = None
+    review_state: str = "pending"
     persisted_id: str | None = None
 
 

@@ -854,6 +854,11 @@ def reflect_memory(
         "--source/--no-source",
         help="When persisting, also store the raw notes as a session memory",
     ),
+    persist_review: bool = typer.Option(
+        False,
+        "--review",
+        help="Store persisted output in the raw review queue instead of graph promotion",
+    ),
     limit: int = typer.Option(12, "--limit", "-l", min=1, max=25, help="Maximum candidates"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
@@ -892,6 +897,7 @@ def reflect_memory(
                     related_to=resolved_links,
                     persist=persist,
                     persist_source=persist_source,
+                    persist_review=persist_review,
                     limit=limit,
                 )
 

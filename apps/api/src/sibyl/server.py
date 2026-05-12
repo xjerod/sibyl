@@ -303,6 +303,7 @@ async def _reflect_mcp_memory(
     active_task: bool = True,
     persist: bool = False,
     persist_source: bool = True,
+    persist_review: bool = False,
     limit: int = 12,
 ) -> dict[str, Any]:
     from sibyl_core.tools.core import (
@@ -338,6 +339,7 @@ async def _reflect_mcp_memory(
         scope_key=project,
         persist=persist,
         persist_source=persist_source,
+        persist_review=persist_review,
         limit=limit,
     )
     payload = reflection_pack_to_dict(pack)
@@ -884,6 +886,7 @@ def _register_tools(mcp: FastMCP) -> None:
         active_task: bool = True,
         persist: bool = False,
         persist_source: bool = True,
+        persist_review: bool = False,
         limit: int = 12,
     ) -> dict[str, Any]:
         """Reflect raw notes into reviewable durable memory candidates.
@@ -891,9 +894,10 @@ def _register_tools(mcp: FastMCP) -> None:
         Use this after planning, ideation, debugging, or building sessions to
         extract decisions, plans, ideas, claims, artifacts, procedures, and
         session checkpoints. Set persist=True when the candidates should be
-        written back into Sibyl immediately. Provide task_ids for exact task
-        context. With persist=True and a project, active_task links persisted
-        output to the single active doing task when one exists.
+        written back into Sibyl. Set persist_review=True to store them in the
+        raw review queue instead of graph promotion. Provide task_ids for exact
+        task context. With persist=True and a project, active_task links
+        persisted output to the single active doing task when one exists.
         """
         return await _reflect_mcp_memory(
             content=content,
@@ -906,6 +910,7 @@ def _register_tools(mcp: FastMCP) -> None:
             active_task=active_task,
             persist=persist,
             persist_source=persist_source,
+            persist_review=persist_review,
             limit=limit,
         )
 

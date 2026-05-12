@@ -184,6 +184,7 @@ async def reflect_context(
             scope_key=request.project,
             persist=request.persist,
             persist_source=request.persist_source,
+            persist_review=request.persist_review,
             limit=request.limit,
         )
         payload = reflection_pack_to_dict(pack)

@@ -324,6 +324,7 @@ class TestReflectRoute:
         assert reflect_memory.await_args.kwargs["scope_key"] == "proj_1"
         assert reflect_memory.await_args.kwargs["persist"] is True
         assert reflect_memory.await_args.kwargs["persist_source"] is True
+        assert reflect_memory.await_args.kwargs["persist_review"] is False
         explore.assert_awaited_once_with(
             mode="list",
             types=["task"],
@@ -383,6 +384,41 @@ class TestReflectRoute:
         assert reflect_memory.await_args.kwargs["memory_scope"] == "project"
         assert reflect_memory.await_args.kwargs["scope_key"] == "proj_1"
         explore.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_reflect_can_request_review_queue_persistence(self) -> None:
+        from sibyl.api.routes.context import reflect_context
+
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        ctx = _ctx()
+
+        with (
+            patch(
+                "sibyl.api.routes.context.verify_entity_project_access",
+                AsyncMock(),
+            ),
+            patch(
+                "sibyl_core.tools.core.reflect_memory",
+                AsyncMock(return_value=_reflection_pack()),
+            ) as reflect_memory,
+            patch(
+                "sibyl_core.tools.core.explore",
+                AsyncMock(return_value=SimpleNamespace(entities=[])),
+            ),
+        ):
+            await reflect_context(
+                request=ReflectionRequest(
+                    content="We decided to add reflect.",
+                    project="proj_1",
+                    persist=True,
+                    persist_review=True,
+                ),
+                org=org,
+                ctx=ctx,
+            )
+
+        assert reflect_memory.await_args.kwargs["persist"] is True
+        assert reflect_memory.await_args.kwargs["persist_review"] is True
 
     @pytest.mark.asyncio
     async def test_reflect_skips_active_task_lookup_when_not_persisting(self) -> None:
