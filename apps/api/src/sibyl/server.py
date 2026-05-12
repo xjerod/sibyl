@@ -18,6 +18,10 @@ from sibyl.persistence.auth_runtime import (
     has_owner_membership,
     resolve_accessible_project_graph_ids,
 )
+from sibyl_core.auth.memory_policy import (
+    MemoryPolicyDecision,
+    authorize_memory_write,
+)
 
 log = structlog.get_logger()
 
@@ -155,6 +159,8 @@ async def _resolve_mcp_project_scope(
     """Resolve accessible project scope for MCP tools."""
     accessible_projects = await _get_accessible_projects(ctx)
     if accessible_projects is None:
+        if project:
+            return {project}
         return None
     if project:
         if project not in accessible_projects:
@@ -163,6 +169,45 @@ async def _resolve_mcp_project_scope(
     if require_project_when_restricted:
         raise ValueError("Project is required when MCP credentials are project-scoped.")
     return accessible_projects
+
+
+def _log_mcp_policy_decision(
+    *,
+    ctx: McpContext,
+    decision: MemoryPolicyDecision,
+    surface: str,
+) -> None:
+    log.info(
+        "mcp_memory_policy_decision",
+        action=decision.action.value,
+        allowed=decision.allowed,
+        memory_scope=decision.memory_scope.value,
+        organization_id=ctx.org_id,
+        policy_reason=decision.reason,
+        principal_id=ctx.user_id,
+        scope_key=decision.scope_key,
+        surface=surface,
+    )
+
+
+def _authorize_mcp_memory_write(
+    *,
+    ctx: McpContext,
+    memory_scope: str,
+    scope_key: str | None,
+    accessible_projects: set[str] | None,
+    surface: str,
+) -> MemoryPolicyDecision:
+    decision = authorize_memory_write(
+        principal_id=ctx.user_id,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        accessible_projects=accessible_projects,
+    )
+    _log_mcp_policy_decision(ctx=ctx, decision=decision, surface=surface)
+    if not decision.allowed:
+        raise ValueError(decision.reason)
+    return decision
 
 
 def _append_unique_ids(existing: list[str] | None, additions: list[str] | None) -> list[str] | None:
@@ -230,13 +275,21 @@ async def _remember_mcp_memory(
     from sibyl_core.tools.core import add
 
     ctx = await _require_mcp_context()
-    await _resolve_mcp_project_scope(
+    accessible_projects = await _resolve_mcp_project_scope(
         ctx,
         project,
         require_project_when_restricted=True,
     )
     if not ctx.user_id:
         raise ValueError("User context required to remember raw source material.")
+    memory_scope = "project" if project else "private"
+    write_decision = _authorize_mcp_memory_write(
+        ctx=ctx,
+        memory_scope=memory_scope,
+        scope_key=project,
+        accessible_projects=accessible_projects,
+        surface="mcp_remember",
+    )
 
     full_metadata = dict(metadata or {})
     full_metadata["capture_kind"] = kind
@@ -260,7 +313,7 @@ async def _remember_mcp_memory(
         source_id=f"mcp:remember:{kind}",
         raw_content=content,
         title=title,
-        memory_scope="project" if project else "private",
+        memory_scope=memory_scope,
         scope_key=project,
         tags=tags,
         metadata=dict(full_metadata),
@@ -286,6 +339,7 @@ async def _remember_mcp_memory(
     payload = _to_dict(result)
     payload["raw_memory_id"] = raw_memory.id
     payload["raw_source_id"] = raw_memory.source_id
+    payload["policy_reason"] = write_decision.reason
     return payload
 
 

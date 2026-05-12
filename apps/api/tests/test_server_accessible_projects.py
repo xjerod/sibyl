@@ -8,6 +8,7 @@ import pytest
 
 from sibyl.server import (
     McpContext,
+    _authorize_mcp_memory_write,
     _get_accessible_projects,
     _get_mcp_context,
     _reflect_mcp_memory,
@@ -77,6 +78,16 @@ async def test_resolve_mcp_project_scope_allows_explicit_accessible_project() ->
 
 
 @pytest.mark.asyncio
+async def test_resolve_mcp_project_scope_returns_explicit_project_for_unfiltered_context() -> None:
+    ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
+
+    with patch("sibyl.server._get_accessible_projects", AsyncMock(return_value=None)):
+        result = await _resolve_mcp_project_scope(ctx, project="project-a")
+
+    assert result == {"project-a"}
+
+
+@pytest.mark.asyncio
 async def test_resolve_mcp_project_scope_rejects_inaccessible_project() -> None:
     ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
 
@@ -136,6 +147,7 @@ async def test_remember_mcp_memory_scopes_project_metadata() -> None:
         "id": "decision_123",
         "raw_memory_id": "raw_123",
         "raw_source_id": "mcp:remember:decision",
+        "policy_reason": "same_scope_write_allowed",
     }
     remember_raw.assert_awaited_once_with(
         organization_id=ctx.org_id,
@@ -176,6 +188,34 @@ async def test_remember_mcp_memory_scopes_project_metadata() -> None:
         },
         project="project-a",
     )
+
+
+def test_authorize_mcp_memory_write_returns_policy_reason() -> None:
+    ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
+
+    decision = _authorize_mcp_memory_write(
+        ctx=ctx,
+        memory_scope="project",
+        scope_key="project-a",
+        accessible_projects={"project-a"},
+        surface="mcp_remember",
+    )
+
+    assert decision.allowed
+    assert decision.reason == "same_scope_write_allowed"
+
+
+def test_authorize_mcp_memory_write_denies_unverified_project() -> None:
+    ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
+
+    with pytest.raises(ValueError, match="unverified_membership"):
+        _authorize_mcp_memory_write(
+            ctx=ctx,
+            memory_scope="project",
+            scope_key="project-b",
+            accessible_projects={"project-a"},
+            surface="mcp_remember",
+        )
 
 
 @pytest.mark.asyncio
