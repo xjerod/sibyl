@@ -457,7 +457,7 @@ async def _recall_raw_candidates(
                 continue
             seen_ids.add(memory.id)
             candidates.append(_candidate_from_raw_memory(memory, scope))
-    return candidates
+    return sorted(candidates, key=lambda candidate: candidate.score, reverse=True)
 
 
 async def _node_fulltext_candidates(

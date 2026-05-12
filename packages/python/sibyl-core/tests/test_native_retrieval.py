@@ -13,7 +13,7 @@ from sibyl_core.retrieval.native import (
     coerce_native_retrieval_mode,
     native_retrieval_mode_from_env,
 )
-from sibyl_core.services.surreal_content import MemoryScope
+from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 
 
 def test_native_retrieval_mode_defaults_to_graphiti() -> None:
@@ -220,6 +220,72 @@ def test_vector_matches_with_lexical_signal_do_not_demote() -> None:
     )
 
     assert "vector_only_demoted" not in ranked[0][2]
+
+
+@pytest.mark.asyncio
+async def test_raw_candidates_sort_by_relevance_across_scopes() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="What should Nova recall from the diary for delegated handoff? sibyl",
+        organization_id="org-123",
+        facets=[ContextFacet.RECENT_MEMORY],
+        facet_types={ContextFacet.RECENT_MEMORY: ["session", "episode", "note"]},
+        principal_id="user-123",
+        project=None,
+        accessible_projects=None,
+        agent_id="nova",
+        limit=8,
+    )
+
+    async def fake_recall(**kwargs: object) -> list[RawMemory]:
+        if kwargs.get("agent_id") == "nova":
+            return [
+                RawMemory(
+                    id="diary-1",
+                    organization_id="org-123",
+                    source_id="baseline:agent-diary",
+                    principal_id="user-123",
+                    agent_id="nova",
+                    title="Nova Baseline Diary",
+                    raw_content="Nova diary says checkpoint Neon Thread for delegated handoff.",
+                    capture_surface="agent_diary",
+                    metadata={"agent_id": "nova", "memory_kind": "agent_diary"},
+                    score=0.7,
+                )
+            ]
+        return [
+            RawMemory(
+                id="private-1",
+                organization_id="org-123",
+                source_id="baseline:delegated-recall",
+                principal_id="user-123",
+                title="Delegated Recall Baseline",
+                raw_content="Delegated recall baseline says Obsidian Spire covers storage.",
+                score=0.3,
+            ),
+            RawMemory(
+                id="private-2",
+                organization_id="org-123",
+                source_id="baseline:personal-memory",
+                principal_id="user-123",
+                title="Personal Baseline Memory",
+                raw_content="Personal baseline memory says remember Amethyst Loom.",
+                score=0.2,
+            ),
+        ]
+
+    candidates = await native_module._recall_raw_candidates(
+        plan=plan,
+        facet=ContextFacet.RECENT_MEMORY,
+        requested_types={"session", "episode", "note"},
+        limit=2,
+        recall_fn=fake_recall,
+    )
+
+    assert [candidate.id for candidate in candidates] == [
+        "raw_memory:diary-1",
+        "raw_memory:private-1",
+        "raw_memory:private-2",
+    ]
 
 
 class _EdgeFulltextClient:

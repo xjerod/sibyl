@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 import pytest
 
+import sibyl_core.retrieval.native as native_module
 import sibyl_core.tools.context as context_module
 from sibyl_core.models.context import ContextFacet, ContextIntent, ContextLayer, ContextRelatedItem
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
@@ -413,6 +414,67 @@ async def test_compile_context_can_include_agent_diary_with_raw_memory() -> None
     assert raw_calls[0]["agent_id"] is None
     assert raw_calls[2]["agent_id"] == "nova"
     assert raw_calls[2]["project_id"] == "project_123"
+
+
+@pytest.mark.asyncio
+async def test_compile_context_native_ranks_agent_diary_by_relevance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class EmptyNativeClient:
+        async def execute_query(self, *_args: object, **_kwargs: object) -> list[object]:
+            return []
+
+    class EmptyNativeRuntime:
+        client = EmptyNativeClient()
+
+    async def fake_native_runtime(_organization_id: str) -> EmptyNativeRuntime:
+        return EmptyNativeRuntime()
+
+    async def fake_raw_recall(**kwargs: Any) -> list[RawMemory]:
+        if kwargs.get("agent_id") == "nova":
+            return [
+                RawMemory(
+                    id="diary-1",
+                    organization_id="org-123",
+                    source_id="baseline:agent-diary",
+                    principal_id="user-123",
+                    agent_id="nova",
+                    title="Nova Baseline Diary",
+                    raw_content="Nova diary says checkpoint Neon Thread for delegated handoff.",
+                    metadata={"agent_id": "nova", "memory_kind": "agent_diary"},
+                    capture_surface="agent_diary",
+                    captured_at=datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+                    created_at=datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+                    score=0.7,
+                )
+            ]
+        if kwargs["memory_scope"] == "private":
+            return [
+                _raw_memory("private-1", score=0.3),
+                _raw_memory("private-2", score=0.2),
+            ]
+        return []
+
+    monkeypatch.setattr(native_module, "get_native_graph_runtime", fake_native_runtime)
+
+    pack = await compile_context(
+        "What should Nova recall from the diary for delegated handoff?",
+        intent="learn",
+        domain="sibyl",
+        principal_id="user-123",
+        agent_id="nova",
+        organization_id="org-123",
+        limit=8,
+        raw_memory_recall_fn=fake_raw_recall,
+        retrieval_mode="native",
+    )
+
+    assert pack.sections[0].facet == ContextFacet.RECENT_MEMORY
+    assert [item.id for item in pack.sections[0].items] == [
+        "raw_memory:diary-1",
+        "raw_memory:private-1",
+    ]
+    assert "Neon Thread" in pack.sections[0].items[0].content
 
 
 @pytest.mark.asyncio

@@ -1001,6 +1001,68 @@ class TestSurrealContentHelpers:
         assert fallback_params["agent_diary_surface"] == "agent_diary"
 
     @pytest.mark.asyncio
+    async def test_recall_raw_memory_uses_lexical_when_fulltext_has_no_matches(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result([]),
+                _query_result(
+                    [
+                        {
+                            "uuid": "diary-1",
+                            "organization_id": "org-1",
+                            "source_id": "baseline:agent-diary",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "agent_id": "nova",
+                            "title": "Nova Baseline Diary",
+                            "raw_content": (
+                                "Nova diary says checkpoint Neon Thread for delegated handoff."
+                            ),
+                            "metadata": {"agent_id": "nova", "memory_kind": "agent_diary"},
+                            "capture_surface": "agent_diary",
+                        },
+                        {
+                            "uuid": "memory-2",
+                            "organization_id": "org-1",
+                            "source_id": "baseline:other",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "agent_id": "nova",
+                            "title": "Other diary",
+                            "raw_content": "Unrelated scratch notes.",
+                            "capture_surface": "agent_diary",
+                        },
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="What should Nova recall from the diary for delegated handoff? sibyl",
+                agent_id="nova",
+                limit=2,
+            )
+
+        assert [memory.id for memory in memories] == ["diary-1", "memory-2"]
+        assert memories[0].score > memories[1].score
+        fulltext_query, fulltext_params = fake_client.calls[0]
+        fallback_query, fallback_params = fake_client.calls[1]
+        assert "raw_content @1@ $search_query" in fulltext_query
+        assert "raw_content @1@ $search_query" not in fallback_query
+        assert fulltext_params["agent_id"] == "nova"
+        assert fallback_params["agent_id"] == "nova"
+
+    @pytest.mark.asyncio
     async def test_recall_raw_memory_requires_scope_key_for_project_scope(self) -> None:
         with pytest.raises(ValueError, match="project raw memory requires a scope_key"):
             await recall_raw_memory(

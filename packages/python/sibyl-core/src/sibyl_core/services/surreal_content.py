@@ -879,7 +879,21 @@ async def recall_raw_memory(
                 project_id=project_id,
                 limit=limit,
             )
-    return [_raw_memory_from_record(row) for row in rows]
+    memories = [_raw_memory_from_record(row) for row in rows]
+    if memories:
+        return memories
+
+    return await _recall_raw_memory_lexical(
+        client,
+        organization_id=organization_id,
+        principal_id=principal_id,
+        query=normalized_query,
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+        agent_id=agent_id,
+        project_id=project_id,
+        limit=limit,
+    )
 
 
 async def get_or_create_source(
