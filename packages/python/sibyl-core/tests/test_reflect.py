@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -71,6 +72,123 @@ async def test_reflect_memory_can_persist_candidates_with_provenance() -> None:
     assert calls[1]["metadata"]["reflection_source_id"] == "session_1"
     assert calls[1]["related_to"] == ["project_123", "session_1"]
     assert calls[1]["sync"] is True
+
+
+@pytest.mark.asyncio
+async def test_reflect_memory_native_write_uses_policy_and_direct_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_entities = []
+    created_relationships = []
+    add_fn = AsyncMock(side_effect=AssertionError("compatibility add path should not run"))
+
+    class FakeEntityManager:
+        async def create_direct(self, entity):
+            created_entities.append(entity)
+            return entity.id
+
+    class FakeRelationshipManager:
+        async def create_bulk(self, relationships):
+            created_relationships.extend(relationships)
+            return len(relationships), 0
+
+    async def fake_get_graph_runtime(_organization_id: str):
+        return type(
+            "Runtime",
+            (),
+            {
+                "entity_manager": FakeEntityManager(),
+                "relationship_manager": FakeRelationshipManager(),
+            },
+        )()
+
+    monkeypatch.setenv("SIBYL_NATIVE_WRITE", "enabled")
+    monkeypatch.setattr(
+        "sibyl_core.services.native_memory.get_graph_runtime",
+        fake_get_graph_runtime,
+    )
+
+    pack = await reflect_memory(
+        "We decided native reflection writes should bypass Graphiti add_episode.",
+        source_title="Native reflection",
+        intent="build",
+        domain="sibyl",
+        project="project_123",
+        related_to=["task_123"],
+        organization_id="org_123",
+        principal_id="user_123",
+        accessible_projects={"project_123"},
+        persist=True,
+        add_fn=add_fn,
+    )
+
+    assert pack.source_id is not None
+    assert pack.persisted_count == len(pack.candidates)
+    assert add_fn.await_count == 0
+    assert len(created_entities) == 2
+    assert {entity.entity_type.value for entity in created_entities} == {"session", "decision"}
+    assert created_entities[1].metadata["policy_allowed"] is True
+    assert created_entities[1].metadata["policy_reasons"] == [
+        "same_scope_reflect_allowed",
+        "same_scope_write_allowed",
+    ]
+    assert created_entities[1].metadata["raw_source_ids"] == [pack.source_id]
+    assert {relationship.relationship_type.value for relationship in created_relationships} >= {
+        "BELONGS_TO",
+        "DERIVED_FROM",
+        "RELATED_TO",
+    }
+
+
+@pytest.mark.asyncio
+async def test_reflect_memory_native_write_denies_unverified_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    add_fn = AsyncMock(side_effect=AssertionError("compatibility add path should not run"))
+    create_direct = AsyncMock()
+
+    async def fake_get_graph_runtime(_organization_id: str):
+        return type(
+            "Runtime",
+            (),
+            {
+                "entity_manager": type("EntityManager", (), {"create_direct": create_direct})(),
+                "relationship_manager": type(
+                    "RelationshipManager",
+                    (),
+                    {"create_bulk": AsyncMock()},
+                )(),
+            },
+        )()
+
+    monkeypatch.setenv("SIBYL_NATIVE_WRITE", "enabled")
+    monkeypatch.setattr(
+        "sibyl_core.services.native_memory.get_graph_runtime",
+        fake_get_graph_runtime,
+    )
+
+    pack = await reflect_memory(
+        "We decided unauthorized project writes must fail closed.",
+        source_title="Denied reflection",
+        intent="build",
+        domain="sibyl",
+        project="project_123",
+        organization_id="org_123",
+        principal_id="user_123",
+        accessible_projects={"project_other"},
+        persist=True,
+        add_fn=add_fn,
+    )
+
+    assert pack.source_id is None
+    assert pack.persisted_count == 0
+    assert add_fn.await_count == 0
+    create_direct.assert_not_awaited()
+    assert pack.candidates[0].metadata["policy_allowed"] is False
+    assert pack.candidates[0].metadata["policy_reasons"] == [
+        "unverified_membership",
+        "unverified_membership",
+    ]
 
 
 @pytest.mark.asyncio

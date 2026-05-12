@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from typing import Any
 
 from sibyl_core.models.reflection import ReflectionCandidate, ReflectionPack
+from sibyl_core.services.surreal_content import MemoryScope
 from sibyl_core.tools.add import add as default_add
 from sibyl_core.tools.responses import AddResponse
 
@@ -228,6 +229,10 @@ async def reflect_memory(
     project: str | None = None,
     related_to: list[str] | None = None,
     organization_id: str | None = None,
+    principal_id: str | None = None,
+    accessible_projects: set[str] | None = None,
+    memory_scope: str | MemoryScope | None = None,
+    scope_key: str | None = None,
     persist: bool = False,
     persist_source: bool = True,
     limit: int = 12,
@@ -272,30 +277,45 @@ async def reflect_memory(
     candidates = _dedupe(candidates, limit)
 
     source_id: str | None = None
+    use_native_write = persist and _native_reflection_write_enabled()
     if persist and persist_source:
-        source_metadata: dict[str, Any] = {
-            "organization_id": organization_id,
-            "capture_mode": "reflect",
-            "capture_surface": "reflection",
-            "remember_kind": "session",
-            "reflection_intent": intent,
-            "reflection_source": True,
-        }
-        if domain:
-            source_metadata["domain"] = domain
-        if project:
-            source_metadata["project_id"] = project
-        source = await add_fn(
-            title=source_title,
-            content=content,
-            entity_type="session",
-            category=domain,
-            tags=_tags_for("session", domain),
-            related_to=related_to,
-            metadata=source_metadata,
-            sync=True,
-            check_conflicts=False,
-        )
+        if use_native_write:
+            source = await _persist_reflection_source_native(
+                title=source_title,
+                content=content,
+                organization_id=str(organization_id),
+                principal_id=principal_id,
+                domain=domain,
+                project=project,
+                related_to=related_to,
+                accessible_projects=accessible_projects,
+                memory_scope=memory_scope,
+                scope_key=scope_key,
+            )
+        else:
+            source_metadata: dict[str, Any] = {
+                "organization_id": organization_id,
+                "capture_mode": "reflect",
+                "capture_surface": "reflection",
+                "remember_kind": "session",
+                "reflection_intent": intent,
+                "reflection_source": True,
+            }
+            if domain:
+                source_metadata["domain"] = domain
+            if project:
+                source_metadata["project_id"] = project
+            source = await add_fn(
+                title=source_title,
+                content=content,
+                entity_type="session",
+                category=domain,
+                tags=_tags_for("session", domain),
+                related_to=related_to,
+                metadata=source_metadata,
+                sync=True,
+                check_conflicts=False,
+            )
         if source.success:
             source_id = source.id
 
@@ -321,6 +341,30 @@ async def reflect_memory(
             metadata["domain"] = domain
         if source_id:
             metadata["reflection_source_id"] = source_id
+        if use_native_write:
+            native_result = await _persist_reflection_candidate_native(
+                candidate=replace(candidate, metadata=metadata),
+                organization_id=str(organization_id),
+                principal_id=principal_id,
+                domain=domain,
+                project=project,
+                source_id=source_id,
+                related_to=related_to,
+                accessible_projects=accessible_projects,
+                memory_scope=memory_scope,
+                scope_key=scope_key,
+            )
+            persisted.append(
+                replace(
+                    candidate,
+                    metadata={**metadata, **native_result.metadata},
+                    persisted_id=native_result.response.id
+                    if native_result.response.success
+                    else None,
+                )
+            )
+            continue
+
         result = await add_fn(
             title=candidate.title,
             content=candidate.content,
@@ -332,7 +376,11 @@ async def reflect_memory(
             sync=True,
             check_conflicts=True,
         )
-        persisted.append(replace(candidate, persisted_id=result.id if result.success else None))
+        persisted.append(
+            replace(
+                candidate, metadata=metadata, persisted_id=result.id if result.success else None
+            )
+        )
 
     return ReflectionPack(
         source_title=source_title,
@@ -384,3 +432,22 @@ __all__ = [
     "reflection_pack_to_dict",
     "reflection_pack_to_markdown",
 ]
+
+
+def _native_reflection_write_enabled() -> bool:
+    from sibyl_core.services.native_memory import native_reflection_write_enabled
+
+    return native_reflection_write_enabled()
+
+
+async def _persist_reflection_source_native(**kwargs: Any) -> AddResponse:
+    from sibyl_core.services.native_memory import persist_reflection_source_native
+
+    result = await persist_reflection_source_native(**kwargs)
+    return result.response
+
+
+async def _persist_reflection_candidate_native(**kwargs: Any):
+    from sibyl_core.services.native_memory import persist_reflection_candidate_native
+
+    return await persist_reflection_candidate_native(**kwargs)
