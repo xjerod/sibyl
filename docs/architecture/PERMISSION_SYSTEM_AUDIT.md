@@ -192,44 +192,31 @@ members” even for project-scoped writes when the project cannot be resolved in
 
 ---
 
-### B. Critical: Project membership endpoint uses the wrong identifier + missing org RBAC invariant
+### B. Critical: Project membership graph-ID and org-membership invariant
 
-**What**: `/api/projects/{project_id}/members` expects `project_id: UUID` (Postgres project primary
-key), but the web app calls it using graph project IDs (e.g. `project_<hash>`).
+**B2.2 update, 2026-05-13**: project-member routes now accept graph project IDs through the Surreal
+organization runtime, and project membership no longer grants access unless the actor is still an
+organization member. Adding or updating project members also requires the target user to belong to
+the organization. Member listings filter stale `project_members` rows for users who are no longer
+org members, while removal remains available so old grants can be cleaned up.
 
-- API expects UUID:
-  - `apps/api/src/sibyl/api/routes/project_members.py#L70-L76`
-- Web calls it with graph project IDs from explore/entities:
-  - `apps/web/src/lib/api.ts#L1787-L1820` (projects via explore; members endpoint uses same
-    `projectId`)
-  - `packages/python/sibyl-core/src/sibyl_core/tools/add.py#L165-L177` (graph project IDs)
+**Historical issue**: `/api/projects/{project_id}/members` and the web app needed to agree on graph
+project IDs such as `project_<hash>`, while the runtime had to resolve those IDs to Surreal auth
+`projects.uuid` before reading or writing `project_members`.
 
 **Why it matters**:
 
-- The membership management UI/API path likely does not work (422 validation errors).
-- Without working membership management, project RBAC cannot be configured and will remain in the
-  “migration/no-projects” fallback mode described above.
-
-**Second issue**: the route only checks that the project belongs to the org in the token; it **does
-not require org membership** (`OrganizationMember`) and does not use `require_org_role()`.
-
-- `apps/api/src/sibyl/api/routes/project_members.py#L70-L76` (no `require_org_role` dependency)
-- `_get_project_and_user_role()` checks `ProjectMember` but does not check `OrganizationMember`.
-  - `apps/api/src/sibyl/api/routes/project_members.py#L30-L58`
-
-**Impact**:
-
-- Even after fixing the ID mismatch, a user removed from an org could potentially retain project
-  access if `ProjectMember` rows remain (org removal does not cascade project membership removal).
-- This also violates a strong invariant: “project membership implies org membership”.
+- A user removed from an org must not retain access through stale `project_members` rows.
+- Membership management must use graph project IDs at route boundaries and Surreal auth project
+  UUIDs internally.
 
 **Recommendation**:
 
-- Change the route to accept **graph project IDs** (the canonical ID used by tasks, epics, and graph
-  entities), and resolve Postgres projects internally (like `resolve_project_by_graph_id()` does).
-- Enforce org membership (e.g., `dependencies=[Depends(require_org_role(...))]`) and/or enforce a DB
-  invariant (foreign keys / triggers / service-layer cleanup) so removing an org member removes all
-  project memberships and revokes sessions.
+- Keep route-boundary IDs as graph project IDs and resolve internally through the Surreal auth
+  runtime.
+- Add cleanup or cascade follow-up for stale `project_members` rows when org membership is removed.
+- Keep tests covering actor org membership, target org membership, stale-row filtering, and
+  stale-row removal.
 
 ---
 

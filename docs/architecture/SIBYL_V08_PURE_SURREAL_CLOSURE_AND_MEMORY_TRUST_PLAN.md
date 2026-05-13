@@ -904,6 +904,22 @@ Exit criteria:
 - Project member management works against graph project IDs.
 - Missing project records fail closed with stable reason or status.
 
+Receipt, 2026-05-13:
+
+- Commit: `d0cdea07`.
+- Changed files:
+  - `apps/api/src/sibyl/persistence/surreal/organization_runtime.py`
+  - `apps/api/tests/test_organization_runtime.py`
+- Verification:
+  - `moon run api:test -- tests/test_routes_project_members.py tests/test_organization_runtime.py`
+    -> 40 passed in 1.21s.
+  - `moon run api:lint api:typecheck` -> lint passed; typecheck exited 0 with the existing 63 ty
+    warnings.
+- Review: Claude cross-model review PASS at
+  `/tmp/claude-review-b22-project-members-org-invariant-1778708649.txt`.
+- Remaining risk: removing an org member still needs a cleanup or cascade follow-up for stale
+  `project_members` rows; the route now filters stale rows and still allows explicit removal.
+
 ### Packet B2.3: Setup Endpoint Gate
 
 Purpose: prevent setup routes from becoming a post-initialization privilege bypass.
