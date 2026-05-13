@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from sibyl.api.schemas import (
+    MemoryAuditEventResponse,
+    MemoryAuditListResponse,
     RawMemoryRecallRequest,
     RawMemoryRecallResponse,
     RawMemoryRememberRequest,
@@ -16,7 +20,11 @@ from sibyl.api.schemas import (
 from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
-from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids, log_memory_audit_event
+from sibyl.persistence.auth_runtime import (
+    list_accessible_project_graph_ids,
+    list_memory_audit_events,
+    log_memory_audit_event,
+)
 from sibyl_core.auth import AuthOrganization, MemoryPolicyContext, OrganizationRole, ProjectRole
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyAction,
@@ -48,6 +56,7 @@ _WRITE_ROLES = (
     OrganizationRole.ADMIN,
     OrganizationRole.MEMBER,
 )
+_ADMIN_ROLES = (OrganizationRole.OWNER, OrganizationRole.ADMIN)
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -291,6 +300,56 @@ def _promotion_response(result: NativeReflectionPromotionResult) -> ReflectionPr
     )
 
 
+def _str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _audit_event_response(row: dict[str, object]) -> MemoryAuditEventResponse:
+    details = row.get("details") if isinstance(row.get("details"), dict) else {}
+    payload = (
+        {str(key): value for key, value in details.items()} if isinstance(details, dict) else {}
+    )
+    return MemoryAuditEventResponse(
+        id=str(row.get("uuid") or ""),
+        organization_id=str(row["organization_id"]) if row.get("organization_id") else None,
+        user_id=str(row["user_id"]) if row.get("user_id") else None,
+        action=str(row.get("action") or ""),
+        memory_scope=payload.get("memory_scope")
+        if isinstance(payload.get("memory_scope"), str)
+        else None,
+        scope_key=payload.get("scope_key") if isinstance(payload.get("scope_key"), str) else None,
+        project_id=payload.get("project_id")
+        if isinstance(payload.get("project_id"), str)
+        else None,
+        source_surface=payload.get("source_surface")
+        if isinstance(payload.get("source_surface"), str)
+        else None,
+        source_ids=_str_list(payload.get("source_ids")),
+        source_ids_truncated=payload.get("source_ids_truncated")
+        if isinstance(payload.get("source_ids_truncated"), int)
+        else None,
+        derived_ids=_str_list(payload.get("derived_ids")),
+        derived_ids_truncated=payload.get("derived_ids_truncated")
+        if isinstance(payload.get("derived_ids_truncated"), int)
+        else None,
+        policy_allowed=payload.get("policy_allowed")
+        if isinstance(payload.get("policy_allowed"), bool)
+        else None,
+        policy_reason=payload.get("policy_reason")
+        if isinstance(payload.get("policy_reason"), str)
+        else None,
+        details=payload.get("details") if isinstance(payload.get("details"), dict) else {},
+        created_at=row.get("created_at") if isinstance(row.get("created_at"), datetime) else None,
+    )
+
+
+def _validate_memory_audit_action(action: str | None) -> None:
+    if action and not action.startswith("memory."):
+        raise HTTPException(status_code=400, detail="invalid_memory_audit_action")
+
+
 def _promotion_policy_allowed(result: NativeReflectionPromotionResult) -> bool | None:
     metadata = dict(result.metadata or {})
     raw_allowed = metadata.get("policy_allowed")
@@ -503,6 +562,41 @@ async def recall_raw(
     except Exception as e:
         log.exception("recall_raw_memory_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to recall raw memory.") from e
+
+
+@router.get(
+    "/audit",
+    response_model=MemoryAuditListResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def list_memory_audit(
+    org: AuthOrganization = Depends(get_current_organization),
+    action: str | None = Query(default=None, description="Filter by audit action"),
+    actor_user_id: str | None = Query(default=None, description="Filter by actor user ID"),
+    source_id: str | None = Query(default=None, description="Filter by source ID"),
+    derived_id: str | None = Query(default=None, description="Filter by derived ID"),
+    memory_scope: str | None = Query(default=None, description="Filter by memory scope"),
+    project_id: str | None = Query(default=None, description="Filter by project ID"),
+    policy_allowed: bool | None = Query(default=None, description="Filter by policy state"),
+    limit: int = Query(default=50, ge=1, le=200, description="Maximum audit events"),
+) -> MemoryAuditListResponse:
+    """List memory audit events for owner/admin inspection."""
+    _validate_memory_audit_action(action)
+    rows = await list_memory_audit_events(
+        organization_id=org.id,
+        user_id=actor_user_id,
+        action=action,
+        source_id=source_id,
+        derived_id=derived_id,
+        memory_scope=memory_scope,
+        project_id=project_id,
+        policy_allowed=policy_allowed,
+        limit=limit,
+    )
+    return MemoryAuditListResponse(
+        events=[_audit_event_response(row) for row in rows],
+        limit=limit,
+    )
 
 
 @router.post(

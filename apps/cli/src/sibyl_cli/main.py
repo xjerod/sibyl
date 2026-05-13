@@ -231,6 +231,78 @@ def _print_raw_memory_results(memories: list[object]) -> None:
         console.print()
 
 
+def _parse_policy_filter(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"allow", "allowed", "true", "1", "yes"}:
+        return True
+    if normalized in {"deny", "denied", "false", "0", "no"}:
+        return False
+    error("Policy filter must be allowed or denied.")
+    raise typer.Exit(code=1)
+
+
+def _format_policy_state(value: object) -> str:
+    if value is True:
+        return "allowed"
+    if value is False:
+        return "denied"
+    return "n/a"
+
+
+def _audit_id_summary(value: object, truncated: object = None) -> str:
+    if not isinstance(value, list) or not value:
+        return ""
+    ids = [str(item) for item in value[:2]]
+    stored_remainder = max(len(value) - 2, 0)
+    hidden_count = (
+        truncated if isinstance(truncated, int) and not isinstance(truncated, bool) else 0
+    )
+    remaining = stored_remainder + hidden_count
+    if remaining:
+        ids.append(f"+{remaining}")
+    return ", ".join(ids)
+
+
+def _print_memory_audit_events(events: list[object]) -> None:
+    if not events:
+        info("No memory audit events found")
+        return
+
+    table = create_table(
+        "Memory Audit",
+        "Time",
+        "Action",
+        "Policy",
+        "Scope",
+        "Source",
+        "Derived",
+        expand=False,
+    )
+    table.columns[0].no_wrap = True
+    table.columns[1].no_wrap = True
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        event = cast("dict[str, object]", item)
+        created_at = str(event.get("created_at") or "")
+        timestamp = created_at.replace("T", " ")[:19]
+        scope = str(event.get("memory_scope") or "")
+        scope_key = str(event.get("scope_key") or "")
+        if scope_key:
+            scope = f"{scope}:{scope_key}" if scope else scope_key
+        table.add_row(
+            timestamp,
+            str(event.get("action") or ""),
+            _format_policy_state(event.get("policy_allowed")),
+            scope,
+            _audit_id_summary(event.get("source_ids"), event.get("source_ids_truncated")),
+            _audit_id_summary(event.get("derived_ids"), event.get("derived_ids_truncated")),
+        )
+    console.print(table)
+
+
 def _handle_client_error(e: SibylClientError) -> None:
     """Handle client errors with helpful messages and exit with code 1."""
     if "Cannot connect" in str(e):
@@ -638,6 +710,46 @@ def recall_context(
             _handle_client_error(e)
 
     run_recall()
+
+
+@app.command("memory-audit")
+def memory_audit(
+    action: str | None = typer.Option(None, "--action", "-a", help="Filter by audit action"),
+    actor: str | None = typer.Option(None, "--actor", help="Filter by actor user ID"),
+    source_id: str | None = typer.Option(None, "--source-id", help="Filter by source ID"),
+    derived_id: str | None = typer.Option(None, "--derived-id", help="Filter by derived ID"),
+    memory_scope: str | None = typer.Option(None, "--scope", help="Filter by memory scope"),
+    project_id: str | None = typer.Option(None, "--project", "-p", help="Filter by project ID"),
+    policy: str | None = typer.Option(None, "--policy", help="Filter: allowed or denied"),
+    limit: int = typer.Option(50, "--limit", "-l", min=1, max=200, help="Maximum events"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Inspect memory audit receipts."""
+    policy_allowed = _parse_policy_filter(policy)
+
+    @run_async
+    async def run_memory_audit() -> None:
+        try:
+            async with get_client() as client:
+                data = await client.memory_audit(
+                    action=action,
+                    actor_user_id=actor,
+                    source_id=source_id,
+                    derived_id=derived_id,
+                    memory_scope=memory_scope,
+                    project_id=project_id,
+                    policy_allowed=policy_allowed,
+                    limit=limit,
+                )
+            if json_output:
+                print_json(data)
+                return
+            events = data.get("events", [])
+            _print_memory_audit_events(events if isinstance(events, list) else [])
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_memory_audit()
 
 
 @app.command("remember")

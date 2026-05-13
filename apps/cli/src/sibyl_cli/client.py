@@ -852,6 +852,36 @@ class SibylClient:
             data["project_id"] = project_id
         return await self._request("POST", "/memory/raw/recall", json=data)
 
+    async def memory_audit(
+        self,
+        *,
+        action: str | None = None,
+        actor_user_id: str | None = None,
+        source_id: str | None = None,
+        derived_id: str | None = None,
+        memory_scope: str | None = None,
+        project_id: str | None = None,
+        policy_allowed: bool | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """List memory audit events."""
+        params: dict[str, Any] = {"limit": limit}
+        if action:
+            params["action"] = action
+        if actor_user_id:
+            params["actor_user_id"] = actor_user_id
+        if source_id:
+            params["source_id"] = source_id
+        if derived_id:
+            params["derived_id"] = derived_id
+        if memory_scope:
+            params["memory_scope"] = memory_scope
+        if project_id:
+            params["project_id"] = project_id
+        if policy_allowed is not None:
+            params["policy_allowed"] = policy_allowed
+        return await self._request("GET", "/memory/audit", params=params)
+
     async def context_pack(
         self,
         goal: str,

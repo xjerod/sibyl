@@ -1147,6 +1147,73 @@ B4.1 receipt, 2026-05-13:
 - Remaining B4 risk: memory audit routes still pass `request=None`, so IP address and user-agent
   capture remain follow-up work with the inspect surfaces.
 
+### Packet B4.2: Audit Receipt Inspect
+
+Purpose: make the B4.1 audit receipts inspectable by owners and admins without exposing hidden
+memory content to ordinary readers.
+
+Files:
+
+- `apps/api/src/sibyl/api/routes/memory.py`
+- `apps/api/src/sibyl/api/schemas.py`
+- `apps/api/src/sibyl/persistence/auth_runtime.py`
+- `apps/api/src/sibyl/persistence/surreal/auth_runtime.py`
+- `apps/cli/src/sibyl_cli/client.py`
+- `apps/cli/src/sibyl_cli/main.py`
+- `apps/api/tests/test_routes_memory.py`
+- `apps/api/tests/test_surreal_auth_runtime.py`
+- `apps/cli/tests/test_main_capture.py`
+
+Implementation:
+
+- Add an owner/admin-only `GET /memory/audit` API endpoint returning compact audit receipts.
+- Add filters for actor, action, source ID, derived ID, memory scope, project ID, policy state, and
+  bounded result count.
+- Add `sibyl memory-audit` so agents can inspect receipts from the CLI and emit JSON when needed.
+- Keep filtering source and derived IDs from bounded `details` fields while querying `audit_logs`
+  through static SurrealQL statements.
+
+Verify:
+
+- `moon run api:test -- tests/test_routes_memory.py tests/test_surreal_auth_runtime.py`
+- `moon run cli:test -- tests/test_main_capture.py`
+- `moon run api:lint api:typecheck cli:lint cli:typecheck`
+- `moon run docs:format`
+- `moon run docs:lint`
+- `git diff --check`
+
+Exit criteria:
+
+- Owners and admins can list memory audit receipts with policy, source, derived, scope, project, and
+  actor metadata.
+- The CLI exposes the same filters as the API.
+- Audit readback stays bounded and does not reveal hidden memory text.
+
+B4.2 receipt, 2026-05-13:
+
+- Added `MemoryAuditEventResponse` and `MemoryAuditListResponse` as the typed readback contract for
+  compact audit receipts.
+- Added `list_memory_audit_events` to the auth runtime facade and Surreal backend. The backend uses
+  fixed SurrealQL query shapes for organization, actor, and action filters, then applies bounded
+  in-process matching for source ID, derived ID, scope, project, policy state, and memory-prefixed
+  actions.
+- Added owner/admin-gated `GET /memory/audit` and `sibyl memory-audit` with matching filters and
+  JSON output support.
+- Review follow-up pushed the memory action prefix into the SurrealQL scan path, rejects
+  non-`memory.*` action filters before querying, documents audit `details` as metadata-only, and
+  renders truncated source/derived ID counts in the CLI table.
+- `moon run api:test -- tests/test_routes_memory.py tests/test_surreal_auth_runtime.py`: 69 passed
+  in 4.00s.
+- `moon run cli:test -- tests/test_main_capture.py`: 157 passed in 1.44s.
+- `moon run api:lint api:typecheck cli:lint cli:typecheck`: lint passed for API and CLI; CLI
+  typecheck passed; API typecheck exited 0 with 63 existing ty diagnostics.
+- Independent review passed at `/tmp/claude-review-b42-memory-audit-inspect-20260513.txt`; the
+  scan-window and action-filter follow-ups were fixed and re-reviewed as PASS at
+  `/tmp/claude-review-b42-memory-audit-inspect-followup-20260513.txt`.
+- Remaining B4 risk: this packet inspects audit receipts only. Context render, wake, and source
+  visibility inspect paths still need their own B4 packets, and IP/user-agent capture remains
+  deferred from B4.1.
+
 ## 14. Evidence Ledger
 
 Every wave should leave a receipt block in this document or in the corresponding audit doc. Use this

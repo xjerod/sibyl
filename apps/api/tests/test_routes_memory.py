@@ -7,7 +7,12 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from sibyl.api.routes.memory import promote_reflection_candidate, recall_raw, remember_raw
+from sibyl.api.routes.memory import (
+    list_memory_audit,
+    promote_reflection_candidate,
+    recall_raw,
+    remember_raw,
+)
 from sibyl.api.schemas import (
     RawMemoryRecallRequest,
     RawMemoryRememberRequest,
@@ -557,6 +562,95 @@ async def test_recall_raw_maps_scope_errors_to_400() -> None:
     assert exc.value.status_code == 400
     assert exc.value.detail == "missing_scope_key"
     recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_list_memory_audit_returns_inspectable_events() -> None:
+    org = _org()
+    created_at = datetime(2026, 5, 13, 12, 0, 0, tzinfo=UTC)
+    with patch(
+        "sibyl.api.routes.memory.list_memory_audit_events",
+        AsyncMock(
+            return_value=[
+                {
+                    "uuid": "audit-1",
+                    "organization_id": str(org.id),
+                    "user_id": "user-123",
+                    "action": "memory.remember",
+                    "details": {
+                        "memory_scope": "project",
+                        "scope_key": "project_123",
+                        "project_id": "project_123",
+                        "source_surface": "cli",
+                        "source_ids": ["source-1"],
+                        "source_ids_truncated": 2,
+                        "derived_ids": ["memory-1"],
+                        "policy_allowed": True,
+                        "policy_reason": "same_scope_write_allowed",
+                        "details": {"tag_count": 1},
+                    },
+                    "created_at": created_at,
+                }
+            ]
+        ),
+    ) as list_events:
+        response = await list_memory_audit(
+            org=org,
+            action="memory.remember",
+            actor_user_id="user-123",
+            source_id="source-1",
+            derived_id=None,
+            memory_scope="project",
+            project_id="project_123",
+            policy_allowed=True,
+            limit=25,
+        )
+
+    list_events.assert_awaited_once_with(
+        organization_id=org.id,
+        user_id="user-123",
+        action="memory.remember",
+        source_id="source-1",
+        derived_id=None,
+        memory_scope="project",
+        project_id="project_123",
+        policy_allowed=True,
+        limit=25,
+    )
+    assert response.limit == 25
+    event = response.events[0]
+    assert event.id == "audit-1"
+    assert event.organization_id == str(org.id)
+    assert event.user_id == "user-123"
+    assert event.action == "memory.remember"
+    assert event.memory_scope == "project"
+    assert event.scope_key == "project_123"
+    assert event.source_ids == ["source-1"]
+    assert event.source_ids_truncated == 2
+    assert event.derived_ids == ["memory-1"]
+    assert event.policy_allowed is True
+    assert event.policy_reason == "same_scope_write_allowed"
+    assert event.details == {"tag_count": 1}
+    assert event.created_at == created_at
+
+
+@pytest.mark.asyncio
+async def test_list_memory_audit_rejects_non_memory_action() -> None:
+    with pytest.raises(HTTPException) as exc:
+        await list_memory_audit(
+            org=_org(),
+            action="auth.login",
+            actor_user_id=None,
+            source_id=None,
+            derived_id=None,
+            memory_scope=None,
+            project_id=None,
+            policy_allowed=None,
+            limit=25,
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "invalid_memory_audit_action"
 
 
 @pytest.mark.asyncio

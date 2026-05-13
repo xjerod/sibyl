@@ -621,6 +621,93 @@ async def test_log_memory_audit_event_records_bounded_receipt(
 
 
 @pytest.mark.asyncio
+async def test_list_memory_audit_events_filters_memory_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid4()
+    matching = {
+        "uuid": "audit-1",
+        "organization_id": str(organization_id),
+        "user_id": str(uuid4()),
+        "action": "memory.remember",
+        "details": {
+            "memory_scope": "project",
+            "project_id": "project_123",
+            "source_ids": ["source-1"],
+            "derived_ids": ["memory-1"],
+            "policy_allowed": True,
+        },
+    }
+    client = _RecordingAuthClient(
+        [
+            matching,
+            {
+                "uuid": "audit-2",
+                "organization_id": str(organization_id),
+                "action": "auth.login",
+                "details": {},
+            },
+            {
+                "uuid": "audit-3",
+                "organization_id": str(organization_id),
+                "action": "memory.recall",
+                "details": {
+                    "memory_scope": "private",
+                    "source_ids": ["other-source"],
+                    "policy_allowed": True,
+                },
+            },
+        ]
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    rows = await surreal_auth_runtime.list_memory_audit_events(
+        organization_id=organization_id,
+        source_id="source-1",
+        memory_scope="project",
+        policy_allowed=True,
+        limit=5,
+    )
+
+    assert rows == [matching]
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "SELECT * FROM audit_logs" in query
+    assert "action >= $memory_action_prefix" in query
+    assert "action < $memory_action_ceiling" in query
+    assert "ORDER BY created_at DESC LIMIT $scan_limit" in query
+    assert params["organization_id"] == str(organization_id)
+    assert params["memory_action_prefix"] == "memory."
+    assert params["memory_action_ceiling"] == "memory/"
+    assert params["scan_limit"] == 100
+
+
+@pytest.mark.asyncio
+async def test_list_memory_audit_events_rejects_non_memory_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingAuthClient([])
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    rows = await surreal_auth_runtime.list_memory_audit_events(
+        organization_id=uuid4(),
+        action="auth.login",
+    )
+
+    assert rows == []
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
 async def test_authenticate_api_key_batches_last_used_and_project_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

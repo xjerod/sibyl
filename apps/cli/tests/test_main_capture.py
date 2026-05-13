@@ -635,6 +635,59 @@ def test_recall_command_reports_project_access_denied(
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
+@patch("sibyl_cli.main.get_client")
+def test_memory_audit_command_lists_events(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.memory_audit = AsyncMock(
+        return_value={
+            "events": [
+                {
+                    "created_at": "2026-05-13T12:00:00",
+                    "action": "memory.remember",
+                    "memory_scope": "project",
+                    "scope_key": "project_123",
+                    "source_ids": ["source-1", "source-2", "source-3"],
+                    "source_ids_truncated": 2,
+                    "derived_ids": ["memory-1"],
+                    "policy_allowed": True,
+                }
+            ]
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "memory-audit",
+            "--action",
+            "memory.remember",
+            "--source-id",
+            "source-1",
+            "--policy",
+            "allowed",
+            "--limit",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "memory.remember" in result.stdout
+    assert "source" in result.stdout
+    assert "+3" in result.stdout
+    mock_client.memory_audit.assert_awaited_once_with(
+        action="memory.remember",
+        actor_user_id=None,
+        source_id="source-1",
+        derived_id=None,
+        memory_scope=None,
+        project_id=None,
+        policy_allowed=True,
+        limit=5,
+    )
+
+
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
 @patch("sibyl_cli.main.get_client")
 def test_recall_command_can_request_agent_diary_context(

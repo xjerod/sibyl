@@ -199,6 +199,34 @@ class RawMemoryRecallResponse(BaseModel):
     policy_reason: str | None = Field(default=None, description="Memory policy decision reason")
 
 
+class MemoryAuditEventResponse(BaseModel):
+    """Inspectable memory audit event."""
+
+    id: str = Field(..., description="Audit event UUID")
+    organization_id: str | None = Field(default=None, description="Organization ID")
+    user_id: str | None = Field(default=None, description="Actor user ID")
+    action: str = Field(..., description="Audit action")
+    memory_scope: str | None = Field(default=None, description="Memory scope")
+    scope_key: str | None = Field(default=None, description="Scope key")
+    project_id: str | None = Field(default=None, description="Project graph ID")
+    source_surface: str | None = Field(default=None, description="Source surface")
+    source_ids: list[str] = Field(default_factory=list, description="Source IDs")
+    source_ids_truncated: int | None = Field(default=None, description="Hidden source ID count")
+    derived_ids: list[str] = Field(default_factory=list, description="Derived IDs")
+    derived_ids_truncated: int | None = Field(default=None, description="Hidden derived ID count")
+    policy_allowed: bool | None = Field(default=None, description="Policy allow/deny state")
+    policy_reason: str | None = Field(default=None, description="Policy or outcome reason")
+    details: dict[str, Any] = Field(default_factory=dict, description="Bounded event details")
+    created_at: datetime | None = Field(default=None, description="Audit event timestamp")
+
+
+class MemoryAuditListResponse(BaseModel):
+    """Memory audit list response."""
+
+    events: list[MemoryAuditEventResponse]
+    limit: int
+
+
 class ReflectionPromotionRequest(BaseModel):
     """Request to promote a reviewed reflection candidate into native memory."""
 

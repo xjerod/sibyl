@@ -58,6 +58,7 @@ __all__ += [
     "has_owner_membership",
     "list_accessible_project_graph_ids",
     "list_api_keys_for_user",
+    "list_memory_audit_events",
     "list_oauth_connections",
     "list_user_organizations",
     "list_user_sessions",
@@ -237,6 +238,10 @@ async def log_memory_audit_event(**kwargs: object) -> None:
 
 async def list_api_keys_for_user(**kwargs: object):
     return await _call_backend_export("list_api_keys_for_user", **kwargs)
+
+
+async def list_memory_audit_events(**kwargs: object):
+    return await _call_backend_export("list_memory_audit_events", **kwargs)
 
 
 async def create_api_key_for_user(**kwargs: object):

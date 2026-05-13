@@ -1909,6 +1909,10 @@ def _bounded_audit_id_list(values: list[str] | None) -> tuple[list[str], int]:
     return out, max(len(values) - 20, 0)
 
 
+_MEMORY_AUDIT_ACTION_PREFIX = "memory."
+_MEMORY_AUDIT_ACTION_CEILING = "memory/"
+
+
 async def log_memory_audit_event(
     *,
     action: str,
@@ -1925,6 +1929,7 @@ async def log_memory_audit_event(
     policy_reason: str | None = None,
     details: Mapping[str, object] | None = None,
 ) -> None:
+    """Record metadata-only memory audit receipts exposed through inspect APIs."""
     bounded_source_ids, source_ids_truncated = _bounded_audit_id_list(source_ids)
     bounded_derived_ids, derived_ids_truncated = _bounded_audit_id_list(derived_ids)
     payload: SurrealRecord = {
@@ -1953,6 +1958,131 @@ async def log_memory_audit_event(
             request=request,
             details=payload,
         )
+
+
+def _memory_audit_details(row: Mapping[str, object]) -> Mapping[str, object]:
+    details = row.get("details")
+    if isinstance(details, Mapping):
+        return {str(key): value for key, value in details.items()}
+    return {}
+
+
+def _memory_audit_id_matches(details: Mapping[str, object], key: str, value: str | None) -> bool:
+    if not value:
+        return True
+    ids = details.get(key)
+    if not isinstance(ids, list):
+        return False
+    return value in {str(item) for item in ids}
+
+
+def _memory_audit_row_matches(
+    row: Mapping[str, object],
+    *,
+    action: str | None,
+    source_id: str | None,
+    derived_id: str | None,
+    memory_scope: str | None,
+    project_id: str | None,
+    policy_allowed: bool | None,
+) -> bool:
+    action_value = str(row.get("action") or "")
+    if not action_value.startswith("memory."):
+        return False
+    if action and action_value != action:
+        return False
+    details = _memory_audit_details(row)
+    if memory_scope and details.get("memory_scope") != memory_scope:
+        return False
+    if project_id and details.get("project_id") != project_id:
+        return False
+    if policy_allowed is not None and details.get("policy_allowed") != policy_allowed:
+        return False
+    if not _memory_audit_id_matches(details, "source_ids", source_id):
+        return False
+    return _memory_audit_id_matches(details, "derived_ids", derived_id)
+
+
+async def list_memory_audit_events(
+    *,
+    organization_id: UUID | str,
+    user_id: UUID | str | None = None,
+    action: str | None = None,
+    source_id: str | None = None,
+    derived_id: str | None = None,
+    memory_scope: str | None = None,
+    project_id: str | None = None,
+    policy_allowed: bool | None = None,
+    limit: int = 50,
+) -> list[SurrealRecord]:
+    if action and not action.startswith(_MEMORY_AUDIT_ACTION_PREFIX):
+        return []
+
+    bounded_limit = max(1, min(limit, 200))
+    scan_limit = max(100, min(bounded_limit * 5, 500))
+    params: SurrealRecord = {
+        "organization_id": str(organization_id),
+        "scan_limit": scan_limit,
+    }
+    if user_id:
+        params["user_id"] = str(user_id)
+    if action:
+        params["action"] = action
+    else:
+        params["memory_action_prefix"] = _MEMORY_AUDIT_ACTION_PREFIX
+        params["memory_action_ceiling"] = _MEMORY_AUDIT_ACTION_CEILING
+
+    if user_id and action:
+        query = (
+            "SELECT * FROM audit_logs "
+            "WHERE organization_id = $organization_id "
+            "AND user_id = $user_id "
+            "AND action = $action "
+            "ORDER BY created_at DESC LIMIT $scan_limit;"
+        )
+    elif user_id:
+        query = (
+            "SELECT * FROM audit_logs "
+            "WHERE organization_id = $organization_id "
+            "AND user_id = $user_id "
+            "AND action >= $memory_action_prefix "
+            "AND action < $memory_action_ceiling "
+            "ORDER BY created_at DESC LIMIT $scan_limit;"
+        )
+    elif action:
+        query = (
+            "SELECT * FROM audit_logs "
+            "WHERE organization_id = $organization_id "
+            "AND action = $action "
+            "ORDER BY created_at DESC LIMIT $scan_limit;"
+        )
+    else:
+        query = (
+            "SELECT * FROM audit_logs "
+            "WHERE organization_id = $organization_id "
+            "AND action >= $memory_action_prefix "
+            "AND action < $memory_action_ceiling "
+            "ORDER BY created_at DESC LIMIT $scan_limit;"
+        )
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        rows = await repo.select_many(query, **params)
+
+    events: list[SurrealRecord] = []
+    for row in rows:
+        if _memory_audit_row_matches(
+            row,
+            action=action,
+            source_id=source_id,
+            derived_id=derived_id,
+            memory_scope=memory_scope,
+            project_id=project_id,
+            policy_allowed=policy_allowed,
+        ):
+            events.append(row)
+        if len(events) >= bounded_limit:
+            break
+    return events
 
 
 async def _generate_unique_project_slug(
@@ -3025,6 +3155,7 @@ __all__ = [
     "has_owner_membership",
     "list_accessible_project_graph_ids",
     "list_api_keys_for_user",
+    "list_memory_audit_events",
     "list_oauth_connections",
     "list_user_organizations",
     "list_user_sessions",
