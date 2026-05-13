@@ -420,6 +420,14 @@ class EntityDeduplicator:
             return 0
 
     def _get_relationship_manager(self) -> Any:
+        from sibyl_core.services.native_graph import (
+            NativeRelationshipManager,
+            NativeSurrealGraphClient,
+        )
+
+        if isinstance(self.client, NativeSurrealGraphClient):
+            return NativeRelationshipManager(self.client, group_id=self._require_group_id())
+
         from sibyl_core.graph.relationships import RelationshipManager
 
         return RelationshipManager(self.client, group_id=self._require_group_id())

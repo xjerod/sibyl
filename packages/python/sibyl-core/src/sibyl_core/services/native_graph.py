@@ -78,6 +78,28 @@ class NativeEntityManager:
     async def create(self, entity: Entity) -> str:
         return await self.create_direct(entity, generate_embedding=False)
 
+    async def delete(self, entity_id: str) -> bool:
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                DELETE FROM relates_to
+                WHERE group_id = $group_id
+                  AND (in.uuid = $uuid OR out.uuid = $uuid)
+                RETURN BEFORE;
+                DELETE FROM mentions
+                WHERE group_id = $group_id
+                  AND (in.uuid = $uuid OR out.uuid = $uuid)
+                RETURN BEFORE;
+                DELETE FROM entity
+                WHERE group_id = $group_id AND uuid = $uuid
+                RETURN BEFORE;
+                """,
+                group_id=self._group_id,
+                uuid=entity_id,
+            )
+        )
+        return any(row.get("uuid") == entity_id for row in rows)
+
     async def get(self, entity_id: str) -> Entity:
         row = await _select_one(
             self._client,
@@ -474,6 +496,23 @@ class NativeRelationshipManager:
     async def create(self, relationship: Relationship) -> str:
         await _replace_relationship(self._client, relationship, group_id=self._group_id)
         return relationship.id
+
+    async def delete(self, relationship_id: str) -> bool:
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                DELETE FROM relates_to
+                WHERE group_id = $group_id AND uuid = $uuid
+                RETURN BEFORE;
+                DELETE FROM mentions
+                WHERE group_id = $group_id AND uuid = $uuid
+                RETURN BEFORE;
+                """,
+                group_id=self._group_id,
+                uuid=relationship_id,
+            )
+        )
+        return any(row.get("uuid") == relationship_id for row in rows)
 
     async def get_for_entity(
         self,

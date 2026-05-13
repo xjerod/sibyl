@@ -46,12 +46,11 @@ def _pair(
 async def test_consolidate_org_wires_config_and_respects_merge_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sibyl_core.graph.client as graph_client_module
-    import sibyl_core.graph.entities as entities_module
     import sibyl_core.retrieval.dedup as dedup_module
 
     client = MagicMock()
     entity_manager = MagicMock()
+    graph_runtime = SimpleNamespace(client=client, entity_manager=entity_manager)
     config = object()
     deduplicator = MagicMock()
     deduplicator.find_duplicates = AsyncMock(
@@ -63,13 +62,11 @@ async def test_consolidate_org_wires_config_and_respects_merge_cap(
     )
     deduplicator.merge_entities = AsyncMock(side_effect=[True, False])
 
-    get_graph_client = AsyncMock(return_value=client)
-    entity_manager_cls = MagicMock(return_value=entity_manager)
+    get_graph_runtime = AsyncMock(return_value=graph_runtime)
     dedup_config_cls = MagicMock(return_value=config)
     deduplicator_cls = MagicMock(return_value=deduplicator)
 
-    monkeypatch.setattr(graph_client_module, "get_graph_client", get_graph_client)
-    monkeypatch.setattr(entities_module, "EntityManager", entity_manager_cls)
+    monkeypatch.setattr(consolidation_module, "_get_graph_runtime", get_graph_runtime)
     monkeypatch.setattr(dedup_module, "DedupConfig", dedup_config_cls)
     monkeypatch.setattr(dedup_module, "EntityDeduplicator", deduplicator_cls)
 
@@ -87,8 +84,7 @@ async def test_consolidate_org_wires_config_and_respects_merge_cap(
         "merges_failed": 1,
         "merges_skipped": 1,
     }
-    get_graph_client.assert_awaited_once_with()
-    entity_manager_cls.assert_called_once_with(client, group_id="org-123")
+    get_graph_runtime.assert_awaited_once_with("org-123")
     dedup_config_cls.assert_called_once_with(
         similarity_threshold=0.91,
         same_type_only=True,
@@ -110,8 +106,6 @@ async def test_consolidate_org_wires_config_and_respects_merge_cap(
 async def test_consolidate_org_returns_zeroes_when_no_duplicates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sibyl_core.graph.client as graph_client_module
-    import sibyl_core.graph.entities as entities_module
     import sibyl_core.retrieval.dedup as dedup_module
 
     deduplicator = MagicMock()
@@ -119,9 +113,15 @@ async def test_consolidate_org_returns_zeroes_when_no_duplicates(
     deduplicator.merge_entities = AsyncMock()
 
     monkeypatch.setattr(
-        graph_client_module, "get_graph_client", AsyncMock(return_value=MagicMock())
+        consolidation_module,
+        "_get_graph_runtime",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                client=MagicMock(),
+                entity_manager=MagicMock(),
+            )
+        ),
     )
-    monkeypatch.setattr(entities_module, "EntityManager", MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(dedup_module, "DedupConfig", MagicMock(return_value=object()))
     monkeypatch.setattr(dedup_module, "EntityDeduplicator", MagicMock(return_value=deduplicator))
 
@@ -142,8 +142,6 @@ async def test_consolidate_org_returns_zeroes_when_no_duplicates(
 async def test_consolidate_org_counts_merge_exceptions_as_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sibyl_core.graph.client as graph_client_module
-    import sibyl_core.graph.entities as entities_module
     import sibyl_core.retrieval.dedup as dedup_module
 
     deduplicator = MagicMock()
@@ -153,9 +151,15 @@ async def test_consolidate_org_counts_merge_exceptions_as_failures(
     deduplicator.merge_entities = AsyncMock(side_effect=RuntimeError("boom"))
 
     monkeypatch.setattr(
-        graph_client_module, "get_graph_client", AsyncMock(return_value=MagicMock())
+        consolidation_module,
+        "_get_graph_runtime",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                client=MagicMock(),
+                entity_manager=MagicMock(),
+            )
+        ),
     )
-    monkeypatch.setattr(entities_module, "EntityManager", MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(dedup_module, "DedupConfig", MagicMock(return_value=object()))
     monkeypatch.setattr(dedup_module, "EntityDeduplicator", MagicMock(return_value=deduplicator))
 
@@ -180,8 +184,6 @@ async def test_consolidate_org_counts_merge_exceptions_as_failures(
 async def test_priority_decay_archives_only_old_unarchived_episodes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sibyl_core.services as graph_services
-
     now = datetime.now(UTC)
 
     async def list_by_type(
@@ -220,8 +222,8 @@ async def test_priority_decay_archives_only_old_unarchived_episodes(
     entity_manager.update = AsyncMock(return_value=object())
 
     monkeypatch.setattr(
-        graph_services,
-        "get_graph_runtime",
+        consolidation_module,
+        "_get_graph_runtime",
         AsyncMock(
             return_value=SimpleNamespace(
                 client=MagicMock(),
@@ -255,8 +257,6 @@ async def test_priority_decay_archives_only_old_unarchived_episodes(
 async def test_priority_decay_respects_archive_cap_across_pages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import sibyl_core.services as graph_services
-
     now = datetime.now(UTC)
 
     def episode(entity_id: str, age_days: int) -> Entity:
@@ -277,8 +277,8 @@ async def test_priority_decay_respects_archive_cap_across_pages(
     entity_manager.update = AsyncMock(return_value=object())
 
     monkeypatch.setattr(
-        graph_services,
-        "get_graph_runtime",
+        consolidation_module,
+        "_get_graph_runtime",
         AsyncMock(
             return_value=SimpleNamespace(
                 client=MagicMock(),

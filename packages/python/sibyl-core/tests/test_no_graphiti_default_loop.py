@@ -55,6 +55,7 @@ async def main():
     import sibyl_core.tools.search as search_module
     import sibyl_core.tools.temporal as temporal_module
     import sibyl.crawler.graph_integration as graph_integration
+    import sibyl.jobs.consolidation as consolidation_module
 
     group_id = "no-graphiti-default-loop"
     principal_id = "principal-no-graphiti"
@@ -84,6 +85,7 @@ async def main():
     native_memory.get_native_graph_runtime = runtime_factory
     search_module.get_graph_runtime = runtime_factory
     temporal_module.get_graph_runtime = runtime_factory
+    consolidation_module._get_graph_runtime = runtime_factory
 
     try:
         project = await core_module.add(
@@ -237,6 +239,21 @@ async def main():
             document_url="https://docs.example.test/no-graphiti",
         )
         assert doc_links == 1
+
+        consolidation = await consolidation_module.consolidate_org(
+            {},
+            group_id=group_id,
+            max_merges_per_run=1,
+        )
+        assert consolidation["duplicates_found"] == 0
+
+        decay = await consolidation_module.priority_decay(
+            {},
+            group_id=group_id,
+            min_age_days=9999,
+            max_archives_per_run=1,
+        )
+        assert decay["archived"] == 0
 
         health = await core_module.get_health(organization_id=group_id)
         assert health["status"] == "healthy"

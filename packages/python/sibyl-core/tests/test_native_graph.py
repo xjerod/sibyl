@@ -5,7 +5,9 @@ from typing import Any, cast
 
 import pytest
 
+from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.retrieval.dedup import EntityDeduplicator
 from sibyl_core.services.native_graph import (
     NativeEntityManager,
     NativeRelationshipManager,
@@ -230,5 +232,66 @@ async def test_native_graph_writes_entities_and_relationships_without_graphiti(
         }
         assert "decision_native" in visible_ids
         assert "task_native_archived" not in visible_ids
+
+        embedding = [0.2] * EMBEDDING_DIM
+        await entity_manager.create_direct(
+            Entity(
+                id="dedup_keep",
+                entity_type=EntityType.PATTERN,
+                name="Native duplicate pattern",
+                description="Kept native dedup entity",
+                organization_id="org-native-graph",
+                metadata={"source": "keep"},
+                embedding=embedding,
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="dedup_remove",
+                entity_type=EntityType.PATTERN,
+                name="Native duplicate pattern",
+                description="Removed native dedup entity",
+                organization_id="org-native-graph",
+                metadata={"source": "remove", "merged": True},
+                embedding=embedding,
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="dedup_neighbor",
+                entity_type=EntityType.DECISION,
+                name="Native dedup neighbor",
+                description="Relationship target for merge redirect",
+                organization_id="org-native-graph",
+            )
+        )
+        await relationship_manager.create(
+            Relationship(
+                id="rel_dedup_remove_neighbor",
+                source_id="dedup_remove",
+                target_id="dedup_neighbor",
+                relationship_type=RelationshipType.RELATED_TO,
+            )
+        )
+
+        deduplicator = EntityDeduplicator(
+            client=client,
+            entity_manager=entity_manager,
+        )
+        assert await deduplicator.merge_entities(
+            keep_id="dedup_keep",
+            remove_id="dedup_remove",
+        )
+
+        with pytest.raises(KeyError):
+            await entity_manager.get("dedup_remove")
+
+        redirected = await relationship_manager.get_for_entity(
+            "dedup_keep",
+            relationship_types=[RelationshipType.RELATED_TO],
+            direction="outgoing",
+        )
+        assert [rel.target_id for rel in redirected] == ["dedup_neighbor"]
+        assert await relationship_manager.get_for_entity("dedup_remove", direction="both") == []
     finally:
         await client.close()

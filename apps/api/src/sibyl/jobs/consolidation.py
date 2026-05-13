@@ -17,6 +17,12 @@ import structlog
 log = structlog.get_logger()
 
 
+async def _get_graph_runtime(group_id: str) -> Any:
+    from sibyl_core.services.native_graph import get_native_graph_runtime
+
+    return await get_native_graph_runtime(group_id)
+
+
 async def _list_organization_ids() -> list[str]:
     from sibyl.persistence.organization_runtime import list_org_ids
 
@@ -44,8 +50,6 @@ async def consolidate_org(
     Returns:
         Dict with consolidation statistics
     """
-    from sibyl_core.graph.client import get_graph_client
-    from sibyl_core.graph.entities import EntityManager
     from sibyl_core.retrieval.dedup import DedupConfig, EntityDeduplicator
 
     log.info(
@@ -55,8 +59,9 @@ async def consolidate_org(
     )
 
     try:
-        client = await get_graph_client()
-        entity_manager = EntityManager(client, group_id=group_id)
+        runtime = await _get_graph_runtime(group_id)
+        client = runtime.client
+        entity_manager = runtime.entity_manager
 
         config = DedupConfig(
             similarity_threshold=similarity_threshold,
@@ -139,7 +144,6 @@ async def priority_decay(
         Dict with archival statistics
     """
     from sibyl_core.models.entities import EntityType
-    from sibyl_core.services import get_graph_runtime
 
     log.info(
         "priority_decay_started",
@@ -148,7 +152,7 @@ async def priority_decay(
     )
 
     try:
-        runtime = await get_graph_runtime(group_id)
+        runtime = await _get_graph_runtime(group_id)
         entity_manager = runtime.entity_manager
 
         cutoff = datetime.now(UTC) - timedelta(days=min_age_days)
