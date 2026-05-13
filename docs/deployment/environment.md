@@ -222,9 +222,9 @@ fallback for migration or investigation.
 
 ## Worker Configuration
 
-| Variable           | Default | Description                                                     |
-| ------------------ | ------- | --------------------------------------------------------------- |
-| `SIBYL_RUN_WORKER` | `false` | Embed the legacy Redis worker in the API process when supported |
+| Variable           | Default | Description                                                         |
+| ------------------ | ------- | ------------------------------------------------------------------- |
+| `SIBYL_RUN_WORKER` | `false` | Embed a worker in the API process when Redis coordination is active |
 
 ## Example .env Files
 

@@ -2,8 +2,8 @@
 
 ## Project Overview
 
-**Sibyl** is a graph-backed memory system - an MCP server and web app providing persistent memory,
-search, and task coordination through a Graphiti-powered knowledge graph.
+**Sibyl** is a SurrealDB-native memory system - an MCP server and web app providing persistent
+memory, search, and task coordination through a unified graph, content, and auth runtime.
 
 **See package READMEs for detailed documentation:**
 
@@ -91,7 +91,7 @@ cross-package dependencies. Never use raw `pnpm`/`uv` commands for lint, test, b
 
 ```bash
 # Lifecycle
-moon run dev              # Start everything (SurrealDB, API, worker, web). Default.
+moon run dev              # Start SurrealDB, API with in-process jobs, and web. Default.
 moon run migrate-local-surreal  # Move local legacy data into SurrealDB.
 moon run stop             # Stop all services
 
@@ -166,24 +166,23 @@ sibyl logs tail --json
 manager = EntityManager(client, group_id=str(org.id))
 ```
 
-Each organization gets its own isolated namespace (Surreal: `org_<uuid_hex>`, legacy Falkor: a named
-graph). Forgetting org scope queries the wrong namespace or breaks isolation.
+Each organization gets its own isolated Surreal namespace (`org_<uuid_hex>`). Forgetting org scope
+queries the wrong namespace or breaks isolation.
 
 ### Surreal Write Concurrency
 
 The SurrealDB driver serializes websocket queries through a per-client `asyncio.Lock`. Do not hold
 the lock across awaits you don't control, and don't share a single driver instance across orgs — use
-`driver.clone(group_id)` to get an isolated client. In legacy mode, FalkorDB's
-`BlockingConnectionPool` (50 connections, 60s timeout) handles concurrency natively.
+`driver.clone(group_id)` to get an isolated client.
 
-### Node Labels
+### Legacy Graph Archives
 
-Graphiti creates two node types:
+Older Graphiti archives contain two node shapes:
 
 - `Episodic` - Created by `add_episode()`
 - `Entity` - Extracted entities
 
-**Queries must handle both:**
+Migration and compatibility queries must handle both:
 
 ```cypher
 WHERE (n:Episodic OR n:Entity) AND n.entity_type = $type
@@ -211,18 +210,8 @@ from sibyl.cli.common import ELECTRIC_PURPLE
 - **Embedded mode** uses RocksDB at `.moon/cache/surreal-dev` by default; single-writer
 - **Namespace-per-org** (`org_<uuid_hex>`): missing group_id routes queries to the wrong namespace
 - **Memory mode** (`memory://`) is test-only; forbidden in production via config validator
-- **SEMAPHORE_LIMIT** still applies for Graphiti concurrency; set before importing graphiti
-
-### FalkorDB (legacy, opt-in)
-
-- **Port 6380** (not 6379) to avoid Redis conflicts
-- **Graph corruption** can crash - nuke with `GRAPH.DELETE <org-uuid>`
-- **SEMAPHORE_LIMIT** must be set before importing graphiti
-
-### Graphiti
-
-- `add_episode()` creates `Episodic` nodes, not `Entity` nodes
-- Always query both labels
+- **Graphiti compatibility code** is not part of the default memory loop. Install the
+  `sibyl-core[compatibility]` extra only for named migration, admin, or compatibility surfaces.
 
 ### Next.js 16
 

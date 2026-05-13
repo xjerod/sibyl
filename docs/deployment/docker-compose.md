@@ -125,8 +125,12 @@ cp apps/api/.env.example .env
 #   SIBYL_JWT_SECRET=<generate with: openssl rand -hex 32>
 #   SIBYL_OPENAI_API_KEY=sk-...
 
-# Start all services
+# Start the default Surreal-only stack
 docker compose -f docker-compose.prod.yml up -d
+
+# Optional: run a separate worker with Redis/Valkey coordination
+SIBYL_COORDINATION_BACKEND=redis \
+  docker compose -f docker-compose.prod.yml --profile redis up -d
 
 # View logs
 docker compose -f docker-compose.prod.yml logs -f
@@ -154,17 +158,29 @@ services:
         condition: service_healthy
 
   worker:
+    profiles: ["redis"]
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     command: ["sibyld", "worker"]
     environment:
+      SIBYL_COORDINATION_BACKEND: redis
+      SIBYL_REDIS_HOST: redis
+      SIBYL_REDIS_PORT: 6379
       SIBYL_SURREAL_URL: ws://surrealdb:8000/rpc
       SIBYL_JWT_SECRET: ${SIBYL_JWT_SECRET}
       SIBYL_OPENAI_API_KEY: ${SIBYL_OPENAI_API_KEY}
     depends_on:
       surrealdb:
         condition: service_healthy
+      redis:
+        condition: service_started
+
+  redis:
+    profiles: ["redis"]
+    image: valkey/valkey:8-alpine
+    ports:
+      - "6381:6379"
 
   frontend:
     build:

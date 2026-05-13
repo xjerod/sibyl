@@ -18,6 +18,7 @@
 #
 # Environment Variables (optional):
 #   SIBYL_SURREAL_PASSWORD    — SurrealDB root password (default: sibyl_dev; CHANGE IN PROD)
+#   SIBYL_COORDINATION_BACKEND — Set to redis with --profile redis for an external worker
 
 services:
   # ==========================================================================
@@ -85,9 +86,10 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # Background Worker (arq)
+  # Background Worker (Redis/Valkey profile only)
   # ==========================================================================
   worker:
+    profiles: ["redis"]
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -98,10 +100,14 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       SIBYL_STORE: ${SIBYL_STORE:-surreal}
       SIBYL_AUTH_STORE: ${SIBYL_AUTH_STORE:-surreal}
-      SIBYL_COORDINATION_BACKEND: ${SIBYL_COORDINATION_BACKEND:-auto}
+      SIBYL_COORDINATION_BACKEND: ${SIBYL_COORDINATION_BACKEND:-redis}
+      SIBYL_REDIS_HOST: ${SIBYL_REDIS_HOST:-redis}
+      SIBYL_REDIS_PORT: 6379
       SIBYL_SURREAL_URL: ws://surrealdb:8000/rpc
       SIBYL_SURREAL_USERNAME: ${SIBYL_SURREAL_USERNAME:-root}
       SIBYL_SURREAL_PASSWORD: ${SIBYL_SURREAL_PASSWORD:-sibyl_dev}
@@ -109,6 +115,18 @@ services:
       SIBYL_ANTHROPIC_API_KEY: ${SIBYL_ANTHROPIC_API_KEY:?Set SIBYL_ANTHROPIC_API_KEY in .env}
       SIBYL_LLM_PROVIDER: anthropic
       SIBYL_LLM_MODEL: claude-haiku-4-5
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Redis/Valkey (optional distributed coordination)
+  # ==========================================================================
+  redis:
+    profiles: ["redis"]
+    image: valkey/valkey:8-alpine
+    container_name: sibyl-redis
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${SIBYL_REDIS_PORT:-6381}:6379"
     restart: unless-stopped
 
   # ==========================================================================

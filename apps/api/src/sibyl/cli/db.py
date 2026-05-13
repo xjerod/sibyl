@@ -391,11 +391,11 @@ def db_fix_embeddings(
         ),
     ] = 20_000,
 ) -> None:
-    """Fix legacy list-typed embeddings for FalkorDB vector search.
+    """Run the legacy FalkorDB embedding repair command.
 
     Some older writes stored `name_embedding` as a plain List[float] instead of
-    a Vectorf32 value. FalkorDB vector functions require Vectorf32, so this
-    migration recasts `name_embedding` via `vecf32()`.
+    a Vectorf32 value. This migration is retained only for compatibility
+    archives or preserved legacy source environments.
     """
 
     @run_async

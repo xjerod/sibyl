@@ -24,6 +24,7 @@
 #   SIBYL_SETTINGS_KEY        — Fernet key for settings encryption (auto-generated)
 #   SIBYL_JWT_SECRET          — JWT signing key (auto-generated)
 #   SIBYL_SURREAL_PASSWORD    — SurrealDB root password (default: sibyl_quickstart)
+#   SIBYL_COORDINATION_BACKEND — Set to redis with --profile redis for an external worker
 #
 # Running alongside an existing dev setup (different ports):
 #   SIBYL_SERVER_PORT=3344 SIBYL_WEB_PORT=3347 SIBYL_SURREAL_PORT=8010 \
@@ -76,19 +77,24 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # Background Worker (crawling, entity extraction)
+  # Background Worker (Redis/Valkey profile only)
   # ==========================================================================
   worker:
+    profiles: ["redis"]
     image: ghcr.io/hyperb1iss/sibyl-api:latest
     container_name: sibyl-worker
     command: ["sibyld", "worker"]
     depends_on:
       api:
         condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       SIBYL_STORE: ${SIBYL_STORE:-surreal}
       SIBYL_AUTH_STORE: ${SIBYL_AUTH_STORE:-surreal}
-      SIBYL_COORDINATION_BACKEND: ${SIBYL_COORDINATION_BACKEND:-auto}
+      SIBYL_COORDINATION_BACKEND: ${SIBYL_COORDINATION_BACKEND:-redis}
+      SIBYL_REDIS_HOST: ${SIBYL_REDIS_HOST:-redis}
+      SIBYL_REDIS_PORT: 6379
       SIBYL_SURREAL_URL: ws://surrealdb:8000/rpc
       SIBYL_SURREAL_USERNAME: ${SIBYL_SURREAL_USERNAME:-root}
       SIBYL_SURREAL_PASSWORD: ${SIBYL_SURREAL_PASSWORD:-sibyl_quickstart}
@@ -99,6 +105,18 @@ services:
       SIBYL_LLM_MODEL: claude-haiku-4-5
     volumes:
       - sibyl_secrets:/root/.sibyl
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Redis/Valkey (optional distributed coordination)
+  # ==========================================================================
+  redis:
+    profiles: ["redis"]
+    image: valkey/valkey:8-alpine
+    container_name: sibyl-redis
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${SIBYL_REDIS_PORT:-6381}:6379"
     restart: unless-stopped
 
   # ==========================================================================
