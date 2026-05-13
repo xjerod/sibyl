@@ -63,6 +63,7 @@ Benchmark release rule:
   artifact under `benchmarks/results/ai-memory/` or a named archive manifest, overall metrics,
   per-slice metrics, per-case result records, corpus or dataset version, command, commit, runtime
   mode, and caveats recorded in `docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md`.
+  `benchmarks/results/ai-memory/manifest.json` is the machine-checkable citable/planned ledger.
   Missing external suites stay planned coverage only. LOCOMO, RULER, Mem0, Zep, LangMem, and any
   future competitor suite need full result rows before they become release-note evidence. Every
   citable AI-memory artifact must pass `moon run bench-gate -- <artifact>.json --profile ai-memory`.
@@ -502,8 +503,9 @@ Tasks:
 - Run the no-Graphiti smoke with legacy services absent.
 - Audit docs for stale migration-era instructions.
 - Audit benchmark evidence for full artifact-backed AI memory results. Missing external suites must
-  stay explicit, not implied by context-pack or LongMemEval-style evidence. Gate every citable
-  artifact with `moon run bench-gate -- <artifact>.json --profile ai-memory`.
+  stay explicit, not implied by context-pack or LongMemEval-style evidence. Check
+  `benchmarks/results/ai-memory/manifest.json` and gate every citable artifact with
+  `moon run bench-gate -- <artifact>.json --profile ai-memory`.
 - Check release notes against the benchmark evidence table so only suites with full result records
   are cited.
 - Append release notes with supported upgrade and archive import paths.

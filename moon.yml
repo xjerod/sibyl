@@ -327,6 +327,7 @@ tasks:
     inputs:
       - tools/**/*.py
       - benchmarks/longmemeval_bench.py
+      - benchmarks/results/ai-memory/*.json
       - pyproject.toml
 
   chaos-archive:

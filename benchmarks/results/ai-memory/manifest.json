@@ -1,0 +1,106 @@
+{
+  "schema_version": "sibyl-ai-memory-benchmark-ledger-v1",
+  "updated_at": "2026-05-13",
+  "release_scope": "v0.7 Surreal-native default release gate",
+  "artifact_policy": "Only citable entries may appear in release notes. Planned entries need full raw artifacts, per-slice metrics, per-case records, provenance, caveats, and a passing ai-memory gate before citation.",
+  "citable": [
+    {
+      "suite": "LongMemEval-style offline",
+      "suite_version": "offline-runner-v2",
+      "mode": "raw",
+      "artifact": "longmemeval_sibyl_raw_20260513.json",
+      "status": "citable",
+      "gate_profile": "ai-memory",
+      "questions": 500,
+      "case_results": 500,
+      "elapsed_seconds": 312.36855578422546,
+      "dataset": {
+        "path": ".moon/cache/benchmarks/longmemeval_s_cleaned.json",
+        "total_entries": 500,
+        "evaluated_entries": 500
+      },
+      "runtime": {
+        "runtime_mode": "offline",
+        "graph_engine": "none",
+        "store": "chromadb_ephemeral",
+        "retrieval_mode": "raw",
+        "embedding_model": "chromadb_default"
+      },
+      "overall": {
+        "recall@5": 0.966,
+        "ndcg@5": 0.8877177754573082,
+        "recall@10": 0.982,
+        "ndcg@10": 0.8887612861506087
+      },
+      "claim_boundary": "Offline component retrieval baseline only; not live API runtime evidence."
+    },
+    {
+      "suite": "LongMemEval-style offline",
+      "suite_version": "offline-runner-v2",
+      "mode": "hybrid",
+      "artifact": "longmemeval_sibyl_hybrid_20260513.json",
+      "status": "citable",
+      "gate_profile": "ai-memory",
+      "questions": 500,
+      "case_results": 500,
+      "elapsed_seconds": 309.35002279281616,
+      "dataset": {
+        "path": ".moon/cache/benchmarks/longmemeval_s_cleaned.json",
+        "total_entries": 500,
+        "evaluated_entries": 500
+      },
+      "runtime": {
+        "runtime_mode": "offline",
+        "graph_engine": "none",
+        "store": "chromadb_ephemeral",
+        "retrieval_mode": "hybrid",
+        "embedding_model": "chromadb_default"
+      },
+      "overall": {
+        "recall@5": 0.98,
+        "ndcg@5": 0.934234295494194,
+        "recall@10": 0.992,
+        "ndcg@10": 0.9347638085852342
+      },
+      "claim_boundary": "Offline component retrieval baseline only; not live API runtime evidence."
+    }
+  ],
+  "planned": [
+    {
+      "suite": "Live Graphiti vs native Surreal",
+      "status": "planned",
+      "required_artifact_pattern": "benchmarks/results/<engine-artifact>.json",
+      "required_summary": "Paired live runtime reports, same corpus and queries, gated and compared."
+    },
+    {
+      "suite": "LOCOMO-style long-memory suite",
+      "status": "planned",
+      "required_artifact_pattern": "benchmarks/results/ai-memory/locomo_<engine>_<timestamp>.json",
+      "required_summary": "Overall score, per-category score, abstention/error rate, latency."
+    },
+    {
+      "suite": "RULER-style long-context suite",
+      "status": "planned",
+      "required_artifact_pattern": "benchmarks/results/ai-memory/ruler_<engine>_<timestamp>.json",
+      "required_summary": "Task-level score, context length, failure modes, latency."
+    },
+    {
+      "suite": "Mem0 comparison",
+      "status": "planned",
+      "required_artifact_pattern": "benchmarks/results/ai-memory/mem0_<engine>_<timestamp>.json",
+      "required_summary": "Overall quality, per-slice quality, ingestion latency, query latency."
+    },
+    {
+      "suite": "Zep comparison",
+      "status": "planned",
+      "required_artifact_pattern": "benchmarks/results/ai-memory/zep_<engine>_<timestamp>.json",
+      "required_summary": "Overall quality, per-slice quality, ingestion latency, query latency."
+    },
+    {
+      "suite": "LangMem comparison",
+      "status": "planned",
+      "required_artifact_pattern": "benchmarks/results/ai-memory/langmem_<engine>_<timestamp>.json",
+      "required_summary": "Overall quality, per-slice quality, ingestion latency, query latency."
+    }
+  ]
+}

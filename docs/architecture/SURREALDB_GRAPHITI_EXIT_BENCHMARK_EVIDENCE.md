@@ -63,6 +63,7 @@ This is useful debugging history. It is not a pre-Graphiti or legacy Graphiti ba
 
 Artifacts:
 
+- `benchmarks/results/ai-memory/manifest.json`
 - `benchmarks/results/ai-memory/longmemeval_sibyl_raw_20260513.json`
 - `benchmarks/results/ai-memory/longmemeval_sibyl_hybrid_20260513.json`
 
@@ -127,6 +128,10 @@ The hybrid offline mode improves overall Recall@5, NDCG@5, Recall@10, and NDCG@1
 mode. The one quality regression in this saved pair is the single-session-preference slice, where
 raw Recall@5 and NDCG remain higher. Runtime is effectively flat for this offline Chroma path, with
 raw at `312.3s` and hybrid at `309.4s`.
+
+`benchmarks/results/ai-memory/manifest.json` is the machine-checkable release ledger for this
+section. Its `citable` rows must point at committed full artifacts and match their summary metrics;
+its `planned` rows are intentionally non-citable until raw artifacts exist.
 
 ### Retrieval Component And Mini-Memory Gate
 
@@ -202,7 +207,7 @@ release-blocking for that claim.
 
 The table below is the release ledger for external AI memory benchmarks. Rows can move from
 `planned` to `citable` only after the raw artifact and the summarized table are both present in this
-document.
+document and `benchmarks/results/ai-memory/manifest.json`.
 
 | Suite or comparison             | Required artifact pattern                                           | Current status | Required summary before citation                                          |
 | ------------------------------- | ------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------- |

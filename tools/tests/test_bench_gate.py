@@ -234,3 +234,34 @@ def test_main_returns_nonzero_when_gate_fails(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "Gate failed" in captured.out
+
+
+def test_ai_memory_manifest_tracks_full_citable_artifacts() -> None:
+    repo_root = Path(__file__).parents[2]
+    manifest_path = repo_root / "benchmarks" / "results" / "ai-memory" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    citable = manifest["citable"]
+    assert citable
+
+    for entry in citable:
+        artifact = manifest_path.parent / entry["artifact"]
+        assert artifact.exists()
+        report = eval_gate.load_report(artifact)
+        assert eval_gate.evaluate_report(report, profile="ai-memory") == []
+        assert entry["status"] == "citable"
+        assert entry["suite"] == report["suite"]
+        assert entry["suite_version"] == report["suite_version"]
+        assert entry["mode"] == report["mode"]
+        assert entry["questions"] == report["total_questions"]
+        assert entry["case_results"] == len(report["case_results"])
+        assert entry["runtime"] == report["runtime"]
+        assert entry["dataset"]["evaluated_entries"] == report["dataset"]["evaluated_entries"]
+        for metric, expected in entry["overall"].items():
+            assert report["overall"][metric] == pytest.approx(expected)
+
+    planned = manifest["planned"]
+    assert planned
+    for entry in planned:
+        assert entry["status"] == "planned"
+        assert "artifact" not in entry

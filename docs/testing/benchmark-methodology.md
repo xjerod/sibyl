@@ -89,6 +89,10 @@ The committed `benchmarks/results/ai-memory/longmemeval_sibyl_raw_20260513.json`
 `longmemeval-offline-v2` outputs as of the v0.7 Surreal release work. Re-run the benchmark before
 using those numbers for a later release candidate.
 
+`benchmarks/results/ai-memory/manifest.json` records which AI memory benchmark artifacts are citable
+for the release and which suites are planned coverage only. The manifest is checked against the full
+JSON artifacts by `moon run bench-gate-test`.
+
 ## Threshold Gates
 
 Saved runtime artifacts should go through `moon run bench-gate -- <report.json>` before they count

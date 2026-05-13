@@ -5,8 +5,13 @@ artifacts. Files here should be full result records, not headline summaries.
 
 Current committed artifacts:
 
+- `manifest.json`
 - `longmemeval_sibyl_raw_20260513.json`
 - `longmemeval_sibyl_hybrid_20260513.json`
+
+`manifest.json` is the release ledger. Entries under `citable` must point to
+full artifacts in this directory and pass the `ai-memory` gate. Entries under
+`planned` are not release-note evidence yet.
 
 Each citable artifact must include overall metrics, per-slice metrics, full
 per-case records, dataset provenance, command, commit, runtime mode, and
