@@ -175,9 +175,9 @@ The v0.7 scoreboard uses concrete, testable metrics:
 - Policy decisions in v0.7 surface in two places: structured server logs with `surface`,
   `principal_id`, `memory_scope`, `scope_key`, `reason`, and `action`; and per-item `policy_reason`
   metadata on rendered context packs and remember/reflect responses.
-- Native vs. Graphiti retrieval is selected by `SIBYL_RETRIEVAL_MODE`: `graphiti` for the
-  transitional fallback, `native` once the Wave 2 quality gate is green, and `compare` to run both,
-  return native, and log diffs.
+- Native vs. Graphiti retrieval is selected by `SIBYL_RETRIEVAL_MODE`: `native` is the default,
+  `graphiti` is the named transitional fallback, and `compare` runs both, returns native, and logs
+  diffs.
 - Compare-mode diff logs are policy-safe: Graphiti results are filtered through the Wave 1 read
   policy before comparison, and diff records log source IDs, counts, and reason codes instead of raw
   memory text.
@@ -305,10 +305,11 @@ Implementation:
 - Keep weak signals as boosts, not hard filters.
 - Render context-pack item metadata with source ID, visibility, reason, freshness, and retrieval
   signals.
-- Select the path through `SIBYL_RETRIEVAL_MODE`. The mode flips from `graphiti` to `native` only
-  after `compare` mode runs in CI for three consecutive merged-to-main builds with zero
-  policy-affecting diffs, recorded by `tools/inventory/retrieval_mode_history.py`. `compare` mode
-  logs policy-safe native vs. Graphiti diffs while returning native results.
+- Select the path through `SIBYL_RETRIEVAL_MODE`. The default is `native`; CI keeps running
+  `compare` mode as the native-default guardrail. Three consecutive merged-to-main compare runs with
+  zero policy-affecting diffs, recorded by `tools/inventory/retrieval_mode_history.py`, are the
+  ongoing health signal for keeping native as the default. `compare` mode logs policy-safe native
+  vs. Graphiti diffs while returning native results.
 - Apply the Wave 1 read-side policy helper to Graphiti fallback results before comparison so
   compare-mode logs cannot expose text that native retrieval would have filtered.
 - Define the filter-selectivity threshold for demoting vector-only candidates in

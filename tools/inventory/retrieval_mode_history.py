@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record native retrieval compare runs for the eventual default flip."""
+"""Record native retrieval compare runs for native-default guardrails."""
 
 from __future__ import annotations
 
@@ -207,7 +207,7 @@ def _env(name: str, fallback: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Record retrieval compare history for the native default flip."
+        description="Record retrieval compare history for native-default guardrails."
     )
     parser.add_argument("report", type=Path, help="Saved context-pack eval report JSON.")
     parser.add_argument(

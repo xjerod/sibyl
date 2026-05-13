@@ -120,7 +120,7 @@ is not double-counted when it trips both signals.
 
 The current standard-runner context threshold is `latency_p95_ms <= 1000` across 20 repeated frozen
 suite runs. Tighten or relax that number only with a saved report artifact and a matching
-`retrieval-mode-history` update, because it is part of the native-default flip proof.
+`retrieval-mode-history` update, because it is part of the native-default proof.
 
 Native Surreal retrieval starts with a vector filter-selectivity threshold of `0.1`. When a filter
 retains less than 10% of the searchable corpus, vector-only candidates are demoted unless a seeded
