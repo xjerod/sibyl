@@ -5,6 +5,7 @@ Exposes 5 tools and 2 resources:
 - Resources: sibyl://health, sibyl://stats
 """
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
@@ -18,6 +19,7 @@ from sibyl.persistence.auth_runtime import (
     has_owner_membership,
     resolve_accessible_project_graph_ids,
 )
+from sibyl_core.auth.context import MemoryPolicyContext
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyDecision,
     authorize_memory_write,
@@ -49,6 +51,37 @@ class McpContext:
     scopes: list[str] | None = None
     # API key project restrictions (None = all, list = only these)
     api_key_project_ids: list[str] | None = None
+    org_role: str | None = None
+    delegated_authority: str | None = None
+    agent_id: str | None = None
+
+    def to_memory_policy_context(
+        self,
+        *,
+        memory_space: str | None = None,
+        scope_key: str | None = None,
+        project_id: str | None = None,
+        accessible_projects: Iterable[str] | None = None,
+        accessible_delegations: Iterable[str] | None = None,
+        source_surface: str = "mcp",
+    ) -> MemoryPolicyContext:
+        return MemoryPolicyContext(
+            actor_user_id=self.user_id,
+            organization_id=self.org_id,
+            organization_role=self.org_role,
+            accessible_projects=frozenset(str(value) for value in accessible_projects)
+            if accessible_projects is not None
+            else None,
+            accessible_delegations=frozenset(str(value) for value in accessible_delegations)
+            if accessible_delegations is not None
+            else None,
+            delegated_authority=self.delegated_authority,
+            agent_id=self.agent_id,
+            project_id=project_id,
+            memory_space=memory_space,
+            scope_key=scope_key,
+            source_surface=source_surface,
+        )
 
 
 async def _get_mcp_context() -> McpContext | None:
@@ -98,6 +131,7 @@ async def _get_mcp_context() -> McpContext | None:
             org_id=str(org_id),
             user_id=str(user_id) if user_id else None,
             scopes=claims.get("scopes"),
+            org_role=str(claims["org_role"]) if claims.get("org_role") else None,
         )
     return None
 
@@ -198,11 +232,15 @@ def _authorize_mcp_memory_write(
     accessible_projects: set[str] | None,
     surface: str,
 ) -> MemoryPolicyDecision:
-    decision = authorize_memory_write(
-        principal_id=ctx.user_id,
-        memory_scope=memory_scope,
+    policy_context = ctx.to_memory_policy_context(
+        memory_space=memory_scope,
         scope_key=scope_key,
+        project_id=scope_key,
         accessible_projects=accessible_projects,
+        source_surface=surface,
+    )
+    decision = authorize_memory_write(
+        policy_context=policy_context,
     )
     _log_mcp_policy_decision(ctx=ctx, decision=decision, surface=surface)
     if not decision.allowed:

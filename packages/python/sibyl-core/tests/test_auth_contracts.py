@@ -291,6 +291,35 @@ def test_auth_context_coerces_legacy_objects() -> None:
     assert ctx.scopes == frozenset({"api:read", "api:write"})
 
 
+def test_auth_context_builds_memory_policy_context() -> None:
+    user_id = uuid4()
+    org_id = uuid4()
+    ctx = AuthContext(
+        user=AuthUser(id=user_id, email="nova@example.com"),
+        organization=AuthOrganization(id=org_id, name="Sibyl", slug="sibyl"),
+        org_role=OrganizationRole.ADMIN,
+    )
+
+    policy_context = ctx.to_memory_policy_context(
+        memory_space="project",
+        scope_key="project_123",
+        accessible_projects=["project_123"],
+        delegated_authority="agent:nova",
+        agent_id="nova",
+        source_surface="rest_recall",
+    )
+
+    assert policy_context.actor_user_id == str(user_id)
+    assert policy_context.organization_id == str(org_id)
+    assert policy_context.organization_role is OrganizationRole.ADMIN
+    assert policy_context.accessible_projects == frozenset({"project_123"})
+    assert policy_context.delegated_authority == "agent:nova"
+    assert policy_context.agent_id == "nova"
+    assert policy_context.memory_space == "project"
+    assert policy_context.scope_key == "project_123"
+    assert policy_context.source_surface == "rest_recall"
+
+
 def test_github_identity_accepts_alias() -> None:
     identity = GitHubUserIdentity.model_validate(
         {

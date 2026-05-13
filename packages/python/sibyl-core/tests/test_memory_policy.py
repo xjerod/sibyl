@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from sibyl_core.auth.context import MemoryPolicyContext
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyAction,
     authorize_memory_read,
@@ -9,7 +10,107 @@ from sibyl_core.auth.memory_policy import (
     authorize_memory_share,
     authorize_memory_write,
 )
+from sibyl_core.auth.models import OrganizationRole
 from sibyl_core.services.surreal_content import MemoryScope
+
+
+def test_policy_context_authorizes_project_read_with_shared_payload() -> None:
+    ctx = MemoryPolicyContext(
+        actor_user_id="user-123",
+        organization_id="org-123",
+        organization_role="member",
+        accessible_projects=["project_123", "project_123"],
+        memory_space="project",
+        scope_key="project_123",
+        source_surface="mcp_context",
+    )
+
+    decision = authorize_memory_read(policy_context=ctx)
+
+    assert ctx.organization_role is OrganizationRole.MEMBER
+    assert ctx.accessible_projects == frozenset({"project_123"})
+    assert decision.allowed
+    assert decision.reason == "project_access_verified"
+    assert decision.policy_context == ctx
+
+
+def test_policy_context_denies_missing_actor_with_stable_reason() -> None:
+    decision = authorize_memory_read(
+        policy_context=MemoryPolicyContext(
+            actor_user_id=None,
+            memory_space="private",
+            source_surface="rest_recall",
+        )
+    )
+
+    assert not decision.allowed
+    assert decision.reason == "principal_mismatch"
+
+
+def test_policy_context_denies_missing_memory_space_with_stable_reason() -> None:
+    decision = authorize_memory_write(
+        policy_context=MemoryPolicyContext(
+            actor_user_id="user-123",
+            source_surface="mcp_remember",
+        )
+    )
+
+    assert not decision.allowed
+    assert decision.reason == "missing_memory_scope"
+
+
+def test_policy_context_authorizes_delegated_read() -> None:
+    ctx = MemoryPolicyContext(
+        actor_user_id="user-123",
+        accessible_delegations=["agent:nova"],
+        delegated_authority="agent:nova",
+        memory_space="delegated",
+        scope_key="agent:nova",
+        source_surface="mcp_context",
+    )
+
+    decision = authorize_memory_read(policy_context=ctx)
+
+    assert decision.allowed
+    assert decision.reason == "delegated_access_verified"
+
+
+def test_policy_context_explicit_kwargs_take_precedence() -> None:
+    ctx = MemoryPolicyContext(
+        actor_user_id="user-123",
+        accessible_projects={"project_a"},
+        memory_space="project",
+        scope_key="project_a",
+        source_surface="mcp_context",
+    )
+
+    decision = authorize_memory_read(
+        policy_context=ctx,
+        scope_key="project_b",
+        accessible_projects={"project_b"},
+    )
+
+    assert decision.allowed
+    assert decision.reason == "project_access_verified"
+    assert decision.scope_key == "project_b"
+    assert decision.policy_context == ctx
+
+
+def test_legacy_kwargs_missing_memory_scope_has_stable_reason() -> None:
+    decision = authorize_memory_write(principal_id="user-123")
+
+    assert not decision.allowed
+    assert decision.reason == "missing_memory_scope"
+
+
+def test_legacy_kwargs_do_not_attach_policy_context() -> None:
+    decision = authorize_memory_read(
+        principal_id="user-123",
+        memory_scope=MemoryScope.PRIVATE,
+    )
+
+    assert decision.allowed
+    assert decision.policy_context is None
 
 
 def test_private_read_requires_principal() -> None:

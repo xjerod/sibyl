@@ -203,6 +203,13 @@ def test_authorize_mcp_memory_write_returns_policy_reason() -> None:
 
     assert decision.allowed
     assert decision.reason == "same_scope_write_allowed"
+    assert decision.policy_context is not None
+    assert decision.policy_context.actor_user_id == ctx.user_id
+    assert decision.policy_context.organization_id == ctx.org_id
+    assert decision.policy_context.accessible_projects == frozenset({"project-a"})
+    assert decision.policy_context.memory_space == "project"
+    assert decision.policy_context.scope_key == "project-a"
+    assert decision.policy_context.source_surface == "mcp_remember"
 
 
 def test_authorize_mcp_memory_write_denies_unverified_project() -> None:

@@ -5,7 +5,7 @@ both the server and CLI. HTTP-specific auth (middleware, dependencies)
 remains in sibyl-server.
 """
 
-from sibyl_core.auth.context import AuthContext
+from sibyl_core.auth.context import AuthContext, MemoryPolicyContext
 from sibyl_core.auth.contracts import (
     GitHubUserIdentity,
     OrganizationMembershipRepository,
@@ -46,6 +46,7 @@ __all__ = [
     "AuthUser",
     "GitHubUserIdentity",
     "MemoryPolicyAction",
+    "MemoryPolicyContext",
     "MemoryPolicyDecision",
     "OrganizationMembershipRepository",
     "OrganizationRepository",

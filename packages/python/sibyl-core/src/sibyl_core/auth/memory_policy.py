@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from sibyl_core.auth.context import MemoryPolicyContext
 from sibyl_core.services.surreal_content import MemoryScope
 
 
@@ -23,6 +24,18 @@ class MemoryPolicyDecision:
     reason: str
     memory_scope: MemoryScope
     scope_key: str | None = None
+    policy_context: MemoryPolicyContext | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PolicyInputs:
+    principal_id: str | None
+    memory_scope: MemoryScope | str | None
+    scope_key: str | None
+    project_id: str | None
+    agent_id: str | None
+    accessible_projects: Iterable[str] | None
+    accessible_delegations: Iterable[str] | None
 
 
 def _coerce_scope(value: MemoryScope | str) -> MemoryScope | None:
@@ -46,6 +59,7 @@ def _deny(
     reason: str,
     memory_scope: MemoryScope,
     scope_key: str | None,
+    policy_context: MemoryPolicyContext | None = None,
 ) -> MemoryPolicyDecision:
     return MemoryPolicyDecision(
         action=action,
@@ -53,6 +67,7 @@ def _deny(
         reason=reason,
         memory_scope=memory_scope,
         scope_key=scope_key,
+        policy_context=policy_context,
     )
 
 
@@ -62,6 +77,7 @@ def _allow(
     reason: str,
     memory_scope: MemoryScope,
     scope_key: str | None,
+    policy_context: MemoryPolicyContext | None = None,
 ) -> MemoryPolicyDecision:
     return MemoryPolicyDecision(
         action=action,
@@ -69,121 +85,224 @@ def _allow(
         reason=reason,
         memory_scope=memory_scope,
         scope_key=scope_key,
+        policy_context=policy_context,
+    )
+
+
+def _resolve_policy_inputs(
+    *,
+    policy_context: MemoryPolicyContext | None,
+    principal_id: str | None,
+    memory_scope: MemoryScope | str | None,
+    scope_key: str | None,
+    project_id: str | None,
+    agent_id: str | None,
+    accessible_projects: Iterable[str] | None,
+    accessible_delegations: Iterable[str] | None,
+) -> _PolicyInputs:
+    if policy_context is None:
+        return _PolicyInputs(
+            principal_id=principal_id,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            project_id=project_id,
+            agent_id=agent_id,
+            accessible_projects=accessible_projects,
+            accessible_delegations=accessible_delegations,
+        )
+
+    return _PolicyInputs(
+        principal_id=principal_id if principal_id is not None else policy_context.actor_user_id,
+        memory_scope=memory_scope if memory_scope is not None else policy_context.memory_space,
+        scope_key=scope_key if scope_key is not None else policy_context.scope_key,
+        project_id=project_id if project_id is not None else policy_context.project_id,
+        agent_id=agent_id if agent_id is not None else policy_context.agent_id,
+        accessible_projects=accessible_projects
+        if accessible_projects is not None
+        else policy_context.accessible_projects,
+        accessible_delegations=accessible_delegations
+        if accessible_delegations is not None
+        else policy_context.accessible_delegations,
+    )
+
+
+def _missing_memory_scope(
+    *,
+    action: MemoryPolicyAction,
+    scope_key: str | None,
+    policy_context: MemoryPolicyContext | None,
+) -> MemoryPolicyDecision:
+    return MemoryPolicyDecision(
+        action=action,
+        allowed=False,
+        reason="missing_memory_scope",
+        memory_scope=MemoryScope.PRIVATE,
+        scope_key=scope_key,
+        policy_context=policy_context,
     )
 
 
 def authorize_memory_read(
     *,
-    principal_id: str | None,
-    memory_scope: MemoryScope | str,
+    principal_id: str | None = None,
+    memory_scope: MemoryScope | str | None = None,
     scope_key: str | None = None,
     project_id: str | None = None,
     agent_id: str | None = None,
     accessible_projects: Iterable[str] | None = None,
     accessible_delegations: Iterable[str] | None = None,
+    policy_context: MemoryPolicyContext | None = None,
 ) -> MemoryPolicyDecision:
-    normalized_scope = _coerce_scope(memory_scope)
+    inputs = _resolve_policy_inputs(
+        policy_context=policy_context,
+        principal_id=principal_id,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        project_id=project_id,
+        agent_id=agent_id,
+        accessible_projects=accessible_projects,
+        accessible_delegations=accessible_delegations,
+    )
+    if inputs.memory_scope is None:
+        return _missing_memory_scope(
+            action=MemoryPolicyAction.READ,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
+        )
+
+    normalized_scope = _coerce_scope(inputs.memory_scope)
     if normalized_scope is None:
         return MemoryPolicyDecision(
             action=MemoryPolicyAction.READ,
             allowed=False,
             reason="scope_not_enabled",
             memory_scope=MemoryScope.PRIVATE,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
-    if not principal_id:
+    if not inputs.principal_id:
         return _deny(
             reason="principal_mismatch",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     if normalized_scope is MemoryScope.PRIVATE:
-        if agent_id:
+        if inputs.agent_id:
             return _allow(
                 reason="agent_diary_private_read_allowed",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         return _allow(
             reason="private_principal_bound",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     if normalized_scope is MemoryScope.PROJECT:
-        if not scope_key:
+        if not inputs.scope_key:
             return _deny(
                 reason="missing_scope_key",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
-        projects = _string_set(accessible_projects)
-        if projects is None or scope_key not in projects:
+        projects = _string_set(inputs.accessible_projects)
+        if projects is None or inputs.scope_key not in projects:
             return _deny(
                 reason="unverified_membership",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         return _allow(
             reason="project_access_verified",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     if normalized_scope is MemoryScope.DELEGATED:
-        if not scope_key:
+        if not inputs.scope_key:
             return _deny(
                 reason="missing_scope_key",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
-        delegations = _string_set(accessible_delegations)
-        if delegations is None or scope_key not in delegations:
+        delegations = _string_set(inputs.accessible_delegations)
+        if delegations is None or inputs.scope_key not in delegations:
             return _deny(
                 reason="unverified_membership",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         return _allow(
             reason="delegated_access_verified",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     return _deny(
         reason="scope_not_enabled",
         memory_scope=normalized_scope,
-        scope_key=scope_key,
+        scope_key=inputs.scope_key,
+        policy_context=policy_context,
     )
 
 
 def _authorize_mutating_action(
     *,
     action: MemoryPolicyAction,
-    principal_id: str | None,
-    memory_scope: MemoryScope | str,
+    principal_id: str | None = None,
+    memory_scope: MemoryScope | str | None = None,
     scope_key: str | None = None,
     accessible_projects: Iterable[str] | None = None,
     accessible_delegations: Iterable[str] | None = None,
+    policy_context: MemoryPolicyContext | None = None,
 ) -> MemoryPolicyDecision:
-    normalized_scope = _coerce_scope(memory_scope)
+    inputs = _resolve_policy_inputs(
+        policy_context=policy_context,
+        principal_id=principal_id,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        project_id=None,
+        agent_id=None,
+        accessible_projects=accessible_projects,
+        accessible_delegations=accessible_delegations,
+    )
+    if inputs.memory_scope is None:
+        return _missing_memory_scope(
+            action=action,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
+        )
+
+    normalized_scope = _coerce_scope(inputs.memory_scope)
     if normalized_scope is None:
         return MemoryPolicyDecision(
             action=action,
             allowed=False,
             reason="scope_not_enabled",
             memory_scope=MemoryScope.PRIVATE,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
-    if not principal_id:
+    if not inputs.principal_id:
         return _deny(
             action=action,
             reason="principal_mismatch",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     if normalized_scope in {
@@ -196,7 +315,8 @@ def _authorize_mutating_action(
             action=action,
             reason="scope_not_enabled",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     if normalized_scope is MemoryScope.PRIVATE:
@@ -205,90 +325,102 @@ def _authorize_mutating_action(
                 action=action,
                 reason="scope_crossing_requires_promotion",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         return _allow(
             action=action,
             reason=f"same_scope_{action.value}_allowed",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     if normalized_scope is MemoryScope.PROJECT:
-        if not scope_key:
+        if not inputs.scope_key:
             return _deny(
                 action=action,
                 reason="missing_scope_key",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
-        projects = _string_set(accessible_projects)
-        if projects is None or scope_key not in projects:
+        projects = _string_set(inputs.accessible_projects)
+        if projects is None or inputs.scope_key not in projects:
             return _deny(
                 action=action,
                 reason="unverified_membership",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         if action is MemoryPolicyAction.SHARE:
             return _deny(
                 action=action,
                 reason="scope_crossing_requires_promotion",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         return _allow(
             action=action,
             reason=f"same_scope_{action.value}_allowed",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     if normalized_scope is MemoryScope.DELEGATED:
-        if not scope_key:
+        if not inputs.scope_key:
             return _deny(
                 action=action,
                 reason="missing_scope_key",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
-        delegations = _string_set(accessible_delegations)
-        if delegations is None or scope_key not in delegations:
+        delegations = _string_set(inputs.accessible_delegations)
+        if delegations is None or inputs.scope_key not in delegations:
             return _deny(
                 action=action,
                 reason="unverified_membership",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         if action is MemoryPolicyAction.SHARE:
             return _deny(
                 action=action,
                 reason="scope_crossing_requires_promotion",
                 memory_scope=normalized_scope,
-                scope_key=scope_key,
+                scope_key=inputs.scope_key,
+                policy_context=policy_context,
             )
         return _allow(
             action=action,
             reason=f"same_scope_{action.value}_allowed",
             memory_scope=normalized_scope,
-            scope_key=scope_key,
+            scope_key=inputs.scope_key,
+            policy_context=policy_context,
         )
 
     return _deny(
         action=action,
         reason="scope_not_enabled",
         memory_scope=normalized_scope,
-        scope_key=scope_key,
+        scope_key=inputs.scope_key,
+        policy_context=policy_context,
     )
 
 
 def authorize_memory_write(
     *,
-    principal_id: str | None,
-    memory_scope: MemoryScope | str,
+    principal_id: str | None = None,
+    memory_scope: MemoryScope | str | None = None,
     scope_key: str | None = None,
     accessible_projects: Iterable[str] | None = None,
     accessible_delegations: Iterable[str] | None = None,
+    policy_context: MemoryPolicyContext | None = None,
 ) -> MemoryPolicyDecision:
     return _authorize_mutating_action(
         action=MemoryPolicyAction.WRITE,
@@ -297,16 +429,18 @@ def authorize_memory_write(
         scope_key=scope_key,
         accessible_projects=accessible_projects,
         accessible_delegations=accessible_delegations,
+        policy_context=policy_context,
     )
 
 
 def authorize_memory_share(
     *,
-    principal_id: str | None,
-    memory_scope: MemoryScope | str,
+    principal_id: str | None = None,
+    memory_scope: MemoryScope | str | None = None,
     scope_key: str | None = None,
     accessible_projects: Iterable[str] | None = None,
     accessible_delegations: Iterable[str] | None = None,
+    policy_context: MemoryPolicyContext | None = None,
 ) -> MemoryPolicyDecision:
     return _authorize_mutating_action(
         action=MemoryPolicyAction.SHARE,
@@ -315,16 +449,18 @@ def authorize_memory_share(
         scope_key=scope_key,
         accessible_projects=accessible_projects,
         accessible_delegations=accessible_delegations,
+        policy_context=policy_context,
     )
 
 
 def authorize_memory_reflect(
     *,
-    principal_id: str | None,
-    memory_scope: MemoryScope | str,
+    principal_id: str | None = None,
+    memory_scope: MemoryScope | str | None = None,
     scope_key: str | None = None,
     accessible_projects: Iterable[str] | None = None,
     accessible_delegations: Iterable[str] | None = None,
+    policy_context: MemoryPolicyContext | None = None,
 ) -> MemoryPolicyDecision:
     return _authorize_mutating_action(
         action=MemoryPolicyAction.REFLECT,
@@ -333,6 +469,7 @@ def authorize_memory_reflect(
         scope_key=scope_key,
         accessible_projects=accessible_projects,
         accessible_delegations=accessible_delegations,
+        policy_context=policy_context,
     )
 
 

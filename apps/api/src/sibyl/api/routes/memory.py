@@ -17,7 +17,7 @@ from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
-from sibyl_core.auth import AuthOrganization, OrganizationRole, ProjectRole
+from sibyl_core.auth import AuthOrganization, MemoryPolicyContext, OrganizationRole, ProjectRole
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyAction,
     MemoryPolicyDecision,
@@ -106,21 +106,24 @@ async def _authorize_memory_policy(
         memory_scope=memory_scope,
         scope_key=scope_key,
     )
+    policy_context = MemoryPolicyContext(
+        actor_user_id=ctx.user_id,
+        organization_id=ctx.organization_id,
+        organization_role=ctx.org_role,
+        memory_space=memory_scope,
+        scope_key=scope_key,
+        project_id=project_id,
+        accessible_projects=accessible_projects,
+        agent_id=agent_id,
+        source_surface=surface,
+    )
     if action is MemoryPolicyAction.READ:
         decision = authorize_memory_read(
-            principal_id=ctx.user_id,
-            memory_scope=memory_scope,
-            scope_key=scope_key,
-            agent_id=agent_id,
-            project_id=project_id,
-            accessible_projects=accessible_projects,
+            policy_context=policy_context,
         )
     elif action is MemoryPolicyAction.WRITE:
         decision = authorize_memory_write(
-            principal_id=ctx.user_id,
-            memory_scope=memory_scope,
-            scope_key=scope_key,
-            accessible_projects=accessible_projects,
+            policy_context=policy_context,
         )
     else:
         msg = f"Unsupported raw memory policy action: {action.value}"

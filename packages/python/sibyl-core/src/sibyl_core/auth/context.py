@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from sibyl_core.auth.models import (
@@ -12,6 +13,60 @@ from sibyl_core.auth.models import (
     coerce_auth_user,
     coerce_organization_role,
 )
+
+
+def _frozen_string_set(values: Iterable[str] | None) -> frozenset[str] | None:
+    if values is None:
+        return None
+    return frozenset(str(value) for value in values)
+
+
+def _optional_string(value: object | None) -> str | None:
+    return str(value) if value is not None else None
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryPolicyContext:
+    actor_user_id: str | None
+    organization_id: str | None = None
+    organization_role: OrganizationRole | str | None = None
+    accessible_projects: frozenset[str] | None = None
+    accessible_delegations: frozenset[str] | None = None
+    delegated_authority: str | None = None
+    agent_id: str | None = None
+    project_id: str | None = None
+    memory_space: str | None = None
+    scope_key: str | None = None
+    source_surface: str = "unknown"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "actor_user_id", _optional_string(self.actor_user_id))
+        object.__setattr__(self, "organization_id", _optional_string(self.organization_id))
+        object.__setattr__(
+            self,
+            "organization_role",
+            coerce_organization_role(self.organization_role),
+        )
+        object.__setattr__(
+            self,
+            "accessible_projects",
+            _frozen_string_set(self.accessible_projects),
+        )
+        object.__setattr__(
+            self,
+            "accessible_delegations",
+            _frozen_string_set(self.accessible_delegations),
+        )
+        object.__setattr__(
+            self,
+            "delegated_authority",
+            _optional_string(self.delegated_authority),
+        )
+        object.__setattr__(self, "agent_id", _optional_string(self.agent_id))
+        object.__setattr__(self, "project_id", _optional_string(self.project_id))
+        object.__setattr__(self, "memory_space", _optional_string(self.memory_space))
+        object.__setattr__(self, "scope_key", _optional_string(self.scope_key))
+        object.__setattr__(self, "source_surface", str(self.source_surface or "unknown"))
 
 
 @dataclass(frozen=True)
@@ -44,3 +99,29 @@ class AuthContext:
     def organization_id(self) -> str | None:
         """Get organization ID as string for convenience."""
         return str(self.organization.id) if self.organization else None
+
+    def to_memory_policy_context(
+        self,
+        *,
+        memory_space: str | None = None,
+        scope_key: str | None = None,
+        project_id: str | None = None,
+        accessible_projects: Iterable[str] | None = None,
+        accessible_delegations: Iterable[str] | None = None,
+        delegated_authority: str | None = None,
+        agent_id: str | None = None,
+        source_surface: str = "rest",
+    ) -> MemoryPolicyContext:
+        return MemoryPolicyContext(
+            actor_user_id=self.user_id,
+            organization_id=self.organization_id,
+            organization_role=self.org_role,
+            accessible_projects=_frozen_string_set(accessible_projects),
+            accessible_delegations=_frozen_string_set(accessible_delegations),
+            delegated_authority=delegated_authority,
+            agent_id=agent_id,
+            project_id=project_id,
+            memory_space=memory_space,
+            scope_key=scope_key,
+            source_surface=source_surface,
+        )

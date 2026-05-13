@@ -1078,6 +1078,26 @@ Exit criteria:
 
 - Policy decisions can be compared across REST and MCP without special-case translation.
 
+B3.1 receipt, 2026-05-13:
+
+- Added `MemoryPolicyContext` as the shared actor, organization role, project access, delegation,
+  memory-space, scope-key, agent, and source-surface payload for memory policy calls.
+- REST raw memory routes and MCP remember authorization now evaluate memory writes/reads through the
+  shared policy context while preserving legacy `authorize_memory_*` kwargs callers.
+- Stable deny guards now cover missing actors, missing memory space, missing project/delegation
+  scope keys, and unverified project/delegation membership.
+- `moon run core:test -- tests/test_memory_policy.py tests/test_auth_contracts.py`: 1340 passed, 15
+  skipped in 8.83s.
+- `moon run api:test -- tests/test_routes_memory.py tests/test_server_accessible_projects.py tests/test_auth_mcp_token_verifier.py`:
+  42 passed in 1.28s.
+- `moon run core:lint core:typecheck`: lint passed; typecheck exited 0 with the existing 26 ty
+  diagnostics.
+- `moon run api:lint api:typecheck`: lint passed; typecheck exited 0 with the existing 63 ty
+  diagnostics.
+- `git diff --check`: passed.
+- Independent review passed at `/tmp/claude-review-b31-policy-context-1778713220.txt`; follow-up
+  regression tests were added for the review's test-gap notes.
+
 ### Packet B4.1: Audit Event Skeleton
 
 Purpose: give memory trust work one compact audit record before adding more surfaces.
