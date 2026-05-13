@@ -2092,6 +2092,7 @@ class EntityManager:
         feature: str | None = None,
         tags: list[str] | None = None,
         include_archived: bool = False,
+        enrich_epic_progress: bool = False,
     ) -> list[Entity]:
         """List all entities of a specific type using direct Cypher query.
 
@@ -2143,7 +2144,7 @@ class EntityManager:
 
         if self._surreal_entity_node_ops() is not None:
             try:
-                return await self._surreal_list_entities_direct(
+                entities = await self._surreal_list_entities_direct(
                     entity_type=entity_type,
                     limit=limit,
                     offset=offset,
@@ -2157,6 +2158,9 @@ class EntityManager:
                     tags=tags,
                     include_archived=include_archived,
                 )
+                if entity_type == EntityType.EPIC and enrich_epic_progress:
+                    return await self._with_epic_progress(entities)
+                return entities
             except Exception as e:
                 log.exception("Failed to list entities", entity_type=entity_type, error=str(e))
                 return []
@@ -2397,12 +2401,38 @@ class EntityManager:
                 ),
             )
             if requires_legacy_rechecks:
-                return entities[offset : offset + limit]
-            return entities[:limit]
+                entities = entities[offset : offset + limit]
+            else:
+                entities = entities[:limit]
+
+            if entity_type == EntityType.EPIC and enrich_epic_progress:
+                return await self._with_epic_progress(entities)
+            return entities
 
         except Exception as e:
             log.exception("Failed to list entities", entity_type=entity_type, error=str(e))
             return []
+
+    async def _with_epic_progress(self, epics: list[Entity]) -> list[Entity]:
+        enriched: list[Entity] = []
+        for epic in epics:
+            progress = await self.get_epic_progress(epic.id)
+            enriched.append(
+                epic.model_copy(
+                    update={
+                        "metadata": {
+                            **(epic.metadata or {}),
+                            "total_tasks": progress.get("total_tasks", 0),
+                            "completed_tasks": progress.get("completed_tasks", 0),
+                            "in_progress_tasks": progress.get("in_progress_tasks", 0),
+                            "blocked_tasks": progress.get("blocked_tasks", 0),
+                            "in_review_tasks": progress.get("in_review_tasks", 0),
+                            "completion_pct": progress.get("completion_pct", 0.0),
+                        }
+                    }
+                )
+            )
+        return enriched
 
     async def list_all(
         self,

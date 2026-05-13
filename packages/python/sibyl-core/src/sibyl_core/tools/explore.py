@@ -396,6 +396,7 @@ async def _explore_list(
             feature=feature,
             tags=tag_list,
             include_archived=include_archived,
+            enrich_epic_progress=entity_type == EntityType.EPIC,
         )
         all_entities.extend(entities)
 

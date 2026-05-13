@@ -148,6 +148,51 @@ async def test_native_graph_writes_entities_and_relationships_without_graphiti(
 
         await entity_manager.create_direct(
             Entity(
+                id="epic_native",
+                entity_type=EntityType.EPIC,
+                name="Native epic",
+                description="Epic with task progress",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "status": "planning",
+                    "total_tasks": 0,
+                    "completed_tasks": 0,
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="epic_native_two",
+                entity_type=EntityType.EPIC,
+                name="Native blocked epic",
+                description="Epic with non-terminal task progress",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "status": "blocked",
+                    "total_tasks": 0,
+                    "completed_tasks": 0,
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="epic_native_empty",
+                entity_type=EntityType.EPIC,
+                name="Native empty epic",
+                description="Epic with no tasks",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "status": "completed",
+                    "total_tasks": 9,
+                    "completed_tasks": 9,
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
                 id="task_native_one",
                 entity_type=EntityType.TASK,
                 name="Native filtered task",
@@ -161,6 +206,96 @@ async def test_native_graph_writes_entities_and_relationships_without_graphiti(
                     "complexity": "complex",
                     "feature": "surreal",
                     "tags": ["native", "graph"],
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_done",
+                entity_type=EntityType.TASK,
+                name="Native completed task",
+                description="Done task attached to an epic",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "epic_id": "epic_native",
+                    "status": "done",
+                    "priority": "medium",
+                    "complexity": "simple",
+                    "feature": "surreal",
+                    "tags": ["native"],
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_doing",
+                entity_type=EntityType.TASK,
+                name="Native active task",
+                description="Doing task attached to an epic",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "epic_id": "epic_native",
+                    "status": "doing",
+                    "priority": "medium",
+                    "complexity": "simple",
+                    "feature": "surreal",
+                    "tags": ["native"],
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_review",
+                entity_type=EntityType.TASK,
+                name="Native review task",
+                description="Review task attached to another epic",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "epic_id": "epic_native_two",
+                    "status": "review",
+                    "priority": "medium",
+                    "complexity": "simple",
+                    "feature": "surreal",
+                    "tags": ["native"],
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_blocked",
+                entity_type=EntityType.TASK,
+                name="Native blocked task",
+                description="Blocked task attached to another epic",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "epic_id": "epic_native_two",
+                    "status": "blocked",
+                    "priority": "medium",
+                    "complexity": "simple",
+                    "feature": "surreal",
+                    "tags": ["native"],
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_archived_epic",
+                entity_type=EntityType.TASK,
+                name="Native archived epic task",
+                description="Archived task attached to another epic",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "epic_id": "epic_native_two",
+                    "status": "archived",
+                    "priority": "medium",
+                    "complexity": "simple",
+                    "feature": "surreal",
+                    "tags": ["native"],
                 },
             )
         )
@@ -228,15 +363,61 @@ async def test_native_graph_writes_entities_and_relationships_without_graphiti(
         )
         assert {entity.id for entity in archived} == {
             "task_native_one",
+            "task_native_done",
+            "task_native_doing",
+            "task_native_review",
+            "task_native_blocked",
+            "task_native_archived_epic",
             "task_native_two",
             "task_native_archived",
         }
+
+        progress = await entity_manager.get_epic_progress("epic_native")
+        assert progress["total_tasks"] == 3
+        assert progress["completed_tasks"] == 1
+        assert progress["in_progress_tasks"] == 1
+        assert progress["completion_pct"] == 33.3
+
+        epics = await entity_manager.list_by_type(
+            EntityType.EPIC,
+            project_id="project_native",
+            enrich_epic_progress=True,
+        )
+        epics_by_id = {epic.id: epic for epic in epics}
+        assert epics_by_id["epic_native"].metadata["total_tasks"] == 3
+        assert epics_by_id["epic_native"].metadata["completed_tasks"] == 1
+        assert epics_by_id["epic_native"].metadata["in_progress_tasks"] == 1
+        assert epics_by_id["epic_native"].metadata["completion_pct"] == 33.3
+        assert epics_by_id["epic_native_two"].metadata["total_tasks"] == 3
+        assert epics_by_id["epic_native_two"].metadata["completed_tasks"] == 0
+        assert epics_by_id["epic_native_two"].metadata["blocked_tasks"] == 1
+        assert epics_by_id["epic_native_two"].metadata["in_review_tasks"] == 1
+        assert epics_by_id["epic_native_two"].metadata["completion_pct"] == 0.0
+        assert epics_by_id["epic_native_empty"].metadata["total_tasks"] == 0
+        assert epics_by_id["epic_native_empty"].metadata["completed_tasks"] == 0
+        assert epics_by_id["epic_native_empty"].metadata["completion_pct"] == 0
+
+        planning_epics = await entity_manager.list_by_type(
+            EntityType.EPIC,
+            project_id="project_native",
+            status="planning",
+            enrich_epic_progress=True,
+        )
+        assert [epic.id for epic in planning_epics] == ["epic_native"]
+
+        summary = await entity_manager.get_project_summary("project_native", epic_limit=10)
+        summary_epics = {epic["id"]: epic for epic in summary["epics"]}
+        assert summary_epics["epic_native"]["total_tasks"] == 3
+        assert summary_epics["epic_native"]["progress_pct"] == 33.3
+        assert summary_epics["epic_native_two"]["total_tasks"] == 3
+        assert summary_epics["epic_native_empty"]["total_tasks"] == 0
 
         visible_ids = {
             entity.id for entity in await entity_manager.list_all(include_archived=False)
         }
         assert "decision_native" in visible_ids
         assert "task_native_archived" not in visible_ids
+        assert "task_native_archived_epic" not in visible_ids
 
         embedding = [0.2] * EMBEDDING_DIM
         await entity_manager.create_direct(

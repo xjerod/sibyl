@@ -315,13 +315,19 @@ class NativeEntityManager:
         project_id: str,
         status: str | None = None,
         limit: int = 50,
+        enrich_progress: bool = False,
     ) -> list[Entity]:
         return await self.list_by_type(
             EntityType.EPIC,
             project_id=project_id,
             status=status,
             limit=limit,
+            enrich_epic_progress=enrich_progress,
         )
+
+    async def get_epic_progress(self, epic_id: str) -> dict[str, Any]:
+        progress = await self._epic_progress_map({epic_id})
+        return progress[epic_id]
 
     async def get_project_summary(
         self,
@@ -404,7 +410,11 @@ class NativeEntityManager:
                 break
 
         epics: list[dict[str, Any]] = []
-        for epic in await self.list_epics_for_project(project_id, limit=epic_limit):
+        for epic in await self.list_epics_for_project(
+            project_id,
+            limit=epic_limit,
+            enrich_progress=False,
+        ):
             progress = epic_progress.get(epic.id, {})
             total_tasks = progress.get("total_tasks", 0)
             completed_tasks = progress.get("completed_tasks", 0)
@@ -447,6 +457,7 @@ class NativeEntityManager:
         feature: str | None = None,
         tags: Sequence[str] | None = None,
         include_archived: bool = False,
+        enrich_epic_progress: bool = False,
     ) -> list[Entity]:
         if limit <= 0:
             return []
@@ -531,8 +542,13 @@ class NativeEntityManager:
 
         if requires_recheck:
             start = max(int(offset), 0)
-            return entities[start : start + max(int(limit), 1)]
-        return entities[: max(int(limit), 1)]
+            entities = entities[start : start + max(int(limit), 1)]
+        else:
+            entities = entities[: max(int(limit), 1)]
+
+        if entity_type == EntityType.EPIC and enrich_epic_progress:
+            return await self._with_epic_progress(entities, project_id=project_id)
+        return entities
 
     async def list_all(
         self,
@@ -597,6 +613,100 @@ class NativeEntityManager:
             start = max(int(offset), 0)
             return entities[start : start + max(int(limit), 1)]
         return entities[: max(int(limit), 1)]
+
+    async def _with_epic_progress(
+        self, epics: list[Entity], *, project_id: str | None = None
+    ) -> list[Entity]:
+        progress_by_epic = await self._epic_progress_map(
+            {epic.id for epic in epics},
+            project_id=project_id,
+        )
+        enriched: list[Entity] = []
+        for epic in epics:
+            progress = progress_by_epic.get(epic.id, _finalize_task_progress(_new_task_progress()))
+            enriched.append(
+                epic.model_copy(
+                    update={
+                        "metadata": {
+                            **(epic.metadata or {}),
+                            "total_tasks": progress.get("total_tasks", 0),
+                            "completed_tasks": progress.get("completed_tasks", 0),
+                            "in_progress_tasks": progress.get("in_progress_tasks", 0),
+                            "blocked_tasks": progress.get("blocked_tasks", 0),
+                            "in_review_tasks": progress.get("in_review_tasks", 0),
+                            "completion_pct": progress.get("completion_pct", 0.0),
+                        }
+                    }
+                )
+            )
+        return enriched
+
+    async def _epic_progress_map(
+        self,
+        epic_ids: set[str],
+        *,
+        project_id: str | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        progress = {epic_id: _new_task_progress() for epic_id in epic_ids}
+        if not progress:
+            return {}
+
+        epic_id_list = sorted(epic_ids)
+        where_clauses = [
+            "group_id = $group_id",
+            "entity_type = 'task'",
+            "(epic_id IN $epic_ids OR attributes.epic_id IN $epic_ids)",
+        ]
+        params: dict[str, Any] = {
+            "group_id": self._group_id,
+            "epic_ids": epic_id_list,
+        }
+        if project_id is not None:
+            where_clauses.append(
+                "(project_id = $project_id OR attributes.project_id = $project_id)"
+            )
+            params["project_id"] = project_id
+
+        offset = 0
+        page_size = 1000
+        while True:
+            page = [
+                _entity_from_row(row)
+                for row in normalize_records(
+                    await self._client.execute_query(
+                        """
+                        SELECT *
+                        FROM entity
+                        WHERE """
+                        + " AND ".join(where_clauses)
+                        + """
+                        ORDER BY created_at DESC, uuid DESC
+                        LIMIT $limit START $offset;
+                        """,
+                        **params,
+                        limit=page_size,
+                        offset=offset,
+                    )
+                )
+            ]
+            if not page:
+                break
+
+            for task in page:
+                epic_ref = _metadata_scalar(task, "epic_id")
+                if not epic_ref:
+                    continue
+                counters = progress.get(str(epic_ref))
+                if counters is not None:
+                    _count_task_progress(counters, task)
+
+            if len(page) < page_size:
+                break
+            offset += len(page)
+
+        return {
+            epic_id: _finalize_task_progress(counters) for epic_id, counters in progress.items()
+        }
 
 
 class NativeRelationshipManager:
@@ -1014,6 +1124,38 @@ def _metadata_str_values(entity: Entity, key: str) -> list[str]:
     if isinstance(value, Iterable) and not isinstance(value, bytes | dict):
         return [str(item).lower() for item in value if str(item)]
     return []
+
+
+def _new_task_progress() -> dict[str, int]:
+    return {
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "in_progress_tasks": 0,
+        "blocked_tasks": 0,
+        "in_review_tasks": 0,
+    }
+
+
+def _count_task_progress(counters: dict[str, int], task: Entity) -> None:
+    counters["total_tasks"] += 1
+    status_value = str(_metadata_scalar(task, "status") or "").lower()
+    if status_value == "done":
+        counters["completed_tasks"] += 1
+    elif status_value == "doing":
+        counters["in_progress_tasks"] += 1
+    elif status_value == "blocked":
+        counters["blocked_tasks"] += 1
+    elif status_value == "review":
+        counters["in_review_tasks"] += 1
+
+
+def _finalize_task_progress(counters: dict[str, int]) -> dict[str, Any]:
+    total = counters["total_tasks"]
+    completed = counters["completed_tasks"]
+    return {
+        **counters,
+        "completion_pct": round((completed / total * 100) if total > 0 else 0, 1),
+    }
 
 
 def _lower_filter_values(value: str | None) -> list[str]:
