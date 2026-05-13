@@ -15,6 +15,7 @@ from sibyl_core.tools.helpers import (
     VALID_ENTITY_TYPES,
     _build_entity_metadata,
     _get_field,
+    _project_id_for_policy,
     _serialize_enum,
 )
 from sibyl_core.tools.responses import SearchResponse, SearchResult
@@ -161,11 +162,12 @@ async def _list_graph_entities_for_filters(
         for entity_type in entity_types:
             page_offset = 0
             while len(matched) < target_count:
+                query_project_id = None if entity_type == EntityType.PROJECT else project
                 entities = await entity_manager.list_by_type(
                     entity_type,
                     limit=page_size,
                     offset=page_offset,
-                    project_id=project,
+                    project_id=query_project_id,
                     status=status,
                 )
                 if not entities:
@@ -219,14 +221,16 @@ def _matches_graph_filters(
         if status_val not in status_list:
             return False
 
-    entity_project = _get_field(entity, "project_id")
+    entity_project = _project_id_for_policy(entity)
     if project and entity_project is not None and entity_project != project:
         return False
 
-    if accessible_projects is not None:
-        entity_project = _get_field(entity, "project_id")
-        if entity_project is not None and entity_project not in accessible_projects:
-            return False
+    if (
+        accessible_projects is not None
+        and entity_project is not None
+        and entity_project not in accessible_projects
+    ):
+        return False
 
     if source and _get_field(entity, "source_id") != source:
         return False

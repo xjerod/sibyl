@@ -9,6 +9,7 @@ from sibyl_core.tools.helpers import (
     VALID_ENTITY_TYPES,
     _build_entity_metadata,
     _get_field,
+    _project_id_for_policy,
     _serialize_enum,
 )
 from sibyl_core.tools.responses import (
@@ -192,6 +193,7 @@ async def explore(
                 limit=limit,
                 filters=filters,
                 group_id=organization_id,
+                accessible_projects=accessible_projects,
             )
         if mode in ("related", "traverse"):
             return await _explore_related(
@@ -248,10 +250,13 @@ def _passes_entity_filters(
     """Check if an entity passes all specified filters."""
     # RBAC: Filter by accessible projects
     # Include entities that: have no project_id OR project_id is in accessible set
-    if accessible_projects is not None:
-        entity_project = _get_field(entity, "project_id")
-        if entity_project is not None and entity_project not in accessible_projects:
-            return False
+    entity_project = _project_id_for_policy(entity)
+    if (
+        accessible_projects is not None
+        and entity_project is not None
+        and entity_project not in accessible_projects
+    ):
+        return False
 
     # Language filter
     if language:
@@ -265,10 +270,10 @@ def _passes_entity_filters(
         if category.lower() not in entity_cat.lower():
             return False
 
-    # Project filter (for tasks and epics)
-    if project and _get_field(entity, "project_id") != project:
+    # Project filters apply to project-scoped entities and project entities themselves.
+    if project and entity_project != project:
         return False
-    if project_ids and _get_field(entity, "project_id") not in project_ids:
+    if project_ids and entity_project not in project_ids:
         return False
 
     # Epic filter (for tasks)
@@ -384,10 +389,11 @@ async def _explore_list(
     fetch_limit = limit + offset + 50
     all_entities = []
     for entity_type in target_types:
+        query_project_id = None if entity_type == EntityType.PROJECT else project_id_filter
         entities = await entity_manager.list_by_type(
             entity_type,
             limit=fetch_limit,
-            project_id=project_id_filter,
+            project_id=query_project_id,
             epic_id=epic,
             no_epic=no_epic,
             status=status,
@@ -456,6 +462,7 @@ async def _explore_dependencies(
     limit: int,
     filters: dict[str, Any],
     group_id: str,
+    accessible_projects: set[str] | None = None,
 ) -> ExploreResponse:
     """Traverse task dependency chains with topological sorting.
 
@@ -473,6 +480,28 @@ async def _explore_dependencies(
     runtime = await get_graph_runtime(group_id)
     relationship_manager = runtime.relationship_manager
     entity_manager = runtime.entity_manager
+
+    def entity_is_visible(entity: Any) -> bool:
+        entity_project = _project_id_for_policy(entity)
+        if project and entity_project != project:
+            return False
+        return not (
+            accessible_projects is not None
+            and entity_project is not None
+            and entity_project not in accessible_projects
+        )
+
+    try:
+        root_entity = await entity_manager.get(entity_id)
+    except Exception:
+        root_entity = None
+    if root_entity is not None and not entity_is_visible(root_entity):
+        return ExploreResponse(
+            mode="dependencies",
+            entities=[],
+            total=0,
+            filters=filters,
+        )
 
     # Track visited nodes and detect cycles
     visited: set[str] = set()
@@ -504,13 +533,8 @@ async def _explore_dependencies(
         for dep_entity, rel in deps:
             # Only follow outgoing DEPENDS_ON (this task depends on dep_entity)
             if rel.source_id == task_id:
-                # Apply project filter if specified
-                if project:
-                    dep_project = getattr(
-                        dep_entity, "project_id", None
-                    ) or dep_entity.metadata.get("project_id")
-                    if dep_project != project:
-                        continue
+                if not entity_is_visible(dep_entity):
+                    continue
                 await traverse_dependencies(dep_entity.id, depth + 1)
 
         in_stack.remove(task_id)
@@ -528,7 +552,7 @@ async def _explore_dependencies(
     for task_id, depth in dependency_order[:limit]:
         try:
             entity = await entity_manager.get(task_id)
-            if entity:
+            if entity and entity_is_visible(entity):
                 raw_status = getattr(entity, "status", None) or entity.metadata.get("status")
                 status_value = (
                     raw_status.value if raw_status and hasattr(raw_status, "value") else raw_status
@@ -611,10 +635,13 @@ async def _explore_related(
     results = []
     for entity, relationship in raw_results:
         # RBAC: Filter by accessible projects
-        if accessible_projects is not None:
-            entity_project = _get_field(entity, "project_id")
-            if entity_project is not None and entity_project not in accessible_projects:
-                continue
+        entity_project = _project_id_for_policy(entity)
+        if (
+            accessible_projects is not None
+            and entity_project is not None
+            and entity_project not in accessible_projects
+        ):
+            continue
 
         direction: Literal["outgoing", "incoming"] = (
             "outgoing" if relationship.source_id == entity_id else "incoming"

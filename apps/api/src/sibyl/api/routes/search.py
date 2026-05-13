@@ -22,7 +22,6 @@ from sibyl.api.schemas import (
 from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
-from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
 from sibyl_core.auth import AuthOrganization, OrganizationRole, ProjectRole
 
@@ -137,19 +136,12 @@ async def explore(
             )
 
         if request.project_ids:
-            accessible_projects = await list_accessible_project_graph_ids(ctx)
-            invalid_project_id = next(
-                (
-                    project_id
-                    for project_id in request.project_ids
-                    if project_id not in accessible_projects
-                ),
-                None,
-            )
-            if invalid_project_id:
-                raise ProjectAccessDeniedError(
-                    project_id=invalid_project_id,
-                    required_role="viewer",
+            for project_id in request.project_ids:
+                await verify_entity_project_access(
+                    None,
+                    ctx,
+                    project_id,
+                    required_role=ProjectRole.VIEWER,
                 )
             accessible_filter = None
         elif request.project:

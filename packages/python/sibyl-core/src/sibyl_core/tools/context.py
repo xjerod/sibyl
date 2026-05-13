@@ -33,6 +33,7 @@ from sibyl_core.services.surreal_content import (
     RawMemory,
     recall_raw_memory,
 )
+from sibyl_core.tools.helpers import _project_id_for_policy
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 
 SearchFn = Callable[..., Awaitable[SearchResponse]]
@@ -234,9 +235,7 @@ async def default_search(**kwargs: Any) -> SearchResponse:
 
 
 def _project_id_for(entity: Any) -> str | None:
-    metadata = getattr(entity, "metadata", {}) or {}
-    value = getattr(entity, "project_id", None) or metadata.get("project_id")
-    return str(value) if value is not None else None
+    return _project_id_for_policy(entity)
 
 
 def _compact_metadata_value(value: Any, max_chars: int = 120) -> str | None:

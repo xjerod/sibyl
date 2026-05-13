@@ -438,3 +438,115 @@ async def test_get_entity_filters_inaccessible_related_entities() -> None:
 
     assert response.related is not None
     assert [related.id for related in response.related] == ["pattern-1"]
+
+
+@pytest.mark.asyncio
+async def test_get_entity_graph_mode_filters_fetched_related_entities() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    task = Entity(
+        id="task-visible",
+        entity_type=EntityType.TASK,
+        name="Visible task",
+        metadata={"project_id": "project-visible"},
+    )
+    hidden_task = Entity(
+        id="task-hidden",
+        entity_type=EntityType.TASK,
+        name="Hidden task",
+        metadata={"project_id": "project-hidden"},
+    )
+    visible_project = Entity(
+        id="project-visible",
+        entity_type=EntityType.PROJECT,
+        name="Visible project",
+    )
+    hidden_project = Entity(
+        id="project-hidden",
+        entity_type=EntityType.PROJECT,
+        name="Hidden project",
+    )
+    unassigned_pattern = Entity(
+        id="pattern-unassigned",
+        entity_type=EntityType.PATTERN,
+        name="Unassigned pattern",
+    )
+    service = AsyncMock()
+    service.get_entity.return_value = task
+    relationship_manager = MagicMock()
+    relationship_manager.get_related_entities = AsyncMock(
+        return_value=[
+            (
+                hidden_task,
+                Relationship(
+                    id="rel-hidden-task",
+                    relationship_type=RelationshipType.RELATED_TO,
+                    source_id="task-visible",
+                    target_id="task-hidden",
+                ),
+            ),
+            (
+                hidden_project,
+                Relationship(
+                    id="rel-hidden-project",
+                    relationship_type=RelationshipType.RELATED_TO,
+                    source_id="task-visible",
+                    target_id="project-hidden",
+                ),
+            ),
+            (
+                visible_project,
+                Relationship(
+                    id="rel-visible-project",
+                    relationship_type=RelationshipType.BELONGS_TO,
+                    source_id="task-visible",
+                    target_id="project-visible",
+                ),
+            ),
+            (
+                unassigned_pattern,
+                Relationship(
+                    id="rel-unassigned",
+                    relationship_type=RelationshipType.RELATED_TO,
+                    source_id="task-visible",
+                    target_id="pattern-unassigned",
+                ),
+            ),
+        ]
+    )
+    runtime = SimpleNamespace(relationship_manager=relationship_manager)
+    ctx = _ctx()
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(return_value=runtime),
+        ),
+        patch(
+            "sibyl.api.routes.entities.verify_entity_project_access",
+            AsyncMock(),
+        ) as verify_project,
+        patch(
+            "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project-visible"}),
+        ),
+    ):
+        response = await get_entity(
+            "task-visible",
+            org=org,
+            ctx=ctx,
+            service=service,
+            include_summary=False,
+            related_limit=5,
+        )
+
+    verify_project.assert_awaited_once_with(
+        None,
+        ctx,
+        "project-visible",
+        required_role=ProjectRole.VIEWER,
+    )
+    assert response.related is not None
+    assert [related.id for related in response.related] == [
+        "project-visible",
+        "pattern-unassigned",
+    ]

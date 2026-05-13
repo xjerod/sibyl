@@ -32,6 +32,19 @@ def _serialize_enum(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
 
+def _project_id_for_policy(entity: Any) -> str | None:
+    metadata = getattr(entity, "metadata", {}) or {}
+    entity_type = _serialize_enum(
+        getattr(entity, "entity_type", None) or metadata.get("entity_type")
+    )
+    if str(entity_type or "").lower() == EntityType.PROJECT.value:
+        entity_id = getattr(entity, "id", None) or metadata.get("id")
+        return str(entity_id) if entity_id is not None else None
+
+    project_id = getattr(entity, "project_id", None) or metadata.get("project_id")
+    return str(project_id) if project_id is not None else None
+
+
 def _build_entity_metadata(entity: Any) -> dict[str, Any]:
     """Build standardized metadata dict from entity with common fields."""
     status = _serialize_enum(_get_field(entity, "status"))

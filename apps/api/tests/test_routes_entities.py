@@ -487,6 +487,70 @@ class TestListEntitiesRoute:
         assert [entity.id for entity in response.entities] == ["project-visible"]
 
     @pytest.mark.asyncio
+    async def test_untyped_entity_list_filters_private_project_fixture_shapes(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        manager = MagicMock()
+        manager._surreal_entity_node_ops.return_value = object()
+        manager.list_by_type = AsyncMock()
+        manager.list_all = AsyncMock(
+            return_value=[
+                _entity("task-visible", project_id="project-visible", name="Visible"),
+                _entity("task-hidden", project_id="project-hidden", name="Hidden"),
+                _entity("pattern-unassigned", project_id=None, name="Unassigned"),
+                _entity(
+                    "project-visible",
+                    project_id=None,
+                    name="Visible Project",
+                    entity_type=EntityType.PROJECT,
+                ),
+                _entity(
+                    "project-hidden",
+                    project_id=None,
+                    name="Hidden Project",
+                    entity_type=EntityType.PROJECT,
+                ),
+            ]
+        )
+        runtime = SimpleNamespace(entity_manager=manager)
+
+        with (
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+                AsyncMock(return_value={"project-visible"}),
+            ),
+        ):
+            response = await list_entities(
+                org=org,
+                ctx=_ctx(),
+                entity_type=None,
+                language=None,
+                category=None,
+                search=None,
+                project_ids=None,
+                page=1,
+                page_size=50,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        manager.list_by_type.assert_not_awaited()
+        manager.list_all.assert_awaited_once_with(
+            limit=2000,
+            offset=0,
+            include_archived=True,
+        )
+        assert [entity.id for entity in response.entities] == [
+            "task-visible",
+            "pattern-unassigned",
+            "project-visible",
+        ]
+        assert response.total == 3
+
+    @pytest.mark.asyncio
     async def test_entity_list_rejects_inaccessible_project_filter(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
 

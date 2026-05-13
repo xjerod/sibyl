@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, Literal
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -703,6 +705,66 @@ async def test_compile_context_can_attach_one_hop_related_items() -> None:
     assert pack.items[0].related[0].id == "plan-1"
     assert calls[0]["entity_id"] == "decision-1"
     assert calls[0]["organization_id"] == "org-123"
+
+
+@pytest.mark.asyncio
+async def test_compile_context_filters_related_project_entities_by_own_id() -> None:
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        results = []
+        if kwargs["types"] == ["decision"]:
+            results = [_result("decision-1", "decision", "Use context packs")]
+        return SearchResponse(
+            results=results,
+            total=len(results),
+            query=kwargs["query"],
+            filters={},
+        )
+
+    def entity(entity_id: str, entity_type: str, project_id: str | None = None) -> SimpleNamespace:
+        metadata = {"project_id": project_id} if project_id else {}
+        return SimpleNamespace(
+            id=entity_id,
+            entity_type=SimpleNamespace(value=entity_type),
+            name=entity_id,
+            metadata=metadata,
+        )
+
+    def relationship(target_id: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            source_id="decision-1",
+            target_id=target_id,
+            relationship_type=SimpleNamespace(value="RELATED_TO"),
+        )
+
+    relationship_manager = SimpleNamespace(
+        get_related_entities=AsyncMock(
+            return_value=[
+                (entity("task-hidden", "task", "project-hidden"), relationship("task-hidden")),
+                (entity("project-hidden", "project"), relationship("project-hidden")),
+                (entity("project-visible", "project"), relationship("project-visible")),
+                (entity("pattern-unassigned", "pattern"), relationship("pattern-unassigned")),
+            ]
+        )
+    )
+    runtime = SimpleNamespace(relationship_manager=relationship_manager)
+
+    with patch.object(context_module, "get_graph_runtime", AsyncMock(return_value=runtime)):
+        pack = await _compile_context_compat(
+            "ship trust",
+            intent="decide",
+            organization_id="org-123",
+            accessible_projects={"project-visible"},
+            limit=1,
+            include_related=True,
+            related_limit=5,
+            search_fn=fake_search,
+        )
+
+    assert pack.items[0].related is not None
+    assert [item.id for item in pack.items[0].related] == [
+        "project-visible",
+        "pattern-unassigned",
+    ]
 
 
 @pytest.mark.asyncio

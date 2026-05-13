@@ -95,11 +95,13 @@ one policy context in B3, add audit and inspect in B4, then run the B6 memory tr
 - Present: REST raw memory tests cover project membership allow/deny, missing scope key, diary
   constraints, and promotion project verification.
 - Present: REST context tests cover accessible project scoping and inaccessible project denial.
+- Present: REST entity list/get fixtures cover project-private, unassigned, inaccessible, and
+  project-entity-as-scope read behavior. Core search, explore, and context-pack related hydration
+  fixtures use the same project-entity-as-own-ID policy helper.
 - Present: MCP tests cover accessible-project resolution, restricted credentials, remember policy,
   and reflect project context.
-- Missing before release: direct entity list/get project-private negative tests, raw-capture
-  visibility classification, temporal search access tests, MCP generic `add/manage` policy tests,
-  and job-payload policy receipt tests.
+- Missing before release: raw-capture visibility classification, temporal search access tests, MCP
+  generic `add/manage` policy tests, and job-payload policy receipt tests.
 
 ---
 

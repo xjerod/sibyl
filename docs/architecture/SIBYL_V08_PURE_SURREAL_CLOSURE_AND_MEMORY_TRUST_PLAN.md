@@ -1006,6 +1006,33 @@ Exit criteria:
 - No project-private fixture leaks through the B2 read surfaces.
 - Tests cover both implicit accessible-project scopes and explicit requested project scopes.
 
+B2.4 receipt, 2026-05-13:
+
+- Added a shared core project-policy helper that treats project entities as scoped by their own
+  graph entity ID when `project_id` metadata is absent.
+- Search, explore list, explore related/traverse, explore dependencies, and context-pack related
+  hydration now use project-aware policy IDs for project filters and accessible-project filters.
+- REST explore multi-project filters now verify each requested project through
+  `verify_entity_project_access()` instead of comparing against the default accessible-project set.
+- Added no-leak fixtures for entity list, direct entity related hydration, search/explore route
+  policy plumbing, core search/explore project entities, explore related/traverse, explore
+  dependencies, and context-pack related hydration.
+- Review: Claude cross-model review initially failed on explore related/traverse project-entity
+  filtering, then passed after that fix. A final pass also verified the dependencies-mode follow-up:
+  `/tmp/claude-review-b24-project-private-fixtures-final-1778781400.txt`.
+- Verification:
+  - `moon run api:test -- tests/test_routes_entities.py tests/test_routes_entities_read.py`: 26
+    passed in 1.25s.
+  - `moon run api:test -- tests/test_routes_search.py tests/test_routes_context.py`: 19 passed in
+    1.28s.
+  - `moon run core:test -- tests/test_tools.py tests/test_context_pack.py`: 1331 passed and 15
+    skipped in 8.78s.
+  - `moon run api:lint api:typecheck`: lint passed; typecheck exited 0 with the existing 63 ty
+    warnings.
+  - `moon run core:lint core:typecheck`: lint passed; typecheck exited 0 with the existing 26 ty
+    warnings.
+  - `git diff --check`: passed.
+
 ### Packet B3.1: Policy Context Contract
 
 Purpose: define the shared payload that REST, MCP, CLI, jobs, and core services pass around.

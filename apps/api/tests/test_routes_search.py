@@ -28,6 +28,50 @@ class _SearchResult:
 
 class TestSearchRoute:
     @pytest.mark.asyncio
+    async def test_search_without_project_passes_default_accessible_scope(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        ctx = SimpleNamespace()
+        result = _SearchResult(
+            results=[
+                {
+                    "id": "pattern_unassigned",
+                    "type": "pattern",
+                    "name": "Unassigned pattern",
+                    "content": "content",
+                    "score": 0.9,
+                    "metadata": {},
+                    "source": None,
+                    "source_id": None,
+                    "result_origin": "graph",
+                    "usage_hint": None,
+                    "created_at": None,
+                    "updated_at": None,
+                }
+            ],
+            total=1,
+            query="seam",
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
+                AsyncMock(return_value={"proj_1"}),
+            ) as list_projects,
+            patch("sibyl_core.tools.core.search", AsyncMock(return_value=result)) as core_search,
+        ):
+            response = await search(
+                request=SearchRequest(query="seam"),
+                org=org,
+                ctx=ctx,
+            )
+
+        list_projects.assert_awaited_once_with(ctx)
+        assert response.total == 1
+        assert response.results[0].id == "pattern_unassigned"
+        assert core_search.await_args.kwargs["project"] is None
+        assert core_search.await_args.kwargs["accessible_projects"] == {"proj_1"}
+
+    @pytest.mark.asyncio
     async def test_search_verifies_project_filter_directly(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
         ctx = SimpleNamespace()
@@ -104,7 +148,7 @@ class TestSearchRoute:
 
 class TestExploreRoute:
     @pytest.mark.asyncio
-    async def test_explore_uses_project_scope_helper_for_project_id_lists(self) -> None:
+    async def test_explore_verifies_project_id_lists_directly(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
         ctx = SimpleNamespace()
         result = SimpleNamespace(
@@ -120,9 +164,9 @@ class TestExploreRoute:
 
         with (
             patch(
-                "sibyl.api.routes.search.list_accessible_project_graph_ids",
-                AsyncMock(return_value=["proj_1", "proj_2"]),
-            ) as list_projects,
+                "sibyl.api.routes.search.verify_entity_project_access",
+                AsyncMock(return_value=ProjectRole.VIEWER),
+            ) as verify_project,
             patch("sibyl_core.tools.core.explore", AsyncMock(return_value=result)) as core_explore,
         ):
             response = await explore(
@@ -131,11 +175,53 @@ class TestExploreRoute:
                 ctx=ctx,
             )
 
-        list_projects.assert_awaited_once_with(ctx)
+        verify_project.assert_awaited_once_with(
+            None,
+            ctx,
+            "proj_1",
+            required_role=ProjectRole.VIEWER,
+        )
         assert response.total == 1
         assert response.entities[0]["id"] == "task_1"
         assert core_explore.await_args.kwargs["project_ids"] == ["proj_1"]
         assert core_explore.await_args.kwargs["accessible_projects"] is None
+
+    @pytest.mark.asyncio
+    async def test_explore_without_project_passes_default_accessible_scope(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        ctx = SimpleNamespace()
+        result = SimpleNamespace(
+            mode="list",
+            entities=[
+                {"id": "task_1", "name": "Visible task"},
+                {"id": "pattern_1", "name": "Unassigned pattern"},
+            ],
+            total=2,
+            filters={},
+            limit=10,
+            offset=0,
+            has_more=False,
+            actual_total=2,
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
+                AsyncMock(return_value={"proj_1"}),
+            ) as list_projects,
+            patch("sibyl_core.tools.core.explore", AsyncMock(return_value=result)) as core_explore,
+        ):
+            response = await explore(
+                request=ExploreRequest(mode="list"),
+                org=org,
+                ctx=ctx,
+            )
+
+        list_projects.assert_awaited_once_with(ctx)
+        assert [entity["id"] for entity in response.entities] == ["task_1", "pattern_1"]
+        assert core_explore.await_args.kwargs["project"] is None
+        assert core_explore.await_args.kwargs["project_ids"] is None
+        assert core_explore.await_args.kwargs["accessible_projects"] == {"proj_1"}
 
     @pytest.mark.asyncio
     async def test_explore_verifies_single_project_filter_directly(self) -> None:
@@ -182,8 +268,13 @@ class TestExploreRoute:
 
         with (
             patch(
-                "sibyl.api.routes.search.list_accessible_project_graph_ids",
-                AsyncMock(return_value=["proj_1"]),
+                "sibyl.api.routes.search.verify_entity_project_access",
+                AsyncMock(
+                    side_effect=ProjectAccessDeniedError(
+                        project_id="proj_2",
+                        required_role="viewer",
+                    )
+                ),
             ),
             pytest.raises(ProjectAccessDeniedError) as exc,
         ):

@@ -1084,6 +1084,45 @@ class TestSearchTool:
         )
 
     @pytest.mark.asyncio
+    async def test_search_filters_project_entities_by_own_id(self) -> None:
+        from sibyl_core.tools.search import search
+
+        visible = MockEntity(
+            id="project_visible",
+            entity_type=EntityType.PROJECT,
+            name="Visible project",
+        )
+        hidden = MockEntity(
+            id="project_hidden",
+            entity_type=EntityType.PROJECT,
+            name="Hidden project",
+        )
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.list_by_type = AsyncMock(return_value=[visible, hidden])
+
+        with patch(
+            "sibyl_core.tools.search.get_graph_runtime",
+            AsyncMock(return_value=make_graph_runtime(entity_manager=mock_entity_manager)),
+        ):
+            response = await search(
+                query="",
+                types=["project"],
+                accessible_projects={"project_visible"},
+                organization_id="org_123",
+                include_documents=False,
+            )
+
+        assert response.graph_count == 1
+        assert [result.id for result in response.results] == ["project_visible"]
+        mock_entity_manager.list_by_type.assert_awaited_once_with(
+            EntityType.PROJECT,
+            limit=10,
+            offset=0,
+            project_id=None,
+            status=None,
+        )
+
+    @pytest.mark.asyncio
     async def test_search_empty_query_with_sparse_filters_pages_until_match(self) -> None:
         """Empty filtered graph search does not drop later matches after a short first page."""
         from sibyl_core.tools.search import search
@@ -1961,6 +2000,99 @@ class TestExploreTool:
             assert response.filters["status"] == "todo"
 
     @pytest.mark.asyncio
+    async def test_explore_filters_project_entities_by_own_id(self) -> None:
+        from sibyl_core.tools.explore import explore
+
+        visible = MockEntity(
+            id="project_visible",
+            entity_type=EntityType.PROJECT,
+            name="Visible project",
+        )
+        hidden = MockEntity(
+            id="project_hidden",
+            entity_type=EntityType.PROJECT,
+            name="Hidden project",
+        )
+        mock_entity_manager = AsyncMock()
+        mock_entity_manager.list_by_type = AsyncMock(return_value=[visible, hidden])
+
+        with patch(
+            "sibyl_core.tools.explore.get_graph_runtime",
+            AsyncMock(
+                return_value=make_graph_runtime(
+                    entity_manager=mock_entity_manager,
+                )
+            ),
+        ):
+            response = await explore(
+                mode="list",
+                types=["project"],
+                project_ids=["project_visible"],
+                organization_id="org_123",
+            )
+
+        assert response.total == 1
+        assert [entity.id for entity in response.entities] == ["project_visible"]
+        mock_entity_manager.list_by_type.assert_awaited_once()
+        assert mock_entity_manager.list_by_type.await_args.kwargs["project_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_explore_related_filters_project_entities_by_own_id(self) -> None:
+        from sibyl_core.tools.explore import explore
+
+        def relationship(target_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                source_id="task_visible",
+                target_id=target_id,
+                relationship_type=MockEnum("RELATED_TO"),
+            )
+
+        visible = MockEntity(
+            id="project_visible",
+            entity_type=EntityType.PROJECT,
+            name="Visible project",
+        )
+        hidden = MockEntity(
+            id="project_hidden",
+            entity_type=EntityType.PROJECT,
+            name="Hidden project",
+        )
+        unassigned = MockEntity(
+            id="pattern_unassigned",
+            entity_type=EntityType.PATTERN,
+            name="Unassigned pattern",
+        )
+        relationship_manager = SimpleNamespace(
+            get_related_entities=AsyncMock(
+                return_value=[
+                    (hidden, relationship("project_hidden")),
+                    (visible, relationship("project_visible")),
+                    (unassigned, relationship("pattern_unassigned")),
+                ]
+            )
+        )
+
+        with patch(
+            "sibyl_core.tools.explore.get_graph_runtime",
+            AsyncMock(
+                return_value=make_graph_runtime(
+                    relationship_manager=relationship_manager,
+                )
+            ),
+        ):
+            response = await explore(
+                mode="related",
+                entity_id="task_visible",
+                accessible_projects={"project_visible"},
+                organization_id="org_123",
+            )
+
+        assert [entity.id for entity in response.entities] == [
+            "project_visible",
+            "pattern_unassigned",
+        ]
+
+    @pytest.mark.asyncio
     async def test_explore_related_requires_entity_id(self) -> None:
         """Explore related mode returns error without entity_id."""
         from sibyl_core.tools.explore import explore
@@ -1985,6 +2117,77 @@ class TestExploreTool:
         )
         assert response.total == 0
         assert "error" in response.filters
+
+    @pytest.mark.asyncio
+    async def test_explore_dependencies_filters_inaccessible_projects(self) -> None:
+        from sibyl_core.tools.explore import explore
+
+        def relationship(target_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                source_id="task_root",
+                target_id=target_id,
+                relationship_type=RelationshipType.DEPENDS_ON,
+            )
+
+        root = MockEntity(
+            id="task_root",
+            entity_type=EntityType.TASK,
+            name="Root",
+            project_id="project_visible",
+        )
+        visible_dep = MockEntity(
+            id="task_visible_dep",
+            entity_type=EntityType.TASK,
+            name="Visible dependency",
+            project_id="project_visible",
+        )
+        hidden_dep = MockEntity(
+            id="task_hidden_dep",
+            entity_type=EntityType.TASK,
+            name="Hidden dependency",
+            project_id="project_hidden",
+        )
+        entity_manager = SimpleNamespace(
+            get=AsyncMock(
+                side_effect=lambda entity_id: {
+                    "task_root": root,
+                    "task_visible_dep": visible_dep,
+                    "task_hidden_dep": hidden_dep,
+                }.get(entity_id)
+            )
+        )
+        relationship_manager = SimpleNamespace(
+            get_related_entities=AsyncMock(
+                side_effect=[
+                    [
+                        (hidden_dep, relationship("task_hidden_dep")),
+                        (visible_dep, relationship("task_visible_dep")),
+                    ],
+                    [],
+                ]
+            )
+        )
+
+        with patch(
+            "sibyl_core.tools.explore.get_graph_runtime",
+            AsyncMock(
+                return_value=make_graph_runtime(
+                    entity_manager=entity_manager,
+                    relationship_manager=relationship_manager,
+                )
+            ),
+        ):
+            response = await explore(
+                mode="dependencies",
+                entity_id="task_root",
+                accessible_projects={"project_visible"},
+                organization_id="org_123",
+            )
+
+        assert {entity.id for entity in response.entities} == {
+            "task_root",
+            "task_visible_dep",
+        }
 
     @pytest.mark.asyncio
     async def test_explore_traverse_requires_entity_id(self) -> None:

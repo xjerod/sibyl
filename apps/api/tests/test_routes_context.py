@@ -150,7 +150,11 @@ class TestContextPackRoute:
             ) as compile_context,
         ):
             await context_pack(
-                request=ContextPackRequest(goal="ship faster", project="proj_1"),
+                request=ContextPackRequest(
+                    goal="ship faster",
+                    project="proj_1",
+                    related_limit=5,
+                ),
                 org=org,
                 ctx=ctx,
             )
@@ -164,6 +168,8 @@ class TestContextPackRoute:
         )
         assert compile_context.await_args.kwargs["project"] == "proj_1"
         assert compile_context.await_args.kwargs["accessible_projects"] == {"proj_1"}
+        assert compile_context.await_args.kwargs["include_related"] is True
+        assert compile_context.await_args.kwargs["related_limit"] == 5
 
     @pytest.mark.asyncio
     async def test_context_pack_passes_requested_layer(self) -> None:
