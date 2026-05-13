@@ -15,9 +15,8 @@
 #   - Default passwords suitable for local development only
 #
 # Default mode: fully Surreal (graph + content + auth in one SurrealDB instance).
-# To run the legacy FalkorDB+Postgres stack instead, use docker-compose.yml
-# with `--profile legacy` and migrate via `sibyld migrate`. See
-# docs/guide/migrating-from-falkor.md.
+# Legacy imports are explicit archive migration flows. See
+# docs/guide/migrating-from-falkor.md for the cutover playbook.
 #
 # Optional environment variables for advanced setup:
 #   SIBYL_OPENAI_API_KEY      — Pre-configure via env (or enter in UI)
@@ -128,7 +127,7 @@ services:
   # SurrealDB (graph + content + auth, unified)
   # ==========================================================================
   surrealdb:
-    image: surrealdb/surrealdb:latest
+    image: ${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}
     container_name: sibyl-surrealdb
     command:
       [

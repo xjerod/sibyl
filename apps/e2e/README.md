@@ -16,6 +16,13 @@ moon run api:worker   # Background worker
 moon run web:dev      # Web UI on :3337 (for browser tests)
 ```
 
+For an isolated SurrealDB data service instead of the shared dev database:
+
+```bash
+moon run e2e-up
+SIBYL_SURREAL_URL=ws://localhost:8011/rpc moon run api:serve
+```
+
 ## Running Tests
 
 ```bash

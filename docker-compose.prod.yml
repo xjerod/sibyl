@@ -8,10 +8,8 @@
 #   2. docker compose -f docker-compose.prod.yml up -d
 #   3. Visit http://localhost:3337
 #
-# Default mode is fully Surreal. To run the legacy FalkorDB+Postgres stack:
-#   SIBYL_STORE=legacy SIBYL_AUTH_STORE=postgres \
-#     docker compose -f docker-compose.prod.yml --profile legacy up -d
-# See docs/guide/migrating-from-falkor.md for migration guidance.
+# Default mode is fully Surreal. Legacy imports are file-based migration flows
+# documented in docs/guide/migrating-from-falkor.md, not production services.
 #
 # Environment Variables (required):
 #   SIBYL_JWT_SECRET          — Random secret for JWT signing (openssl rand -hex 32)
@@ -20,8 +18,6 @@
 #
 # Environment Variables (optional):
 #   SIBYL_SURREAL_PASSWORD    — SurrealDB root password (default: sibyl_dev; CHANGE IN PROD)
-#   SIBYL_POSTGRES_PASSWORD   — PostgreSQL password (legacy mode; default: sibyl_dev)
-#   SIBYL_FALKORDB_PASSWORD   - FalkorDB password (legacy mode; default: sibyl_dev)
 
 services:
   # ==========================================================================
@@ -46,11 +42,6 @@ services:
       SIBYL_SURREAL_URL: ws://surrealdb:8000/rpc
       SIBYL_SURREAL_USERNAME: ${SIBYL_SURREAL_USERNAME:-root}
       SIBYL_SURREAL_PASSWORD: ${SIBYL_SURREAL_PASSWORD:-sibyl_dev}
-      # Legacy backends — only used when SIBYL_STORE=legacy or SIBYL_AUTH_STORE=postgres
-      SIBYL_DATABASE_URL: postgresql://${SIBYL_POSTGRES_USER:-sibyl}:${SIBYL_POSTGRES_PASSWORD:-sibyl_dev}@postgres:5432/${SIBYL_POSTGRES_DB:-sibyl}
-      SIBYL_FALKORDB_HOST: falkordb
-      SIBYL_FALKORDB_PORT: 6379
-      SIBYL_FALKORDB_PASSWORD: ${SIBYL_FALKORDB_PASSWORD:-sibyl_dev}
       # Auth (REQUIRED)
       SIBYL_JWT_SECRET: ${SIBYL_JWT_SECRET:?Set SIBYL_JWT_SECRET in .env}
       SIBYL_SERVER_URL: ${SIBYL_SERVER_URL:-http://localhost:3334}
@@ -114,10 +105,6 @@ services:
       SIBYL_SURREAL_URL: ws://surrealdb:8000/rpc
       SIBYL_SURREAL_USERNAME: ${SIBYL_SURREAL_USERNAME:-root}
       SIBYL_SURREAL_PASSWORD: ${SIBYL_SURREAL_PASSWORD:-sibyl_dev}
-      SIBYL_DATABASE_URL: postgresql://${SIBYL_POSTGRES_USER:-sibyl}:${SIBYL_POSTGRES_PASSWORD:-sibyl_dev}@postgres:5432/${SIBYL_POSTGRES_DB:-sibyl}
-      SIBYL_FALKORDB_HOST: falkordb
-      SIBYL_FALKORDB_PORT: 6379
-      SIBYL_FALKORDB_PASSWORD: ${SIBYL_FALKORDB_PASSWORD:-sibyl_dev}
       SIBYL_OPENAI_API_KEY: ${SIBYL_OPENAI_API_KEY:?Set SIBYL_OPENAI_API_KEY in .env}
       SIBYL_ANTHROPIC_API_KEY: ${SIBYL_ANTHROPIC_API_KEY:?Set SIBYL_ANTHROPIC_API_KEY in .env}
       SIBYL_LLM_PROVIDER: anthropic
@@ -128,7 +115,7 @@ services:
   # SurrealDB (graph + content + auth, unified)
   # ==========================================================================
   surrealdb:
-    image: surrealdb/surrealdb:latest
+    image: ${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}
     container_name: sibyl-surrealdb
     command:
       [
@@ -152,57 +139,8 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ==========================================================================
-  # Legacy: FalkorDB (Knowledge Graph)
-  # Only started with `--profile legacy`. Set SIBYL_STORE=legacy to use it.
-  # ==========================================================================
-  falkordb:
-    image: falkordb/falkordb:latest
-    container_name: sibyl-falkordb
-    profiles: ["legacy"]
-    ports:
-      - "6380:6379" # Redis protocol (mapped to avoid conflicts)
-      - "3335:3000" # FalkorDB Browser UI
-    volumes:
-      - falkordb_data:/var/lib/falkordb/data
-    environment:
-      - FALKORDB_ARGS=--requirepass ${SIBYL_FALKORDB_PASSWORD:-sibyl_dev}
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${SIBYL_FALKORDB_PASSWORD:-sibyl_dev}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # ==========================================================================
-  # Legacy: PostgreSQL (user data, embeddings, crawled docs)
-  # Only started with `--profile legacy`. Also required when
-  # SIBYL_AUTH_STORE=postgres during mid-migration transitions.
-  # ==========================================================================
-  postgres:
-    image: pgvector/pgvector:pg18
-    container_name: sibyl-postgres
-    profiles: ["legacy"]
-    ports:
-      - "5433:5432" # Mapped to avoid conflicts with local postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql
-    environment:
-      POSTGRES_USER: ${SIBYL_POSTGRES_USER:-sibyl}
-      POSTGRES_PASSWORD: ${SIBYL_POSTGRES_PASSWORD:-sibyl_dev}
-      POSTGRES_DB: ${SIBYL_POSTGRES_DB:-sibyl}
-    healthcheck:
-      test:
-        ["CMD-SHELL", "pg_isready -U ${SIBYL_POSTGRES_USER:-sibyl} -d ${SIBYL_POSTGRES_DB:-sibyl}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
 volumes:
   surreal_data:
-  falkordb_data:
-  postgres_data:
 
 networks:
   default:

@@ -425,7 +425,7 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 helm install sibyl ./charts/sibyl \
   --set backend.existingSecret=sibyl-secrets \
-  --set backend.database.existingSecret=sibyl-postgres
+  --set backend.surreal.existingSecret=sibyl-surreal
 ```
 
 See [`docs/deployment/`](docs/deployment/) for detailed guides:

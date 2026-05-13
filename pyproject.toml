@@ -82,7 +82,7 @@ known-first-party = ["sibyl", "sibyl_core", "sibyl_cli"]
 python-version = "3.13"
 
 [tool.ty.rules]
-# External packages without stubs (FalkorDB, Graphiti, etc.)
+# External packages without stubs (Graphiti, optional coordination libs, etc.)
 unresolved-import = "ignore"
 # Graphiti uses dynamic attributes
 unresolved-attribute = "warn"
@@ -106,7 +106,7 @@ include = ["hooks/*.py"]
 [tool.ty.overrides.rules]
 invalid-argument-type = "ignore"
 
-# Intentional monkey-patching for FalkorDB concurrency fixes
+# Compatibility graph code still uses dynamic runtime driver wiring.
 [[tool.ty.overrides]]
 include = ["**/graph/client.py"]
 [tool.ty.overrides.rules]

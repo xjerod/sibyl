@@ -1,38 +1,36 @@
-# Docker Compose for isolated E2E testing
-# Uses different ports and containers than dev to avoid data pollution
+# Docker Compose for isolated E2E data services.
+# Uses a different SurrealDB port and volume than dev to avoid data pollution.
 #
 # Usage:
-#   just e2e-up      # Start isolated services
-#   just e2e         # Run e2e tests
-#   just e2e-down    # Stop and cleanup
+#   moon run e2e-up
+#   SIBYL_SURREAL_URL=ws://localhost:8011/rpc moon run api:serve
+#   moon run e2e
+#   moon run e2e-down
 
 services:
-  falkordb-e2e:
-    image: falkordb/falkordb:latest
-    container_name: sibyl-falkordb-e2e
+  surrealdb-e2e:
+    image: ${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}
+    container_name: sibyl-surrealdb-e2e
+    command:
+      [
+        "start",
+        "--log",
+        "${SIBYL_SURREAL_LOG_LEVEL:-info}",
+        "--user",
+        "${SIBYL_SURREAL_USERNAME:-root}",
+        "--pass",
+        "${SIBYL_SURREAL_PASSWORD:-root}",
+        "rocksdb:///data/sibyl-e2e.db",
+      ]
     ports:
-      - "6381:6379" # Different port than dev (6380)
-    environment:
-      - FALKORDB_ARGS=--requirepass e2e_test
+      - "${SIBYL_E2E_SURREAL_PORT:-8011}:8000"
+    volumes:
+      - sibyl_e2e_surreal:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "e2e_test", "ping"]
+      test: ["CMD", "/surreal", "is-ready", "--conn", "http://localhost:8000"]
       interval: 5s
       timeout: 3s
       retries: 5
-    # No volume - ephemeral for tests
 
-  postgres-e2e:
-    image: pgvector/pgvector:pg18
-    container_name: sibyl-postgres-e2e
-    ports:
-      - "5434:5432" # Different port than dev (5433)
-    environment:
-      POSTGRES_USER: sibyl_e2e
-      POSTGRES_PASSWORD: sibyl_e2e_password
-      POSTGRES_DB: sibyl_e2e
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sibyl_e2e -d sibyl_e2e"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    # No volume - ephemeral for tests
+volumes:
+  sibyl_e2e_surreal:
