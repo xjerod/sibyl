@@ -1,9 +1,11 @@
 """Admin endpoints for health, stats, backup, and restore."""
 
+from time import perf_counter
 from typing import Any
+from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from sibyl.api.schemas import (
     BackfillRequest,
@@ -14,21 +16,30 @@ from sibyl.api.schemas import (
     DebugQueryResponse,
     DevStatusResponse,
     HealthResponse,
+    ProjectRecordBackfillItem,
+    ProjectRecordBackfillRequest,
+    ProjectRecordBackfillResponse,
     RestoreRequest,
     RestoreResponse,
     StatsResponse,
 )
-from sibyl.auth.dependencies import get_current_organization, require_org_role
+from sibyl.auth.dependencies import get_current_organization, get_current_user, require_org_role
 from sibyl.config import settings
 from sibyl.coordination import get_coordination_health
+from sibyl.persistence.auth_runtime import (
+    create_project_record,
+    get_project_record_by_graph_id,
+    log_audit_event,
+)
 from sibyl.persistence.content_runtime import (
     get_content_read_session,
     get_source_sync_counts,
     list_crawl_sources,
     save_crawl_source_record,
 )
-from sibyl_core.auth import AuthOrganization, OrganizationRole
-from sibyl_core.models import CrawlStatus
+from sibyl_core.auth import AuthOrganization, AuthUser, OrganizationRole
+from sibyl_core.models import CrawlStatus, Entity
+from sibyl_core.models.entities import EntityType
 from sibyl_core.utils import fingerprint_text
 from sibyl_core.utils.query import upper_query_tokens
 
@@ -259,6 +270,167 @@ async def backfill_task_relationships(
     except Exception as e:
         log.exception("backfill_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Backfill failed. Please try again.") from e
+
+
+async def list_graph_projects_for_record_backfill(group_id: str) -> list[Entity]:
+    from sibyl.persistence.graph_runtime import get_entity_graph_runtime
+
+    runtime = await get_entity_graph_runtime(group_id)
+    projects: list[Entity] = []
+    offset = 0
+    page_size = 1000
+    while True:
+        batch = await runtime.entity_manager.list_by_type(
+            EntityType.PROJECT,
+            limit=page_size,
+            offset=offset,
+            include_archived=True,
+        )
+        if not batch:
+            return projects
+        projects.extend(batch)
+        offset += page_size
+
+
+def _is_archived_project(entity: Entity) -> bool:
+    return str((entity.metadata or {}).get("status") or "").lower() == "archived"
+
+
+async def _project_record_exists(*, organization_id: UUID, graph_project_id: str) -> bool:
+    try:
+        await get_project_record_by_graph_id(
+            organization_id=organization_id,
+            graph_project_id=graph_project_id,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return False
+        raise
+    return True
+
+
+@router.post(
+    "/backfill/project-records",
+    response_model=ProjectRecordBackfillResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def backfill_project_records(
+    backfill_request: ProjectRecordBackfillRequest,
+    request: Request,
+    org: AuthOrganization = Depends(get_current_organization),
+    user: AuthUser = Depends(get_current_user),
+) -> ProjectRecordBackfillResponse:
+    """Backfill missing auth project records from graph project entities."""
+    started_at = perf_counter()
+    items: list[ProjectRecordBackfillItem] = []
+    errors: list[str] = []
+
+    try:
+        projects = await list_graph_projects_for_record_backfill(str(org.id))
+        for project in projects:
+            graph_project_id = str(project.id or "").strip()
+            if not graph_project_id:
+                items.append(
+                    ProjectRecordBackfillItem(
+                        graph_project_id="",
+                        status="skipped",
+                        reason="missing_graph_project_id",
+                    )
+                )
+                continue
+            if _is_archived_project(project):
+                items.append(
+                    ProjectRecordBackfillItem(
+                        graph_project_id=graph_project_id,
+                        status="skipped",
+                        reason="archived_project",
+                    )
+                )
+                continue
+
+            try:
+                if await _project_record_exists(
+                    organization_id=org.id,
+                    graph_project_id=graph_project_id,
+                ):
+                    items.append(
+                        ProjectRecordBackfillItem(
+                            graph_project_id=graph_project_id,
+                            status="existing",
+                        )
+                    )
+                    continue
+
+                if backfill_request.dry_run:
+                    items.append(
+                        ProjectRecordBackfillItem(
+                            graph_project_id=graph_project_id,
+                            status="would_create",
+                        )
+                    )
+                    continue
+
+                await create_project_record(
+                    organization_id=org.id,
+                    owner_user_id=user.id,
+                    graph_project_id=graph_project_id,
+                    name=project.name,
+                    description=project.description,
+                )
+                items.append(
+                    ProjectRecordBackfillItem(
+                        graph_project_id=graph_project_id,
+                        status="created",
+                    )
+                )
+            except Exception as exc:
+                errors.append(f"{graph_project_id}: {type(exc).__name__}")
+                items.append(
+                    ProjectRecordBackfillItem(
+                        graph_project_id=graph_project_id,
+                        status="failed",
+                        reason=type(exc).__name__,
+                    )
+                )
+
+        created_ids = [
+            item.graph_project_id
+            for item in items
+            if item.status == "created" and item.graph_project_id
+        ]
+        if created_ids:
+            await log_audit_event(
+                action="project_records.backfill",
+                user_id=user.id,
+                organization_id=org.id,
+                request=request,
+                details={
+                    "created_project_ids": created_ids,
+                    "created": len(created_ids),
+                    "dry_run": backfill_request.dry_run,
+                },
+            )
+    except Exception as exc:
+        log.exception("project_record_backfill_failed", error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="Project record backfill failed. Please try again.",
+        ) from exc
+
+    statuses = ("existing", "would_create", "created", "skipped", "failed")
+    counts = {status: sum(1 for item in items if item.status == status) for status in statuses}
+    return ProjectRecordBackfillResponse(
+        success=not errors,
+        dry_run=backfill_request.dry_run,
+        existing=counts["existing"],
+        would_create=counts["would_create"],
+        created=counts["created"],
+        skipped=counts["skipped"],
+        failed=counts["failed"],
+        projects=items,
+        errors=errors,
+        duration_seconds=perf_counter() - started_at,
+    )
 
 
 # === Debug Query Endpoint ===

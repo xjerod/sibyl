@@ -1127,6 +1127,37 @@ class BackfillResponse(BaseModel):
     dry_run: bool
 
 
+class ProjectRecordBackfillRequest(BaseModel):
+    """Request to backfill missing project control-plane records."""
+
+    dry_run: bool = Field(
+        default=True, description="If true, report missing records without creating them"
+    )
+
+
+class ProjectRecordBackfillItem(BaseModel):
+    """Per-project result from project record backfill."""
+
+    graph_project_id: str
+    status: Literal["existing", "would_create", "created", "skipped", "failed"]
+    reason: str | None = None
+
+
+class ProjectRecordBackfillResponse(BaseModel):
+    """Response from project record backfill operation."""
+
+    success: bool
+    dry_run: bool
+    existing: int
+    would_create: int
+    created: int
+    skipped: int
+    failed: int
+    projects: list[ProjectRecordBackfillItem]
+    errors: list[str]
+    duration_seconds: float
+
+
 # =============================================================================
 # Debug Schemas
 # =============================================================================

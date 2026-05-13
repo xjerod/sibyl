@@ -58,6 +58,9 @@ one policy context in B3, add audit and inspect in B4, then run the B6 memory tr
 - **Project fallback:** if no project control-plane records exist for an org,
   `list_accessible_project_graph_ids()` falls back to graph project entities. This is migration
   compatibility and should be retired or feature-gated during B2.
+- **Project record repair:** owner/admins can preview or apply
+  `POST /api/admin/backfill/project-records` to create missing Surreal auth `projects` records from
+  existing graph project entities before stricter project gates are enforced.
 - **Memory policy:** `sibyl_core.auth.memory_policy` currently enables private, verified project,
   and verified delegated scope reads/writes/reflection. Share is deny-only across scopes until
   promotion/share preview work lands. Team, organization, shared, and public scopes return stable
@@ -167,12 +170,13 @@ members” even for project-scoped writes when the project cannot be resolved in
 
 **Evidence of missing wiring**:
 
-- Projects are created in the graph with deterministic IDs (`project_<hash>`), but **no automatic
-  creation of the Postgres `projects` row is done** on project creation.
-  - `packages/python/sibyl-core/src/sibyl_core/tools/add.py#L165-L177` (project IDs are graph IDs)
-  - `apps/api/src/sibyl/api/routes/entities.py#L438-L559` (creates graph entity, no Postgres sync)
+- Graph project create/update/delete paths now synchronize Surreal auth `projects` records, but
+  existing graph projects can still predate that synchronization.
+- `POST /api/admin/backfill/project-records` repairs missing auth project records from graph project
+  entities with a dry-run default. Apply mode creates organization-visible project records owned by
+  the acting owner/admin and emits an audit event with the created graph project IDs.
 - The old graph-to-Postgres sync CLI was removed after Surreal auth became canonical; project RBAC
-  now needs to stay anchored in the Surreal auth/runtime paths instead of resurrecting the mirror.
+  now stays anchored in the Surreal auth/runtime paths instead of resurrecting the mirror.
 
 **Impact**:
 
@@ -181,10 +185,10 @@ members” even for project-scoped writes when the project cannot be resolved in
 
 **Recommendation**:
 
-- Make project registration automatic (create/update Postgres `projects` row when a graph project is
-  created/renamed/archived), or make project RBAC depend on a single canonical store.
-- Remove or time-bound “migration mode” fallbacks for **write** paths, or gate them behind an
-  explicit feature flag.
+- Keep graph project registration automatic for new create/update/archive operations.
+- Use the project-record backfill before enforcing stricter gates against migrated dogfood data.
+- Remove or time-bound “migration mode” fallbacks for **read** paths, or gate them behind an
+  explicit feature flag once existing projects are repaired.
 
 ---
 

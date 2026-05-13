@@ -9,7 +9,15 @@ from uuid import UUID
 import pytest
 from fastapi import HTTPException
 
-from sibyl.api.routes.admin import DebugQueryRequest, debug_query, dev_status, health, stats
+from sibyl.api.routes.admin import (
+    DebugQueryRequest,
+    backfill_project_records,
+    debug_query,
+    dev_status,
+    health,
+    stats,
+)
+from sibyl.api.schemas import ProjectRecordBackfillRequest
 
 
 @pytest.mark.asyncio
@@ -71,7 +79,9 @@ async def test_debug_query_uses_debug_runner_for_surrealql() -> None:
 
 
 @pytest.mark.asyncio
-async def test_debug_query_allows_legacy_cypher_in_legacy_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_debug_query_allows_legacy_cypher_in_legacy_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("sibyl.api.routes.admin.settings.store", "legacy")
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     request = DebugQueryRequest(cypher="MATCH (n) RETURN n LIMIT 1")
@@ -184,6 +194,165 @@ async def test_debug_query_blocks_surreal_mutations(query: str) -> None:
 
     assert exc_info.value.status_code == 400
     mock_execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_project_record_backfill_dry_run_reports_missing_records() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222"))
+    request = SimpleNamespace(client=None, headers={})
+    projects = [
+        SimpleNamespace(
+            id="project_existing",
+            name="Existing",
+            description="Existing project",
+            metadata={},
+        ),
+        SimpleNamespace(
+            id="project_missing",
+            name="Missing",
+            description="Missing project",
+            metadata={},
+        ),
+        SimpleNamespace(
+            id="project_archived",
+            name="Archived",
+            description="Archived project",
+            metadata={"status": "archived"},
+        ),
+    ]
+
+    async def get_project_record(*, graph_project_id: str, **_: object) -> object:
+        if graph_project_id == "project_existing":
+            return SimpleNamespace(graph_project_id=graph_project_id)
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    with (
+        patch(
+            "sibyl.api.routes.admin.list_graph_projects_for_record_backfill",
+            AsyncMock(return_value=projects),
+        ),
+        patch(
+            "sibyl.api.routes.admin.get_project_record_by_graph_id",
+            AsyncMock(side_effect=get_project_record),
+        ),
+        patch("sibyl.api.routes.admin.create_project_record", AsyncMock()) as create_record,
+        patch("sibyl.api.routes.admin.log_audit_event", AsyncMock()) as log_event,
+    ):
+        response = await backfill_project_records(
+            backfill_request=ProjectRecordBackfillRequest(),
+            request=request,
+            org=org,
+            user=user,
+        )
+
+    assert response.success is True
+    assert response.dry_run is True
+    assert response.existing == 1
+    assert response.would_create == 1
+    assert response.created == 0
+    assert response.skipped == 1
+    assert response.failed == 0
+    assert [(item.graph_project_id, item.status) for item in response.projects] == [
+        ("project_existing", "existing"),
+        ("project_missing", "would_create"),
+        ("project_archived", "skipped"),
+    ]
+    create_record.assert_not_awaited()
+    log_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_project_record_backfill_apply_creates_missing_records() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222"))
+    request = SimpleNamespace(client=None, headers={})
+    projects = [
+        SimpleNamespace(
+            id="project_missing",
+            name="Missing",
+            description="Missing project",
+            metadata={},
+        )
+    ]
+
+    with (
+        patch(
+            "sibyl.api.routes.admin.list_graph_projects_for_record_backfill",
+            AsyncMock(return_value=projects),
+        ),
+        patch(
+            "sibyl.api.routes.admin.get_project_record_by_graph_id",
+            AsyncMock(side_effect=HTTPException(status_code=404, detail="Project not found")),
+        ),
+        patch("sibyl.api.routes.admin.create_project_record", AsyncMock()) as create_record,
+        patch("sibyl.api.routes.admin.log_audit_event", AsyncMock()) as log_event,
+    ):
+        response = await backfill_project_records(
+            backfill_request=ProjectRecordBackfillRequest(dry_run=False),
+            request=request,
+            org=org,
+            user=user,
+        )
+
+    assert response.success is True
+    assert response.created == 1
+    assert response.would_create == 0
+    assert response.projects[0].status == "created"
+    create_record.assert_awaited_once_with(
+        organization_id=org.id,
+        owner_user_id=user.id,
+        graph_project_id="project_missing",
+        name="Missing",
+        description="Missing project",
+    )
+    log_event.assert_awaited_once()
+    assert log_event.await_args.kwargs["details"]["created_project_ids"] == ["project_missing"]
+
+
+@pytest.mark.asyncio
+async def test_project_record_backfill_marks_project_failures_without_aborting() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222"))
+    request = SimpleNamespace(client=None, headers={})
+    projects = [
+        SimpleNamespace(
+            id="project_missing",
+            name="Missing",
+            description="Missing project",
+            metadata={},
+        )
+    ]
+
+    with (
+        patch(
+            "sibyl.api.routes.admin.list_graph_projects_for_record_backfill",
+            AsyncMock(return_value=projects),
+        ),
+        patch(
+            "sibyl.api.routes.admin.get_project_record_by_graph_id",
+            AsyncMock(side_effect=HTTPException(status_code=404, detail="Project not found")),
+        ),
+        patch(
+            "sibyl.api.routes.admin.create_project_record",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ),
+        patch("sibyl.api.routes.admin.log_audit_event", AsyncMock()) as log_event,
+    ):
+        response = await backfill_project_records(
+            backfill_request=ProjectRecordBackfillRequest(dry_run=False),
+            request=request,
+            org=org,
+            user=user,
+        )
+
+    assert response.success is False
+    assert response.created == 0
+    assert response.failed == 1
+    assert response.projects[0].status == "failed"
+    assert response.projects[0].reason == "RuntimeError"
+    assert response.errors == ["project_missing: RuntimeError"]
+    log_event.assert_not_awaited()
 
 
 @pytest.mark.asyncio
