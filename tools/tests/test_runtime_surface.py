@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import tomllib
 from tools.inventory.runtime_surface import (
     GRAPHITI_EXIT_INVENTORY_PATH,
+    REPO_ROOT,
     SNAPSHOT_PATH,
     collect_runtime_surface,
     parse_dependency_name,
@@ -91,3 +93,24 @@ def test_dependency_inventory_covers_legacy_and_target_stack() -> None:
         "surrealdb>=1.0.8,<3.0",
         "target",
     ) in dependencies
+
+
+def test_graphiti_dependency_is_compatibility_only() -> None:
+    core_pyproject = tomllib.loads(
+        (REPO_ROOT / "packages/python/sibyl-core/pyproject.toml").read_text(encoding="utf-8")
+    )
+    default_dependencies = core_pyproject["project"]["dependencies"]
+    compatibility_dependencies = core_pyproject["project"]["optional-dependencies"]["compatibility"]
+    dev_dependencies = core_pyproject["dependency-groups"]["dev"]
+
+    assert not any(
+        parse_dependency_name(requirement) == "graphiti-core"
+        for requirement in default_dependencies
+    )
+    assert any(
+        parse_dependency_name(requirement) == "graphiti-core"
+        for requirement in compatibility_dependencies
+    )
+    assert any(
+        parse_dependency_name(requirement) == "graphiti-core" for requirement in dev_dependencies
+    )

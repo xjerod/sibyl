@@ -11,7 +11,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - SQLModel tables: 0
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
-- Graphiti import files: 22
+- Graphiti import files: 21
 - Dependency records: 3
 
 ## API Surface
@@ -95,7 +95,6 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/has_episode_edge_ops.py` — `graphiti_core.driver.operations.has_episode_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/next_episode_edge_ops.py` — `graphiti_core.driver.operations.next_episode_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/saga_node_ops.py` — `graphiti_core.driver.operations.saga_node_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.errors`, `graphiti_core.helpers`, `graphiti_core.nodes`
-- `packages/python/sibyl-core/src/sibyl_core/tasks/workflow.py` — `graphiti_core.edges`
 
 ## Dependency Inventory
 

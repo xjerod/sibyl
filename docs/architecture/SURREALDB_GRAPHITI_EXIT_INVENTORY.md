@@ -22,6 +22,8 @@ adapter package as one named compatibility surface.
   `SIBYL_NATIVE_WRITE=enabled`. Review-mode raw candidate storage remains the explicit review path.
 - Graphiti remains only in named compatibility, compare-mode, admin, and migration surfaces until
   their removal conditions below are met.
+- `graphiti-core` is owned by the `sibyl-core[compatibility]` extra and the core dev dependency
+  group. It is not a default `sibyl-core` runtime dependency.
 
 ## Legacy Projection Rule
 
@@ -159,11 +161,28 @@ Wave 6 exits when generated inventory and this hand-authored inventory agree, na
 default `remember`, `recall`, `context`, `wake`, and `reflect` loops, and a no-Graphiti smoke test
 blocks Graphiti imports for those flows.
 
+## Dependency Boundary
+
+Default `sibyl-core` installs do not depend on `graphiti-core`. Retained Graphiti code lives behind
+the `compatibility` optional extra plus dev/test dependency groups so migration, admin, and
+compatibility tests can still exercise the old contracts deliberately.
+
+Dependency files:
+
+- `packages/python/sibyl-core/pyproject.toml`
+- `uv.lock`
+
+Verify:
+
+- `moon run inventory-check inventory-typecheck inventory-test`
+- `uv lock --check`
+
 ## No-Graphiti Smoke Plan
 
 The import-blocking smoke test is now the default-loop proof alongside `moon run inventory-check`.
 It starts a fresh Python process, blocks `graphiti_core` imports, and exercises native Surreal
-memory writes, wake/recall context retrieval, related expansion, and persisted reflection.
+memory writes, wake/recall context retrieval, related expansion, persisted reflection, CLI import,
+MCP server construction, API job import, and prompt-hook import.
 
 Smoke command:
 
@@ -180,8 +199,10 @@ Default-loop cases:
 - `context`: context packs and wake packs run through native retrieval and raw memory recall.
 - `wake`: wake-layer context uses the same native context-pack path with wake limits.
 - `reflect`: persisted reflection runs with `SIBYL_NATIVE_WRITE=enabled`.
+- `entrypoints`: CLI, MCP, API job, and prompt-hook imports stay Graphiti-free.
 
 Closure condition:
 
 - The smoke test installs an import blocker for `graphiti_core`, exercises the five default-loop
-  cases above with native flags, and fails on any import or construction path that reaches Graphiti.
+  cases plus default entrypoints with native flags, and fails on any import or construction path
+  that reaches Graphiti.

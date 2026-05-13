@@ -2869,7 +2869,6 @@ dependencies = [
     { name = "anyio" },
     { name = "crawl4ai" },
     { name = "google-genai" },
-    { name = "graphiti-core", extra = ["anthropic", "google-genai"] },
     { name = "httpx" },
     { name = "mistune" },
     { name = "passlib" },
@@ -2882,8 +2881,14 @@ dependencies = [
     { name = "surrealdb" },
 ]
 
+[package.optional-dependencies]
+compatibility = [
+    { name = "graphiti-core", extra = ["anthropic", "google-genai"] },
+]
+
 [package.dev-dependencies]
 dev = [
+    { name = "graphiti-core", extra = ["anthropic", "google-genai"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -2895,7 +2900,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.0" },
     { name = "crawl4ai", specifier = ">=0.7.8" },
     { name = "google-genai", specifier = ">=2.0.1" },
-    { name = "graphiti-core", extras = ["anthropic", "google-genai"], specifier = ">=0.28.2" },
+    { name = "graphiti-core", extras = ["anthropic", "google-genai"], marker = "extra == 'compatibility'", specifier = ">=0.28.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mistune", specifier = ">=3.0" },
     { name = "passlib", specifier = ">=1.7" },
@@ -2907,9 +2912,11 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.0" },
     { name = "surrealdb", specifier = ">=1.0.8,<3.0" },
 ]
+provides-extras = ["compatibility"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "graphiti-core", extras = ["anthropic", "google-genai"], specifier = ">=0.28.2" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov", specifier = ">=7.0.0" },

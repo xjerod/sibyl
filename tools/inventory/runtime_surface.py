@@ -431,6 +431,7 @@ def extract_dependency_strings(pyproject: dict[str, Any]) -> list[str]:
 
 def collect_dependencies() -> tuple[DependencyRecord, ...]:
     records: list[DependencyRecord] = []
+    seen: set[tuple[str, str, str]] = set()
     for pyproject_path in PYPROJECT_PATHS:
         data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
         project_name = relpath(pyproject_path)
@@ -445,6 +446,10 @@ def collect_dependencies() -> tuple[DependencyRecord, ...]:
                 classification = "target"
             if classification is None:
                 continue
+            key = (project_name, requirement, classification)
+            if key in seen:
+                continue
+            seen.add(key)
             records.append(
                 DependencyRecord(
                     project=project_name,
