@@ -28,8 +28,9 @@ adapter package as one named compatibility surface.
   be patched for legacy unit coverage.
 - `link_graph` and crawler graph integration: document/entity linking creates document entities and
   `DOCUMENTED_IN` relationships through native Surreal managers by default.
-- `reflect`: persisted reflection sources and candidates write native graph records when
-  `SIBYL_NATIVE_WRITE=enabled`. Review-mode raw candidate storage remains the explicit review path.
+- `reflect`: persisted reflection sources and candidates write native graph records by default. Set
+  `SIBYL_NATIVE_WRITE=disabled` to use the compatibility path. Review-mode raw candidate storage
+  remains the explicit review path.
 - Graphiti remains only in named compatibility, compare-mode, admin, and migration surfaces until
   their removal conditions below are met.
 - `graphiti-core` is owned by the `sibyl-core[compatibility]` extra and the core dev dependency
@@ -218,7 +219,8 @@ Default-loop cases:
   Graphiti manager construction.
 - `link_graph`: document graph-link helper writes document entities and relationships through native
   Surreal managers.
-- `reflect`: persisted reflection runs with `SIBYL_NATIVE_WRITE=enabled`.
+- `reflect`: persisted reflection runs natively by default, with `SIBYL_NATIVE_WRITE=disabled` as
+  the named compatibility rollback.
 - `entrypoints`: CLI, default MCP tool modules, MCP server construction, API job, and prompt-hook
   imports stay Graphiti-free, including crawler graph-integration and pipeline imports.
 

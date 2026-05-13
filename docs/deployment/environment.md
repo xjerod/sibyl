@@ -189,10 +189,10 @@ stored encrypted in the database (using `SIBYL_SETTINGS_KEY`).
 
 ## Native Memory Configuration
 
-| Variable               | Default    | Description                                          |
-| ---------------------- | ---------- | ---------------------------------------------------- |
-| `SIBYL_RETRIEVAL_MODE` | `native`   | `graphiti`, `native`, or `compare` context retrieval |
-| `SIBYL_NATIVE_WRITE`   | `disabled` | Enables direct native reflection promotion writes    |
+| Variable               | Default   | Description                                           |
+| ---------------------- | --------- | ----------------------------------------------------- |
+| `SIBYL_RETRIEVAL_MODE` | `native`  | `graphiti`, `native`, or `compare` context retrieval  |
+| `SIBYL_NATIVE_WRITE`   | `enabled` | Set `disabled` to use compatibility reflection writes |
 
 `compare` mode returns native context results while logging policy-safe diffs against the
 compatibility path. Set `SIBYL_RETRIEVAL_MODE=graphiti` only when you need the named compatibility

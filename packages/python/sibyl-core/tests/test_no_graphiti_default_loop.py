@@ -26,7 +26,6 @@ def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
 
 
 builtins.__import__ = guarded_import
-os.environ["SIBYL_NATIVE_WRITE"] = "enabled"
 
 
 async def main():
@@ -365,7 +364,6 @@ builtins.__import__ = guarded_import
 os.environ["SIBYL_AUTH_STORE"] = "surreal"
 os.environ["SIBYL_COORDINATION_BACKEND"] = "local"
 os.environ["SIBYL_MCP_AUTH_MODE"] = "off"
-os.environ["SIBYL_NATIVE_WRITE"] = "enabled"
 os.environ["SIBYL_STORE"] = "surreal"
 
 cli_main = importlib.import_module("sibyl_cli.main")

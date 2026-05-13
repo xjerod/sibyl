@@ -10,6 +10,7 @@ from sibyl_core.services.native_memory import (
     NativeReflectionWriteResult,
     NativeWriteMode,
     coerce_native_write_mode,
+    native_reflection_write_enabled,
     native_write_mode_from_env,
     promote_reflection_candidate_review,
 )
@@ -49,16 +50,24 @@ def _raw_review_candidate(**overrides: object) -> RawMemory:
     return RawMemory(**values)
 
 
-def test_native_write_mode_defaults_disabled() -> None:
-    assert coerce_native_write_mode(None) is NativeWriteMode.DISABLED
-    assert coerce_native_write_mode("") is NativeWriteMode.DISABLED
-    assert native_write_mode_from_env({}) is NativeWriteMode.DISABLED
+def test_native_write_mode_defaults_enabled() -> None:
+    assert coerce_native_write_mode(None) is NativeWriteMode.ENABLED
+    assert coerce_native_write_mode("") is NativeWriteMode.ENABLED
+    assert native_write_mode_from_env({}) is NativeWriteMode.ENABLED
+    assert native_reflection_write_enabled({}) is True
 
 
 def test_native_write_mode_accepts_enabled_values() -> None:
     assert coerce_native_write_mode("enabled") is NativeWriteMode.ENABLED
     assert coerce_native_write_mode("true") is NativeWriteMode.ENABLED
     assert native_write_mode_from_env({"SIBYL_NATIVE_WRITE": "1"}) is NativeWriteMode.ENABLED
+
+
+def test_native_write_mode_accepts_disabled_values() -> None:
+    assert coerce_native_write_mode("disabled") is NativeWriteMode.DISABLED
+    assert coerce_native_write_mode("false") is NativeWriteMode.DISABLED
+    assert native_write_mode_from_env({"SIBYL_NATIVE_WRITE": "0"}) is NativeWriteMode.DISABLED
+    assert native_reflection_write_enabled({"SIBYL_NATIVE_WRITE": "off"}) is False
 
 
 @pytest.mark.asyncio

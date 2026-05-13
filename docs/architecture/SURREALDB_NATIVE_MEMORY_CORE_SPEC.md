@@ -366,7 +366,7 @@ Implementation:
 - Keep Graphiti write behavior behind an explicit compatibility path for unported flows.
 - Promote the W6 spike into a stable native memory contract test, then keep the spike test only as
   historical coverage if it still catches a different behavior.
-- Gate native reflection writes behind `SIBYL_NATIVE_WRITE=enabled|disabled`, default disabled until
+- Gate native reflection writes behind `SIBYL_NATIVE_WRITE=enabled|disabled`, default enabled after
   Milestone C exit. Disabled mode falls back to the Graphiti compatibility write path. Rollback
   requires only the environment flag plus running the rebuild script against retained
   `raw_captures`.

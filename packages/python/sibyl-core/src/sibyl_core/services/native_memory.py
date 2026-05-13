@@ -68,10 +68,12 @@ def coerce_native_write_mode(value: str | NativeWriteMode | None) -> NativeWrite
     if isinstance(value, NativeWriteMode):
         return value
     if value is None or not value.strip():
-        return NativeWriteMode.DISABLED
+        return NativeWriteMode.ENABLED
     normalized = value.strip().lower()
     if normalized in {"enabled", "enable", "true", "1", "yes", "on"}:
         return NativeWriteMode.ENABLED
+    if normalized in {"disabled", "disable", "false", "0", "no", "off"}:
+        return NativeWriteMode.DISABLED
     return NativeWriteMode.DISABLED
 
 

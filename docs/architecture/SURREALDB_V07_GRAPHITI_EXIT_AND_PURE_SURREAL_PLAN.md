@@ -164,8 +164,8 @@ Tasks:
 
 - Route summarized remember/add writes through native entity, episode, and relationship services.
 - Route task completion artifacts and learning links through native relationships.
-- Route persisted reflection promotion through native graph writes when
-  `SIBYL_NATIVE_WRITE=enabled`.
+- Route persisted reflection promotion through native graph writes by default, with
+  `SIBYL_NATIVE_WRITE=disabled` as the explicit compatibility rollback.
 - Call `authorize_memory_write` before any native write originating in `tools/add.py` or
   `jobs/entities.py`, and call `authorize_memory_reflect` before task-completion learning writes in
   `tasks/workflow.py`.
@@ -244,7 +244,7 @@ Tasks:
   entrypoints, MCP tools, and prompt hooks do not import Graphiti at module import time.
 - Remove Graphiti search-interface calls from compare mode once native retrieval is default and
   covered by seeded evals.
-- Flip `SIBYL_NATIVE_WRITE` default to enabled after Wave 3 contract tests and the no-Graphiti smoke
+- Keep `SIBYL_NATIVE_WRITE` default enabled after Wave 3 contract tests and the no-Graphiti smoke
   are green. Document rollback as a flag flip plus a raw-capture rebuild or replay path.
 - Keep admin and migration surfaces named so they cannot be mistaken for default runtime behavior.
 - Expand no-Graphiti smoke coverage for CLI, MCP, API job, and prompt-hook entrypoints.

@@ -38,7 +38,9 @@ async def test_reflect_memory_extracts_domain_general_candidates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reflect_memory_can_persist_candidates_with_provenance() -> None:
+async def test_reflect_memory_can_use_compatibility_write_when_native_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[dict[str, Any]] = []
 
     async def fake_add(**kwargs: Any) -> AddResponse:
@@ -49,6 +51,8 @@ async def test_reflect_memory_can_persist_candidates_with_provenance() -> None:
             message="ok",
             timestamp=datetime.now(UTC),
         )
+
+    monkeypatch.setenv("SIBYL_NATIVE_WRITE", "disabled")
 
     pack = await reflect_memory(
         "Confirmed the local Sibyl project is linked. We will migrate it to Cloud later.",
