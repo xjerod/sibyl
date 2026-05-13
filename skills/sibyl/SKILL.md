@@ -611,8 +611,8 @@ sibyl task complete task_a1b2c3d4e5f6 --hours 4.5 --learnings "Key insight: The 
 ## Concurrency & Locking
 
 Sibyl uses distributed locks to prevent data corruption when multiple agents update the same entity
-concurrently. This is important because graph operations (especially via Graphiti) can take 20+
-seconds.
+concurrently. This is important because graph operations and relationship updates can take 20+
+seconds under load.
 
 ### How It Works
 
