@@ -168,13 +168,19 @@ jobs:
           moon run bench-gate -- "$latest_report" --profile context-pack \
             --require-metadata retrieval_mode=compare \
             --require-metadata repeat_count=20
+          history_args=()
+          if [[ "${GITHUB_REF_NAME}" != "main" ]]; then
+            history_args+=(--allow-non-main)
+          fi
+
           moon run retrieval-mode-history -- "$latest_report" \
             --branch "${GITHUB_REF_NAME}" \
             --sha "${GITHUB_SHA}" \
             --run-id "${GITHUB_RUN_ID}" \
             --run-attempt "${GITHUB_RUN_ATTEMPT}" \
             --event "${GITHUB_EVENT_NAME}" \
-            --workflow "${GITHUB_WORKFLOW}"
+            --workflow "${GITHUB_WORKFLOW}" \
+            "${history_args[@]}"
 
       - name: Upload context-pack retrieval compare report
         if: always() && steps.context-pack-compare.outputs.report != ''

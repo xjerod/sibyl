@@ -130,3 +130,52 @@ def test_main_returns_failure_for_current_nonqualifying_run(tmp_path: Path) -> N
     assert history["records"][0]["qualifies"] is False
     assert "metric 'pass_rate' below 1.0000: 0.5000" in history["records"][0]["blockers"]
     assert "metric 'latency_p95_ms' above 1000.0000: 1250.0000" in history["records"][0]["blockers"]
+
+
+def test_main_allows_non_main_validation_when_branch_is_only_blocker(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    report_path = tmp_path / "report.json"
+    history_path = tmp_path / "history.json"
+    report_path.write_text(json.dumps(_report()), encoding="utf-8")
+
+    exit_code = retrieval_mode_history.main(
+        [
+            str(report_path),
+            "--history",
+            str(history_path),
+            "--branch",
+            "nova/surreal-release-gate",
+            "--allow-non-main",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    history = json.loads(history_path.read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert "validation_only: true" in captured.out
+    assert history["records"][0]["qualifies"] is False
+    assert history["records"][0]["blockers"] == ["branch 'nova/surreal-release-gate' is not main"]
+
+
+def test_allow_non_main_still_fails_broken_metrics(tmp_path: Path) -> None:
+    report_path = tmp_path / "report.json"
+    history_path = tmp_path / "history.json"
+    report_path.write_text(json.dumps(_report(pass_rate=0.5)), encoding="utf-8")
+
+    exit_code = retrieval_mode_history.main(
+        [
+            str(report_path),
+            "--history",
+            str(history_path),
+            "--branch",
+            "nova/surreal-release-gate",
+            "--allow-non-main",
+        ]
+    )
+
+    history = json.loads(history_path.read_text(encoding="utf-8"))
+    assert exit_code == 1
+    assert history["records"][0]["qualifies"] is False
+    assert "metric 'pass_rate' below 1.0000: 0.5000" in history["records"][0]["blockers"]

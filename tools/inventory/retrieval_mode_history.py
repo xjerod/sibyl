@@ -129,6 +129,14 @@ def current_run_blockers(
     return blockers
 
 
+def non_main_validation_only(record: dict[str, Any]) -> bool:
+    branch = record.get("branch")
+    blockers = record.get("blockers")
+    if not isinstance(branch, str) or branch == "main":
+        return False
+    return blockers == [f"branch {branch!r} is not main"]
+
+
 def build_record(
     report: dict[str, Any],
     *,
@@ -235,6 +243,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Consecutive qualifying main runs required before native can flip.",
     )
     parser.add_argument(
+        "--allow-non-main",
+        action="store_true",
+        help="Allow branch validation runs when non-main is the only blocker.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable status instead of a text summary.",
@@ -258,11 +271,13 @@ def main(argv: list[str] | None = None) -> int:
 
     consecutive = consecutive_qualifying_count(records)
     ready = consecutive >= args.required_consecutive
+    validation_only = args.allow_non_main and non_main_validation_only(record)
     status = {
         "current_run_qualifies": record["qualifies"],
         "consecutive_main_qualifying": consecutive,
         "required_consecutive": args.required_consecutive,
         "ready_to_flip": ready,
+        "validation_only": validation_only,
         "blockers": record["blockers"],
         "history": str(args.history),
     }
@@ -277,10 +292,11 @@ def main(argv: list[str] | None = None) -> int:
             f"  consecutive_main_qualifying: {consecutive}/{args.required_consecutive}\n"
         )
         sys.stdout.write(f"  ready_to_flip: {str(ready).lower()}\n")
+        sys.stdout.write(f"  validation_only: {str(validation_only).lower()}\n")
         for blocker in record["blockers"]:
             sys.stdout.write(f"  blocker: {blocker}\n")
 
-    return 0 if record["qualifies"] else 1
+    return 0 if record["qualifies"] or validation_only else 1
 
 
 if __name__ == "__main__":
