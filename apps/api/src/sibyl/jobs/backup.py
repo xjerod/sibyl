@@ -2,7 +2,6 @@
 
 Creates timestamped, compressed backup archives containing:
 - SurrealDB auth and content snapshots when those runtimes are active
-- Database dump sidecar while a relational runtime remains active
 - Graph export when requested
 - Metadata JSON (checksums, counts, version info)
 """
@@ -11,8 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
-import subprocess
 import tarfile
 import tempfile
 from dataclasses import asdict, dataclass, field
@@ -97,55 +94,6 @@ def _include_surreal_content_snapshot() -> bool:
     ).include_content_snapshot
 
 
-def _get_pg_env() -> dict[str, str]:
-    """Get environment variables for pg_dump commands."""
-    import os
-
-    env = os.environ.copy()
-    env["PGPASSWORD"] = settings.postgres_password.get_secret_value()
-    return env
-
-
-def _get_pg_connection_args() -> list[str]:
-    """Get common pg_dump connection arguments."""
-    return [
-        "-h",
-        settings.postgres_host,
-        "-p",
-        str(settings.postgres_port),
-        "-U",
-        settings.postgres_user,
-        "-d",
-        settings.postgres_db,
-    ]
-
-
-def _find_pg_tool(tool: str) -> str:
-    """Find PostgreSQL tool (pg_dump) preferring newer versions."""
-    # Homebrew keg paths to check (prefer newer versions, include libpq)
-    keg_paths = [
-        f"/opt/homebrew/opt/libpq/bin/{tool}",
-        f"/opt/homebrew/opt/postgresql@18/bin/{tool}",
-        f"/opt/homebrew/opt/postgresql@17/bin/{tool}",
-        f"/opt/homebrew/opt/postgresql@16/bin/{tool}",
-        f"/usr/local/opt/libpq/bin/{tool}",
-        f"/usr/local/opt/postgresql@18/bin/{tool}",
-        f"/usr/local/opt/postgresql@17/bin/{tool}",
-        f"/usr/local/opt/postgresql@16/bin/{tool}",
-    ]
-
-    for path in keg_paths:
-        if Path(path).exists():
-            return path
-
-    # Fall back to PATH lookup
-    found = shutil.which(tool)
-    if found:
-        return found
-
-    return tool  # Return bare name, will fail with FileNotFoundError
-
-
 def _sha256_file(path: Path) -> str:
     """Calculate SHA256 hash of a file."""
     sha256 = hashlib.sha256()
@@ -214,16 +162,15 @@ async def run_backup(  # noqa: PLR0915
     """Create a complete backup archive.
 
     This job creates a timestamped .tar.gz archive containing:
-    - postgres.sql: Database dump sidecar when the relational runtime remains active
     - auth.json: Surreal auth snapshot when auth runs on Surreal
     - content.json: Surreal content snapshot when content runs on Surreal
-    - graph.json: FalkorDB graph export
+    - graph.json: graph runtime export
     - metadata.json: Archive metadata with checksums
 
     Args:
         ctx: arq context
         organization_id: Organization UUID to backup
-        include_database_dump: Include a database dump sidecar when supported
+        include_database_dump: Ignored by active backups; retained for API compatibility
         include_graph: Include graph export (default: True)
         backup_id: Pre-generated backup ID (optional, for API-triggered backups)
 
@@ -267,7 +214,6 @@ async def run_backup(  # noqa: PLR0915
         # Work in a temp directory
         with tempfile.TemporaryDirectory(prefix="sibyl_backup_") as tmpdir:
             tmp_path = Path(tmpdir)
-            database_dump_file = tmp_path / "postgres.sql"
             auth_file = tmp_path / "auth.json"
             content_file = tmp_path / "content.json"
             graph_file = tmp_path / "graph.json"
@@ -309,48 +255,7 @@ async def run_backup(  # noqa: PLR0915
                     size_bytes=content_size,
                 )
 
-            # Step 3: Database dump backup
-            if include_database_dump:
-                log.info("backup_database_dump_start", backup_id=backup_id)
-                try:
-                    cmd = [
-                        _find_pg_tool("pg_dump"),
-                        *_get_pg_connection_args(),
-                        "--format=plain",
-                        "--no-owner",
-                        "--no-acl",
-                    ]
-
-                    result = subprocess.run(  # noqa: S603, ASYNC221
-                        cmd,
-                        env=_get_pg_env(),
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=600,  # 10 minute timeout
-                    )
-
-                    if result.returncode != 0:
-                        raise RuntimeError(f"pg_dump failed: {result.stderr}")
-
-                    database_dump_file.write_text(result.stdout, encoding="utf-8")
-                    database_dump_size = database_dump_file.stat().st_size
-                    file_checksums["postgres.sql"] = _sha256_file(database_dump_file)
-
-                    log.info(
-                        "backup_database_dump_complete",
-                        backup_id=backup_id,
-                        size_bytes=database_dump_size,
-                    )
-
-                except FileNotFoundError as e:
-                    log.warning("backup_database_dump_not_found", error=str(e))
-                    raise RuntimeError("pg_dump not found. Install PostgreSQL client tools.") from e
-                except subprocess.TimeoutExpired as e:
-                    log.warning("backup_database_dump_timeout", error=str(e))
-                    raise RuntimeError("pg_dump timed out after 10 minutes") from e
-
-            # Step 4: Graph backup
+            # Step 3: Graph backup
             if include_graph:
                 log.info("backup_graph_start", backup_id=backup_id, organization_id=organization_id)
                 try:
@@ -387,7 +292,7 @@ async def run_backup(  # noqa: PLR0915
                     log.exception("backup_graph_failed", backup_id=backup_id, error=str(e))
                     raise
 
-            # Step 5: Create metadata
+            # Step 4: Create metadata
             metadata = BackupMetadata(
                 version=BACKUP_VERSION,
                 created_at=datetime.now(UTC).isoformat(),
@@ -403,7 +308,7 @@ async def run_backup(  # noqa: PLR0915
                 encoding="utf-8",
             )
 
-            # Step 6: Create tar.gz archive
+            # Step 5: Create tar.gz archive
             archive_name = f"sibyl_{backup_id}.tar.gz"
             archive_path = backup_dir / archive_name
 
@@ -415,8 +320,6 @@ async def run_backup(  # noqa: PLR0915
                     tar.add(auth_file, arcname="auth.json")
                 if include_content_snapshot and content_file.exists():
                     tar.add(content_file, arcname="content.json")
-                if include_database_dump and database_dump_file.exists():
-                    tar.add(database_dump_file, arcname="postgres.sql")
                 if include_graph and graph_file.exists():
                     tar.add(graph_file, arcname="graph.json")
 

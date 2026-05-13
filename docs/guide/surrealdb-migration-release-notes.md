@@ -26,8 +26,8 @@ payloads are restore-only evidence for rehearsal or rollback validation.
 
 ## Existing local installs
 
-If you have an old local FalkorDB + PostgreSQL install, export an archive before upgrading, then
-import it into SurrealDB:
+If you have an old local FalkorDB + PostgreSQL install, export an archive from the v0.6
+compatibility release before upgrading, then import it into SurrealDB:
 
 ```bash
 uv run --directory apps/api sibyld migrate import <archive> --yes --clean

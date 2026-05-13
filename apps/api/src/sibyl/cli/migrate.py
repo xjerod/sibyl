@@ -21,7 +21,6 @@ from sibyl.persistence.auth_archive import (
     export_auth_archive_payload,
     restore_auth_archive_payload,
 )
-from sibyl.persistence.backups_common import resolve_backup_runtime_options
 from sibyl.persistence.content_archive import (
     export_content_archive_payload,
     restore_content_archive_payload,
@@ -161,7 +160,7 @@ def _get_pg_env() -> dict[str, str]:
 
 
 def _get_pg_connection_args() -> list[str]:
-    """Build psql/pg_dump connection args for retained archive rehearsal."""
+    """Build psql connection args for retained archive rehearsal."""
     return [
         "-h",
         settings.postgres_host,
@@ -761,26 +760,6 @@ def _bootstrap_surreal_runtimes(*, clean: bool) -> None:
     _bootstrap()
 
 
-def _run_pg_dump() -> bytes:
-    cmd = [
-        _find_pg_tool("pg_dump"),
-        *_get_pg_connection_args(),
-        "--format=plain",
-        "--no-owner",
-        "--no-acl",
-    ]
-    result = subprocess.run(  # noqa: S603 - trusted pg_dump command
-        cmd,
-        env=_get_pg_env(),
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.decode("utf-8", errors="replace")
-        raise RuntimeError(f"pg_dump failed: {stderr}")
-    return result.stdout
-
-
 @app.command("check")
 def check_archive(
     source: Annotated[Path, typer.Argument(help="Archive .tar.gz or directory to inspect")],
@@ -955,9 +934,9 @@ def export_archive(
         typer.Option(
             "--include-database-dump/--no-include-database-dump",
             "--include-postgres/--no-include-postgres",
-            help="Include database dump sidecar",
+            help="Deprecated no-op; retained postgres.sql payloads are import-only",
         ),
-    ] = True,
+    ] = False,
     include_graph: Annotated[
         bool,
         typer.Option("--include-graph/--skip-graph", help="Include graph runtime export"),
@@ -974,19 +953,12 @@ def export_archive(
     ] = True,
 ) -> None:
     """Export a manifest-driven migration archive from the active store."""
-    runtime_options = resolve_backup_runtime_options(
-        store=settings.store,
-        auth_store=settings.auth_store,
-        include_database_dump=include_database_dump,
-        include_graph=include_graph,
-    )
-    include_database_dump = runtime_options.include_database_dump
-    include_graph = runtime_options.include_graph
+    del include_database_dump
 
-    if not include_database_dump and not include_graph and not include_auth and not include_content:
+    if not include_graph and not include_auth and not include_content:
         error(
             "Select at least one supported payload: "
-            "--include-database-dump, --include-graph, --include-auth, or --include-content"
+            "--include-graph, --include-auth, or --include-content"
         )
         raise typer.Exit(code=1)
 
@@ -996,11 +968,6 @@ def export_archive(
     files: dict[str, bytes] = {}
     file_metadata: dict[str, dict[str, object]] = {}
     archive_metadata: dict[str, object] = {}
-
-    if include_database_dump:
-        info("Exporting database dump sidecar...")
-        files[POSTGRES_FILENAME] = _run_pg_dump()
-        file_metadata[POSTGRES_FILENAME] = {"kind": "database_dump"}
 
     if include_graph:
         info(f"Exporting graph runtime from {settings.store} store...")

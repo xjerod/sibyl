@@ -291,7 +291,6 @@ def test_migrate_export_writes_graph_and_runtime_archive(tmp_path: Path) -> None
                 (_content_payload(), json.dumps(_content_payload()).encode("utf-8")),
             ),
         ),
-        patch("sibyl.cli.migrate._run_pg_dump", return_value=b"select 1;\n"),
     ):
         result = runner.invoke(
             migrate_cli.app,
@@ -308,7 +307,7 @@ def test_migrate_export_writes_graph_and_runtime_archive(tmp_path: Path) -> None
     loaded = load_archive(archive_path)
     assert AUTH_FILENAME in loaded.files
     assert CONTENT_FILENAME in loaded.files
-    assert POSTGRES_FILENAME in loaded.files
+    assert POSTGRES_FILENAME not in loaded.files
     assert GRAPH_FILENAME in loaded.files
 
 
@@ -340,7 +339,6 @@ def test_migrate_export_auto_selects_single_org(tmp_path: Path) -> None:
                 (_content_payload(), json.dumps(_content_payload()).encode("utf-8")),
             ),
         ),
-        patch("sibyl.cli.migrate._run_pg_dump", return_value=b"select 1;\n"),
     ):
         result = runner.invoke(
             migrate_cli.app,
@@ -382,7 +380,7 @@ def test_migrate_export_requires_org_id_when_multiple_orgs_exist(tmp_path: Path)
     assert not archive_path.exists()
 
 
-def test_migrate_export_suppresses_postgres_dump_in_fully_surreal_mode(
+def test_migrate_export_suppresses_postgres_dump(
     tmp_path: Path,
 ) -> None:
     archive_path = tmp_path / "migration.tar.gz"
@@ -410,7 +408,6 @@ def test_migrate_export_suppresses_postgres_dump_in_fully_surreal_mode(
                 (_content_payload(), json.dumps(_content_payload()).encode("utf-8")),
             ),
         ),
-        patch("sibyl.cli.migrate._run_pg_dump", side_effect=AssertionError("pg_dump disabled")),
     ):
         result = runner.invoke(
             migrate_cli.app,
@@ -436,17 +433,14 @@ def test_migrate_export_errors_when_only_unsupported_postgres_payload_selected(
 ) -> None:
     archive_path = tmp_path / "migration.tar.gz"
 
-    with (
-        patch.object(migrate_cli.settings, "store", "surreal"),
-        patch.object(migrate_cli.settings, "auth_store", "surreal"),
-        patch("sibyl.cli.migrate._run_pg_dump", side_effect=AssertionError("pg_dump disabled")),
-    ):
+    with patch.object(migrate_cli.settings, "store", "surreal"):
         result = runner.invoke(
             migrate_cli.app,
             [
                 "export",
                 "--output",
                 str(archive_path),
+                "--include-database-dump",
                 "--skip-graph",
                 "--skip-auth",
                 "--skip-content",
@@ -482,7 +476,6 @@ def test_migrate_export_writes_content_archive_when_requested(tmp_path: Path) ->
                 json.dumps(_content_payload()).encode("utf-8"),
             ),
         ),
-        patch("sibyl.cli.migrate._run_pg_dump", return_value=b"select 1;\n"),
     ):
         result = runner.invoke(
             migrate_cli.app,
@@ -528,7 +521,6 @@ def test_migrate_export_loads_auth_and_content_by_default_in_one_runtime_pass(
         patch(
             "sibyl.cli.migrate._load_runtime_exports", return_value=runtime_exports
         ) as load_runtime_exports,
-        patch("sibyl.cli.migrate._run_pg_dump", return_value=b"select 1;\n"),
     ):
         result = runner.invoke(
             migrate_cli.app,

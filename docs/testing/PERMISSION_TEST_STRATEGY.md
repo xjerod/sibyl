@@ -329,13 +329,10 @@ Add to `.github/workflows/test.yml`:
 ```yaml
 permission-tests:
   runs-on: ubuntu-latest
-  services:
-    postgres:
-      image: postgres:16
-    falkordb:
-      image: falkordb/falkordb:latest
   steps:
     - uses: actions/checkout@v4
+    - name: Start SurrealDB
+      run: docker compose up -d surrealdb
     - name: Run permission tests
       run: |
         moon run api:test -- tests/auth/ -v

@@ -205,7 +205,7 @@ Historical migration and archive operations use explicit migration commands rath
 application session:
 
 ```bash
-sibyld db restore-dump postgres.sql
+sibyld migrate import migration-archive.tar.gz --restore-database-dump --yes
 ```
 
 ## Project Members API

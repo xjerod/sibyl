@@ -797,9 +797,9 @@ def backup_create(
         typer.Option(
             "--database-dump/--no-database-dump",
             "--postgres/--no-postgres",
-            help="Include database dump sidecar",
+            help="Deprecated compatibility flag; active backups ignore database dumps",
         ),
-    ] = True,
+    ] = False,
     include_graph: Annotated[
         bool,
         typer.Option("--graph/--no-graph", help="Include graph export"),
@@ -812,14 +812,14 @@ def backup_create(
     """Create a backup via the API (async job).
 
     Triggers a backup job on the server that creates a compressed archive
-    containing a database dump sidecar and graph data export.
+    containing Surreal runtime snapshots and graph data export.
 
     Use --wait to block until the backup completes.
 
     Example:
         sibyld db backup-create              # Queue backup job
         sibyld db backup-create --wait       # Wait for completion
-        sibyld db backup-create --no-graph   # Database dump only
+        sibyld db backup-create --no-graph   # Auth/content snapshots only
     """
     import time
 

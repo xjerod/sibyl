@@ -52,9 +52,9 @@ async def test_get_backup_settings_uses_runtime_metadata(monkeypatch: pytest.Mon
 
     assert response.enabled is True
     assert response.retention_days == 30
-    assert response.database_dump_supported is True
-    assert response.include_database_dump is True
-    assert response.archive_contents == ["postgres.sql", "auth.json", "metadata.json"]
+    assert response.database_dump_supported is False
+    assert response.include_database_dump is False
+    assert response.archive_contents == ["auth.json", "metadata.json"]
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,22 @@ async def test_create_backup_uses_runtime_record_helpers(monkeypatch: pytest.Mon
 
     assert response.backup_id == "backup_fixed"
     assert response.job_id == "job-123"
-    assert response.archive_contents == ["postgres.sql", "auth.json", "metadata.json"]
+    assert response.archive_contents == ["auth.json", "metadata.json"]
+    backup_routes.create_backup_record.assert_awaited_once_with(
+        org_id=org.id,
+        backup_id="backup_fixed",
+        include_database_dump=False,
+        include_graph=False,
+        created_by_user_id=user.id,
+    )
+    from sibyl.jobs import queue as jobs_queue
+
+    jobs_queue.enqueue_backup.assert_awaited_once_with(
+        str(org.id),
+        include_database_dump=False,
+        include_graph=False,
+        backup_id="backup_fixed",
+    )
 
 
 @pytest.mark.asyncio

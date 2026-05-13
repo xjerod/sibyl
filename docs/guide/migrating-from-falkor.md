@@ -38,13 +38,16 @@ SIBYL_STORE=legacy sibyld migrate export \
   --output /tmp/sibyl-migration.tar.gz
 ```
 
-Run this before upgrading the source install past the compatibility release, or from a preserved
-legacy source environment. It writes a versioned archive containing:
+Run this from the v0.6 compatibility release or a preserved legacy source environment before
+upgrading the source install. Current v0.7 exports write a versioned archive containing:
 
 - `graph.json` — Entities, relationships, and episodes from FalkorDB
-- `postgres.sql` — Optional retained relational dump for rehearsal or rollback validation
 - `auth.json` / `content.json` — Structured auth and content payloads
 - `manifest.json` — Counts and checksums for verification
+
+Older compatibility-release archives may also contain a retained `postgres.sql` payload for
+rehearsal or rollback validation. Current active backup and export commands do not create new
+database dump sidecars.
 
 ### 2. Import to SurrealDB
 

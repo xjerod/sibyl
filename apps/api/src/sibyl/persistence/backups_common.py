@@ -94,16 +94,13 @@ def resolve_backup_runtime_options(
     include_database_dump: bool | None = None,
     include_graph: bool = True,
 ) -> BackupRuntimeOptions:
-    database_dump_supported = not (store == "surreal" and auth_store == "surreal")
-    include_database_dump = (True if include_database_dump is None else include_database_dump) and (
-        database_dump_supported
-    )
+    del include_database_dump
+    database_dump_supported = False
+    include_database_dump = False
     include_auth_snapshot = auth_store == "surreal"
     include_content_snapshot = store == "surreal"
 
     contents: list[str] = []
-    if include_database_dump:
-        contents.append("postgres.sql")
     if include_auth_snapshot:
         contents.append("auth.json")
     if include_content_snapshot:

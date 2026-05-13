@@ -110,7 +110,7 @@ class CreateBackupRequest(BaseModel):
 
     include_database_dump: bool | None = Field(
         default=None,
-        description="Include a database dump sidecar when supported by the active runtime",
+        description="Deprecated; active backups no longer create database dump sidecars",
     )
     include_graph: bool = Field(default=True, description="Include graph export")
 
@@ -221,7 +221,6 @@ async def create_backup(
     """Trigger a new backup job.
 
     Creates a compressed archive containing:
-    - postgres.sql when database dump support is active for the current runtime
     - auth.json when auth runs on SurrealDB
     - content.json when content runs on SurrealDB
     - graph.json when graph export is requested
