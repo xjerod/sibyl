@@ -143,7 +143,7 @@ def test_configure_requested_worker_mode_defaults_to_local_runtime(monkeypatch) 
     warn.assert_not_called()
 
 
-def test_configure_requested_worker_mode_warns_for_removed_legacy_mode(monkeypatch) -> None:
+def test_configure_requested_worker_mode_treats_legacy_auto_as_local(monkeypatch) -> None:
     info = MagicMock()
     warn = MagicMock()
 
@@ -154,10 +154,8 @@ def test_configure_requested_worker_mode_warns_for_removed_legacy_mode(monkeypat
     up_cmd._configure_requested_worker_mode(env, with_worker=True)
 
     assert "SIBYL_RUN_WORKER" not in env
-    warn.assert_called_once_with("`--with-worker` is only supported with Redis coordination")
-    info.assert_called_once_with(
-        "Run `moon run api:worker` or `uv run sibyld worker` in another shell."
-    )
+    info.assert_called_once_with("Local coordination already runs jobs and schedules in-process")
+    warn.assert_not_called()
 
 
 def test_configure_requested_worker_mode_warns_for_surreal_redis(monkeypatch) -> None:

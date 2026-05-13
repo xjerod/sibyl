@@ -22,6 +22,8 @@ def test_runtime_shape_helpers_cover_fully_surreal_mode() -> None:
     assert uses_relational_auth(auth_store="surreal") is False
     assert requires_relational_support(store="surreal", auth_store="surreal") is False
     assert resolve_coordination_backend(store="surreal", coordination_backend="auto") == "local"
+    assert resolve_coordination_backend(store="legacy", coordination_backend="auto") == "local"
+    assert resolve_coordination_backend(store="surreal", coordination_backend="redis") == "redis"
 
 
 def test_runtime_shape_helpers_cover_mixed_surreal_mode() -> None:
@@ -39,7 +41,7 @@ def test_runtime_shape_object_helpers_fall_back_to_store_defaults() -> None:
     assert requires_object_surreal_support(runtime, default_store="surreal") is True
     assert requires_object_relational_support(runtime, default_store="surreal") is False
     assert uses_object_relational_auth(runtime, default_store="surreal") is False
-    assert resolve_object_coordination_backend(runtime, default_store="surreal") == "redis"
+    assert resolve_object_coordination_backend(runtime, default_store="surreal") == "local"
 
 
 def test_runtime_shape_object_helpers_prefer_resolved_fields() -> None:

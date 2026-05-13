@@ -130,12 +130,11 @@ Add an explicit coordination setting:
 coordination_backend: Literal["auto", "local", "redis"] = "auto"
 ```
 
-Resolution rules for v1:
+Current v0.7 resolution rules:
 
-- `auto` + `store == "surreal"` -> `local`
-- `auto` + `store == "legacy"` -> `redis`
+- `auto` always resolves to `local`
 - `local` is supported only for single-process runtime in v1
-- `redis` remains the required mode for multi-process and distributed deployments
+- `redis` remains available only as an explicit opt-in for multi-process and distributed deployments
 
 This keeps the supported matrix small while still solving the local-install problem.
 
@@ -420,7 +419,7 @@ If we revisit it later, the evaluation must answer:
 ### 8.1 Supported matrix for v1
 
 - `store=surreal`, `coordination_backend=local`
-- `store=legacy`, `coordination_backend=redis`
+- `store=surreal`, `coordination_backend=redis`
 
 Do **not** expand the matrix further until these two paths are green.
 

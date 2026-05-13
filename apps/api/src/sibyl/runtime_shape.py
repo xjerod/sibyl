@@ -39,8 +39,9 @@ def resolve_coordination_backend(
     store: RuntimeStore,
     coordination_backend: ConfiguredCoordinationBackend,
 ) -> ResolvedCoordinationBackend:
+    del store
     if coordination_backend == "auto":
-        return "redis" if store == "legacy" else "local"
+        return "local"
     return coordination_backend
 
 
