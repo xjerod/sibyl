@@ -41,6 +41,7 @@ async def main():
     import sibyl_core.tools.add as add_module
     import sibyl_core.tools.context as context_module
     import sibyl_core.tools.core as core_module
+    import sibyl_core.tools.explore as explore_module
     import sibyl_core.tools.reflect as reflect_module
     import sibyl_core.tools.search as search_module
 
@@ -65,6 +66,7 @@ async def main():
 
     add_module.get_native_graph_runtime = runtime_factory
     context_module.get_native_graph_runtime = runtime_factory
+    explore_module.get_graph_runtime = runtime_factory
     native_retrieval.get_native_graph_runtime = runtime_factory
     native_memory.get_native_graph_runtime = runtime_factory
     search_module.get_graph_runtime = runtime_factory
@@ -98,6 +100,14 @@ async def main():
             organization_id=group_id,
         )
         assert any(result.id == remembered.id for result in search.results)
+
+        explored = await explore_module.explore(
+            mode="list",
+            types=["decision"],
+            project=project_id,
+            organization_id=group_id,
+        )
+        assert any(result.id == remembered.id for result in explored.entities)
 
         pack = await context_module.compile_context(
             "native Surreal default loop decision",

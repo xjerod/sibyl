@@ -295,33 +295,100 @@ class NativeEntityManager:
         limit: int = 100,
         offset: int = 0,
         project_id: str | None = None,
+        epic_id: str | None = None,
+        no_epic: bool = False,
         status: str | None = None,
+        priority: str | None = None,
+        complexity: str | None = None,
+        feature: str | None = None,
+        tags: Sequence[str] | None = None,
+        include_archived: bool = False,
     ) -> list[Entity]:
-        clauses = ["group_id = $group_id", "entity_type = $entity_type"]
-        if project_id:
-            clauses.append("project_id = $project_id")
-        if status:
-            clauses.append("status = $status")
-        rows = normalize_records(
-            await self._client.execute_query(
-                """
-                SELECT *
-                FROM entity
-                WHERE """
-                + " AND ".join(clauses)
-                + """
-                ORDER BY created_at DESC, uuid DESC
-                LIMIT $limit START $offset;
-                """,
-                group_id=self._group_id,
-                entity_type=entity_type.value,
-                project_id=project_id,
-                status=status,
-                limit=max(int(limit), 1),
-                offset=max(int(offset), 0),
-            )
+        if limit <= 0:
+            return []
+
+        status_values = _lower_filter_values(status)
+        priority_values = _lower_filter_values(priority)
+        complexity_values = _lower_filter_values(complexity)
+        tag_values = _lower_sequence_values(tags)
+        requires_recheck = any(
+            [
+                project_id is not None,
+                epic_id is not None,
+                no_epic,
+                bool(status_values),
+                bool(priority_values),
+                bool(complexity_values),
+                bool(feature),
+                bool(tag_values),
+                not include_archived,
+            ]
         )
-        return [_entity_from_row(row) for row in rows]
+        target_count = max(int(offset), 0) + max(int(limit), 1) if requires_recheck else limit
+        query_offset = 0 if requires_recheck else max(int(offset), 0)
+        page_size = min(max(target_count, 1), 1000)
+        entities: list[Entity] = []
+        seen_entity_ids: set[str] = set()
+        seen_pages: set[tuple[str | None, ...]] = set()
+
+        while len(entities) < target_count:
+            rows = normalize_records(
+                await self._client.execute_query(
+                    """
+                    SELECT *
+                    FROM entity
+                    WHERE group_id = $group_id
+                      AND entity_type = $entity_type
+                    ORDER BY created_at DESC, uuid DESC
+                    LIMIT $limit START $offset;
+                    """,
+                    group_id=self._group_id,
+                    entity_type=entity_type.value,
+                    limit=page_size,
+                    offset=query_offset,
+                )
+            )
+            if not rows:
+                break
+
+            page_signature = tuple(
+                row_uuid if isinstance(row_uuid := row.get("uuid"), str) else None for row in rows
+            )
+            if page_signature in seen_pages:
+                break
+            seen_pages.add(page_signature)
+
+            for row in rows:
+                entity = _entity_from_row(row)
+                if entity.id in seen_entity_ids:
+                    continue
+                if not _entity_matches_list_filters(
+                    entity,
+                    project_id=project_id,
+                    epic_id=epic_id,
+                    no_epic=no_epic,
+                    status_values=status_values,
+                    priority_values=priority_values,
+                    complexity_values=complexity_values,
+                    feature=feature,
+                    tag_values=tag_values,
+                    include_archived=include_archived,
+                ):
+                    continue
+
+                seen_entity_ids.add(entity.id)
+                entities.append(entity)
+                if len(entities) >= target_count:
+                    break
+
+            query_offset += len(rows)
+            if len(rows) < page_size:
+                break
+
+        if requires_recheck:
+            start = max(int(offset), 0)
+            return entities[start : start + max(int(limit), 1)]
+        return entities[: max(int(limit), 1)]
 
     async def list_all(
         self,
@@ -330,25 +397,62 @@ class NativeEntityManager:
         offset: int = 0,
         include_archived: bool = False,
     ) -> list[Entity]:
-        archived_clause = "" if include_archived else "AND status != 'archived'"
-        rows = normalize_records(
-            await self._client.execute_query(
-                """
-                SELECT *
-                FROM entity
-                WHERE group_id = $group_id
-                """
-                + archived_clause
-                + """
-                ORDER BY created_at DESC, uuid DESC
-                LIMIT $limit START $offset;
-                """,
-                group_id=self._group_id,
-                limit=max(int(limit), 1),
-                offset=max(int(offset), 0),
+        if limit <= 0:
+            return []
+        target_count = max(int(offset), 0) + max(int(limit), 1) if not include_archived else limit
+        query_offset = 0 if not include_archived else max(int(offset), 0)
+        page_size = min(max(target_count, 1), 1000)
+        entities: list[Entity] = []
+        seen_entity_ids: set[str] = set()
+        seen_pages: set[tuple[str | None, ...]] = set()
+
+        while len(entities) < target_count:
+            rows = normalize_records(
+                await self._client.execute_query(
+                    """
+                    SELECT *
+                    FROM entity
+                    WHERE group_id = $group_id
+                    ORDER BY created_at DESC, uuid DESC
+                    LIMIT $limit START $offset;
+                    """,
+                    group_id=self._group_id,
+                    limit=page_size,
+                    offset=query_offset,
+                )
             )
-        )
-        return [_entity_from_row(row) for row in rows]
+            if not rows:
+                break
+
+            page_signature = tuple(
+                row_uuid if isinstance(row_uuid := row.get("uuid"), str) else None for row in rows
+            )
+            if page_signature in seen_pages:
+                break
+            seen_pages.add(page_signature)
+
+            for row in rows:
+                entity = _entity_from_row(row)
+                if entity.id in seen_entity_ids:
+                    continue
+                if (
+                    not include_archived
+                    and str(_metadata_scalar(entity, "status") or "").lower() == "archived"
+                ):
+                    continue
+                seen_entity_ids.add(entity.id)
+                entities.append(entity)
+                if len(entities) >= target_count:
+                    break
+
+            query_offset += len(rows)
+            if len(rows) < page_size:
+                break
+
+        if not include_archived:
+            start = max(int(offset), 0)
+            return entities[start : start + max(int(limit), 1)]
+        return entities[: max(int(limit), 1)]
 
 
 class NativeRelationshipManager:
@@ -566,6 +670,13 @@ def _entity_from_row(row: SurrealRecord) -> Entity:
             parsed = None
         if isinstance(parsed, dict):
             metadata.update({str(key): value for key, value in parsed.items()})
+    for key in ("project_id", "epic_id", "task_id", "status", "priority", "complexity", "feature"):
+        value = row.get(key)
+        if value is not None and metadata.get(key) is None:
+            metadata[key] = value
+    row_tags = row.get("tags")
+    if row_tags is not None and metadata.get("tags") is None:
+        metadata["tags"] = row_tags
 
     return Entity(
         id=str(row.get("uuid") or ""),
@@ -617,6 +728,79 @@ def _row_score(row: SurrealRecord) -> float:
     if isinstance(score, int | float):
         return float(score)
     return 1.0
+
+
+def _entity_matches_list_filters(
+    entity: Entity,
+    *,
+    project_id: str | None,
+    epic_id: str | None,
+    no_epic: bool,
+    status_values: Sequence[str],
+    priority_values: Sequence[str],
+    complexity_values: Sequence[str],
+    feature: str | None,
+    tag_values: Sequence[str],
+    include_archived: bool,
+) -> bool:
+    if project_id and _metadata_scalar(entity, "project_id") != project_id:
+        return False
+    entity_epic_id = _metadata_scalar(entity, "epic_id")
+    if epic_id and entity_epic_id != epic_id:
+        return False
+    if no_epic and entity_epic_id:
+        return False
+    entity_status = _metadata_scalar(entity, "status")
+    if status_values and str(entity_status or "").lower() not in status_values:
+        return False
+    if not include_archived and str(entity_status or "").lower() == "archived":
+        return False
+    if (
+        priority_values
+        and str(_metadata_scalar(entity, "priority") or "").lower() not in priority_values
+    ):
+        return False
+    if (
+        complexity_values
+        and str(_metadata_scalar(entity, "complexity") or "").lower() not in complexity_values
+    ):
+        return False
+    if feature and str(_metadata_scalar(entity, "feature") or "").lower() != feature.lower():
+        return False
+    if tag_values:
+        entity_tags = _metadata_str_values(entity, "tags")
+        if not any(tag in entity_tags for tag in tag_values):
+            return False
+    return True
+
+
+def _metadata_scalar(entity: Entity, key: str) -> object | None:
+    return dict(entity.metadata or {}).get(key)
+
+
+def _metadata_str_values(entity: Entity, key: str) -> list[str]:
+    value = _metadata_scalar(entity, key)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return [value.lower()]
+        if isinstance(parsed, list):
+            return [str(item).lower() for item in parsed if str(item)]
+        return [value.lower()]
+    if isinstance(value, Iterable) and not isinstance(value, bytes | dict):
+        return [str(item).lower() for item in value if str(item)]
+    return []
+
+
+def _lower_filter_values(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [part.strip().lower() for part in value.split(",") if part.strip()]
+
+
+def _lower_sequence_values(values: Sequence[str] | None) -> list[str]:
+    return [str(value).strip().lower() for value in values or () if str(value).strip()]
 
 
 def _bounded_similarity_score(query: str, entity: Entity) -> float:

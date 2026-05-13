@@ -28,9 +28,9 @@ __all__ = ["DependencyNode", "explore"]
 
 
 async def get_graph_runtime(group_id: str):
-    from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
+    from sibyl_core.services.native_graph import get_native_graph_runtime
 
-    return await _service_get_graph_runtime(group_id)
+    return await get_native_graph_runtime(group_id)
 
 
 def _normalize_project_ids(

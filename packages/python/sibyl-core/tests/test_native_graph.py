@@ -143,5 +143,92 @@ async def test_native_graph_writes_entities_and_relationships_without_graphiti(
         )
         assert search_results
         assert all(0.0 <= score <= 1.0 for _, score in search_results)
+
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_one",
+                entity_type=EntityType.TASK,
+                name="Native filtered task",
+                description="Task with every native list filter",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "epic_id": "epic_native",
+                    "status": "todo",
+                    "priority": "high",
+                    "complexity": "complex",
+                    "feature": "surreal",
+                    "tags": ["native", "graph"],
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_two",
+                entity_type=EntityType.TASK,
+                name="Native unepic task",
+                description="Task without an epic",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "status": "doing",
+                    "priority": "medium",
+                    "complexity": "simple",
+                    "feature": "surreal",
+                    "tags": ["native"],
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_native_archived",
+                entity_type=EntityType.TASK,
+                name="Native archived task",
+                description="Archived task hidden by default",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "status": "archived",
+                    "tags": ["native"],
+                },
+            )
+        )
+
+        filtered = await entity_manager.list_by_type(
+            EntityType.TASK,
+            project_id="project_native",
+            epic_id="epic_native",
+            status="todo,done",
+            priority="high",
+            complexity="complex",
+            feature="surreal",
+            tags=["graph"],
+            include_archived=False,
+        )
+        assert [entity.id for entity in filtered] == ["task_native_one"]
+
+        no_epic = await entity_manager.list_by_type(
+            EntityType.TASK,
+            project_id="project_native",
+            no_epic=True,
+        )
+        assert [entity.id for entity in no_epic] == ["task_native_two"]
+
+        archived = await entity_manager.list_by_type(
+            EntityType.TASK,
+            project_id="project_native",
+            include_archived=True,
+        )
+        assert {entity.id for entity in archived} == {
+            "task_native_one",
+            "task_native_two",
+            "task_native_archived",
+        }
+
+        visible_ids = {
+            entity.id for entity in await entity_manager.list_all(include_archived=False)
+        }
+        assert "decision_native" in visible_ids
+        assert "task_native_archived" not in visible_ids
     finally:
         await client.close()
