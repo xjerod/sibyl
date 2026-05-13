@@ -14,6 +14,7 @@ import builtins
 import os
 import sys
 import uuid
+from types import SimpleNamespace
 
 original_import = builtins.__import__
 
@@ -54,8 +55,10 @@ async def main():
     import sibyl_core.tools.reflect as reflect_module
     import sibyl_core.tools.search as search_module
     import sibyl_core.tools.temporal as temporal_module
+    import sibyl.api.dependencies as api_dependencies
     import sibyl.crawler.graph_integration as graph_integration
     import sibyl.jobs.consolidation as consolidation_module
+    import sibyl.persistence.graph_runtime as graph_runtime_module
 
     group_id = "no-graphiti-default-loop"
     principal_id = "principal-no-graphiti"
@@ -86,6 +89,7 @@ async def main():
     search_module.get_graph_runtime = runtime_factory
     temporal_module.get_graph_runtime = runtime_factory
     consolidation_module._get_graph_runtime = runtime_factory
+    graph_runtime_module._get_graph_runtime = runtime_factory
 
     try:
         project = await core_module.add(
@@ -261,6 +265,21 @@ async def main():
 
         stats = await core_module.get_stats(organization_id=group_id)
         assert stats["total_entities"] >= 2
+
+        graph_stats = await graph_runtime_module.get_graph_stats_payload(group_id)
+        assert graph_stats["total_entities"] >= 2
+
+        task_runtime = await graph_runtime_module.get_entity_graph_runtime(group_id)
+        assert task_runtime.entity_manager is runtime.entity_manager
+
+        graph_adapter = await graph_runtime_module.get_graph_query_adapter(group_id)
+        connection_counts = await graph_adapter.get_connection_counts([task_a.id, task_b.id])
+        assert connection_counts[task_a.id] >= 1
+
+        graph_store = await api_dependencies.get_graph_store(
+            org=SimpleNamespace(id=group_id),
+        )
+        assert await graph_store.entities.count() >= 2
 
         pack = await context_module.compile_context(
             "native Surreal default loop decision",

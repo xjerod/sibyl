@@ -6,6 +6,7 @@ for EntityManager and RelationshipManager provisioning.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -36,6 +37,19 @@ def mock_org() -> MagicMock:
 def mock_graph_client() -> AsyncMock:
     """Create a mock GraphClient."""
     return AsyncMock()
+
+
+@pytest.fixture
+def mock_graph_runtime(mock_org: MagicMock) -> SimpleNamespace:
+    """Create a mock native graph runtime scoped to the test org."""
+    entity_manager = MagicMock()
+    entity_manager._group_id = str(mock_org.id)
+    relationship_manager = MagicMock()
+    relationship_manager._group_id = str(mock_org.id)
+    return SimpleNamespace(
+        entity_manager=entity_manager,
+        relationship_manager=relationship_manager,
+    )
 
 
 # =============================================================================
@@ -79,49 +93,47 @@ class TestGetEntityManager:
     async def test_returns_entity_manager(
         self,
         mock_org: MagicMock,
-        mock_graph_client: AsyncMock,
+        mock_graph_runtime: SimpleNamespace,
     ) -> None:
-        """Returns an EntityManager instance."""
+        """Returns the native runtime's entity manager."""
         with patch(
-            "sibyl.api.dependencies.get_graph_client",
-            return_value=mock_graph_client,
+            "sibyl.persistence.graph_runtime.get_entity_graph_runtime",
+            return_value=mock_graph_runtime,
         ):
             result = await get_entity_manager(org=mock_org)
 
-        # Import here to avoid circular import issues
-        from sibyl_core.graph import EntityManager
-
-        assert isinstance(result, EntityManager)
+        assert result is mock_graph_runtime.entity_manager
 
     @pytest.mark.asyncio
     async def test_uses_org_id_as_group_id(
         self,
         mock_org: MagicMock,
-        mock_graph_client: AsyncMock,
+        mock_graph_runtime: SimpleNamespace,
     ) -> None:
         """Uses organization ID as the group_id for graph scoping."""
         with patch(
-            "sibyl.api.dependencies.get_graph_client",
-            return_value=mock_graph_client,
+            "sibyl.persistence.graph_runtime.get_entity_graph_runtime",
+            return_value=mock_graph_runtime,
         ):
             result = await get_entity_manager(org=mock_org)
 
         assert result._group_id == str(mock_org.id)
 
     @pytest.mark.asyncio
-    async def test_uses_provided_graph_client(
+    async def test_uses_runtime_factory(
         self,
         mock_org: MagicMock,
-        mock_graph_client: AsyncMock,
+        mock_graph_runtime: SimpleNamespace,
     ) -> None:
-        """EntityManager is configured with the graph client."""
+        """EntityManager comes from the org-scoped native runtime."""
         with patch(
-            "sibyl.api.dependencies.get_graph_client",
-            return_value=mock_graph_client,
-        ):
+            "sibyl.persistence.graph_runtime.get_entity_graph_runtime",
+            return_value=mock_graph_runtime,
+        ) as get_runtime:
             result = await get_entity_manager(org=mock_org)
 
-        assert result._client is mock_graph_client
+        assert result is mock_graph_runtime.entity_manager
+        get_runtime.assert_awaited_once_with(str(mock_org.id))
 
 
 # =============================================================================
@@ -134,29 +146,27 @@ class TestGetRelationshipManager:
     async def test_returns_relationship_manager(
         self,
         mock_org: MagicMock,
-        mock_graph_client: AsyncMock,
+        mock_graph_runtime: SimpleNamespace,
     ) -> None:
-        """Returns a RelationshipManager instance."""
+        """Returns the native runtime's relationship manager."""
         with patch(
-            "sibyl.api.dependencies.get_graph_client",
-            return_value=mock_graph_client,
+            "sibyl.persistence.graph_runtime.get_entity_graph_runtime",
+            return_value=mock_graph_runtime,
         ):
             result = await get_relationship_manager(org=mock_org)
 
-        from sibyl_core.graph import RelationshipManager
-
-        assert isinstance(result, RelationshipManager)
+        assert result is mock_graph_runtime.relationship_manager
 
     @pytest.mark.asyncio
     async def test_uses_org_id_as_group_id(
         self,
         mock_org: MagicMock,
-        mock_graph_client: AsyncMock,
+        mock_graph_runtime: SimpleNamespace,
     ) -> None:
         """Uses organization ID as the group_id for graph scoping."""
         with patch(
-            "sibyl.api.dependencies.get_graph_client",
-            return_value=mock_graph_client,
+            "sibyl.persistence.graph_runtime.get_entity_graph_runtime",
+            return_value=mock_graph_runtime,
         ):
             result = await get_relationship_manager(org=mock_org)
 
@@ -192,12 +202,12 @@ class TestDependencyPatterns:
     async def test_multiple_managers_same_org(
         self,
         mock_org: MagicMock,
-        mock_graph_client: AsyncMock,
+        mock_graph_runtime: SimpleNamespace,
     ) -> None:
         """Multiple manager types can be created for the same org."""
         with patch(
-            "sibyl.api.dependencies.get_graph_client",
-            return_value=mock_graph_client,
+            "sibyl.persistence.graph_runtime.get_entity_graph_runtime",
+            return_value=mock_graph_runtime,
         ):
             entity_mgr = await get_entity_manager(org=mock_org)
             rel_mgr = await get_relationship_manager(org=mock_org)
@@ -209,7 +219,6 @@ class TestDependencyPatterns:
     @pytest.mark.asyncio
     async def test_different_orgs_different_scopes(
         self,
-        mock_graph_client: AsyncMock,
     ) -> None:
         """Different orgs get different manager scopes."""
         org1 = MagicMock()
@@ -217,9 +226,19 @@ class TestDependencyPatterns:
         org2 = MagicMock()
         org2.id = uuid4()
 
+        async def runtime_for_group(group_id: str) -> SimpleNamespace:
+            entity_manager = MagicMock()
+            entity_manager._group_id = group_id
+            relationship_manager = MagicMock()
+            relationship_manager._group_id = group_id
+            return SimpleNamespace(
+                entity_manager=entity_manager,
+                relationship_manager=relationship_manager,
+            )
+
         with patch(
-            "sibyl.api.dependencies.get_graph_client",
-            return_value=mock_graph_client,
+            "sibyl.persistence.graph_runtime.get_entity_graph_runtime",
+            side_effect=runtime_for_group,
         ):
             manager1 = await get_entity_manager(org=org1)
             manager2 = await get_entity_manager(org=org2)
@@ -234,19 +253,16 @@ class TestGraphStoreDependencies:
 
     @pytest.mark.asyncio
     async def test_get_graph_store_scopes_to_org(self, mock_org: MagicMock) -> None:
-        client = MagicMock()
         store = MagicMock()
 
-        with (
-            patch("sibyl.api.dependencies.get_graph_client", return_value=client),
-            patch(
-                "sibyl.api.dependencies.ActiveGraphStore.from_client", return_value=store
-            ) as factory,
-        ):
+        with patch(
+            "sibyl.persistence.graph_runtime.get_graph_store",
+            return_value=store,
+        ) as factory:
             result = await get_graph_store(org=mock_org)
 
         assert result is store
-        factory.assert_called_once_with(client, str(mock_org.id))
+        factory.assert_awaited_once_with(str(mock_org.id))
 
     @pytest.mark.asyncio
     async def test_get_knowledge_read_service_wraps_store(self) -> None:

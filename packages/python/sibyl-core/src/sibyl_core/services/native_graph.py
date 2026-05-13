@@ -282,8 +282,8 @@ class NativeEntityManager:
 
     async def search_exact_name(
         self,
-        *,
         query: str,
+        *,
         entity_types: Sequence[EntityType] | None = None,
         limit: int = 10,
     ) -> list[tuple[Entity, float]]:
@@ -309,6 +309,128 @@ class NativeEntityManager:
             )
         )
         return [(_entity_from_row(row), 1.0) for row in rows]
+
+    async def list_epics_for_project(
+        self,
+        project_id: str,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[Entity]:
+        return await self.list_by_type(
+            EntityType.EPIC,
+            project_id=project_id,
+            status=status,
+            limit=limit,
+        )
+
+    async def get_project_summary(
+        self,
+        project_id: str,
+        *,
+        actionable_limit: int = 5,
+        critical_limit: int = 3,
+        epic_limit: int = 3,
+    ) -> dict[str, Any]:
+        tasks: list[Entity] = []
+        offset = 0
+        page_size = 1000
+        while True:
+            page = await self.list_by_type(
+                EntityType.TASK,
+                project_id=project_id,
+                limit=page_size,
+                offset=offset,
+                include_archived=True,
+            )
+            if not page:
+                break
+            tasks.extend(page)
+            if len(page) < page_size:
+                break
+            offset += len(page)
+
+        status_counts: dict[str, int] = {}
+        doing_tasks: list[dict[str, Any]] = []
+        blocked_tasks: list[dict[str, Any]] = []
+        review_tasks: list[dict[str, Any]] = []
+        recent_tasks: list[dict[str, Any]] = []
+        critical_tasks: list[dict[str, Any]] = []
+        epic_progress: dict[str, dict[str, int]] = {}
+
+        for task in tasks:
+            metadata = task.metadata or {}
+            status_value = str(metadata.get("status") or "todo")
+            priority = str(metadata.get("priority") or "")
+            epic_ref = metadata.get("epic_id")
+
+            status_counts[status_value] = status_counts.get(status_value, 0) + 1
+            if epic_ref:
+                counters = epic_progress.setdefault(
+                    str(epic_ref),
+                    {"total_tasks": 0, "completed_tasks": 0},
+                )
+                counters["total_tasks"] += 1
+                if status_value == "done":
+                    counters["completed_tasks"] += 1
+
+            task_info = {
+                "id": task.id,
+                "name": task.name,
+                "status": status_value,
+                "priority": priority,
+            }
+            is_critical = (
+                priority.lower() in ("critical", "high") or "CRITICAL" in task.name.upper()
+            ) and status_value not in ("done", "archived")
+            if is_critical and len(critical_tasks) < critical_limit:
+                critical_tasks.append(task_info)
+            if status_value == "doing" and len(doing_tasks) < actionable_limit:
+                doing_tasks.append(task_info)
+            elif status_value == "blocked" and len(blocked_tasks) < actionable_limit:
+                blocked_tasks.append(task_info)
+            elif status_value == "review" and len(review_tasks) < actionable_limit:
+                review_tasks.append(task_info)
+            elif len(recent_tasks) < actionable_limit:
+                recent_tasks.append(task_info)
+
+        actionable: list[dict[str, Any]] = []
+        for pool in (doing_tasks, blocked_tasks, review_tasks, recent_tasks):
+            for task_info in pool:
+                if len(actionable) >= actionable_limit:
+                    break
+                if task_info["id"] not in {task["id"] for task in actionable}:
+                    actionable.append(task_info)
+            if len(actionable) >= actionable_limit:
+                break
+
+        epics: list[dict[str, Any]] = []
+        for epic in await self.list_epics_for_project(project_id, limit=epic_limit):
+            progress = epic_progress.get(epic.id, {})
+            total_tasks = progress.get("total_tasks", 0)
+            completed_tasks = progress.get("completed_tasks", 0)
+            epics.append(
+                {
+                    "id": epic.id,
+                    "name": epic.name,
+                    "status": (epic.metadata or {}).get("status") or "planning",
+                    "progress_pct": round(
+                        (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0,
+                        1,
+                    ),
+                    "total_tasks": total_tasks,
+                }
+            )
+
+        total = sum(status_counts.values())
+        done = status_counts.get("done", 0)
+        return {
+            "status_counts": status_counts,
+            "total_tasks": total,
+            "progress_pct": round((done / total * 100) if total > 0 else 0, 1),
+            "actionable_tasks": actionable,
+            "critical_tasks": critical_tasks,
+            "epics": epics,
+        }
 
     async def list_by_type(
         self,
@@ -513,6 +635,28 @@ class NativeRelationshipManager:
             )
         )
         return any(row.get("uuid") == relationship_id for row in rows)
+
+    async def get(self, relationship_id: str) -> Relationship:
+        row = await _select_one(
+            self._client,
+            """
+            SELECT uuid,
+                   name,
+                   fact,
+                   attributes,
+                   created_at,
+                   in.uuid AS source_uuid,
+                   out.uuid AS target_uuid
+            FROM relates_to
+            WHERE group_id = $group_id AND uuid = $uuid
+            LIMIT 1;
+            """,
+            group_id=self._group_id,
+            uuid=relationship_id,
+        )
+        if row is None:
+            raise KeyError(relationship_id)
+        return _relationship_from_row(row)
 
     async def get_for_entity(
         self,

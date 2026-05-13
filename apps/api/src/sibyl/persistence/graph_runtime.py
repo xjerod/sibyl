@@ -10,14 +10,18 @@ from typing import TYPE_CHECKING, Any, Self
 from uuid import uuid4
 
 import structlog
-from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.errors import EntityNotFoundError
-from sibyl_core.graph.client import GraphClient, get_graph_client, reset_graph_client
-from sibyl_core.graph.entities import EntityManager
-from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.services import KnowledgeReadService, KnowledgeWriteService
+from sibyl_core.services.native_graph import (
+    NativeEntityManager,
+    NativeGraphRuntime,
+    NativeRelationshipManager,
+    NativeSurrealGraphClient,
+    get_native_graph_runtime,
+    normalize_records,
+)
 from sibyl_core.storage import (
     EntityBundle,
     EntityPatch,
@@ -37,6 +41,53 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 _MISSING = object()
+
+
+async def _get_graph_runtime(group_id: str) -> NativeGraphRuntime:
+    return await get_native_graph_runtime(group_id)
+
+
+def _normalize_result(result: object) -> list[dict[str, object]]:
+    if isinstance(result, dict):
+        payload = {str(key): value for key, value in result.items()}
+        if "result" not in payload or not {"status", "time"} & payload.keys():
+            return [payload]
+    if isinstance(result, list) and all(
+        isinstance(item, dict)
+        and ("result" not in item or not {"status", "time"} & {str(key) for key in item})
+        for item in result
+    ):
+        return [{str(key): value for key, value in item.items()} for item in result]
+    return normalize_records(result)
+
+
+def _driver_for_client(client: Any, group_id: str) -> Any:
+    get_org_driver = getattr(client, "get_org_driver", None)
+    if callable(get_org_driver):
+        return get_org_driver(group_id)
+    return client
+
+
+def _entity_manager_for(client: Any, group_id: str) -> Any:
+    if isinstance(client, NativeSurrealGraphClient):
+        return NativeEntityManager(client, group_id=group_id)
+    from sibyl_core.graph.entities import EntityManager
+
+    return EntityManager(client, group_id=group_id)
+
+
+def _relationship_manager_for(client: Any, group_id: str) -> Any:
+    if isinstance(client, NativeSurrealGraphClient):
+        return NativeRelationshipManager(client, group_id=group_id)
+    from sibyl_core.graph.relationships import RelationshipManager
+
+    return RelationshipManager(client, group_id=group_id)
+
+
+async def get_graph_client() -> Any:
+    from sibyl_core.graph.client import get_graph_client as get_legacy_graph_client
+
+    return await get_legacy_graph_client()
 
 
 def _decode_cursor(cursor: str | None) -> int:
@@ -124,7 +175,7 @@ async def _surreal_rows_or_empty(
     group_id: str,
 ) -> list[dict[str, object]]:
     try:
-        return GraphClient.normalize_result(await driver.execute_query(query, group_id=group_id))
+        return _normalize_result(await driver.execute_query(query, group_id=group_id))
     except Exception as exc:
         if _is_surreal_missing_table_error(exc):
             return []
@@ -132,6 +183,9 @@ async def _surreal_rows_or_empty(
 
 
 def _surreal_driver_for(driver: Any) -> Any | None:
+    if isinstance(driver, NativeSurrealGraphClient):
+        return driver
+
     if _has_declared_surreal_ops(driver):
         return driver
 
@@ -317,23 +371,27 @@ def _relationship_to_edge(relationship: Relationship, group_id: str) -> Any:
 class GraphEntityStore(EntityStore):
     """EntityStore backed by the current EntityManager."""
 
-    def __init__(self, manager: EntityManager, *, driver: Any, group_id: str) -> None:
+    def __init__(self, manager: Any, *, driver: Any, group_id: str) -> None:
         self._manager = manager
         self._driver = driver
         self._group_id = group_id
 
     @classmethod
-    def from_client(cls, client: GraphClient, group_id: str) -> Self:
+    def from_client(cls, client: Any, group_id: str) -> Self:
         return cls(
-            EntityManager(client, group_id=group_id),
-            driver=client.get_org_driver(group_id),
+            _entity_manager_for(client, group_id),
+            driver=_driver_for_client(client, group_id),
             group_id=group_id,
         )
+
+    @classmethod
+    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+        return cls(runtime.entity_manager, driver=runtime.client, group_id=group_id)
 
     async def get(self, entity_id: str) -> Entity | None:
         try:
             return await self._manager.get(entity_id)
-        except EntityNotFoundError:
+        except (EntityNotFoundError, KeyError):
             return None
 
     async def get_many(self, entity_ids: list[str]) -> list[Entity]:
@@ -410,7 +468,7 @@ class GraphEntityStore(EntityStore):
 
     async def count(self) -> int:
         if _surreal_driver_for(self._driver) is not None:
-            rows = GraphClient.normalize_result(
+            rows = _normalize_result(
                 await self._driver.execute_query(
                     """
                     SELECT count() AS cnt
@@ -423,7 +481,7 @@ class GraphEntityStore(EntityStore):
             )
             return int(rows[0].get("cnt", 0)) if rows else 0
 
-        rows = GraphClient.normalize_result(
+        rows = _normalize_result(
             await self._driver.execute_query(
                 """
                 MATCH (n)
@@ -439,33 +497,45 @@ class GraphEntityStore(EntityStore):
 class GraphRelationshipStore(RelationshipStore):
     """RelationshipStore backed by the current RelationshipManager."""
 
-    def __init__(self, manager: RelationshipManager, *, driver: Any, group_id: str) -> None:
+    def __init__(self, manager: Any, *, driver: Any, group_id: str) -> None:
         self._manager = manager
         self._driver = driver
         self._group_id = group_id
 
     @classmethod
-    def from_client(cls, client: GraphClient, group_id: str) -> Self:
+    def from_client(cls, client: Any, group_id: str) -> Self:
         return cls(
-            RelationshipManager(client, group_id=group_id),
-            driver=client.get_org_driver(group_id),
+            _relationship_manager_for(client, group_id),
+            driver=_driver_for_client(client, group_id),
             group_id=group_id,
         )
 
+    @classmethod
+    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+        return cls(runtime.relationship_manager, driver=runtime.client, group_id=group_id)
+
     async def get(self, relationship_id: str) -> Relationship | None:
+        if isinstance(self._manager, NativeRelationshipManager):
+            try:
+                return await self._manager.get(relationship_id)
+            except KeyError:
+                return None
+
         surreal_edge_ops = _surreal_entity_edge_ops_for(self._driver)
         if surreal_edge_ops is not None:
             try:
                 edge = await surreal_edge_ops.get_by_uuid(self._driver, relationship_id)
-            except EdgeNotFoundError:
-                return None
+            except Exception as exc:
+                if exc.__class__.__name__ == "EdgeNotFoundError":
+                    return None
+                raise
             if getattr(edge, "group_id", None) != self._group_id:
                 return None
             return _relationship_from_edge(edge)
 
         _assert_legacy_graph_query_allowed(self._driver, "relationship get")
 
-        rows = GraphClient.normalize_result(
+        rows = _normalize_result(
             await self._driver.execute_query(
                 """
                 MATCH (source)-[r]->(target)
@@ -496,6 +566,14 @@ class GraphRelationshipStore(RelationshipStore):
                 refreshed = await self.get(edge.uuid)
                 if refreshed is None:
                     msg = f"Relationship not found after update: {edge.uuid}"
+                    raise LookupError(msg)
+                return refreshed
+        elif _surreal_driver_for(self._driver) is not None:
+            if existing is not None:
+                created_id = await self._manager.create(relationship)
+                refreshed = await self.get(created_id)
+                if refreshed is None:
+                    msg = f"Relationship not found after update: {created_id}"
                     raise LookupError(msg)
                 return refreshed
         else:
@@ -582,7 +660,7 @@ class GraphRelationshipStore(RelationshipStore):
 
         _assert_legacy_graph_query_allowed(self._driver, "relationship find_between")
 
-        rows = GraphClient.normalize_result(
+        rows = _normalize_result(
             await self._driver.execute_query(
                 """
                 MATCH (source {uuid: $source_id})-[r]-(target {uuid: $target_id})
@@ -606,7 +684,7 @@ class GraphRelationshipStore(RelationshipStore):
 
     async def count(self) -> int:
         if _surreal_driver_for(self._driver) is not None:
-            rows = GraphClient.normalize_result(
+            rows = _normalize_result(
                 await self._driver.execute_query(
                     """
                     SELECT count() AS cnt
@@ -619,7 +697,7 @@ class GraphRelationshipStore(RelationshipStore):
             )
             return int(rows[0].get("cnt", 0)) if rows else 0
 
-        rows = GraphClient.normalize_result(
+        rows = _normalize_result(
             await self._driver.execute_query(
                 """
                 MATCH ()-[r]->()
@@ -635,13 +713,13 @@ class GraphRelationshipStore(RelationshipStore):
 class GraphSearchIndex(SearchIndex):
     """SearchIndex backed by the current entity search implementation."""
 
-    def __init__(self, client: GraphClient, group_id: str, entities: GraphEntityStore) -> None:
+    def __init__(self, client: Any, group_id: str, entities: GraphEntityStore) -> None:
         self._client = client
         self._group_id = group_id
         self._entities = entities
 
     @classmethod
-    def from_client(cls, client: GraphClient, group_id: str, entities: GraphEntityStore) -> Self:
+    def from_client(cls, client: Any, group_id: str, entities: GraphEntityStore) -> Self:
         return cls(client, group_id, entities)
 
     async def search(
@@ -669,7 +747,7 @@ class GraphSearchIndex(SearchIndex):
         return hits[:limit]
 
     async def stats(self) -> GraphStats:
-        driver = self._client.get_org_driver(self._group_id)
+        driver = _driver_for_client(self._client, self._group_id)
         if _surreal_driver_for(driver) is not None:
             from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
 
@@ -725,7 +803,7 @@ class GraphSearchIndex(SearchIndex):
                 relationships_by_type=relationships_by_type,
             )
 
-        node_rows = GraphClient.normalize_result(
+        node_rows = _normalize_result(
             await driver.execute_query(
                 """
                 MATCH (n)
@@ -735,7 +813,7 @@ class GraphSearchIndex(SearchIndex):
                 group_id=self._group_id,
             )
         )
-        relationship_rows = GraphClient.normalize_result(
+        relationship_rows = _normalize_result(
             await driver.execute_query(
                 """
                 MATCH ()-[r]->()
@@ -777,13 +855,23 @@ class ActiveGraphStore(GraphStore):
         self._search = search
 
     @classmethod
-    def from_client(cls, client: GraphClient, group_id: str) -> Self:
+    def from_client(cls, client: Any, group_id: str) -> Self:
         entities = GraphEntityStore.from_client(client, group_id)
         relationships = GraphRelationshipStore.from_client(client, group_id)
         return cls(
             entities=entities,
             relationships=relationships,
             search=GraphSearchIndex.from_client(client, group_id, entities),
+        )
+
+    @classmethod
+    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+        entities = GraphEntityStore.from_runtime(runtime, group_id)
+        relationships = GraphRelationshipStore.from_runtime(runtime, group_id)
+        return cls(
+            entities=entities,
+            relationships=relationships,
+            search=GraphSearchIndex(runtime.client, group_id, entities),
         )
 
     @property
@@ -806,8 +894,12 @@ class GraphReadServiceAdapter(KnowledgeReadService):
         self._store = store
 
     @classmethod
-    def from_client(cls, client: GraphClient, group_id: str) -> Self:
+    def from_client(cls, client: Any, group_id: str) -> Self:
         return cls(ActiveGraphStore.from_client(client, group_id))
+
+    @classmethod
+    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+        return cls(ActiveGraphStore.from_runtime(runtime, group_id))
 
     async def get_entity(self, entity_id: str) -> Entity | None:
         return await self._store.entities.get(entity_id)
@@ -858,8 +950,12 @@ class GraphWriteServiceAdapter(KnowledgeWriteService):
         self._store = store
 
     @classmethod
-    def from_client(cls, client: GraphClient, group_id: str) -> Self:
+    def from_client(cls, client: Any, group_id: str) -> Self:
         return cls(ActiveGraphStore.from_client(client, group_id))
+
+    @classmethod
+    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+        return cls(ActiveGraphStore.from_runtime(runtime, group_id))
 
     async def upsert_entity(self, entity: Entity) -> Entity:
         return await self._store.entities.upsert(entity)
@@ -878,25 +974,41 @@ class GraphWriteServiceAdapter(KnowledgeWriteService):
 class TaskGraphRuntime:
     """Scoped graph runtime for task routes on the active backend."""
 
-    client: GraphClient
-    entity_manager: EntityManager
-    relationship_manager: RelationshipManager
+    client: Any
+    entity_manager: Any
+    relationship_manager: Any
 
 
 class GraphQueryAdapter:
     """Thin graph query surface for routes that still need runtime reads."""
 
-    def __init__(self, client: GraphClient, group_id: str) -> None:
+    def __init__(
+        self,
+        client: Any,
+        group_id: str,
+        *,
+        entity_manager: Any | None = None,
+        relationship_manager: Any | None = None,
+    ) -> None:
         self._client = client
         self._group_id = group_id
-        self._driver = client.get_org_driver(group_id)
-        self._entities = EntityManager(client, group_id=group_id)
-        self._relationships = RelationshipManager(client, group_id=group_id)
+        self._driver = _driver_for_client(client, group_id)
+        self._entities = entity_manager or _entity_manager_for(client, group_id)
+        self._relationships = relationship_manager or _relationship_manager_for(client, group_id)
+
+    @classmethod
+    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+        return cls(
+            runtime.client,
+            group_id,
+            entity_manager=runtime.entity_manager,
+            relationship_manager=runtime.relationship_manager,
+        )
 
     async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
         _assert_legacy_graph_query_allowed(self._driver, "raw query")
         result = await self._driver.execute_query(query, group_id=self._group_id, **params)
-        return GraphClient.normalize_result(result)
+        return _normalize_result(result)
 
     async def list_entities_by_type(
         self,
@@ -998,7 +1110,7 @@ class GraphQueryAdapter:
 
         if _surreal_driver_for(self._driver) is not None:
             type_clause = "AND name IN $relationship_types" if relationship_types else ""
-            rows = GraphClient.normalize_result(
+            rows = _normalize_result(
                 await self._driver.execute_query(
                     f"""
                     SELECT
@@ -1068,7 +1180,7 @@ class GraphQueryAdapter:
         counts = dict.fromkeys(scoped_entity_ids, 0)
         if _surreal_driver_for(self._driver) is not None:
             type_clause = "AND name IN $relationship_types" if relationship_types else ""
-            rows = GraphClient.normalize_result(
+            rows = _normalize_result(
                 await self._driver.execute_query(
                     f"""
                     SELECT in.uuid AS source_id, out.uuid AS target_id
@@ -1189,13 +1301,18 @@ class GraphQueryAdapter:
 
 
 async def get_knowledge_read_adapter(group_id: str) -> GraphReadServiceAdapter:
-    client = await get_graph_client()
-    return GraphReadServiceAdapter.from_client(client, group_id)
+    runtime = await _get_graph_runtime(group_id)
+    return GraphReadServiceAdapter.from_runtime(runtime, group_id)
+
+
+async def get_graph_store(group_id: str) -> ActiveGraphStore:
+    runtime = await _get_graph_runtime(group_id)
+    return ActiveGraphStore.from_runtime(runtime, group_id)
 
 
 async def get_graph_query_adapter(group_id: str) -> GraphQueryAdapter:
-    client = await get_graph_client()
-    return GraphQueryAdapter(client, group_id)
+    runtime = await _get_graph_runtime(group_id)
+    return GraphQueryAdapter.from_runtime(runtime, group_id)
 
 
 async def execute_surreal_graph_query(
@@ -1203,21 +1320,21 @@ async def execute_surreal_graph_query(
     query: str,
     **params: object,
 ) -> list[dict[str, object]] | None:
-    client = await get_graph_client()
-    driver = client.get_org_driver(group_id)
+    runtime = await _get_graph_runtime(group_id)
+    driver = runtime.client
     surreal_driver = _surreal_driver_for(driver)
     if surreal_driver is None:
         return None
     result = await surreal_driver.execute_query(query, group_id=group_id, **params)
-    return GraphClient.normalize_result(result)
+    return _normalize_result(result)
 
 
 async def get_task_graph_runtime(group_id: str) -> TaskGraphRuntime:
-    client = await get_graph_client()
+    runtime = await _get_graph_runtime(group_id)
     return TaskGraphRuntime(
-        client=client,
-        entity_manager=EntityManager(client, group_id=group_id),
-        relationship_manager=RelationshipManager(client, group_id=group_id),
+        client=runtime.client,
+        entity_manager=runtime.entity_manager,
+        relationship_manager=runtime.relationship_manager,
     )
 
 
@@ -1231,13 +1348,13 @@ async def update_graph_entity(
     patch: dict[str, object],
 ) -> Entity | None:
     """Update an entity through the current graph runtime."""
-    client = await get_graph_client()
-    return await EntityManager(client, group_id=group_id).update(entity_id, patch)
+    runtime = await _get_graph_runtime(group_id)
+    return await runtime.entity_manager.update(entity_id, patch)
 
 
 async def delete_graph_data(group_id: str) -> None:
-    client = await get_graph_client()
-    driver = client.get_org_driver(group_id)
+    runtime = await _get_graph_runtime(group_id)
+    driver = runtime.client
     if _surreal_driver_for(driver) is not None:
         from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
 
@@ -1257,7 +1374,7 @@ async def delete_graph_data(group_id: str) -> None:
             await driver.execute_query(query, group_id=group_id)
         return
 
-    await client.execute_write_org(
+    await runtime.client.execute_write_org(
         "MATCH (n) DETACH DELETE n RETURN count(n) AS deleted",
         group_id,
     )
@@ -1279,12 +1396,13 @@ async def get_graph_stats_payload(group_id: str) -> dict[str, object]:
 
 
 async def ensure_graph_indexes(group_id: str) -> None:
-    client = await get_graph_client()
-    await client.ensure_indexes(group_id)
+    await _get_graph_runtime(group_id)
 
 
 async def reset_graph_runtime() -> None:
-    await reset_graph_client()
+    from sibyl_core.services.native_graph import close_native_graph_clients
+
+    await close_native_graph_clients()
 
 
 async def execute_debug_query(
@@ -1292,11 +1410,11 @@ async def execute_debug_query(
     group_id: str,
     **params: object,
 ) -> list[dict[str, object]]:
-    client = await get_graph_client()
-    result = await client.execute_read_org(cypher, group_id, allow_surreal=True, **params)
+    runtime = await _get_graph_runtime(group_id)
+    result = await runtime.client.execute_query(cypher, group_id=group_id, **params)
 
     rows: list[dict[str, object]] = []
-    for record in result:
+    for record in _normalize_result(result):
         if hasattr(record, "keys"):
             rows.append(dict(record))
         elif isinstance(record, list | tuple):

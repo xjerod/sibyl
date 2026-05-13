@@ -13,7 +13,7 @@ Usage:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends
 
@@ -34,6 +34,12 @@ class _ActiveGraphStoreProxy:
         from sibyl.persistence.graph_runtime import ActiveGraphStore
 
         return ActiveGraphStore.from_client(client, group_id)
+
+    @staticmethod
+    def from_runtime(runtime: Any, group_id: str) -> ActiveGraphStoreType:
+        from sibyl.persistence.graph_runtime import ActiveGraphStore
+
+        return ActiveGraphStore.from_runtime(runtime, group_id)
 
 
 class _GraphReadServiceAdapterProxy:
@@ -89,10 +95,10 @@ async def get_entity_manager(
         ) -> list[Entity]:
             return await manager.list_all()
     """
-    from sibyl_core.graph import EntityManager
+    from sibyl.persistence.graph_runtime import get_entity_graph_runtime
 
-    client = await get_graph_client()
-    return EntityManager(client, group_id=str(org.id))
+    runtime = await get_entity_graph_runtime(str(org.id))
+    return runtime.entity_manager
 
 
 async def get_relationship_manager(
@@ -108,18 +114,19 @@ async def get_relationship_manager(
     Returns:
         RelationshipManager configured for the current org's graph
     """
-    from sibyl_core.graph import RelationshipManager
+    from sibyl.persistence.graph_runtime import get_entity_graph_runtime
 
-    client = await get_graph_client()
-    return RelationshipManager(client, group_id=str(org.id))
+    runtime = await get_entity_graph_runtime(str(org.id))
+    return runtime.relationship_manager
 
 
 async def get_graph_store(
     org: AuthOrganization = Depends(get_current_organization),
 ) -> ActiveGraphStoreType:
     """Get the backend-agnostic graph store on top of the current runtime."""
-    client = await get_graph_client()
-    return ActiveGraphStore.from_client(client, str(org.id))
+    from sibyl.persistence.graph_runtime import get_graph_store as get_runtime_graph_store
+
+    return await get_runtime_graph_store(str(org.id))
 
 
 async def get_knowledge_read_service(

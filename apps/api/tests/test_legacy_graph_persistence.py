@@ -46,16 +46,16 @@ async def test_delete_graph_data_uses_surreal_graph_ops_when_available() -> None
     graph_ops.clear_data = AsyncMock()
     driver = MagicMock()
     driver.graph_ops = graph_ops
-    client = MagicMock()
-    client.get_org_driver.return_value = driver
 
     with (
-        patch("sibyl.persistence.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch(
+            "sibyl.persistence.graph_runtime._get_graph_runtime",
+            AsyncMock(return_value=SimpleNamespace(client=driver)),
+        ),
         patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=driver),
     ):
         await delete_graph_data("org-1")
 
-    client.get_org_driver.assert_called_once_with("org-1")
     graph_ops.clear_data.assert_awaited_once_with(driver, group_ids=["org-1"])
     driver.execute_query.assert_not_called()
 
@@ -69,11 +69,12 @@ async def test_delete_graph_data_falls_back_to_surreal_table_deletes() -> None:
     driver = MagicMock()
     driver.graph_ops = graph_ops
     driver.execute_query = AsyncMock()
-    client = MagicMock()
-    client.get_org_driver.return_value = driver
 
     with (
-        patch("sibyl.persistence.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch(
+            "sibyl.persistence.graph_runtime._get_graph_runtime",
+            AsyncMock(return_value=SimpleNamespace(client=driver)),
+        ),
         patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=driver),
     ):
         await delete_graph_data("org-1")
@@ -92,13 +93,14 @@ async def test_delete_graph_data_falls_back_to_surreal_table_deletes() -> None:
 
 @pytest.mark.asyncio
 async def test_delete_graph_data_uses_legacy_write_for_non_surreal_driver() -> None:
-    driver = MagicMock()
     client = MagicMock()
-    client.get_org_driver.return_value = driver
     client.execute_write_org = AsyncMock()
 
     with (
-        patch("sibyl.persistence.graph_runtime.get_graph_client", AsyncMock(return_value=client)),
+        patch(
+            "sibyl.persistence.graph_runtime._get_graph_runtime",
+            AsyncMock(return_value=SimpleNamespace(client=client)),
+        ),
         patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=None),
     ):
         await delete_graph_data("org-1")
@@ -367,17 +369,16 @@ async def test_legacy_knowledge_read_adapter_builds_entity_bundle() -> None:
 async def test_get_graph_store_scopes_to_org() -> None:
     org = MagicMock()
     org.id = uuid4()
-    client = MagicMock()
     store = MagicMock(spec=LegacyGraphStore)
 
-    with (
-        patch("sibyl.api.dependencies.get_graph_client", return_value=client),
-        patch("sibyl.api.dependencies.ActiveGraphStore.from_client", return_value=store) as factory,
-    ):
+    with patch(
+        "sibyl.persistence.graph_runtime.get_graph_store",
+        AsyncMock(return_value=store),
+    ) as factory:
         result = await get_graph_store(org=org)
 
     assert result is store
-    factory.assert_called_once_with(client, str(org.id))
+    factory.assert_awaited_once_with(str(org.id))
 
 
 @pytest.mark.asyncio

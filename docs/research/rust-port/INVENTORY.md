@@ -74,7 +74,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 ### Session-backed storage access files
 
 ### Graphiti import files
-- `apps/api/src/sibyl/persistence/graph_runtime.py` — `graphiti_core.edges`, `graphiti_core.errors`
+- `apps/api/src/sibyl/persistence/graph_runtime.py` — `graphiti_core.edges`
 - `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py` — `graphiti_core.driver.driver`
 - `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py` — `graphiti_core.embedder.client`
 - `packages/python/sibyl-core/src/sibyl_core/graph/client.py` — `graphiti_core`, `graphiti_core.driver.driver`, `graphiti_core.embedder.client`, `graphiti_core.embedder.openai`, `graphiti_core.helpers`, `graphiti_core.llm_client`, `graphiti_core.llm_client.anthropic_client`, `graphiti_core.llm_client.config`, `graphiti_core.llm_client.openai_client`
