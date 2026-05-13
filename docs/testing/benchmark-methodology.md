@@ -137,6 +137,33 @@ without forking the script.
 - If the live stack or auth context is unavailable, say so explicitly instead of substituting an
   offline result.
 
+## AI Memory Benchmark Result Records
+
+External AI memory benchmarks live on a stricter evidence track than local smoke checks. Any LOCOMO,
+RULER, Mem0, Zep, LangMem, or similar result that appears in public docs must have a full result
+record, not just a headline score.
+
+Store new artifacts under `benchmarks/results/ai-memory/` unless the suite requires a larger archive
+outside git. If an artifact is too large to commit, commit a small manifest that names the archive
+location, content hash, suite version, command, commit, runtime mode, and result summary.
+
+Required record fields:
+
+- suite name, suite version or commit, dataset name, split, and preprocessing notes
+- Sibyl commit, runtime mode, graph engine, store, auth scope, and seeded corpus or import manifest
+- embedding model, dimensions, index settings, generation model if used, tokenizer, and context
+  budget
+- exact command, environment variables that affect behavior, and timeout settings
+- overall metrics and the complete per-slice table
+- ingestion time, query latency, timeout count, error count, and skipped-case count when available
+- competitor version, hosted/self-hosted mode, ingestion path, and tuning when the result compares
+  against another memory product
+- claim boundary: what the result supports and what stays unproven
+
+The canonical ledger for which rows are citable is
+`docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md`. If a benchmark suite is missing
+from that ledger, add it there before citing the result anywhere else.
+
 ## Suggested PR Notes
 
 - Runtime evidence: artifact path from `benchmarks/results/`

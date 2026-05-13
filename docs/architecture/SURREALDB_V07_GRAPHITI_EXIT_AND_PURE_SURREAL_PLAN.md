@@ -62,7 +62,8 @@ Benchmark release rule:
 - Do not make public AI memory benchmark or competitor claims until the cited suite has a raw
   artifact, overall metrics, per-slice metrics, corpus or dataset version, command, commit, runtime
   mode, and caveats recorded in `docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md`.
-  Missing external suites stay planned coverage only.
+  Missing external suites stay planned coverage only. LOCOMO, RULER, Mem0, Zep, LangMem, and any
+  future competitor suite need full result rows before they become release-note evidence.
 
 ## 2. Non-Goals
 

@@ -1,6 +1,6 @@
 # SurrealDB Graphiti Exit Benchmark Evidence
 
-- Status: partial evidence, external-suite gap identified
+- Status: partial evidence, external-suite result ledger required
 - Last updated: 2026-05-13
 - Related plan: `docs/architecture/SURREALDB_V07_GRAPHITI_EXIT_AND_PURE_SURREAL_PLAN.md`
 
@@ -166,6 +166,45 @@ Current coverage:
 Until a suite has a raw artifact and full per-slice table, cite it only as planned coverage, not as
 evidence. If we decide to make benchmark claims in release notes, the missing rows above become
 release-blocking for that claim.
+
+### Full AI Memory Result Ledger
+
+The table below is the release ledger for external AI memory benchmarks. Rows can move from
+`planned` to `citable` only after the raw artifact and the summarized table are both present in this
+document.
+
+| Suite or comparison             | Required artifact pattern                                        | Current status | Required summary before citation                                     |
+| ------------------------------- | ---------------------------------------------------------------- | -------------- | -------------------------------------------------------------------- |
+| LongMemEval-style offline suite | `benchmarks/results_sibyl_<mode>.json`                           | citable        | Overall and per-question-type Recall@5, NDCG@5, Recall@10, NDCG@10   |
+| LOCOMO-style long-memory suite  | `benchmarks/results/ai-memory/locomo_<engine>_<timestamp>.json`  | planned        | Overall score, per-category score, abstention/error rate, latency    |
+| RULER-style long-context suite  | `benchmarks/results/ai-memory/ruler_<engine>_<timestamp>.json`   | planned        | Task-level score, context length, failure modes, latency             |
+| Mem0 comparison                 | `benchmarks/results/ai-memory/mem0_<engine>_<timestamp>.json`    | planned        | Overall quality, per-slice quality, ingestion latency, query latency |
+| Zep comparison                  | `benchmarks/results/ai-memory/zep_<engine>_<timestamp>.json`     | planned        | Overall quality, per-slice quality, ingestion latency, query latency |
+| LangMem comparison              | `benchmarks/results/ai-memory/langmem_<engine>_<timestamp>.json` | planned        | Overall quality, per-slice quality, ingestion latency, query latency |
+
+For citable rows, include both native Surreal and comparator artifacts when the claim is
+comparative. For non-comparative rows, include the native Surreal artifact and label the claim as
+Sibyl-only. Every artifact must include enough metadata to reproduce the run without relying on
+local memory or chat history.
+
+### External Benchmark Acceptance Checklist
+
+Before any external AI memory result appears in release notes, README copy, launch notes, or a
+comparison table:
+
+- store the raw artifact under `benchmarks/results/ai-memory/` or another committed/archive path
+  named in this document
+- record the exact suite source, dataset split, version or commit, and any preprocessing
+- record the Sibyl commit, runtime mode, graph engine, store, embedding model, generation model if
+  used, and tokenizer or context budget
+- include overall metrics and the complete per-slice table, even when a slice regresses
+- include ingestion time, query latency, timeout count, error count, and skipped-case count when the
+  suite exposes them
+- keep prompts, evaluators, and scoring scripts versioned or archived with the result
+- add a claim boundary explaining what the result does and does not prove
+
+This is deliberately stricter than a normal smoke benchmark. External memory benchmarks are
+positioning evidence, so they need the whole receipt.
 
 ### Full Result Record Required Fields
 
