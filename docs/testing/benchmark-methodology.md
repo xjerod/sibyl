@@ -84,9 +84,10 @@ This is the offline baseline.
 
 Use this for offline comparison work, and label it clearly as such.
 
-The committed `benchmarks/results_sibyl_raw.json` and `benchmarks/results_sibyl_hybrid.json`
-artifacts are full `longmemeval-offline-v2` outputs as of the v0.7 Surreal release work. Re-run the
-benchmark before using those numbers for a later release candidate.
+The committed `benchmarks/results/ai-memory/longmemeval_sibyl_raw_20260513.json` and
+`benchmarks/results/ai-memory/longmemeval_sibyl_hybrid_20260513.json` artifacts are full
+`longmemeval-offline-v2` outputs as of the v0.7 Surreal release work. Re-run the benchmark before
+using those numbers for a later release candidate.
 
 ## Threshold Gates
 

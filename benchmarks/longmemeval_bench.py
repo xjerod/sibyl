@@ -486,6 +486,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--k", type=int, nargs="+", default=[5, 10], help="K values for recall/NDCG"
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Path for the full JSON result artifact.",
+    )
     args = parser.parse_args()
 
     results = run_benchmark(
@@ -496,7 +502,9 @@ if __name__ == "__main__":
         command=sys.argv,
     )
 
-    out_path = f"benchmarks/results_sibyl_{args.mode}.json"
-    with open(out_path, "w") as f:
-        json.dump(results, f, indent=2)
+    out_path = args.output or Path("benchmarks/results/ai-memory") / (
+        f"longmemeval_sibyl_{args.mode}.json"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"  Results saved to {out_path}")
