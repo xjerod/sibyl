@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import os
 from contextlib import suppress
-from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
-from graphiti_core.nodes import EntityNode
 
-from sibyl_core.backends.surreal import SurrealDriver
-from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
+from sibyl_core.models.entities import Entity, EntityType
+from sibyl_core.services.native_graph import (
+    NativeEntityManager,
+    NativeSurrealGraphClient,
+    prepare_native_graph_schema,
+)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("SIBYL_LIVE_SURREAL_TESTS") != "1",
@@ -18,37 +20,36 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.asyncio
-async def test_live_surreal_server_round_trips_graph_entity() -> None:
+async def test_live_surreal_server_round_trips_native_entity() -> None:
     group_id = str(uuid4())
     entity_id = f"nightly-{uuid4().hex}"
-    driver = SurrealDriver(
-        os.environ.get("SIBYL_SURREAL_URL", "memory://"),
+    client = NativeSurrealGraphClient(
+        group_id=group_id,
+        url=os.environ.get("SIBYL_SURREAL_URL", "memory://"),
         username=os.environ.get("SIBYL_SURREAL_USERNAME", ""),
         password=os.environ.get("SIBYL_SURREAL_PASSWORD", ""),
-    ).clone(group_id)
-    ops = SurrealEntityNodeOperations()
+    )
+    manager = NativeEntityManager(client, group_id=group_id)
 
     try:
-        await driver.build_indices_and_constraints(delete_existing=True)
-        await ops.save(
-            driver,
-            EntityNode(
-                uuid=entity_id,
+        await prepare_native_graph_schema(client)
+        await manager.create_direct(
+            Entity(
+                id=entity_id,
+                entity_type=EntityType.PATTERN,
                 name="Nightly Surreal runtime",
-                group_id=group_id,
-                summary="SurrealDB server smoke test",
-                labels=["Pattern"],
-                attributes={"runtime": "surreal"},
-                created_at=datetime.now(UTC).replace(tzinfo=None),
-            ),
+                description="SurrealDB server smoke test",
+                organization_id=group_id,
+                metadata={"runtime": "surreal"},
+            )
         )
 
-        fetched = await ops.get_by_uuid(driver, entity_id)
+        fetched = await manager.get(entity_id)
 
-        assert fetched.uuid == entity_id
-        assert fetched.group_id == group_id
-        assert fetched.attributes == {"runtime": "surreal"}
+        assert fetched.id == entity_id
+        assert fetched.organization_id == group_id
+        assert fetched.metadata["runtime"] == "surreal"
     finally:
         with suppress(Exception):
-            await ops.delete_by_group_id(driver, group_id)
-        await driver.close()
+            await manager.delete(entity_id)
+        await client.close()
