@@ -152,8 +152,7 @@ sibyl logs tail --json
 | API + MCP           | 3334 |
 | Frontend            | 3337 |
 | SurrealDB (default) | 8000 |
-| FalkorDB (legacy)   | 6380 |
-| PostgreSQL (legacy) | 5433 |
+| Redis/Valkey        | 6381 |
 
 ---
 

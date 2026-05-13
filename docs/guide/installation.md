@@ -87,8 +87,8 @@ For distributed or multi-process dev, opt into Redis explicitly:
 docker compose --profile redis up -d surrealdb redis
 ```
 
-The PostgreSQL sidecar is available only through the `migration` profile when you need to rehearse
-or validate retained `postgres.sql` archive payloads.
+Historical `postgres.sql` archive rehearsal now uses an explicitly managed external PostgreSQL
+database. The default compose file starts only SurrealDB, plus Redis when that profile is requested.
 
 ## Configuration
 
@@ -215,12 +215,11 @@ Open [http://localhost:3337](http://localhost:3337) in your browser.
 
 ## Ports Reference
 
-| Service            | Port |
-| ------------------ | ---- |
-| API + MCP          | 3334 |
-| Web Frontend       | 3337 |
-| SurrealDB          | 8000 |
-| PostgreSQL sidecar | 5433 |
+| Service      | Port |
+| ------------ | ---- |
+| API + MCP    | 3334 |
+| Web Frontend | 3337 |
+| SurrealDB    | 8000 |
 
 ## Troubleshooting
 
@@ -245,10 +244,8 @@ REMOVE NAMESPACE org_<uuid_hex>;
 
 ### Legacy Graph / Migration Errors
 
-```bash
-# Start the migration sidecar when rehearsing old database dump payloads
-docker compose --profile migration up -d postgres
-```
+Use a retained archive file with `sibyld migrate import`. Only pass `--restore-database-dump` when
+rehearsing a historical `postgres.sql` payload against an explicitly managed PostgreSQL database.
 
 ### OpenAI API Errors
 

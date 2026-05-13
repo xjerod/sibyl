@@ -215,13 +215,12 @@ measurement ladder, artifact expectations, and how to avoid benchmark drift.
 
 **Ports:**
 
-| Service             | Port | URL                     |
-| ------------------- | ---- | ----------------------- |
-| API + MCP           | 3334 | http://localhost:3334   |
-| Web UI              | 3337 | http://localhost:3337   |
-| SurrealDB           | 8000 | ws://localhost:8000/rpc |
-| Redis/Valkey        | 6381 | optional                |
-| PostgreSQL archive  | 5433 | migration profile only  |
+| Service      | Port | URL                     |
+| ------------ | ---- | ----------------------- |
+| API + MCP    | 3334 | http://localhost:3334   |
+| Web UI       | 3337 | http://localhost:3337   |
+| SurrealDB    | 8000 | ws://localhost:8000/rpc |
+| Redis/Valkey | 6381 | optional                |
 
 ## 🔮 Core Workflow
 

@@ -13,7 +13,7 @@ Docker Compose runs the database services while applications run natively for ho
 |------------------|     |------------------|
 | Backend (:3334)  |---->| SurrealDB (:8000)|
 | Frontend (:3337) |     | Redis* (:6381)   |
-| Jobs + Schedules |     | Legacy profile   |
+| Jobs + Schedules |     |                  |
 +------------------+     +------------------+
 ```
 
@@ -73,12 +73,6 @@ services:
     profiles: ["redis"]
     ports:
       - "6381:6379"
-
-  postgres:
-    profiles: ["migration"]
-
-volumes:
-  postgres_data:
 ```
 
 The default image is pinned to SurrealDB server `v3.0.5` for reproducible local and CI behavior.
@@ -86,11 +80,10 @@ Override `SIBYL_SURREAL_IMAGE` when rehearsing a newer server patch.
 
 ## Port Mappings
 
-| Service    | Host Port | Container Port | Purpose                       |
-| ---------- | --------- | -------------- | ----------------------------- |
-| SurrealDB  | 8000      | 8000           | Default local graph runtime   |
-| Redis      | 6381      | 6379           | Optional coordination backend |
-| PostgreSQL | 5433      | 5432           | Migration/archive sidecar     |
+| Service   | Host Port | Container Port | Purpose                       |
+| --------- | --------- | -------------- | ----------------------------- |
+| SurrealDB | 8000      | 8000           | Default local graph runtime   |
+| Redis     | 6381      | 6379           | Optional coordination backend |
 
 Ports are offset from defaults to avoid conflicts with local services.
 
@@ -222,31 +215,22 @@ curl http://localhost:8000/health
 docker exec -it sibyl-redis redis-cli
 ```
 
-### Migration Runtime Services
+### Migration Archive Rehearsal
 
-When you need the older sidecars for archive migration rehearsal:
-
-```bash
-docker compose --profile migration up -d postgres
-```
-
-Then you can connect with:
-
-```bash
-docker exec -it sibyl-postgres psql -U sibyl sibyl
-```
+The default compose file no longer ships a PostgreSQL sidecar. Historical `postgres.sql` archive
+rehearsal must point at an explicitly managed external database, then run the migration command with
+`--restore-database-dump`.
 
 ## Troubleshooting
 
 ### Port Conflicts
 
-If ports 8000, 6381, or 5433 are in use:
+If ports 8000 or 6381 are in use:
 
 ```bash
 # Check what's using the port
 lsof -i :8000
 lsof -i :6381
-lsof -i :5433
 
 # Stop conflicting services or modify docker-compose.yml ports
 ```
@@ -270,7 +254,6 @@ Ensure your `.env` uses the correct ports:
 ```bash
 SIBYL_SURREAL_URL=ws://127.0.0.1:8000/rpc
 SIBYL_REDIS_PORT=6381        # Only when coordination backend is redis
-SIBYL_POSTGRES_PORT=5433  # Not 5432!
 ```
 
 ## Next Steps

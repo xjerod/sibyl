@@ -75,12 +75,11 @@ SIBYL_EMBEDDING_DIMENSIONS=1536
 SIBYL_GRAPH_EMBEDDING_PROVIDER=openai
 SIBYL_GRAPH_EMBEDDING_MODEL=text-embedding-3-small
 SIBYL_GRAPH_EMBEDDING_DIMENSIONS=1024
-SIBYL_POSTGRES_HOST=...           # Migration/archive PostgreSQL
-SIBYL_POSTGRES_PORT=...
-SIBYL_POSTGRES_USER=...
-SIBYL_POSTGRES_PASSWORD=...
-SIBYL_POSTGRES_DB=...
 ```
+
+PostgreSQL settings are only for historical archive rehearsal commands that explicitly restore a
+retained `postgres.sql` payload against an operator-managed database. They are not part of default
+Surreal runtime startup.
 
 Gemini keys can also be supplied through `GEMINI_API_KEY` or `GOOGLE_API_KEY`. Changing embedding
 provider, model, or dimensions changes vector spaces; re-crawl sources and rebuild graph indexes

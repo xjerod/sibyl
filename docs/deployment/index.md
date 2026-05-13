@@ -110,7 +110,6 @@ See [storage-modes.md](../guide/storage-modes.md) and
 | Frontend            | 3337      | 3337           | Next.js UI             |
 | SurrealDB (default) | 8000      | 8000           | ws/http, RPC at `/rpc` |
 | Redis/Valkey        | 6381      | 6379           | Optional coordination  |
-| Postgres archive    | 5433      | 5432           | Migration profile      |
 
 ### Tilt/Minikube
 

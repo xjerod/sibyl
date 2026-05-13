@@ -8,15 +8,15 @@ description: The supported storage configurations and when to pick each
 Sibyl's active runtime is SurrealDB. `SIBYL_STORE=legacy` remains accepted only as a migration-era
 input and is normalized by local startup paths.
 
-| Mode                          | `SIBYL_STORE` | Auth store | Coordination | External services              |
-| ----------------------------- | ------------- | ---------- | ------------ | ------------------------------ |
-| **Fully Surreal** _(default)_ | `surreal`     | SurrealDB  | `local`      | SurrealDB                      |
-| **Archive rehearsal**         | `surreal`     | SurrealDB  | `local`      | SurrealDB + PostgreSQL sidecar |
+| Mode                          | `SIBYL_STORE` | Auth store | Coordination | External services               |
+| ----------------------------- | ------------- | ---------- | ------------ | ------------------------------- |
+| **Fully Surreal** _(default)_ | `surreal`     | SurrealDB  | `local`      | SurrealDB                       |
+| **Archive rehearsal**         | `surreal`     | SurrealDB  | `local`      | SurrealDB + external PostgreSQL |
 
 Active auth, content, crawler, raw-capture, graph, and RAG runtime paths resolve through SurrealDB.
-PostgreSQL remains only for archive import/restore policy until Phase 3 removes that support. Fully
-Surreal is the only recommended target for new deployments. `SIBYL_AUTH_STORE=postgres` was removed
-after the v0.6.0 compatibility release.
+PostgreSQL remains only for explicit historical archive import/restore rehearsal against an
+operator-managed database. Fully Surreal is the only recommended target for new deployments.
+`SIBYL_AUTH_STORE=postgres` was removed after the v0.6.0 compatibility release.
 
 Existing installs should read the
 [SurrealDB migration release notes](./surrealdb-migration-release-notes.md) before upgrading.

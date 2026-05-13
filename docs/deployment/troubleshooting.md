@@ -200,36 +200,33 @@ surrealdb error: connection refused
    kubectl scale deployment sibyl-worker -n sibyl --replicas=3
    ```
 
-3. **Check Redis (job queue):**
+3. **Check Redis when the opt-in coordination backend is enabled:**
    ```bash
-   redis-cli -h localhost -p 6380 -a sibyl_dev -n 1 KEYS "*"
+   redis-cli -h localhost -p 6381 -n 1 KEYS "*"
    ```
 
 ## Port Conflicts
 
-### PostgreSQL Sidecar Port Conflict
+### Local Data-Service Port Conflict
 
-**Error:** Port 5433 already in use while running a migration/archive sidecar
+**Error:** SurrealDB or the optional Redis coordination profile cannot bind its port
 
 **Solutions:**
 
 1. **Find conflicting process:**
 
    ```bash
-   lsof -i :5433
+   lsof -i :8000
+   lsof -i :6381
    ```
 
 2. **Change port in compose:**
 
-   ```yaml
-   postgres:
-     ports:
-       - "5434:5432"
-   ```
+   Set `SIBYL_SURREAL_PORT` or `SIBYL_REDIS_PORT` before starting Docker Compose.
 
 3. **Update environment:**
    ```bash
-   SIBYL_POSTGRES_PORT=5434
+   SIBYL_SURREAL_URL=ws://127.0.0.1:<surreal-port>/rpc
    ```
 
 ## Kubernetes-Specific Issues
@@ -280,26 +277,23 @@ surrealdb error: connection refused
    - Database not ready
    - Port already bound
 
-### Migration PostgreSQL Sidecar Not Starting
+### Historical Archive Rehearsal Database Unavailable
 
 **Solutions:**
 
-1. **Check the migration compose profile:**
+1. **Confirm the external rehearsal database is reachable:**
 
    ```bash
-   docker compose --profile migration ps postgres
+   psql "postgresql://$SIBYL_POSTGRES_USER:$SIBYL_POSTGRES_PASSWORD@$SIBYL_POSTGRES_HOST:$SIBYL_POSTGRES_PORT/$SIBYL_POSTGRES_DB" -c 'select 1'
    ```
 
-2. **Check sidecar logs:**
+2. **Confirm the retained archive contains the database dump sidecar:**
 
    ```bash
-   docker compose --profile migration logs postgres
+   tar -tzf migration-archive.tar.gz | grep postgres.sql
    ```
 
-3. **Check PVC when using a Kubernetes-managed sidecar:**
-   ```bash
-   kubectl get pvc -n sibyl
-   ```
+3. **Run restore only in explicit rehearsal mode with `--restore-database-dump`.**
 
 ### Kong Gateway Issues
 

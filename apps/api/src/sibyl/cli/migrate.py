@@ -192,7 +192,7 @@ def _find_pg_tool(tool: str) -> str:
 
 
 def _restore_pg_sql(sql_content: str, clean: bool) -> None:
-    """Restore a retained postgres.sql sidecar during explicit rehearsal."""
+    """Restore a retained postgres.sql payload during explicit rehearsal."""
     if clean:
         drop_sql = """
 DO $$ DECLARE
@@ -221,10 +221,10 @@ DROP TABLE IF EXISTS alembic_version CASCADE;
         check=False,
     )
     if result.returncode != 0:
-        error(f"PostgreSQL sidecar restore failed: {result.stderr}")
+        error(f"PostgreSQL archive restore failed: {result.stderr}")
         raise typer.Exit(code=1)
 
-    success("PostgreSQL sidecar restored")
+    success("PostgreSQL archive restored")
 
 
 def _quote_pg_ident(identifier: str) -> str:

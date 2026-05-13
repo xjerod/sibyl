@@ -125,23 +125,23 @@ Fallbacks:
 ## PostgreSQL
 
 Used only by historical archive and migration commands that explicitly restore a retained
-`postgres.sql` payload. Structured auth/content archive export now reads SurrealDB. PostgreSQL auth
-and ambient runtime sidecars were removed after the v0.6.0 compatibility release; remove stale
-`SIBYL_AUTH_STORE=postgres` values before starting the API.
+`postgres.sql` payload against an operator-managed PostgreSQL database. Structured auth/content
+archive export now reads SurrealDB. PostgreSQL auth and ambient runtime sidecars were removed after
+the v0.6.0 compatibility release; remove stale `SIBYL_AUTH_STORE=postgres` values before starting
+the API.
 
-| Variable                      | Default     | Description                       |
-| ----------------------------- | ----------- | --------------------------------- |
-| `SIBYL_POSTGRES_HOST`         | `localhost` | Migration sidecar host            |
-| `SIBYL_POSTGRES_PORT`         | `5433`      | Migration sidecar port            |
-| `SIBYL_POSTGRES_USER`         | `sibyl`     | Migration sidecar username        |
-| `SIBYL_POSTGRES_PASSWORD`     | `sibyl_dev` | Migration sidecar password        |
-| `SIBYL_POSTGRES_DB`           | `sibyl`     | Migration sidecar database name   |
-| `SIBYL_POSTGRES_POOL_SIZE`    | `10`        | Migration sidecar connection pool |
-| `SIBYL_POSTGRES_MAX_OVERFLOW` | `20`        | Migration sidecar overflow limit  |
+| Variable                      | Default     | Description                                 |
+| ----------------------------- | ----------- | ------------------------------------------- |
+| `SIBYL_POSTGRES_HOST`         | `localhost` | External rehearsal database host            |
+| `SIBYL_POSTGRES_PORT`         | `5433`      | External rehearsal database port            |
+| `SIBYL_POSTGRES_USER`         | `sibyl`     | External rehearsal database username        |
+| `SIBYL_POSTGRES_PASSWORD`     | `sibyl_dev` | External rehearsal database password        |
+| `SIBYL_POSTGRES_DB`           | `sibyl`     | External rehearsal database name            |
+| `SIBYL_POSTGRES_POOL_SIZE`    | `10`        | External rehearsal database connection pool |
+| `SIBYL_POSTGRES_MAX_OVERFLOW` | `20`        | External rehearsal database overflow limit  |
 
-Note: Port 5433 is the default for local migration sidecars to avoid conflicts with a local
-PostgreSQL installation. Use the standard port 5432 only for external rehearsal databases that
-already expose it.
+Note: these settings are ignored by the default Surreal runtime. Configure them only when running a
+historical archive rehearsal that explicitly restores a retained `postgres.sql` payload.
 
 ## Redis/Valkey Coordination
 
@@ -292,7 +292,7 @@ SIBYL_SURREAL_URL=ws://prod-surrealdb.internal:8000/rpc
 SIBYL_SURREAL_USERNAME=root
 SIBYL_SURREAL_PASSWORD=<secure-password>
 
-# Optional migration/archive sidecar
+# Optional historical archive rehearsal database
 SIBYL_POSTGRES_HOST=prod-postgres.internal
 SIBYL_POSTGRES_PORT=5432
 SIBYL_POSTGRES_PASSWORD=<secure-password>
@@ -357,13 +357,12 @@ configuring different ports and container names.
 > **Note:** `SIBYL_WEB_PORT` is a docker-compose-level variable used only for port mapping in
 > `docker-compose.yml`. It is not consumed by Pydantic Settings or the Python application.
 
-| Variable              | Default | Description                    |
-| --------------------- | ------- | ------------------------------ |
-| `SIBYL_SERVER_PORT`   | `3334`  | API/MCP server port            |
-| `SIBYL_WEB_PORT`      | `3337`  | Web frontend port              |
-| `SIBYL_SURREAL_PORT`  | `8000`  | SurrealDB port (default store) |
-| `SIBYL_POSTGRES_PORT` | `5433`  | PostgreSQL sidecar port        |
-| `SIBYL_BACKEND_URL`   | (auto)  | Backend URL for web app        |
+| Variable             | Default | Description                    |
+| -------------------- | ------- | ------------------------------ |
+| `SIBYL_SERVER_PORT`  | `3334`  | API/MCP server port            |
+| `SIBYL_WEB_PORT`     | `3337`  | Web frontend port              |
+| `SIBYL_SURREAL_PORT` | `8000`  | SurrealDB port (default store) |
+| `SIBYL_BACKEND_URL`  | (auto)  | Backend URL for web app        |
 
 ### Quick Setup: Test Instance
 
@@ -373,8 +372,6 @@ configuring different ports and container names.
 COMPOSE_PROJECT_NAME=sibyl-test
 SIBYL_SERVER_PORT=3344
 SIBYL_WEB_PORT=3347
-SIBYL_POSTGRES_PORT=5443
-SIBYL_POSTGRES_DB=sibyl_test
 ```
 
 2. Start databases with isolated containers and volumes:
@@ -404,7 +401,7 @@ SIBYL_WEB_PORT=3347 SIBYL_BACKEND_URL=http://localhost:3344 pnpm -C apps/web dev
 ### Tips
 
 - Use `docker compose -p sibyl-test ps` to see test instance containers
-- Volumes are namespaced by project, for example `sibyl-test_surreal_data`
+- Local Surreal data directories are namespaced by project when you override `SURREAL_DATA_DIR`
 - CLI contexts let you switch between instances: `sibyl context use test`
 
 ## Computed Properties
@@ -413,8 +410,8 @@ The Settings class provides computed connection URLs:
 
 ```python
 settings.resolved_surreal_url  # ws://..., surrealkv://..., or memory://
-settings.postgres_url          # migration sidecar URL
-settings.postgres_url_sync     # migration sidecar URL alias
+settings.postgres_url          # historical archive rehearsal URL
+settings.postgres_url_sync     # historical archive rehearsal URL alias
 settings.fully_surreal         # True when graph, content, and auth all use SurrealDB
 settings.requires_relational_support  # False after v0.6.0 sidecar removal
 ```
