@@ -11,7 +11,13 @@ import pytest
 
 from sibyl.api.routes import entities as entities_routes
 from sibyl.api.routes.entities import SortField, SortOrder, list_entities
+from sibyl.auth.errors import ProjectAccessDeniedError
+from sibyl_core.auth import ProjectRole
 from sibyl_core.models.entities import EntityType
+
+
+def _ctx() -> SimpleNamespace:
+    return SimpleNamespace(user=SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222")))
 
 
 def _entity(
@@ -19,6 +25,7 @@ def _entity(
     *,
     project_id: str | None,
     name: str,
+    entity_type: EntityType = EntityType.TASK,
     archived: bool = False,
     status: str | None = None,
 ) -> SimpleNamespace:
@@ -29,7 +36,7 @@ def _entity(
         metadata["status"] = status
     return SimpleNamespace(
         id=entity_id,
-        entity_type=EntityType.TASK,
+        entity_type=entity_type,
         name=name,
         description="",
         content="",
@@ -57,12 +64,21 @@ class TestListEntitiesRoute:
         manager.list_all = AsyncMock()
         runtime = SimpleNamespace(entity_manager=manager)
 
-        with patch(
-            "sibyl.api.routes.entities.get_entity_graph_runtime",
-            AsyncMock(return_value=runtime),
+        ctx = _ctx()
+
+        with (
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.entities.verify_entity_project_access",
+                AsyncMock(),
+            ) as verify_project,
         ):
             response = await list_entities(
                 org=org,
+                ctx=ctx,
                 entity_type=EntityType.TASK,
                 language=None,
                 category=None,
@@ -74,6 +90,12 @@ class TestListEntitiesRoute:
                 sort_order=SortOrder.DESC,
             )
 
+        verify_project.assert_awaited_once_with(
+            None,
+            ctx,
+            "proj-1",
+            required_role=ProjectRole.VIEWER,
+        )
         assert manager.list_by_type.await_args_list == [
             call(
                 EntityType.TASK,
@@ -105,12 +127,19 @@ class TestListEntitiesRoute:
         manager.list_all = AsyncMock()
         runtime = SimpleNamespace(entity_manager=manager)
 
-        with patch(
-            "sibyl.api.routes.entities.get_entity_graph_runtime",
-            AsyncMock(return_value=runtime),
+        with (
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.entities.verify_entity_project_access",
+                AsyncMock(),
+            ),
         ):
             response = await list_entities(
                 org=org,
+                ctx=_ctx(),
                 entity_type=EntityType.TASK,
                 language=None,
                 category=None,
@@ -177,9 +206,14 @@ class TestListEntitiesRoute:
                 "sibyl.api.routes.entities.get_entity_graph_runtime",
                 AsyncMock(return_value=runtime),
             ),
+            patch(
+                "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+                AsyncMock(return_value={"proj-1", "proj-2", "proj-3"}),
+            ),
         ):
             response = await list_entities(
                 org=org,
+                ctx=_ctx(),
                 entity_type=EntityType.TASK,
                 language=None,
                 category=None,
@@ -221,9 +255,14 @@ class TestListEntitiesRoute:
                 "sibyl.api.routes.entities.get_entity_graph_runtime",
                 AsyncMock(return_value=runtime),
             ),
+            patch(
+                "sibyl.api.routes.entities.verify_entity_project_access",
+                AsyncMock(),
+            ),
         ):
             response = await list_entities(
                 org=org,
+                ctx=_ctx(),
                 entity_type=EntityType.TASK,
                 language=None,
                 category=None,
@@ -272,9 +311,14 @@ class TestListEntitiesRoute:
                 "sibyl.api.routes.entities.get_entity_graph_runtime",
                 AsyncMock(return_value=runtime),
             ),
+            patch(
+                "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+                AsyncMock(return_value=set()),
+            ),
         ):
             response = await list_entities(
                 org=org,
+                ctx=_ctx(),
                 entity_type=EntityType.TASK,
                 language=None,
                 category=None,
@@ -312,9 +356,14 @@ class TestListEntitiesRoute:
                 "sibyl.api.routes.entities.get_entity_graph_runtime",
                 AsyncMock(return_value=runtime),
             ),
+            patch(
+                "sibyl.api.routes.entities.verify_entity_project_access",
+                AsyncMock(),
+            ),
         ):
             response = await list_entities(
                 org=org,
+                ctx=_ctx(),
                 entity_type=None,
                 language=None,
                 category=None,
@@ -335,3 +384,137 @@ class TestListEntitiesRoute:
         assert [entity.id for entity in response.entities] == ["ent-match", "ent-unassigned"]
         assert response.total == 2
         assert response.has_more is False
+
+    @pytest.mark.asyncio
+    async def test_default_entity_list_filters_to_accessible_projects_and_unassigned(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        manager = MagicMock()
+        manager._surreal_entity_node_ops.return_value = object()
+        manager.list_by_type = AsyncMock(
+            return_value=[
+                _entity("ent-match", project_id="proj-1", name="Match"),
+                _entity("ent-hidden", project_id="proj-2", name="Hidden"),
+                _entity("ent-unassigned", project_id=None, name="Unassigned"),
+            ]
+        )
+        manager.list_all = AsyncMock()
+        runtime = SimpleNamespace(entity_manager=manager)
+
+        with (
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+                AsyncMock(return_value={"proj-1"}),
+            ) as list_projects,
+        ):
+            response = await list_entities(
+                org=org,
+                ctx=_ctx(),
+                entity_type=EntityType.TASK,
+                language=None,
+                category=None,
+                search=None,
+                project_ids=None,
+                page=1,
+                page_size=50,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        list_projects.assert_awaited_once()
+        assert [entity.id for entity in response.entities] == [
+            "ent-match",
+            "ent-unassigned",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_project_entity_list_filters_projects_by_entity_id(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        manager = MagicMock()
+        manager._surreal_entity_node_ops.return_value = object()
+        manager.list_by_type = AsyncMock(
+            return_value=[
+                _entity(
+                    "project-visible",
+                    project_id=None,
+                    name="Visible",
+                    entity_type=EntityType.PROJECT,
+                ),
+                _entity(
+                    "project-hidden",
+                    project_id=None,
+                    name="Hidden",
+                    entity_type=EntityType.PROJECT,
+                ),
+            ]
+        )
+        manager.list_all = AsyncMock()
+        runtime = SimpleNamespace(entity_manager=manager)
+
+        with (
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+                AsyncMock(return_value={"project-visible"}),
+            ),
+        ):
+            response = await list_entities(
+                org=org,
+                ctx=_ctx(),
+                entity_type=EntityType.PROJECT,
+                language=None,
+                category=None,
+                search=None,
+                project_ids=None,
+                page=1,
+                page_size=50,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        manager.list_by_type.assert_awaited_once_with(
+            EntityType.PROJECT,
+            limit=1000,
+            offset=0,
+            include_archived=True,
+        )
+        assert [entity.id for entity in response.entities] == ["project-visible"]
+
+    @pytest.mark.asyncio
+    async def test_entity_list_rejects_inaccessible_project_filter(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+
+        with (
+            patch(
+                "sibyl.api.routes.entities.verify_entity_project_access",
+                AsyncMock(
+                    side_effect=ProjectAccessDeniedError(
+                        project_id="proj-2",
+                        required_role=ProjectRole.VIEWER.value,
+                    )
+                ),
+            ),
+            pytest.raises(ProjectAccessDeniedError) as exc,
+        ):
+            await list_entities(
+                org=org,
+                ctx=_ctx(),
+                entity_type=EntityType.TASK,
+                language=None,
+                category=None,
+                search=None,
+                project_ids=["proj-2"],
+                page=1,
+                page_size=50,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        assert exc.value.status_code == 403
+        assert exc.value.detail["error"] == "project_access_denied"

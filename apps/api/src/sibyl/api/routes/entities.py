@@ -38,6 +38,7 @@ from sibyl.persistence import content_runtime
 from sibyl.persistence.auth_runtime import (
     create_project_record,
     delete_project_record,
+    list_accessible_project_graph_ids,
     log_audit_event,
     update_project_record,
 )
@@ -238,6 +239,74 @@ def _entity_project_id(entity: Any) -> str | None:
     )
 
 
+def _entity_type_value(entity: Any) -> str:
+    entity_type = getattr(entity, "entity_type", None)
+    value = getattr(entity_type, "value", entity_type)
+    return str(value or "")
+
+
+def _entity_read_project_id(entity: Any) -> str | None:
+    if _entity_type_value(entity) == EntityType.PROJECT.value:
+        entity_id = getattr(entity, "id", None)
+        return str(entity_id) if entity_id else None
+    return _entity_project_id(entity)
+
+
+def _entity_visible_to_projects(entity: Any, accessible_projects: set[str]) -> bool:
+    project_id = _entity_read_project_id(entity)
+    return project_id is None or project_id in accessible_projects
+
+
+async def _accessible_project_ids_for_read(ctx: AuthContext) -> set[str]:
+    accessible_projects = await list_accessible_project_graph_ids(ctx)
+    return {str(project_id) for project_id in accessible_projects or set()}
+
+
+async def _resolve_entity_list_project_filter(
+    *,
+    ctx: AuthContext,
+    project_ids: list[str] | None,
+) -> tuple[list[str], list[str], bool]:
+    unassigned_marker = "__unassigned__"
+    requested_project_ids = list(project_ids or [])
+
+    if requested_project_ids:
+        real_project_ids = [
+            project_id for project_id in requested_project_ids if project_id != unassigned_marker
+        ]
+        for project_id in real_project_ids:
+            await verify_entity_project_access(
+                None,
+                ctx,
+                project_id,
+                required_role=ProjectRole.VIEWER,
+            )
+        return (
+            requested_project_ids,
+            list(dict.fromkeys(real_project_ids)),
+            unassigned_marker in requested_project_ids,
+        )
+
+    accessible_projects = await _accessible_project_ids_for_read(ctx)
+    effective_project_ids = [*sorted(accessible_projects), unassigned_marker]
+    return effective_project_ids, sorted(accessible_projects), True
+
+
+async def _require_entity_read_access(ctx: AuthContext, entity: Any) -> set[str]:
+    project_id = _entity_read_project_id(entity)
+    if project_id is not None:
+        await verify_entity_project_access(
+            None,
+            ctx,
+            project_id,
+            required_role=ProjectRole.VIEWER,
+        )
+    accessible_projects = await _accessible_project_ids_for_read(ctx)
+    if project_id is not None:
+        accessible_projects.add(project_id)
+    return accessible_projects
+
+
 def _entity_matches_project_filter(
     entity: Any,
     *,
@@ -248,7 +317,7 @@ def _entity_matches_project_filter(
     if not project_ids:
         return True
 
-    entity_project = _entity_project_id(entity)
+    entity_project = _entity_read_project_id(entity)
     if entity_project:
         if real_project_ids and entity_project not in real_project_ids:
             return False
@@ -388,6 +457,7 @@ async def _enrich_entity_with_related(
     relationship_manager: Any,
     preloaded_related: list[RelatedEntitySummary] | None = None,
     *,
+    accessible_projects: set[str],
     related_limit: int = 5,
 ) -> tuple[dict[str, Any], list[RelatedEntitySummary] | None]:
     """Enrich entity metadata and fetch related entities based on entity type.
@@ -446,6 +516,7 @@ async def _enrich_entity_with_related(
         related = await _fetch_related_entity_summaries(
             relationship_manager,
             entity_id=entity_id,
+            accessible_projects=accessible_projects,
             limit=related_limit,
         )
 
@@ -457,6 +528,7 @@ def _summarize_related_entities(
     *,
     related_entities: list[Any],
     relationships: list[Any],
+    accessible_projects: set[str],
     limit: int | None = None,
 ) -> list[RelatedEntitySummary] | None:
     if not related_entities or not relationships:
@@ -477,6 +549,8 @@ def _summarize_related_entities(
     summaries: list[RelatedEntitySummary] = []
     seen_ids: set[str] = set()
     for related_entity in related_entities:
+        if not _entity_visible_to_projects(related_entity, accessible_projects):
+            continue
         relationship_pair = relationships_by_other_id.get(related_entity.id)
         if relationship_pair is None:
             continue
@@ -503,6 +577,7 @@ async def _fetch_related_entity_summaries(
     relationship_manager: Any,
     *,
     entity_id: str,
+    accessible_projects: set[str],
     limit: int,
 ) -> list[RelatedEntitySummary] | None:
     try:
@@ -515,6 +590,8 @@ async def _fetch_related_entity_summaries(
         seen_ids: set[str] = set()
         deduped: list[RelatedEntitySummary] = []
         for rel_entity, rel in related_pairs:
+            if not _entity_visible_to_projects(rel_entity, accessible_projects):
+                continue
             if rel_entity.id in seen_ids:
                 continue
             seen_ids.add(rel_entity.id)
@@ -651,6 +728,7 @@ async def update_raw_capture_review_state(
 @router.get("", response_model=EntityListResponse)
 async def list_entities(
     org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
     entity_type: EntityType | None = Query(default=None, description="Filter by entity type"),
     language: str | None = Query(default=None, description="Filter by programming language"),
     category: str | None = Query(default=None, description="Filter by category"),
@@ -673,20 +751,24 @@ async def list_entities(
             project_ids=project_ids,
             page=page,
         )
+
+        project_ids, real_project_ids, has_unassigned = await _resolve_entity_list_project_filter(
+            ctx=ctx,
+            project_ids=project_ids,
+        )
         runtime = await get_entity_graph_runtime(group_id)
         entity_manager = runtime.entity_manager
 
         # Get entities - single query for all types, or filtered by type
         unassigned_marker = "__unassigned__"
-        real_project_ids = [pid for pid in (project_ids or []) if pid != unassigned_marker]
         unique_real_project_ids = list(dict.fromkeys(real_project_ids))
         single_project_id = (
             unique_real_project_ids[0]
-            if len(unique_real_project_ids) == 1 and unassigned_marker not in (project_ids or [])
+            if len(unique_real_project_ids) == 1
+            and unassigned_marker not in (project_ids or [])
+            and entity_type != EntityType.PROJECT
             else None
         )
-
-        has_unassigned = project_ids and unassigned_marker in project_ids
 
         if _can_use_bounded_entity_list(
             entity_manager,
@@ -778,6 +860,8 @@ async def list_entities(
             has_more=has_more,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception("list_entities_failed", error=str(e))
         raise HTTPException(
@@ -789,6 +873,7 @@ async def list_entities(
 async def get_entity(
     entity_id: str,
     org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
     service: KnowledgeReadService = Depends(get_knowledge_read_service),
     include_summary: Annotated[
         bool,
@@ -817,6 +902,7 @@ async def get_entity(
         if not include_summary:
             entity = await service.get_entity(entity_id)
             if entity is not None:
+                accessible_projects = await _require_entity_read_access(ctx, entity)
                 metadata = dict(getattr(entity, "metadata", {}) or {})
                 related = None
                 if related_limit > 0:
@@ -824,6 +910,7 @@ async def get_entity(
                     related = await _fetch_related_entity_summaries(
                         runtime.relationship_manager,
                         entity_id=entity_id,
+                        accessible_projects=accessible_projects,
                         limit=related_limit,
                     )
 
@@ -848,11 +935,13 @@ async def get_entity(
         graph_bundle = await service.get_entity_bundle(entity_id)
         if graph_bundle is not None:
             entity = graph_bundle.entity
+            accessible_projects = await _require_entity_read_access(ctx, entity)
             metadata = dict(getattr(entity, "metadata", {}) or {})
             related = _summarize_related_entities(
                 entity_id,
                 related_entities=graph_bundle.related_entities,
                 relationships=graph_bundle.relationships,
+                accessible_projects=accessible_projects,
                 limit=related_limit,
             )
 
@@ -867,6 +956,7 @@ async def get_entity(
                     runtime.entity_manager,
                     runtime.relationship_manager,
                     preloaded_related=related,
+                    accessible_projects=accessible_projects,
                     related_limit=related_limit,
                 )
 

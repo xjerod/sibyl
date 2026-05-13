@@ -9,7 +9,9 @@ import pytest
 from fastapi import HTTPException
 
 from sibyl.api.routes.entities import _should_fallback_to_document_entity, get_entity
+from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl.persistence.content_common import DocumentEntityRecord
+from sibyl_core.auth import ProjectRole
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.storage import EntityBundle
 
@@ -23,6 +25,10 @@ class _AsyncContext:
 
     async def __aexit__(self, *args: object) -> None:
         return None
+
+
+def _ctx() -> SimpleNamespace:
+    return SimpleNamespace(user=SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222")))
 
 
 @pytest.mark.parametrize(
@@ -70,11 +76,17 @@ async def test_get_entity_uses_knowledge_service_for_graph_entities() -> None:
         related_entities=[project],
     )
 
-    with patch(
-        "sibyl.api.routes.entities.get_entity_graph_runtime",
-        AsyncMock(),
-    ) as get_entity_graph_runtime:
-        response = await get_entity("task-1", org=org, service=service)
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(),
+        ) as get_entity_graph_runtime,
+        patch(
+            "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project-1"}),
+        ),
+    ):
+        response = await get_entity("task-1", org=org, ctx=_ctx(), service=service)
 
     assert response.id == "task-1"
     assert response.metadata["priority"] == "high"
@@ -115,11 +127,21 @@ async def test_get_entity_keeps_project_summary_enrichment() -> None:
     )
     runtime = SimpleNamespace(entity_manager=manager, relationship_manager=MagicMock())
 
-    with patch(
-        "sibyl.api.routes.entities.get_entity_graph_runtime",
-        AsyncMock(return_value=runtime),
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(return_value=runtime),
+        ),
+        patch(
+            "sibyl.api.routes.entities.verify_entity_project_access",
+            AsyncMock(),
+        ),
+        patch(
+            "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project-1"}),
+        ),
     ):
-        response = await get_entity("project-1", org=org, service=service)
+        response = await get_entity("project-1", org=org, ctx=_ctx(), service=service)
 
     assert response.id == "project-1"
     assert response.metadata["total_tasks"] == 3
@@ -141,13 +163,20 @@ async def test_get_entity_graph_mode_skips_bundle_loading() -> None:
     service = AsyncMock()
     service.get_entity.return_value = task
 
-    with patch(
-        "sibyl.api.routes.entities.get_entity_graph_runtime",
-        AsyncMock(),
-    ) as get_entity_graph_runtime:
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(),
+        ) as get_entity_graph_runtime,
+        patch(
+            "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+            AsyncMock(return_value=set()),
+        ),
+    ):
         response = await get_entity(
             "task-1",
             org=org,
+            ctx=_ctx(),
             service=service,
             include_summary=False,
             related_limit=0,
@@ -175,7 +204,7 @@ async def test_get_entity_skips_document_fallback_for_typed_graph_ids() -> None:
         ) as resolve_document_entity,
         pytest.raises(HTTPException) as exc_info,
     ):
-        await get_entity("task_deadbeef", org=org, service=service)
+        await get_entity("task_deadbeef", org=org, ctx=_ctx(), service=service)
 
     assert exc_info.value.status_code == 404
     read_session.assert_not_called()
@@ -218,7 +247,7 @@ async def test_get_entity_keeps_document_fallback_for_uuid_shaped_ids() -> None:
             AsyncMock(return_value=record),
         ) as resolve_document_entity,
     ):
-        response = await get_entity(str(chunk_id), org=org, service=service)
+        response = await get_entity(str(chunk_id), org=org, ctx=_ctx(), service=service)
 
     assert response.entity_type == EntityType.DOCUMENT
     assert response.id == str(chunk_id)
@@ -275,12 +304,137 @@ async def test_get_entity_preserves_preloaded_project_related_context() -> None:
     )
     runtime = SimpleNamespace(entity_manager=manager, relationship_manager=MagicMock())
 
-    with patch(
-        "sibyl.api.routes.entities.get_entity_graph_runtime",
-        AsyncMock(return_value=runtime),
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(return_value=runtime),
+        ),
+        patch(
+            "sibyl.api.routes.entities.verify_entity_project_access",
+            AsyncMock(),
+        ),
+        patch(
+            "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project-1"}),
+        ),
     ):
-        response = await get_entity("project-1", org=org, service=service)
+        response = await get_entity("project-1", org=org, ctx=_ctx(), service=service)
 
     assert response.related is not None
     assert [rel.id for rel in response.related] == ["pattern-1"]
     assert response.metadata["actionable_tasks"][0]["id"] == "task-1"
+
+
+@pytest.mark.asyncio
+async def test_get_entity_rejects_inaccessible_project_entity() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    project = Entity(
+        id="project-hidden",
+        entity_type=EntityType.PROJECT,
+        name="Hidden Project",
+    )
+    service = AsyncMock()
+    service.get_entity_bundle.return_value = EntityBundle(entity=project)
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.verify_entity_project_access",
+            AsyncMock(
+                side_effect=ProjectAccessDeniedError(
+                    project_id="project-hidden",
+                    required_role=ProjectRole.VIEWER.value,
+                )
+            ),
+        ),
+        pytest.raises(ProjectAccessDeniedError) as exc,
+    ):
+        await get_entity("project-hidden", org=org, ctx=_ctx(), service=service)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["details"]["project_id"] == "project-hidden"
+
+
+@pytest.mark.asyncio
+async def test_get_entity_rejects_inaccessible_project_scoped_entity() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    task = Entity(
+        id="task-hidden",
+        entity_type=EntityType.TASK,
+        name="Hidden task",
+        metadata={"project_id": "project-hidden"},
+    )
+    service = AsyncMock()
+    service.get_entity_bundle.return_value = EntityBundle(entity=task)
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.verify_entity_project_access",
+            AsyncMock(
+                side_effect=ProjectAccessDeniedError(
+                    project_id="project-hidden",
+                    required_role=ProjectRole.VIEWER.value,
+                )
+            ),
+        ),
+        pytest.raises(ProjectAccessDeniedError) as exc,
+    ):
+        await get_entity("task-hidden", org=org, ctx=_ctx(), service=service)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["details"]["project_id"] == "project-hidden"
+
+
+@pytest.mark.asyncio
+async def test_get_entity_filters_inaccessible_related_entities() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    task = Entity(
+        id="task-1",
+        entity_type=EntityType.TASK,
+        name="Scoped task",
+        metadata={"project_id": "project-visible"},
+    )
+    hidden_task = Entity(
+        id="task-hidden",
+        entity_type=EntityType.TASK,
+        name="Hidden task",
+        metadata={"project_id": "project-hidden"},
+    )
+    unassigned_pattern = Entity(
+        id="pattern-1",
+        entity_type=EntityType.PATTERN,
+        name="Visible pattern",
+    )
+    service = AsyncMock()
+    service.get_entity_bundle.return_value = EntityBundle(
+        entity=task,
+        relationships=[
+            Relationship(
+                id="rel-hidden",
+                relationship_type=RelationshipType.RELATED_TO,
+                source_id="task-1",
+                target_id="task-hidden",
+            ),
+            Relationship(
+                id="rel-visible",
+                relationship_type=RelationshipType.RELATED_TO,
+                source_id="task-1",
+                target_id="pattern-1",
+            ),
+        ],
+        related_entities=[hidden_task, unassigned_pattern],
+    )
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.verify_entity_project_access",
+            AsyncMock(),
+        ),
+        patch(
+            "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project-visible"}),
+        ),
+    ):
+        response = await get_entity("task-1", org=org, ctx=_ctx(), service=service)
+
+    assert response.related is not None
+    assert [related.id for related in response.related] == ["pattern-1"]
