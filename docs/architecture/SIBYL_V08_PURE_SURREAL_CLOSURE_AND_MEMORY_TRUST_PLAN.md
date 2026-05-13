@@ -858,6 +858,25 @@ Exit criteria:
 - Existing graph projects can be repaired without weakening `require_existing_project=True`.
 - Local dogfood data can pass stricter project write gates after the repair is applied.
 
+Receipt, 2026-05-13:
+
+- Commit: `406d7cd9`.
+- Changed files:
+  - `apps/api/src/sibyl/api/routes/admin.py`
+  - `apps/api/src/sibyl/api/schemas.py`
+  - `apps/api/tests/test_routes_admin.py`
+  - `docs/architecture/PERMISSION_SYSTEM_AUDIT.md`
+- Verification:
+  - `moon run api:test -- tests/test_routes_admin.py tests/test_surreal_auth_runtime.py` -> 66
+    passed in 1.41s.
+  - `moon run api:lint api:typecheck` -> lint passed; typecheck exited 0 with the existing 63 ty
+    warnings.
+  - `moon run docs:lint` -> passed.
+- Review: Claude cross-model review PASS at
+  `/tmp/claude-review-b21-project-record-backfill-1778708133.txt`.
+- Remaining risk: live dogfood data still needs a dry-run and explicit apply decision before the
+  linked project can use project-scoped writes again.
+
 ### Packet B2.2: Project Member Graph-ID Resolution
 
 Purpose: make membership routes use the same graph project ID contract as entity and task routes.
