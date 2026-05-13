@@ -16,9 +16,9 @@ Graphiti until the paired live runtime artifacts exist.
 
 ### Passing Native/Compare Context-Pack Run
 
-Artifact:
+Latest artifact:
 
-- `.moon/cache/evals/eval_context_pack_retrieval_compare_20260512_205740.json`
+- `.moon/cache/evals/eval_context_pack_retrieval_compare_20260512_225828.json`
 
 Summary:
 
@@ -29,13 +29,17 @@ Summary:
 - `passed`: `160`
 - `failed`: `0`
 - `pass_rate`: `1.0`
-- `latency_ms`: `105.3`
-- `latency_p95_ms`: `400.2`
+- `latency_ms`: `16.1`
+- `latency_p95_ms`: `23.7`
 - `source_metadata_coverage`: `1.0`
 - `facet_order_match_rate`: `1.0`
 - `leak_count`: `0.0`
 
 This supports the v0.7 default-loop quality gate for the current native/compare retrieval path.
+
+The earlier passing artifact,
+`.moon/cache/evals/eval_context_pack_retrieval_compare_20260512_205740.json`, also passed `160/160`
+with `400.2 ms` p95 latency. The `20260512_225828` artifact is the latest release-gate receipt.
 
 ### Earlier Failed Local Compare Run
 
@@ -204,7 +208,7 @@ to the LongMemEval-style outputs and be summarized here with the same artifact-f
 Supported claims:
 
 - Native/compare context-pack evaluation passes the frozen 20-run suite with `160/160` cases and
-  `400.2 ms` p95 latency.
+  `23.7 ms` p95 latency.
 - The default memory loop and selected entrypoints can run with `graphiti_core` imports blocked when
   `moon run core:no-graphiti-smoke` is green.
 
