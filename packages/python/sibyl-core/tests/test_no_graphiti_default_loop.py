@@ -43,6 +43,7 @@ async def main():
     import sibyl_core.tools.context as context_module
     import sibyl_core.tools.core as core_module
     import sibyl_core.tools.explore as explore_module
+    import sibyl_core.tools.health as health_module
     import sibyl_core.tools.reflect as reflect_module
     import sibyl_core.tools.search as search_module
     import sibyl_core.tools.temporal as temporal_module
@@ -69,6 +70,7 @@ async def main():
     add_module.get_native_graph_runtime = runtime_factory
     context_module.get_native_graph_runtime = runtime_factory
     explore_module.get_graph_runtime = runtime_factory
+    health_module.get_graph_runtime = runtime_factory
     native_retrieval.get_native_graph_runtime = runtime_factory
     native_memory.get_native_graph_runtime = runtime_factory
     search_module.get_graph_runtime = runtime_factory
@@ -134,6 +136,13 @@ async def main():
         )
         assert temporal_edge.source_name == "No Graphiti Default Loop Decision"
         assert temporal_edge.target_name == project_title
+
+        health = await core_module.get_health(organization_id=group_id)
+        assert health["status"] == "healthy"
+        assert health["graph_connected"] is True
+
+        stats = await core_module.get_stats(organization_id=group_id)
+        assert stats["total_entities"] >= 2
 
         pack = await context_module.compile_context(
             "native Surreal default loop decision",

@@ -10,23 +10,26 @@ _server_start_time: float | None = None
 
 
 async def get_graph_client():
-    from sibyl_core.services import get_graph_client as _service_get_graph_client
+    from sibyl_core.services.native_graph import get_native_graph_client
 
-    return await _service_get_graph_client()
+    client = await get_native_graph_client("health")
+    await client.connect()
+    return client
 
 
 async def get_graph_runtime(group_id: str):
-    from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
+    from sibyl_core.services.native_graph import get_native_graph_runtime
 
-    return await _service_get_graph_runtime(group_id)
+    return await get_native_graph_runtime(group_id)
 
 
 async def execute_graph_query(
     group_id: str, query: str, **params: object
 ) -> list[dict[str, object]]:
-    from sibyl_core.services import execute_graph_query as _execute_graph_query
+    from sibyl_core.services.native_graph import normalize_records
 
-    return await _execute_graph_query(group_id, query, **params)
+    runtime = await get_graph_runtime(group_id)
+    return normalize_records(await runtime.client.execute_query(query, **params))
 
 
 async def get_health(*, organization_id: str | None = None) -> dict[str, Any]:
@@ -52,17 +55,10 @@ async def get_health(*, organization_id: str | None = None) -> dict[str, Any]:
     }
 
     try:
-        await get_graph_client()
-
-        # Test connectivity
-        health["graph_connected"] = True
-
-        # Entity counts require org context
         if organization_id:
-            from sibyl_core.services import count_entities_by_type
-
             runtime = await get_graph_runtime(organization_id)
             entity_manager = runtime.entity_manager
+            health["graph_connected"] = True
 
             try:
                 counts = await count_entities_by_type(entity_manager)
@@ -74,6 +70,9 @@ async def get_health(*, organization_id: str | None = None) -> dict[str, Any]:
                     health["entity_counts"][entity_type.value] = -1
                 else:
                     health["entity_counts"][entity_type.value] = counts.get(entity_type.value, 0)
+        else:
+            await get_graph_client()
+            health["graph_connected"] = True
 
         health["status"] = "healthy"
 
@@ -99,8 +98,6 @@ async def get_stats(organization_id: str | None = None) -> dict[str, Any]:
         raise ValueError("organization_id is required - cannot get stats without org context")
 
     try:
-        from sibyl_core.services import count_entities_by_type
-
         runtime = await get_graph_runtime(organization_id)
         counts = await count_entities_by_type(runtime.entity_manager)
 
@@ -116,3 +113,32 @@ async def get_stats(organization_id: str | None = None) -> dict[str, Any]:
 
     except Exception as e:
         return {"error": str(e), "entity_counts": {}, "total_entities": 0}
+
+
+async def count_entities_by_type(
+    entity_manager: Any,
+    *,
+    include_archived: bool = False,
+    page_size: int = 1000,
+) -> dict[str, int]:
+    counts = {entity_type.value: 0 for entity_type in EntityType}
+    offset = 0
+
+    while True:
+        entities = await entity_manager.list_all(
+            limit=page_size,
+            offset=offset,
+            include_archived=include_archived,
+        )
+        if not entities:
+            break
+
+        for entity in entities:
+            entity_type = getattr(entity, "entity_type", None)
+            value = getattr(entity_type, "value", entity_type)
+            if value:
+                counts[str(value)] = counts.get(str(value), 0) + 1
+
+        offset += len(entities)
+
+    return counts
