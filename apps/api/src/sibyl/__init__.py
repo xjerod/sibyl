@@ -1,6 +1,6 @@
 """Sibyl API Server.
 
-Graphiti-powered knowledge graph and task workflow for development
+SurrealDB-native knowledge graph and task workflow for development
 patterns, templates, and hard-won wisdom.
 """
 

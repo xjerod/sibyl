@@ -182,7 +182,7 @@ Verify:
 The import-blocking smoke test is now the default-loop proof alongside `moon run inventory-check`.
 It starts a fresh Python process, blocks `graphiti_core` imports, and exercises native Surreal
 memory writes, wake/recall context retrieval, related expansion, persisted reflection, CLI import,
-MCP server construction, API job import, and prompt-hook import.
+default MCP tool-module imports, MCP server construction, API job import, and prompt-hook import.
 
 Smoke command:
 
@@ -199,10 +199,11 @@ Default-loop cases:
 - `context`: context packs and wake packs run through native retrieval and raw memory recall.
 - `wake`: wake-layer context uses the same native context-pack path with wake limits.
 - `reflect`: persisted reflection runs with `SIBYL_NATIVE_WRITE=enabled`.
-- `entrypoints`: CLI, MCP, API job, and prompt-hook imports stay Graphiti-free.
+- `entrypoints`: CLI, default MCP tool modules, MCP server construction, API job, and prompt-hook
+  imports stay Graphiti-free.
 
 Closure condition:
 
 - The smoke test installs an import blocker for `graphiti_core`, exercises the five default-loop
-  cases plus default entrypoints with native flags, and fails on any import or construction path
-  that reaches Graphiti.
+  cases plus default entrypoints and default MCP tool-module imports with native flags, and fails on
+  any import or construction path that reaches Graphiti.

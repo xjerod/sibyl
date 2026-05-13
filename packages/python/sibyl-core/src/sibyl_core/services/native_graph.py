@@ -208,7 +208,147 @@ class NativeEntityManager:
         for row in rows:
             entity = _entity_from_row(row)
             results.append((entity, _bounded_similarity_score(query, entity)))
+        if not results:
+            results = await self._fallback_text_search(
+                query=query,
+                entity_types=entity_types,
+                limit=limit,
+            )
         return results
+
+    async def _fallback_text_search(
+        self,
+        *,
+        query: str,
+        entity_types: Sequence[EntityType] | None = None,
+        limit: int = 10,
+    ) -> list[tuple[Entity, float]]:
+        normalized_query = _normalize_search_text(query)
+        if not normalized_query:
+            return []
+
+        type_values = [entity_type.value for entity_type in entity_types or ()]
+        type_clause = "AND entity_type IN $entity_types" if type_values else ""
+        candidate_limit = min(max(int(limit) * 8, 50), 500)
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT *
+                FROM entity
+                WHERE group_id = $group_id
+                """
+                + type_clause
+                + """
+                ORDER BY created_at DESC, uuid DESC
+                LIMIT $candidate_limit;
+                """,
+                group_id=self._group_id,
+                entity_types=type_values,
+                candidate_limit=candidate_limit,
+            )
+        )
+
+        scored: list[tuple[Entity, float]] = []
+        for row in rows:
+            entity = _entity_from_row(row)
+            score = _bounded_similarity_score(query, entity)
+            if score > 0:
+                scored.append((entity, score))
+
+        scored.sort(key=lambda item: (item[1], item[0].created_at, item[0].id), reverse=True)
+        return scored[: max(int(limit), 1)]
+
+    async def search_exact_name(
+        self,
+        *,
+        query: str,
+        entity_types: Sequence[EntityType] | None = None,
+        limit: int = 10,
+    ) -> list[tuple[Entity, float]]:
+        type_values = [entity_type.value for entity_type in entity_types or ()]
+        type_clause = "AND entity_type IN $entity_types" if type_values else ""
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT *
+                FROM entity
+                WHERE group_id = $group_id
+                  AND name = $name_query
+                """
+                + type_clause
+                + """
+                ORDER BY created_at DESC, uuid DESC
+                LIMIT $limit;
+                """,
+                group_id=self._group_id,
+                name_query=query,
+                entity_types=type_values,
+                limit=max(int(limit), 1),
+            )
+        )
+        return [(_entity_from_row(row), 1.0) for row in rows]
+
+    async def list_by_type(
+        self,
+        entity_type: EntityType,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        project_id: str | None = None,
+        status: str | None = None,
+    ) -> list[Entity]:
+        clauses = ["group_id = $group_id", "entity_type = $entity_type"]
+        if project_id:
+            clauses.append("project_id = $project_id")
+        if status:
+            clauses.append("status = $status")
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT *
+                FROM entity
+                WHERE """
+                + " AND ".join(clauses)
+                + """
+                ORDER BY created_at DESC, uuid DESC
+                LIMIT $limit START $offset;
+                """,
+                group_id=self._group_id,
+                entity_type=entity_type.value,
+                project_id=project_id,
+                status=status,
+                limit=max(int(limit), 1),
+                offset=max(int(offset), 0),
+            )
+        )
+        return [_entity_from_row(row) for row in rows]
+
+    async def list_all(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        include_archived: bool = False,
+    ) -> list[Entity]:
+        archived_clause = "" if include_archived else "AND status != 'archived'"
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT *
+                FROM entity
+                WHERE group_id = $group_id
+                """
+                + archived_clause
+                + """
+                ORDER BY created_at DESC, uuid DESC
+                LIMIT $limit START $offset;
+                """,
+                group_id=self._group_id,
+                limit=max(int(limit), 1),
+                offset=max(int(offset), 0),
+            )
+        )
+        return [_entity_from_row(row) for row in rows]
 
 
 class NativeRelationshipManager:

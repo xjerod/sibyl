@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import structlog
 
 from sibyl_core.models.entities import Entity, EntityType, RelationshipType
-from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.tools.helpers import (
     VALID_ENTITY_TYPES,
     _build_entity_metadata,
@@ -29,6 +28,8 @@ __all__ = ["DependencyNode", "explore"]
 
 
 async def get_graph_runtime(group_id: str):
+    from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
+
     return await _service_get_graph_runtime(group_id)
 
 

@@ -1,6 +1,6 @@
 """Tenant/group helpers for graph operations.
 
-Graphiti uses `group_id` to scope nodes/edges and searches. We treat the JWT `org`
+Sibyl uses `group_id` to scope nodes/edges and searches. We treat the JWT `org`
 claim as the canonical group id for graph operations.
 """
 

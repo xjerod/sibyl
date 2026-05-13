@@ -364,7 +364,6 @@ Respond in JSON format:
 """
 
     try:
-        # Use Anthropic client via Graphiti's embedder config
         # For now, fall back to heuristic detection
         # TODO: Integrate with configured LLM provider
         log.debug("llm_conflict_detection_not_implemented_using_heuristic")

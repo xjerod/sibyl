@@ -1033,8 +1033,8 @@ async def create_entity(
                 metadata=request_metadata,
             )
 
-        # For async creation, return immediately with pending response
-        # Entity will be created in background via Graphiti
+        # For async creation, return immediately with pending response.
+        # Entity creation continues in the native background job path.
         if not is_sync:
             response = EntityResponse(
                 id=result.id,

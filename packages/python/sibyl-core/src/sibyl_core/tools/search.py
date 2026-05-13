@@ -11,7 +11,6 @@ from sibyl_core.models.entities import EntityType
 from sibyl_core.retrieval import HybridConfig, hybrid_search, temporal_boost
 from sibyl_core.retrieval.fusion import rrf_merge
 from sibyl_core.services import document_search as document_search_service
-from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
 from sibyl_core.tools.helpers import (
     VALID_ENTITY_TYPES,
     _build_entity_metadata,
@@ -29,7 +28,9 @@ DOCUMENT_SEARCH_GRAPH_JOIN_TIMEOUT_SECONDS = min(2.0, DOCUMENT_SEARCH_TIMEOUT_SE
 
 
 async def get_graph_runtime(group_id: str):
-    return await _service_get_graph_runtime(group_id)
+    from sibyl_core.services.native_graph import get_native_graph_runtime
+
+    return await get_native_graph_runtime(group_id)
 
 
 __all__ = [
@@ -530,7 +531,7 @@ async def search(
                     log.warning("invalid_since_date", since=since)
 
             # Perform search - try enhanced hybrid first, then fall back to
-            # Graphiti's node-hybrid search directly.
+            # the entity manager's direct search path.
             raw_results: list[tuple[Any, float]] = []
             enhanced_search_exhausted = False
             graph_search_failed = False
@@ -571,7 +572,7 @@ async def search(
                 except Exception as e:
                     log.warning("enhanced_search_failed_fallback", error_type=type(e).__name__)
 
-            # Fall back to Graphiti's node-hybrid search
+            # Fall back to direct entity-manager search
             if query and not raw_results and not enhanced_search_exhausted:
                 try:
                     raw_results = await with_timeout(

@@ -42,6 +42,7 @@ async def main():
     import sibyl_core.tools.context as context_module
     import sibyl_core.tools.core as core_module
     import sibyl_core.tools.reflect as reflect_module
+    import sibyl_core.tools.search as search_module
 
     group_id = "no-graphiti-default-loop"
     principal_id = "principal-no-graphiti"
@@ -66,6 +67,7 @@ async def main():
     context_module.get_native_graph_runtime = runtime_factory
     native_retrieval.get_native_graph_runtime = runtime_factory
     native_memory.get_native_graph_runtime = runtime_factory
+    search_module.get_graph_runtime = runtime_factory
 
     try:
         project = await core_module.add(
@@ -88,6 +90,14 @@ async def main():
             check_conflicts=False,
         )
         assert remembered.success, remembered.message
+
+        search = await core_module.search(
+            "native surreal recall",
+            types=["decision"],
+            include_documents=False,
+            organization_id=group_id,
+        )
+        assert any(result.id == remembered.id for result in search.results)
 
         pack = await context_module.compile_context(
             "native Surreal default loop decision",
@@ -178,6 +188,13 @@ os.environ["SIBYL_STORE"] = "surreal"
 
 cli_main = importlib.import_module("sibyl_cli.main")
 import sibyl.jobs.entities
+import sibyl_core.tools.admin
+import sibyl_core.tools.conflicts
+import sibyl_core.tools.explore
+import sibyl_core.tools.health
+import sibyl_core.tools.manage
+import sibyl_core.tools.search
+import sibyl_core.tools.temporal
 from sibyl.server import create_mcp_server
 
 assert cli_main.app is not None

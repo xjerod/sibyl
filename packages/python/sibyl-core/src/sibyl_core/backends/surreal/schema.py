@@ -28,9 +28,8 @@ def _index_names_from_info(value: object) -> list[str]:
     return [str(index_name) for index_name in indexes]
 
 
-# Graph node embeddings (entity/community/relationship facts) come from Graphiti's
-# embedder, which is configured separately from the OpenAI chunk embedder. Default
-# is 1024-dim; override via SIBYL_GRAPH_EMBEDDING_DIMENSIONS.
+# Graph node embeddings are configured separately from the OpenAI chunk embedder.
+# Default is 1024-dim; override via SIBYL_GRAPH_EMBEDDING_DIMENSIONS.
 EMBEDDING_DIM = core_config.graph_embedding_dimensions
 
 ANALYZER_DEFINITIONS = """

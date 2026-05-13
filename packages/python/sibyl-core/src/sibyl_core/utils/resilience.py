@@ -71,8 +71,8 @@ SEARCH_RETRY = RetryConfig(
     retryable_exceptions=(ConnectionError, TimeoutError, RedisTimeoutError),
 )
 
-# Configuration for Graphiti add_episode - these can take 60-90s and should be
-# retried with longer delays on transient failures
+# Configuration for compatibility add_episode calls. These can take 60-90s and
+# should be retried with longer delays on transient failures.
 GRAPHITI_RETRY = RetryConfig(
     max_attempts=2,  # Only 2 attempts - each can be 60-90s
     base_delay=5.0,  # Wait 5s before retry
@@ -230,7 +230,7 @@ def timeout(
 
 
 # Timeout defaults for different operations
-# NOTE: Graphiti add_episode can take 60-90s under load (LLM + embedding + graph ops)
+# NOTE: Compatibility add_episode can take 60-90s under load.
 TIMEOUTS = {
     "graph_connect": 15.0,
     "graph_query": 60.0,  # Increased for complex queries under load

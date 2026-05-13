@@ -399,13 +399,13 @@ class Settings(BaseSettings):
         default=1024,
         ge=128,
         le=3072,
-        description="Graph (Graphiti) embedding dimensions; sets EMBEDDING_DIM for vector search",
+        description="Graph embedding dimensions; also sizes native Surreal vector indexes",
     )
     graphiti_semaphore_limit: int = Field(
         default=10,
         ge=1,
         le=50,
-        description="Graphiti concurrent LLM operations limit (controls SEMAPHORE_LIMIT)",
+        description="Compatibility Graphiti operation limit (controls SEMAPHORE_LIMIT when enabled)",
     )
 
     # Knowledge repository configuration

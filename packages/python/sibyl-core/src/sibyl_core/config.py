@@ -189,13 +189,13 @@ class CoreConfig(BaseSettings):
         default=1024,
         ge=128,
         le=3072,
-        description="Graph (Graphiti) embedding dimensions; sets EMBEDDING_DIM for vector search",
+        description="Graph embedding dimensions; also sizes native Surreal vector indexes",
     )
     graphiti_semaphore_limit: int = Field(
         default=50,
         ge=1,
         le=100,
-        description="Graphiti concurrent operations limit (controls SEMAPHORE_LIMIT). Higher = more parallelism but more store/LLM load.",
+        description="Compatibility Graphiti operation limit (controls SEMAPHORE_LIMIT when enabled).",
     )
 
     # Retrieval: cross-encoder reranking

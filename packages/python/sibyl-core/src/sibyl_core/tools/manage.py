@@ -12,17 +12,11 @@ DEPRECATION NOTICE:
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from sibyl_core.models.entities import EntityType
-from sibyl_core.services import (
-    ActiveGraphRuntime,
-)
-from sibyl_core.services import (
-    get_graph_client as _service_get_graph_client,
-)
 from sibyl_core.services.crawl_sources import (
     _crawl_source_exists,
     _create_or_get_crawl_source,
@@ -34,10 +28,15 @@ from sibyl_core.services.crawl_sources import (
 from sibyl_core.services.link_graph_status import get_link_graph_status_data
 from sibyl_core.tasks.dependencies import detect_dependency_cycles
 
+if TYPE_CHECKING:
+    from sibyl_core.services.graph_runtime import ActiveGraphRuntime
+
 log = structlog.get_logger()
 
 
 async def _default_get_graph_client() -> Any:
+    from sibyl_core.services import get_graph_client as _service_get_graph_client
+
     return await _service_get_graph_client()
 
 
@@ -58,7 +57,9 @@ async def get_graph_client() -> Any:
     return await _default_get_graph_client()
 
 
-async def get_graph_runtime(group_id: str) -> ActiveGraphRuntime:
+async def get_graph_runtime(group_id: str) -> "ActiveGraphRuntime":
+    from sibyl_core.services.graph_runtime import ActiveGraphRuntime
+
     client = await get_graph_client()
 
     entity_manager_factory = EntityManager

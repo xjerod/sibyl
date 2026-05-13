@@ -15,25 +15,26 @@ import structlog
 
 from sibyl_core.config import settings
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
-from sibyl_core.services import (
-    count_entities_by_type,
-)
-from sibyl_core.services import (
-    get_graph_client as _service_get_graph_client,
-)
-from sibyl_core.services import (
-    get_graph_runtime as _service_get_graph_runtime,
-)
 
 log = structlog.get_logger()
 
 
 async def get_graph_client():
+    from sibyl_core.services import get_graph_client as _service_get_graph_client
+
     return await _service_get_graph_client()
 
 
 async def get_graph_runtime(group_id: str):
+    from sibyl_core.services import get_graph_runtime as _service_get_graph_runtime
+
     return await _service_get_graph_runtime(group_id)
+
+
+async def count_entities_by_type(entity_manager: Any) -> dict[str, int]:
+    from sibyl_core.services import count_entities_by_type as _count_entities_by_type
+
+    return await _count_entities_by_type(entity_manager)
 
 
 BACKFILL_PAGE_SIZE = 1000
@@ -195,7 +196,7 @@ async def rebuild_indices(
         indices_rebuilt=indices_rebuilt,
         duration_seconds=time.time() - start_time,
         message=(
-            "Index rebuild is not implemented for the current FalkorDB/Graphiti runtime. "
+            "Index rebuild is not implemented for the current compatibility graph runtime. "
             f"Requested target: {target}."
         ),
     )

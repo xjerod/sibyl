@@ -1,6 +1,6 @@
 """Temporal query tools for bi-temporal knowledge graph exploration.
 
-Graphiti stores bi-temporal metadata on edges:
+Surreal edge records store bi-temporal metadata:
 - created_at/expired_at: System time (when edge was created/invalidated in Sibyl)
 - valid_at/invalid_at: Real-world time (when fact was/ceased to be true)
 
@@ -17,7 +17,6 @@ from typing import Any, Literal
 
 import structlog
 
-from sibyl_core.services import get_graph_client as _service_get_graph_client
 from sibyl_core.tools.responses import TemporalEdge, TemporalResponse
 
 log = structlog.get_logger()
@@ -26,6 +25,8 @@ __all__ = ["find_conflicts", "get_entity_history", "temporal_query"]
 
 
 async def get_graph_client() -> Any:
+    from sibyl_core.services import get_graph_client as _service_get_graph_client
+
     return await _service_get_graph_client()
 
 
@@ -39,7 +40,7 @@ async def temporal_query(
 ) -> TemporalResponse:
     """Query knowledge graph with temporal awareness.
 
-    Exposes Graphiti's bi-temporal model for point-in-time queries,
+    Exposes Sibyl's bi-temporal edge model for point-in-time queries,
     timeline exploration, and conflict detection.
 
     MODES:

@@ -3,8 +3,8 @@ sibyl-core: Core library for Sibyl knowledge graph operations.
 
 This package provides:
 - Domain models (Entity, Task, Project, etc.)
-- Graph client and entity management (FalkorDB/Graphiti)
-- Hybrid retrieval (Graphiti node-hybrid search + graph traversal)
+- SurrealDB-native graph client and entity management
+- Hybrid retrieval over native graph and content records
 - Core tools (search, explore, add)
 - Task workflow engine
 - Auth primitives (JWT, password hashing)

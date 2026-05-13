@@ -52,7 +52,7 @@ class HybridConfig:
     """Configuration for hybrid retrieval.
 
     Attributes:
-        vector_weight: Weight for Graphiti node-hybrid seed results.
+        vector_weight: Weight for native vector/fulltext seed results.
         graph_weight: Weight for graph traversal results.
         rrf_k: RRF constant (higher = more uniform).
         graph_depth: Maximum depth for graph traversal.
@@ -129,7 +129,7 @@ async def vector_search(
     entity_types: list[Any] | None = None,
     limit: int = 20,
 ) -> list[tuple[Any, float]]:
-    """Perform Graphiti node-hybrid seed search.
+    """Perform the seed search for hybrid retrieval.
 
     Args:
         query: Search query.
@@ -197,9 +197,16 @@ async def _graph_traversal_via_relationship_manager(
     limit: int,
     group_id: str,
 ) -> list[tuple[Entity, float]]:
-    from sibyl_core.graph.relationships import RelationshipManager
+    from sibyl_core.services.native_graph import NativeSurrealGraphClient
 
-    relationship_manager = RelationshipManager(client, group_id=group_id)
+    if isinstance(client, NativeSurrealGraphClient):
+        from sibyl_core.services.native_graph import NativeRelationshipManager
+
+        relationship_manager = NativeRelationshipManager(client, group_id=group_id)
+    else:
+        from sibyl_core.graph.relationships import RelationshipManager
+
+        relationship_manager = RelationshipManager(client, group_id=group_id)
 
     seed_id_set = {seed_id for seed_id in seed_ids if seed_id}
     frontier = [seed_id for seed_id in seed_ids if seed_id]
@@ -276,7 +283,7 @@ async def hybrid_search(
     """Perform hybrid search combining multiple retrieval strategies.
 
     Strategy:
-    1. Run Graphiti node-hybrid search for initial seed results
+    1. Run native vector/fulltext search for initial seed results
     2. Use top seed results as inputs for graph traversal
     3. Merge seed and graph-traversal results using RRF
     4. Optionally apply temporal boosting
@@ -300,7 +307,7 @@ async def hybrid_search(
 
     log.info("hybrid_search_start", **query_log_fields(query), limit=limit)
 
-    # Phase 1: Graphiti node-hybrid seed search
+    # Phase 1: native vector/fulltext seed search
     vector_task = asyncio.create_task(
         _vector_search_attempt(query, entity_manager, entity_types, limit=limit * 2)
     )

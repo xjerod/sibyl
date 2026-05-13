@@ -220,7 +220,7 @@ async def temporal_query(
 ) -> TemporalResponse:
     """Query bi-temporal history of edges.
 
-    Exposes Graphiti's bi-temporal model for point-in-time queries,
+    Exposes the legacy-compatible bi-temporal edge model for point-in-time queries,
     timeline exploration, and conflict detection.
 
     Modes:
