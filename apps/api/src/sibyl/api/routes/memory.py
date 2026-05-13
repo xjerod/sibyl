@@ -16,7 +16,7 @@ from sibyl.api.schemas import (
 from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
-from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
+from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids, log_memory_audit_event
 from sibyl_core.auth import AuthOrganization, MemoryPolicyContext, OrganizationRole, ProjectRole
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyAction,
@@ -79,6 +79,40 @@ def _log_policy_decision(
     )
 
 
+async def _log_memory_audit(
+    *,
+    action: str,
+    ctx: AuthContext,
+    memory_scope: str | None,
+    scope_key: str | None,
+    source_surface: str,
+    policy_allowed: bool | None,
+    policy_reason: str | None,
+    project_id: str | None = None,
+    source_ids: list[str] | None = None,
+    derived_ids: list[str] | None = None,
+    details: dict[str, object] | None = None,
+) -> None:
+    try:
+        await log_memory_audit_event(
+            action=action,
+            user_id=ctx.user_id,
+            organization_id=ctx.organization_id,
+            request=None,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            project_id=project_id,
+            source_surface=source_surface,
+            source_ids=source_ids,
+            derived_ids=derived_ids,
+            policy_allowed=policy_allowed,
+            policy_reason=policy_reason,
+            details=details,
+        )
+    except Exception as exc:
+        log.warning("memory_audit_event_failed", action=action, error=str(exc), exc_info=True)
+
+
 async def _project_accessible_for_policy(
     *,
     ctx: AuthContext,
@@ -131,6 +165,17 @@ async def _authorize_memory_policy(
 
     _log_policy_decision(ctx=ctx, decision=decision, surface=surface)
     if not decision.allowed:
+        await _log_memory_audit(
+            action="memory.policy_deny",
+            ctx=ctx,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            project_id=project_id,
+            source_surface=surface,
+            policy_allowed=False,
+            policy_reason=decision.reason,
+            details={"policy_action": decision.action.value},
+        )
         raise HTTPException(
             status_code=_policy_http_status(decision.reason),
             detail=decision.reason,
@@ -143,16 +188,37 @@ async def _authorize_project_filter(
     ctx: AuthContext,
     project_id: str | None,
     required_project_role: ProjectRole,
+    surface: str,
+    memory_scope: str | None,
+    scope_key: str | None,
+    policy_action: str,
 ) -> None:
     if not project_id:
         return
-    await verify_entity_project_access(
-        None,
-        ctx,
-        project_id,
-        required_role=required_project_role,
-        require_existing_project=True,
-    )
+    try:
+        await verify_entity_project_access(
+            None,
+            ctx,
+            project_id,
+            required_role=required_project_role,
+            require_existing_project=True,
+        )
+    except HTTPException as exc:
+        await _log_memory_audit(
+            action="memory.policy_deny",
+            ctx=ctx,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            project_id=project_id,
+            source_surface=surface,
+            policy_allowed=False,
+            policy_reason=str(exc.detail),
+            details={
+                "policy_action": policy_action,
+                "required_project_role": required_project_role.value,
+            },
+        )
+        raise
 
 
 def _diary_metadata(
@@ -225,6 +291,19 @@ def _promotion_response(result: NativeReflectionPromotionResult) -> ReflectionPr
     )
 
 
+def _promotion_policy_allowed(result: NativeReflectionPromotionResult) -> bool | None:
+    metadata = dict(result.metadata or {})
+    raw_allowed = metadata.get("policy_allowed")
+    if isinstance(raw_allowed, bool):
+        return raw_allowed
+    policy_reasons = metadata.get("policy_reasons")
+    if isinstance(policy_reasons, list) and policy_reasons:
+        return result.success
+    if result.success:
+        return True
+    return None
+
+
 async def _accessible_projects_for_promotion(
     *,
     ctx: AuthContext,
@@ -239,12 +318,14 @@ async def _accessible_projects_for_promotion(
             project_ids.add(target_project)
 
     for project_id in project_ids:
-        await verify_entity_project_access(
-            None,
-            ctx,
-            project_id,
-            required_role=ProjectRole.CONTRIBUTOR,
-            require_existing_project=True,
+        await _authorize_project_filter(
+            ctx=ctx,
+            project_id=project_id,
+            required_project_role=ProjectRole.CONTRIBUTOR,
+            surface="reflection_promote",
+            memory_scope=request.promote_to_scope,
+            scope_key=request.promote_to_scope_key or request.project,
+            policy_action="promote",
         )
 
     if project_ids:
@@ -280,6 +361,10 @@ async def remember_raw(
             ctx=ctx,
             project_id=request.project_id,
             required_project_role=ProjectRole.CONTRIBUTOR,
+            surface="raw_remember",
+            memory_scope=request.memory_scope,
+            scope_key=request.scope_key,
+            policy_action="write",
         )
         write_decision = await _authorize_memory_policy(
             ctx=ctx,
@@ -287,6 +372,7 @@ async def remember_raw(
             memory_scope=request.memory_scope,
             scope_key=request.scope_key,
             surface="raw_remember",
+            project_id=request.project_id,
         )
         metadata = _diary_metadata(
             metadata=request.metadata,
@@ -306,6 +392,23 @@ async def remember_raw(
             metadata=metadata,
             provenance=request.provenance,
             capture_surface=capture_surface,
+        )
+        await _log_memory_audit(
+            action="memory.remember",
+            ctx=ctx,
+            memory_scope=memory.memory_scope.value,
+            scope_key=memory.scope_key,
+            project_id=request.project_id,
+            source_surface=capture_surface,
+            source_ids=[memory.source_id],
+            derived_ids=[memory.id],
+            policy_allowed=write_decision.allowed,
+            policy_reason=write_decision.reason,
+            details={
+                "agent_id": request.agent_id,
+                "diary": request.diary,
+                "tag_count": len(request.tags),
+            },
         )
         return _raw_memory_response(memory, policy_reason=write_decision.reason)
     except ValueError as e:
@@ -351,6 +454,10 @@ async def recall_raw(
             ctx=ctx,
             project_id=request.project_id,
             required_project_role=ProjectRole.VIEWER,
+            surface="raw_recall",
+            memory_scope=request.memory_scope,
+            scope_key=request.scope_key,
+            policy_action="read",
         )
         memories = await recall_raw_memory(
             organization_id=str(org.id),
@@ -361,6 +468,24 @@ async def recall_raw(
             agent_id=request.agent_id,
             project_id=request.project_id,
             limit=request.limit,
+        )
+        await _log_memory_audit(
+            action="memory.recall",
+            ctx=ctx,
+            memory_scope=request.memory_scope,
+            scope_key=request.scope_key,
+            project_id=request.project_id,
+            source_surface="raw_recall",
+            source_ids=[memory.source_id for memory in memories],
+            derived_ids=[memory.id for memory in memories],
+            policy_allowed=read_decision.allowed,
+            policy_reason=read_decision.reason,
+            details={
+                "agent_id": request.agent_id,
+                "diary": request.diary,
+                "limit": request.limit,
+                "result_count": len(memories),
+            },
         )
         return RawMemoryRecallResponse(
             query=request.query,
@@ -410,6 +535,26 @@ async def promote_reflection_candidate(
             project=request.project,
             related_to=request.related_to,
             accessible_projects=accessible_projects,
+        )
+        await _log_memory_audit(
+            action="memory.reflect.promote",
+            ctx=ctx,
+            memory_scope=result.memory_scope.value
+            if result.memory_scope
+            else request.promote_to_scope,
+            scope_key=result.scope_key or request.promote_to_scope_key,
+            project_id=request.project,
+            source_surface="reflection_promote",
+            source_ids=[request.candidate_id, *result.raw_source_ids],
+            derived_ids=[result.promoted_id] if result.promoted_id else [],
+            policy_allowed=_promotion_policy_allowed(result),
+            policy_reason=result.reason,
+            details={
+                "action_succeeded": result.success,
+                "domain": request.domain,
+                "related_to_count": len(request.related_to),
+                "review_state": result.review_state,
+            },
         )
         if result.reason == "candidate_not_found":
             raise HTTPException(

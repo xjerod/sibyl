@@ -562,6 +562,65 @@ async def test_surreal_repository_replace_record_uses_single_upsert_statement() 
 
 
 @pytest.mark.asyncio
+async def test_log_memory_audit_event_records_bounded_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = object()
+    audit = AsyncMock()
+    user_id = uuid4()
+    organization_id = uuid4()
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+    monkeypatch.setattr(surreal_auth_runtime, "_log_audit_event", audit)
+
+    await surreal_auth_runtime.log_memory_audit_event(
+        action="memory.recall",
+        user_id=str(user_id),
+        organization_id=str(organization_id),
+        request=None,
+        memory_scope="project",
+        scope_key="p" * 600,
+        project_id="project_123",
+        source_surface="raw_recall",
+        source_ids=[f"source-{index}" for index in range(25)],
+        derived_ids=[f"memory-{index}" for index in range(22)],
+        policy_allowed=True,
+        policy_reason="project_read_allowed",
+        details={
+            "long": "x" * 600,
+            "wide": {f"k{index}": index for index in range(45)},
+            "nested": {"a": {"b": {"c": {"d": "deep"}}}},
+        },
+    )
+
+    audit.assert_awaited_once()
+    assert audit.await_args is not None
+    assert audit.await_args.args == (client,)
+    payload = audit.await_args.kwargs["details"]
+
+    assert audit.await_args.kwargs["action"] == "memory.recall"
+    assert audit.await_args.kwargs["user_id"] == user_id
+    assert audit.await_args.kwargs["organization_id"] == organization_id
+    assert payload["memory_scope"] == "project"
+    assert payload["scope_key"] == "p" * 500
+    assert payload["project_id"] == "project_123"
+    assert payload["source_surface"] == "raw_recall"
+    assert payload["source_ids"] == [f"source-{index}" for index in range(20)]
+    assert payload["source_ids_truncated"] == 5
+    assert payload["derived_ids"] == [f"memory-{index}" for index in range(20)]
+    assert payload["derived_ids_truncated"] == 2
+    assert payload["policy_allowed"] is True
+    assert payload["policy_reason"] == "project_read_allowed"
+    assert payload["details"]["long"] == "x" * 500
+    assert payload["details"]["wide"]["truncated"] == 5
+    assert isinstance(payload["details"]["nested"]["a"]["b"], str)
+
+
+@pytest.mark.asyncio
 async def test_authenticate_api_key_batches_last_used_and_project_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

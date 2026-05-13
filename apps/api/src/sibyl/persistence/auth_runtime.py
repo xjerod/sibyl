@@ -63,6 +63,7 @@ __all__ += [
     "list_user_sessions",
     "load_refresh_session_record",
     "log_audit_event",
+    "log_memory_audit_event",
     "login_device_browser_user",
     "login_github_identity",
     "login_local_user",
@@ -228,6 +229,10 @@ async def revoke_access_session(token: str) -> None:
 
 async def log_audit_event(**kwargs: object) -> None:
     await _call_backend_export("log_audit_event", **kwargs)
+
+
+async def log_memory_audit_event(**kwargs: object) -> None:
+    await _call_backend_export("log_memory_audit_event", **kwargs)
 
 
 async def list_api_keys_for_user(**kwargs: object):

@@ -1872,6 +1872,89 @@ async def log_audit_event(
         )
 
 
+def _bounded_audit_value(value: object, *, depth: int = 0) -> object:
+    if depth >= 3:
+        return str(value)[:500]
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, str):
+        return value[:500]
+    if isinstance(value, Mapping):
+        out: SurrealRecord = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= 40:
+                out["truncated"] = len(value) - 40
+                break
+            out[str(key)[:80]] = _bounded_audit_value(item, depth=depth + 1)
+        return out
+    if isinstance(value, list | tuple | set | frozenset):
+        items = list(value)
+        out = [_bounded_audit_value(item, depth=depth + 1) for item in items[:20]]
+        if len(items) > 20:
+            out.append({"truncated": len(items) - 20})
+        return out
+    return str(value)[:500]
+
+
+def _bounded_audit_string(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(value)[:500]
+
+
+def _bounded_audit_id_list(values: list[str] | None) -> tuple[list[str], int]:
+    if not values:
+        return [], 0
+    out = [str(value)[:200] for value in values[:20]]
+    return out, max(len(values) - 20, 0)
+
+
+async def log_memory_audit_event(
+    *,
+    action: str,
+    user_id: UUID | str | None,
+    organization_id: UUID | str | None,
+    request,
+    memory_scope: str | None = None,
+    scope_key: str | None = None,
+    project_id: str | None = None,
+    source_surface: str | None = None,
+    source_ids: list[str] | None = None,
+    derived_ids: list[str] | None = None,
+    policy_allowed: bool | None = None,
+    policy_reason: str | None = None,
+    details: Mapping[str, object] | None = None,
+) -> None:
+    bounded_source_ids, source_ids_truncated = _bounded_audit_id_list(source_ids)
+    bounded_derived_ids, derived_ids_truncated = _bounded_audit_id_list(derived_ids)
+    payload: SurrealRecord = {
+        "memory_scope": _bounded_audit_string(memory_scope),
+        "scope_key": _bounded_audit_string(scope_key),
+        "project_id": _bounded_audit_string(project_id),
+        "source_surface": _bounded_audit_string(source_surface),
+        "source_ids": bounded_source_ids,
+        "derived_ids": bounded_derived_ids,
+        "policy_allowed": policy_allowed,
+        "policy_reason": _bounded_audit_string(policy_reason),
+    }
+    if source_ids_truncated:
+        payload["source_ids_truncated"] = source_ids_truncated
+    if derived_ids_truncated:
+        payload["derived_ids_truncated"] = derived_ids_truncated
+    if details:
+        payload["details"] = _bounded_audit_value(details)
+
+    async with _auth_client_scope() as client:
+        await _log_audit_event(
+            client,
+            action=action,
+            user_id=_coerce_optional_uuid(user_id),
+            organization_id=_coerce_optional_uuid(organization_id),
+            request=request,
+            details=payload,
+        )
+
+
 async def _generate_unique_project_slug(
     repo: _SurrealRepository,
     *,
@@ -2947,6 +3030,7 @@ __all__ = [
     "list_user_sessions",
     "load_refresh_session_record",
     "log_audit_event",
+    "log_memory_audit_event",
     "login_device_browser_user",
     "login_github_identity",
     "login_local_user",

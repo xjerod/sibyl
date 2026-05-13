@@ -1108,14 +1108,16 @@ Files:
 - `apps/api/src/sibyl/persistence/auth_runtime.py`
 - `apps/api/src/sibyl/api/routes/memory.py`
 - `apps/api/tests/test_routes_memory.py`
+- `apps/api/tests/test_surreal_auth_runtime.py`
 
 Implementation:
 
-- Persist compact audit events for remember, recall/context render, reflect, promotion preview, and
-  policy deny decisions.
+- Persist compact audit events for raw remember, raw recall, reflection promotion, non-policy
+  promotion failures, memory policy denies, and project-filter denies.
 - Include actor, organization, project or memory space, action, source IDs, derived IDs, policy
   decision, and reason.
 - Keep event payloads bounded and queryable by actor, action, source, and time.
+- Leave context render, wake, inspect API, and CLI inspect for the next B4 packet.
 
 Verify:
 
@@ -1125,6 +1127,25 @@ Verify:
 Exit criteria:
 
 - At least one allowed case and one denied case produce inspectable audit receipts.
+
+B4.1 receipt, 2026-05-13:
+
+- Added `log_memory_audit_event` to the auth runtime facade and Surreal auth backend. Payloads now
+  bound top-level strings, source IDs, derived IDs, nested mappings, lists, and deep values before
+  writing through `audit_logs`.
+- Raw memory routes emit audit receipts for remember and recall successes, memory-policy denies, and
+  project-filter denies. Reflection promotion emits success, policy-denial, and missing-candidate
+  receipts without conflating action success with policy state.
+- Audit failures are fail-open for user operations and warning-logged with exception context.
+- `moon run api:test -- tests/test_routes_memory.py tests/test_surreal_auth_runtime.py`: 65 passed
+  in 1.43s.
+- `moon run core:test -- tests/test_memory_policy.py`: 1340 passed, 15 skipped.
+- `moon run api:lint api:typecheck`: lint passed; typecheck exited 0 with the existing 63 ty
+  diagnostics.
+- Independent review passed at `/tmp/claude-review-b41-memory-audit-final2-20260513.txt`; no
+  commit-blocking findings remained.
+- Remaining B4 risk: memory audit routes still pass `request=None`, so IP address and user-agent
+  capture remain follow-up work with the inspect surfaces.
 
 ## 14. Evidence Ledger
 

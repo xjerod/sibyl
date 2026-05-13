@@ -57,10 +57,13 @@ def _memory(**overrides: object) -> RawMemory:
 @pytest.mark.asyncio
 async def test_remember_raw_uses_current_org_and_principal() -> None:
     org = _org()
-    with patch(
-        "sibyl.api.routes.memory.remember_raw_memory",
-        AsyncMock(return_value=_memory(organization_id=str(org.id), source_id="source-1")),
-    ) as remember:
+    with (
+        patch(
+            "sibyl.api.routes.memory.remember_raw_memory",
+            AsyncMock(return_value=_memory(organization_id=str(org.id), source_id="source-1")),
+        ) as remember,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+    ):
         response = await remember_raw(
             RawMemoryRememberRequest(
                 title="Raw note",
@@ -87,10 +90,79 @@ async def test_remember_raw_uses_current_org_and_principal() -> None:
         provenance={"message_id": "msg-1"},
         capture_surface="cli",
     )
+    audit.assert_awaited_once_with(
+        action="memory.remember",
+        user_id="user-123",
+        organization_id="org-1",
+        request=None,
+        memory_scope="private",
+        scope_key=None,
+        project_id=None,
+        source_surface="cli",
+        source_ids=["source-1"],
+        derived_ids=["memory-1"],
+        policy_allowed=True,
+        policy_reason="same_scope_write_allowed",
+        details={"agent_id": None, "diary": False, "tag_count": 1},
+    )
     assert response.id == "memory-1"
     assert response.source_id == "source-1"
     assert response.principal_id == "user-123"
     assert response.policy_reason == "same_scope_write_allowed"
+
+
+@pytest.mark.asyncio
+async def test_remember_raw_audits_project_filter_denial() -> None:
+    org = _org()
+    ctx = _ctx()
+    denial = HTTPException(status_code=403, detail="project_access_denied")
+    with (
+        patch(
+            "sibyl.api.routes.memory.verify_entity_project_access",
+            AsyncMock(side_effect=denial),
+        ) as verify,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+        patch("sibyl.api.routes.memory.remember_raw_memory", AsyncMock()) as remember,
+        pytest.raises(HTTPException) as exc,
+    ):
+        await remember_raw(
+            RawMemoryRememberRequest(
+                title="Project note",
+                raw_content="Should not write without project access.",
+                project_id="project_123",
+            ),
+            org=org,
+            ctx=ctx,
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "project_access_denied"
+    verify.assert_awaited_once_with(
+        None,
+        ctx,
+        "project_123",
+        required_role=ProjectRole.CONTRIBUTOR,
+        require_existing_project=True,
+    )
+    audit.assert_awaited_once_with(
+        action="memory.policy_deny",
+        user_id="user-123",
+        organization_id="org-1",
+        request=None,
+        memory_scope="private",
+        scope_key=None,
+        project_id="project_123",
+        source_surface="raw_remember",
+        source_ids=None,
+        derived_ids=None,
+        policy_allowed=False,
+        policy_reason="project_access_denied",
+        details={
+            "policy_action": "write",
+            "required_project_role": "project_contributor",
+        },
+    )
+    remember.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -258,6 +330,7 @@ async def test_remember_raw_denies_project_scope_without_policy_membership() -> 
             AsyncMock(return_value={"project_other"}),
         ),
         patch("sibyl.api.routes.memory.log") as route_log,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
         patch("sibyl.api.routes.memory.remember_raw_memory", AsyncMock()) as remember,
         pytest.raises(HTTPException) as exc,
     ):
@@ -273,6 +346,21 @@ async def test_remember_raw_denies_project_scope_without_policy_membership() -> 
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "unverified_membership"
+    audit.assert_awaited_once_with(
+        action="memory.policy_deny",
+        user_id="user-123",
+        organization_id="org-1",
+        request=None,
+        memory_scope="project",
+        scope_key="project_123",
+        project_id=None,
+        source_surface="raw_remember",
+        source_ids=None,
+        derived_ids=None,
+        policy_allowed=False,
+        policy_reason="unverified_membership",
+        details={"policy_action": "write"},
+    )
     route_log.info.assert_any_call(
         "memory_policy_decision",
         action="write",
@@ -290,10 +378,13 @@ async def test_remember_raw_denies_project_scope_without_policy_membership() -> 
 @pytest.mark.asyncio
 async def test_recall_raw_returns_scoped_memories() -> None:
     org = _org()
-    with patch(
-        "sibyl.api.routes.memory.recall_raw_memory",
-        AsyncMock(return_value=[_memory(organization_id=str(org.id))]),
-    ) as recall:
+    with (
+        patch(
+            "sibyl.api.routes.memory.recall_raw_memory",
+            AsyncMock(return_value=[_memory(organization_id=str(org.id))]),
+        ) as recall,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+    ):
         response = await recall_raw(
             RawMemoryRecallRequest(query="raw memory", limit=5),
             org=org,
@@ -309,6 +400,21 @@ async def test_recall_raw_returns_scoped_memories() -> None:
         agent_id=None,
         project_id=None,
         limit=5,
+    )
+    audit.assert_awaited_once_with(
+        action="memory.recall",
+        user_id="user-123",
+        organization_id="org-1",
+        request=None,
+        memory_scope="private",
+        scope_key=None,
+        project_id=None,
+        source_surface="raw_recall",
+        source_ids=["cli:manual"],
+        derived_ids=["memory-1"],
+        policy_allowed=True,
+        policy_reason="private_principal_bound",
+        details={"agent_id": None, "diary": False, "limit": 5, "result_count": 1},
     )
     assert response.query == "raw memory"
     assert response.limit == 5
@@ -479,6 +585,7 @@ async def test_promote_reflection_candidate_verifies_project_target() -> None:
             "sibyl.api.routes.memory.promote_reflection_candidate_review",
             AsyncMock(return_value=result),
         ) as promote,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
     ):
         response = await promote_reflection_candidate(
             ReflectionPromotionRequest(
@@ -511,6 +618,26 @@ async def test_promote_reflection_candidate_verifies_project_target() -> None:
         related_to=["task_123"],
         accessible_projects={"project_123"},
     )
+    audit.assert_awaited_once_with(
+        action="memory.reflect.promote",
+        user_id="user-123",
+        organization_id="org-1",
+        request=None,
+        memory_scope="project",
+        scope_key="project_123",
+        project_id="project_123",
+        source_surface="reflection_promote",
+        source_ids=["candidate-1", "source-1"],
+        derived_ids=["decision_123"],
+        policy_allowed=True,
+        policy_reason="promoted",
+        details={
+            "action_succeeded": True,
+            "domain": "sibyl",
+            "related_to_count": 1,
+            "review_state": "promoted",
+        },
+    )
     assert response.success is True
     assert response.promoted_id == "decision_123"
     assert response.policy_reasons == [
@@ -542,6 +669,7 @@ async def test_promote_reflection_candidate_returns_policy_denial() -> None:
             "sibyl.api.routes.memory.promote_reflection_candidate_review",
             AsyncMock(return_value=result),
         ),
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
     ):
         response = await promote_reflection_candidate(
             ReflectionPromotionRequest(candidate_id="candidate-1"),
@@ -552,6 +680,26 @@ async def test_promote_reflection_candidate_returns_policy_denial() -> None:
     assert response.success is False
     assert response.reason == "missing_promote_to_scope"
     assert response.policy_reasons == ["missing_promote_to_scope"]
+    audit.assert_awaited_once_with(
+        action="memory.reflect.promote",
+        user_id="user-123",
+        organization_id="org-1",
+        request=None,
+        memory_scope="private",
+        scope_key=None,
+        project_id=None,
+        source_surface="reflection_promote",
+        source_ids=["candidate-1", "source-1"],
+        derived_ids=[],
+        policy_allowed=False,
+        policy_reason="missing_promote_to_scope",
+        details={
+            "action_succeeded": False,
+            "domain": None,
+            "related_to_count": 0,
+            "review_state": "pending",
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -575,6 +723,7 @@ async def test_promote_reflection_candidate_returns_404_for_missing_candidate() 
             "sibyl.api.routes.memory.promote_reflection_candidate_review",
             AsyncMock(return_value=result),
         ),
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
         pytest.raises(HTTPException) as exc,
     ):
         await promote_reflection_candidate(
@@ -584,3 +733,23 @@ async def test_promote_reflection_candidate_returns_404_for_missing_candidate() 
         )
 
     assert exc.value.status_code == 404
+    audit.assert_awaited_once_with(
+        action="memory.reflect.promote",
+        user_id="user-123",
+        organization_id="org-1",
+        request=None,
+        memory_scope=None,
+        scope_key=None,
+        project_id=None,
+        source_surface="reflection_promote",
+        source_ids=["missing"],
+        derived_ids=[],
+        policy_allowed=None,
+        policy_reason="candidate_not_found",
+        details={
+            "action_succeeded": False,
+            "domain": None,
+            "related_to_count": 0,
+            "review_state": "missing",
+        },
+    )
