@@ -12,7 +12,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
 - Graphiti import files: 21
-- Retained legacy term files: 87
+- Retained legacy term files: 90
 - Dependency records: 4
 
 ## API Surface
@@ -114,6 +114,7 @@ must carry an owner and reason here.
 | `Tiltfile` | `redis`, `valkey` | 14 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `apps/api/README.md` | `postgres`, `redis` | 12 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/api/moon.yml` | `graphiti` | 7 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
+| `apps/api/pyproject.toml` | `graphiti`, `redis` | 4 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `apps/cli/README.md` | `redis` | 1 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/cli/src/sibyl_cli/data/skills/sibyl/EXAMPLES.md` | `redis` | 3 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/cli/src/sibyl_cli/data/skills/sibyl/SKILL.md` | `redis` | 4 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
@@ -134,9 +135,9 @@ must carry an owner and reason here.
 | `docs/architecture/PERMISSION_SYSTEM_AUDIT.md` | `falkor`, `postgres` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/PERMISSION_SYSTEM_PLAN.md` | `falkor`, `postgres`, `redis` | 13 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_NORTHSTAR.md` | `falkor`, `graphiti`, `postgres`, `redis` | 38 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_POST_V08_SYNTHESIS_AND_MEMORY_COCKPIT_PLAN.md` | `graphiti` | 1 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_POST_V08_SYNTHESIS_AND_MEMORY_COCKPIT_PLAN.md` | `graphiti` | 2 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 163 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 90 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 88 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md` | `graphiti` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md` | `graphiti` | 101 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SURREALDB_NATIVE_MEMORY_CORE_SPEC.md` | `falkor`, `graphiti`, `postgres` | 48 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
@@ -187,6 +188,8 @@ must carry an owner and reason here.
 | `packages/python/sibyl-core/COVERAGE_PLAN.md` | `falkor` | 3 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `packages/python/sibyl-core/README.md` | `graphiti` | 1 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `packages/python/sibyl-core/moon.yml` | `graphiti` | 9 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
+| `packages/python/sibyl-core/pyproject.toml` | `graphiti` | 2 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
+| `pyproject.toml` | `graphiti` | 4 | repo package config | Root package configs retain compatibility extras and dev dependency boundaries. |
 | `setup-dev.sh` | `falkor`, `postgres` | 3 | dev bootstrap | Dev scripts mention legacy migration checks and optional Redis coordination. |
 | `skills/sibyl/EXAMPLES.md` | `redis` | 3 | v0.8 skill docs | Source skill docs retain examples that mention Redis as historical troubleshooting context. |
 | `skills/sibyl/SKILL.md` | `redis` | 4 | v0.8 skill docs | Source skill docs retain examples that mention Redis as historical troubleshooting context. |

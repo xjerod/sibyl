@@ -1,16 +1,16 @@
 # Sibyl v0.8 Pure Surreal Closure Execution Plan
 
-- Status: active focused execution plan
+- Status: closed; superseded by the parent A6/B6 release receipts
 - Parent plan: `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md`
 - Tracking epic: Pure Surreal Closure, `epic_416f955f7f39`
 - Source inventory: `docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md`
 - Source burndown: `docs/architecture/SURREALDB_PHASE3_BURNDOWN.md`
-- Current baseline commit: `543963f3`
+- Current release evidence baseline: `4855ba8a`
 
-This document is the working plan for the remaining v0.8 pure Surreal closure work. The parent v0.8
-plan still owns the combined release definition and the Memory Trust Foundation track. This child
-plan goes deeper on Track A: native graph managers, native embeddings, Graphiti compatibility
-disposition, archive policy, stale docs, and the final Surreal-only release audit.
+This document was the working plan for the v0.8 pure Surreal closure work. The parent v0.8 plan now
+owns the release evidence and the Memory Trust Foundation receipts. This child plan remains as the
+historical Track A execution record for native graph managers, native embeddings, Graphiti
+compatibility disposition, archive policy, stale docs, and the final Surreal-only release audit.
 
 The release goal is simple: the default Sibyl runtime should be SurrealDB-only, with Graphiti,
 FalkorDB, PostgreSQL, and Redis/Valkey absent from the default data plane. Any retained legacy
@@ -18,6 +18,14 @@ behavior must be opt-in, named honestly, separately tested, and documented as co
 migration, admin, benchmark, or historical archive support.
 
 ## 1. Current State
+
+Closed as of the 2026-05-14 release evidence refresh:
+
+- Pushed `main` release baseline: `4855ba8a`.
+- Main CI run `25870913035` completed successfully on `4855ba8a`.
+- Docs deploy run `25877971558` completed successfully on `4855ba8a`.
+- Nightly regression run `25877971585` completed successfully on `4855ba8a`.
+- The parent v0.8 plan is authoritative for the final release recommendation and residual risks.
 
 Completed as of `543963f3`:
 
@@ -552,8 +560,7 @@ is more than documentation.
 
 ## 14. Recommendation
 
-Proceed with A2 first, starting with native entity hydration. It is the right next move because A1
-already made Graphiti compatibility opt-in, and A2 removes the remaining Graphiti-shaped graph model
-pressure from default runtime code. Do not start A4 deletion until A2 and A3 prove native graph and
-embedding ownership. Do not cut v0.8 until A6 records fresh receipts from the final tree and the
-retained compatibility surface is named, opt-in, and separately tested.
+Historical execution recommendation: proceed with A2 first, then A3, A4, A5, and A6. That sequence
+has now closed. Current recommendation lives in the parent plan: v0.8 can ship from `4855ba8a`, and
+the next roadmap starts with post-v0.8 memory productization plus the 0.8.1 inventory guard
+hardening.

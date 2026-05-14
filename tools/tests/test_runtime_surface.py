@@ -19,6 +19,7 @@ from tools.inventory.runtime_surface import (
     collect_runtime_surface,
     default_runtime_graphiti_imports,
     graphiti_allowlist_record,
+    iter_legacy_term_files,
     legacy_term_allowlist_record,
     parse_dependency_name,
     render_markdown,
@@ -33,6 +34,8 @@ EXPECTED_MCP_TOOL_COUNT = 8
 EXPECTED_MCP_RESOURCE_COUNT = 2
 EXPECTED_SQLMODEL_TABLE_COUNT = 0
 EXPECTED_LEGACY_TERM_SCAN_PATHS = {
+    ".devcontainer/Dockerfile",
+    ".devcontainer/devcontainer.json",
     ".env.example",
     ".env.quickstart.example",
     ".env.quickstart.test",
@@ -40,17 +43,35 @@ EXPECTED_LEGACY_TERM_SCAN_PATHS = {
     "AGENTS.md",
     "CLAUDE.md",
     "Tiltfile",
+    "apps/api/Dockerfile",
+    "apps/api/pyproject.toml",
+    "apps/web/Dockerfile",
+    "apps/web/package.json",
+    "charts/sibyl/templates/_helpers.tpl",
     "infra/local/README.md",
     "infra/local/secrets.yaml.example",
     "infra/local/sibyl-values.yaml",
     "infra/local/valkey-values.yaml",
     "moon.yml",
+    "package.json",
     "packages/python/sibyl-core/README.md",
     "packages/python/sibyl-core/moon.yml",
+    "pnpm-workspace.yaml",
+    "pyproject.toml",
     "skills/sibyl/EXAMPLES.md",
     "skills/sibyl/SKILL.md",
     "setup-dev.sh",
     "tools/dev/run-surreal-dev.sh",
+}
+EXPECTED_LEGACY_TERM_RECORD_PATHS = EXPECTED_LEGACY_TERM_SCAN_PATHS - {
+    ".devcontainer/Dockerfile",
+    ".devcontainer/devcontainer.json",
+    "apps/api/Dockerfile",
+    "apps/web/Dockerfile",
+    "apps/web/package.json",
+    "charts/sibyl/templates/_helpers.tpl",
+    "package.json",
+    "pnpm-workspace.yaml",
 }
 CORE_GRAPHITI_COMPATIBILITY_TESTS = (
     "tests/graph/surreal",
@@ -303,6 +324,10 @@ def test_graphiti_exit_inventory_tracks_no_graphiti_smoke_plan() -> None:
 def test_legacy_term_inventory_covers_active_docs_and_configs() -> None:
     surface = collect_runtime_surface()
     inventory = SNAPSHOT_PATH.read_text(encoding="utf-8")
+    legacy_inventory = inventory.split("## Retained Legacy Term Inventory", maxsplit=1)[1].split(
+        "\n## Dependency Inventory",
+        maxsplit=1,
+    )[0]
     record_paths = {record.path for record in surface.legacy_term_records}
     literal_allowlist_paths = {
         allowed.path for allowed in LEGACY_TERM_ALLOWLIST if not allowed.path.endswith("*")
@@ -310,18 +335,26 @@ def test_legacy_term_inventory_covers_active_docs_and_configs() -> None:
 
     assert "## Retained Legacy Term Inventory" in inventory
     assert unclassified_legacy_term_records(surface) == ()
-    assert record_paths >= EXPECTED_LEGACY_TERM_SCAN_PATHS
+    assert record_paths >= EXPECTED_LEGACY_TERM_RECORD_PATHS
     assert record_paths >= literal_allowlist_paths
     for record in surface.legacy_term_records:
         allowed = legacy_term_allowlist_record(record.path)
         assert allowed is not None
         matching_rows = [
-            line for line in inventory.splitlines() if line.startswith(f"| `{record.path}` |")
+            line
+            for line in legacy_inventory.splitlines()
+            if line.startswith(f"| `{record.path}` |")
         ]
         assert len(matching_rows) == 1
         row = matching_rows[0]
         assert f"| {allowed.owner} |" in row
         assert f"| {allowed.reason} |" in row
+
+
+def test_legacy_term_scanner_covers_active_docs_and_configs() -> None:
+    scanned_paths = {path.relative_to(REPO_ROOT).as_posix() for path in iter_legacy_term_files()}
+
+    assert scanned_paths >= EXPECTED_LEGACY_TERM_SCAN_PATHS
 
 
 def test_legacy_term_inventory_rejects_unowned_active_doc() -> None:

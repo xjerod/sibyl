@@ -1,7 +1,7 @@
 # Sibyl v0.8 Pure Surreal Closure and Memory Trust Plan
 
-- Status: local implementation packets closed; release hold pending pushed-main CI and nightly
-  receipts
+- Status: v0.8 release evidence complete for pushed `main` commit `4855ba8a`; tag and release
+  publication remain manual
 - Target release: v0.8
 - Planning source: `plan_e464fd1e7b11`
 - Plan-authoring task: `c64a358e-aef4-4b32-8735-28f03047a13e`
@@ -34,7 +34,16 @@ without leaking the wrong context.
 
 ## 1. Current State
 
-Verified on 2026-05-13 during the A0 baseline lock:
+Release evidence verified on 2026-05-14:
+
+- Pushed `main` release baseline: `4855ba8a`.
+- Main CI run `25870913035` completed successfully on `4855ba8a`.
+- Docs deploy run `25877971558` completed successfully on `4855ba8a`.
+- Nightly regression run `25877971585` completed successfully on `4855ba8a`.
+- The local 0.8.1 docs and inventory hardening after this baseline needs separate CI evidence if it
+  becomes patch-release evidence.
+
+Earlier A0 baseline lock, 2026-05-13:
 
 - Local baseline commit: `1de0b408`.
 - Last pushed `origin/main` receipt commit: `d2d3d926`.
@@ -101,6 +110,7 @@ Required release gates:
 - `moon run bench-gate`
 - `moon run core:bench-context -- --cases benchmarks/context_pack_cases.json --auth-manifest .moon/cache/baseline-runtime-manifest.json --label retrieval-compare --repeat 20 --metadata retrieval_mode=compare`
 - CI green on `main`
+- docs deploy green on `main`
 - Nightly regression green on `main`
 
 The baseline seed and replay gates predate v0.8 and remain required because release benchmark and
@@ -2565,9 +2575,8 @@ Receipt, 2026-05-14:
   docs now appear in the retained legacy-term inventory whenever they mention retired or optional
   legacy services. Every retained reference must render with an owner and reason on the same
   generated inventory row, and unowned references fail `inventory-check`.
-- Remaining risk: extensionless or non-scanned formats such as Dockerfiles, Helm `_helpers.tpl`,
-  JSON, or TOML can still acquire future legacy terms without this guard noticing. Add those formats
-  when one becomes an active legacy-reference carrier.
+- Remaining risk closed by the 0.8.1 inventory hardening pass: the retained legacy-term scanner now
+  covers tracked Dockerfiles, JSON, TOML, Helm `.tpl`, and root package config files.
 
 ### Packet A6.1: Pure Surreal Release Audit
 
@@ -2624,8 +2633,13 @@ Receipt, 2026-05-14:
 - Local tree under audit: this release-audit refresh packet after `e0bb7ac3`
   (`fix(cli): clarify queued task learning`). The final commit for this packet records the exact
   tree hash.
-- Branch state: local `main` is ahead of `origin/main`; this receipt is local-only and still does
-  not claim CI, docs deploy, or nightly coverage for the local commits.
+- Pushed release evidence baseline: `main` commit `4855ba8a`.
+- CI, docs, and nightly coverage for the release baseline:
+  - Main CI run `25870913035` completed successfully on `4855ba8a`.
+  - Docs deploy run `25877971558` completed successfully on `4855ba8a`.
+  - Nightly regression run `25877971585` completed successfully on `4855ba8a`.
+- The follow-up 0.8.1 docs and inventory hardening work is intentionally outside those pushed-main
+  receipts until it gets its own CI run.
 - Dependency boundary:
   - `graphiti-core[anthropic,google-genai]>=0.28.2` appears only in `sibyl-core[compatibility]` and
     the `sibyl-core` dev dependency group.
@@ -2663,10 +2677,25 @@ Receipt, 2026-05-14:
 - Policy or compatibility decision: the local tree is Surreal-only by default and memory-trust gates
   now include task-learning jobs. Persisted MemorySpace CRUD is explicitly post-v0.8 and is not part
   of the release claim.
-- Binary recommendation: hold the release until CI, docs deploy, and scheduled nightly receipts are
-  recorded for the pushed commit. After those are green, ship.
-- Remaining risk: CI and nightly receipts are intentionally pending because local project policy
-  forbids pushing `main` from this agent session.
+- Binary recommendation: ship v0.8 from `4855ba8a` when Bliss is ready to cut the tag and release.
+- Remaining risk: the next patch-release baseline should re-run CI, docs deploy, nightly, and the
+  inventory guard after the 0.8.1 hardening commit lands.
+
+### Packet A6.2: 0.8.1 Inventory Guard Hardening
+
+Purpose: close the post-audit scanner blind spot for active config formats that can carry retained
+legacy-service references.
+
+Receipt, 2026-05-14:
+
+- The retained legacy-term scanner now scans tracked Dockerfiles, JSON, TOML, Helm `.tpl`, root
+  package config files, and `.devcontainer` files.
+- The scanner filters to `git ls-files --cached` paths so untracked audit drafts and ignored
+  research dumps do not become release blockers.
+- The allowlist now stays scoped to files that actually retain legacy terms; scan-only files are
+  covered by a separate regression assertion.
+- Verification: `moon run inventory` wrote the generated inventory snapshot, and
+  `moon run inventory-test` reported 27 passed in 14.06s.
 
 ## 14. Evidence Ledger
 

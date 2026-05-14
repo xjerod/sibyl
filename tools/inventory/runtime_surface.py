@@ -4,6 +4,8 @@ import argparse
 import ast
 import difflib
 import re
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,11 +96,23 @@ LEGACY_TERM_CANONICAL_NAMES = {
     "valkey": "valkey",
     "graphiti": "graphiti",
 }
-LEGACY_TERM_SCAN_EXTENSIONS = {".example", ".md", ".mdx", ".yml", ".yaml", ".sh"}
+LEGACY_TERM_SCAN_EXTENSIONS = {
+    ".example",
+    ".json",
+    ".md",
+    ".mdx",
+    ".sh",
+    ".toml",
+    ".tpl",
+    ".yml",
+    ".yaml",
+}
+LEGACY_TERM_SCAN_FILENAMES = {"Dockerfile"}
 LEGACY_TERM_SCAN_ROOTS = (
     REPO_ROOT / "apps",
     REPO_ROOT / "charts",
     REPO_ROOT / "docs",
+    REPO_ROOT / ".devcontainer",
     REPO_ROOT / ".github",
     REPO_ROOT / "infra",
     REPO_ROOT / "packages",
@@ -117,6 +131,9 @@ LEGACY_TERM_SCAN_FILES = tuple(
             REPO_ROOT / ".env.quickstart.example",
             REPO_ROOT / ".env.quickstart.test",
             REPO_ROOT / ".env.test.example",
+            REPO_ROOT / "package.json",
+            REPO_ROOT / "pnpm-workspace.yaml",
+            REPO_ROOT / "pyproject.toml",
             REPO_ROOT / "moon.yml",
             REPO_ROOT / "setup-dev.sh",
             *REPO_ROOT.glob("docker-compose*.yml"),
@@ -134,8 +151,12 @@ LEGACY_TERM_EXCLUDED_PARTS = {
     ".tox",
     ".venv",
     ".vitepress",
+    ".next",
     "__pycache__",
     "_archive",
+    "coverage",
+    "coverage-core",
+    "storybook-static",
     "build",
     "dist",
     "node_modules",
@@ -375,6 +396,7 @@ SKILL_SOURCE_LEGACY_TERM_FILES = (
     "skills/sibyl/SKILL.md",
 )
 DEPLOYMENT_CONFIG_LEGACY_TERM_FILES = (
+    "apps/api/pyproject.toml",
     "charts/sibyl/Chart.yaml",
     "charts/sibyl/templates/backend-deployment.yaml",
     "charts/sibyl/templates/configmap.yaml",
@@ -390,6 +412,7 @@ PROJECT_INSTRUCTION_LEGACY_TERM_FILES = (
     "CLAUDE.md",
 )
 ROOT_TASK_LEGACY_TERM_FILES = ("moon.yml",)
+ROOT_CONFIG_LEGACY_TERM_FILES = ("pyproject.toml",)
 ENV_TEMPLATE_LEGACY_TERM_FILES = (
     ".env.example",
     ".env.quickstart.example",
@@ -407,11 +430,30 @@ PACKAGE_LEGACY_TERM_FILES = (
     "packages/python/sibyl-core/COVERAGE_PLAN.md",
     "packages/python/sibyl-core/README.md",
     "packages/python/sibyl-core/moon.yml",
+    "packages/python/sibyl-core/pyproject.toml",
 )
 DEV_SCRIPT_LEGACY_TERM_FILES = (
     "setup-dev.sh",
     "tools/dev/run-surreal-dev.sh",
 )
+
+
+def git_index_paths() -> frozenset[str]:
+    git = shutil.which("git")
+    if git is None:
+        msg = "git executable is required to collect tracked inventory paths"
+        raise RuntimeError(msg)
+    result = subprocess.run(  # noqa: S603
+        [git, "ls-files", "--cached"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    return frozenset(line for line in result.stdout.splitlines() if line)
+
+
+GIT_INDEX_PATHS = git_index_paths()
 LEGACY_TERM_ALLOWLIST = (
     LegacyTermAllowlistRecord(
         path="README.md",
@@ -437,6 +479,11 @@ LEGACY_TERM_ALLOWLIST = (
         ROOT_TASK_LEGACY_TERM_FILES,
         owner="v0.7 Graphiti exit",
         reason="Root moon tasks retain the explicit Graphiti compatibility test island.",
+    ),
+    *legacy_term_allowlist_records(
+        ROOT_CONFIG_LEGACY_TERM_FILES,
+        owner="repo package config",
+        reason="Root package configs retain compatibility extras and dev dependency boundaries.",
     ),
     *legacy_term_allowlist_records(
         ENV_TEMPLATE_LEGACY_TERM_FILES,
@@ -865,9 +912,15 @@ def collect_dependencies() -> tuple[DependencyRecord, ...]:
 def _legacy_term_scan_path(path: Path) -> bool:
     if path == SNAPSHOT_PATH:
         return False
-    if path.suffix not in LEGACY_TERM_SCAN_EXTENSIONS:
+    relative_path = relpath(path)
+    if relative_path not in GIT_INDEX_PATHS:
         return False
-    relative_parts = path.relative_to(REPO_ROOT).parts
+    if (
+        path.suffix not in LEGACY_TERM_SCAN_EXTENSIONS
+        and path.name not in LEGACY_TERM_SCAN_FILENAMES
+    ):
+        return False
+    relative_parts = Path(relative_path).parts
     return not any(part in LEGACY_TERM_EXCLUDED_PARTS for part in relative_parts)
 
 

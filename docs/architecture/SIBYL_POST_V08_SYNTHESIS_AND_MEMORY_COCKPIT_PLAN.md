@@ -1,6 +1,6 @@
 # Sibyl Post-v0.8 Synthesis and Memory Cockpit Plan
 
-- Status: full execution plan draft
+- Status: full execution plan draft, anchored to the v0.8 evidence baseline at `4855ba8a`
 - Target release: v0.9 candidate
 - Depends on:
   - `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md`
@@ -796,6 +796,16 @@ Verify:
 Exit criteria:
 
 - This plan starts from current evidence, not assumptions.
+
+Receipt, 2026-05-14:
+
+- Starting evidence baseline: pushed `main` commit `4855ba8a`.
+- Main CI run `25870913035`, docs deploy run `25877971558`, and nightly regression run `25877971585`
+  completed successfully on `4855ba8a`.
+- v0.8 claim boundary: Surreal-only default runtime, optional Graphiti compatibility, policy-backed
+  inspectable memory, promotion preview, share preview, and the `memory-trust-gate`.
+- Post-v0.8 owns persisted MemorySpace CRUD, source lifecycle and correction, source adapters,
+  `synthesize`, mailbox import, and the memory cockpit.
 
 ### Packet A1: Memory Space Records
 
