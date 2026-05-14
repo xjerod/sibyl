@@ -36,11 +36,6 @@ adapter package as one named compatibility surface.
 These are the only retained Graphiti import surfaces. Each entry has a machine-enforced class,
 owner, and deletion or retention criterion.
 
-- `apps/api/src/sibyl/persistence/graph_runtime.py`
-  - Class: `admin`
-  - Owner: v0.7 Graphiti exit
-  - Criteria: API graph runtime resolves to native Surreal managers with no Graphiti edge or error
-    model imports.
 - `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py`
   - Class: `compatibility`
   - Owner: v0.7 Graphiti exit
@@ -183,16 +178,6 @@ source metadata.
   after native exact lookup, deduplication, and search cover graph behavior.
 - Owner: v0.7 native write adapter.
 - Verify: `moon run api:test -- tests/test_jobs_entities.py`.
-
-### `apps/api/src/sibyl/persistence/graph_runtime.py`
-
-- Behavior: API graph runtime facade around entity, relationship, and graph traversal managers.
-- Default-loop usage: compatibility surface for admin, metrics, and graph route reads.
-- Status: retained compatibility adapter.
-- Removal condition: API graph runtime resolves to native Surreal managers with no Graphiti edge or
-  error model imports.
-- Owner: v0.7 Graphiti exit.
-- Verify: `moon run api:test`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py`
 

@@ -140,12 +140,6 @@ class RuntimeSurface:
 
 GRAPHITI_COMPATIBILITY_ALLOWLIST = (
     GraphitiCompatibilityRecord(
-        path="apps/api/src/sibyl/persistence/graph_runtime.py",
-        classification="admin",
-        owner="v0.7 Graphiti exit",
-        criteria="API graph runtime resolves to native Surreal managers with no Graphiti edge or error model imports.",
-    ),
-    GraphitiCompatibilityRecord(
         path="packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py",
         classification="compatibility",
         owner="v0.7 Graphiti exit",

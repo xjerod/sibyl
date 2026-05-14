@@ -9,6 +9,7 @@ import pytest
 from sibyl.api.dependencies import get_graph_store, get_knowledge_read_service
 from sibyl.api.routes.graph import get_graph_stats
 from sibyl.persistence.graph_runtime import (
+    ActiveGraphStore,
     GraphEntityStore,
     GraphQueryAdapter,
     GraphRelationshipStore,
@@ -30,13 +31,16 @@ from sibyl.persistence.legacy.graph import (
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.driver import SurrealQueryError
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.services.native_graph import NativeEntityManager, NativeRelationshipManager
 from sibyl_core.storage import GraphStats, SearchFilters
 
 
 def test_surreal_driver_detection_uses_declared_ops_only() -> None:
-    declared_driver = SimpleNamespace(entity_edge_ops=object())
+    declared_driver = SimpleNamespace(entity_node_ops=object(), execute_query=AsyncMock())
+    edge_ops_only = SimpleNamespace(entity_edge_ops=object())
 
     assert _surreal_driver_for(declared_driver) is declared_driver
+    assert _surreal_driver_for(edge_ops_only) is None
     assert _surreal_driver_for(MagicMock()) is None
 
 
@@ -311,34 +315,70 @@ async def test_graph_relationship_count_uses_surreal_select_when_driver_detected
 
 
 @pytest.mark.asyncio
-async def test_graph_relationship_get_rejects_surreal_legacy_query_fallback() -> None:
+async def test_active_graph_store_uses_native_managers_for_surreal_driver() -> None:
+    driver = SurrealDriver("memory://").clone("org-1")
+    client = MagicMock()
+    client.get_org_driver.return_value = driver
+
+    store = ActiveGraphStore.from_client(client, "org-1")
+
+    assert isinstance(store.entities._manager, NativeEntityManager)
+    assert isinstance(store.relationships._manager, NativeRelationshipManager)
+
+
+@pytest.mark.asyncio
+async def test_graph_relationship_get_uses_native_manager_for_surreal_driver() -> None:
+    relationship = Relationship(
+        id="rel-1",
+        relationship_type=RelationshipType.BELONGS_TO,
+        source_id="task-1",
+        target_id="project-1",
+    )
     driver = MagicMock()
     driver.execute_query = AsyncMock()
-    store = GraphRelationshipStore(MagicMock(), driver=driver, group_id="org-1")
+    relationships = AsyncMock()
+    relationships.get = AsyncMock(return_value=relationship)
+    store = GraphRelationshipStore(relationships, driver=driver, group_id="org-1")
 
     with (
-        patch("sibyl.persistence.graph_runtime._surreal_entity_edge_ops_for", return_value=None),
         patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=object()),
-        pytest.raises(RuntimeError, match="relationship get"),
     ):
-        await store.get("rel-1")
+        result = await store.get("rel-1")
 
+    assert result is relationship
+    relationships.get.assert_awaited_once_with("rel-1")
     driver.execute_query.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_graph_relationship_find_between_rejects_surreal_legacy_query_fallback() -> None:
+async def test_graph_relationship_find_between_uses_native_manager_for_surreal_driver() -> None:
+    relationship = Relationship(
+        id="rel-1",
+        relationship_type=RelationshipType.BELONGS_TO,
+        source_id="task-1",
+        target_id="project-1",
+    )
     driver = MagicMock()
     driver.execute_query = AsyncMock()
-    store = GraphRelationshipStore(MagicMock(), driver=driver, group_id="org-1")
+    relationships = AsyncMock()
+    relationships.find_between = AsyncMock(return_value=[relationship])
+    store = GraphRelationshipStore(relationships, driver=driver, group_id="org-1")
 
     with (
-        patch("sibyl.persistence.graph_runtime._surreal_entity_edge_ops_for", return_value=None),
         patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=object()),
-        pytest.raises(RuntimeError, match="relationship find_between"),
     ):
-        await store.find_between("source-1", "target-1")
+        result = await store.find_between(
+            "task-1",
+            "project-1",
+            relationship_type=RelationshipType.BELONGS_TO,
+        )
 
+    assert result == [relationship]
+    relationships.find_between.assert_awaited_once_with(
+        "task-1",
+        "project-1",
+        relationship_type=RelationshipType.BELONGS_TO,
+    )
     driver.execute_query.assert_not_awaited()
 
 

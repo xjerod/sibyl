@@ -367,6 +367,13 @@ async def test_native_graph_writes_entities_and_relationships_without_graphiti(
         assert fetched_relationships[0].metadata["direction"] == "outgoing"
         assert fetched_relationships[0].metadata["valid_at"]
         assert fetched_relationships[0].metadata["invalid_at"]
+        matched_relationships = await relationship_manager.find_between(
+            "decision_native",
+            "project_native",
+            relationship_type=RelationshipType.BELONGS_TO,
+        )
+        assert [rel.id for rel in matched_relationships] == ["rel_decision_project"]
+        assert matched_relationships[0].metadata["source_ids"] == ["raw_123"]
 
         deleted = await relationship_manager.delete_between(
             "decision_native",

@@ -11,7 +11,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - SQLModel tables: 0
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
-- Graphiti import files: 21
+- Graphiti import files: 20
 - Dependency records: 3
 
 ## API Surface
@@ -74,7 +74,6 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 ### Session-backed storage access files
 
 ### Graphiti import files
-- `apps/api/src/sibyl/persistence/graph_runtime.py` — class: `admin`; imports: `graphiti_core.edges`
 - `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py` — class: `compatibility`; imports: `graphiti_core.driver.driver`
 - `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py` — class: `compatibility`; imports: `graphiti_core.embedder.client`
 - `packages/python/sibyl-core/src/sibyl_core/graph/client.py` — class: `compatibility`; imports: `graphiti_core`, `graphiti_core.driver.driver`, `graphiti_core.embedder.client`, `graphiti_core.embedder.openai`, `graphiti_core.helpers`, `graphiti_core.llm_client`, `graphiti_core.llm_client.anthropic_client`, `graphiti_core.llm_client.config`, `graphiti_core.llm_client.openai_client`

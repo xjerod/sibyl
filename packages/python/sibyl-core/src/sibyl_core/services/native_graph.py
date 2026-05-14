@@ -960,6 +960,49 @@ class NativeRelationshipManager:
         )
         return [_relationship_from_row(row) for row in rows]
 
+    async def find_between(
+        self,
+        source_id: str,
+        target_id: str,
+        *,
+        relationship_type: RelationshipType | None = None,
+    ) -> list[Relationship]:
+        type_clause = "AND name = $relationship_type" if relationship_type else ""
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT id AS record_id,
+                       uuid,
+                       name,
+                       fact,
+                       group_id,
+                       episodes,
+                       attributes,
+                       created_at,
+                       expired_at,
+                       valid_at,
+                       invalid_at,
+                       in.uuid AS source_uuid,
+                       out.uuid AS target_uuid
+                FROM relates_to
+                WHERE group_id = $group_id
+                  AND (
+                    (in.uuid = $source_id AND out.uuid = $target_id)
+                    OR (in.uuid = $target_id AND out.uuid = $source_id)
+                  )
+                """
+                + type_clause
+                + """
+                ORDER BY created_at DESC, uuid DESC;
+                """,
+                group_id=self._group_id,
+                source_id=source_id,
+                target_id=target_id,
+                relationship_type=relationship_type.value if relationship_type else None,
+            )
+        )
+        return [_relationship_from_row(row) for row in rows]
+
     async def delete_between(
         self,
         source_id: str,
