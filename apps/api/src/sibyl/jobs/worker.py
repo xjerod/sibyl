@@ -6,6 +6,7 @@ This is the worker entrypoint. Job implementations are in:
 - crawl.py: crawl_source, sync_source, sync_all_sources
 - entities.py: create_entity, create_learning_episode, create_learning_procedure, update_entity
 - backup.py: run_backup, cleanup_old_backups
+- source_imports.py: import_source_archive
 """
 
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from sibyl.jobs.entities import (
     update_entity,
     update_task,
 )
+from sibyl.jobs.source_imports import import_source_archive
 
 log = structlog.get_logger()
 
@@ -188,6 +190,8 @@ class WorkerSettings:
         run_backup,
         cleanup_old_backups,
         run_scheduled_backups,
+        # Source import jobs
+        import_source_archive,
         # Consolidation jobs
         consolidate_org,
         consolidate_all_orgs,

@@ -49,6 +49,7 @@ from sibyl.jobs.queue import (
     get_job_status,
     get_redis_settings,
 )
+from sibyl.jobs.source_imports import import_source_archive
 from sibyl.jobs.worker import WorkerSettings, run_worker_async
 
 __all__ = [
@@ -85,6 +86,7 @@ __all__ = [
     "crawl_source",
     "sync_source",
     "sync_all_sources",
+    "import_source_archive",
     "create_entity",
     "create_learning_episode",
     "create_learning_procedure",

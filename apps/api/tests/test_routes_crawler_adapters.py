@@ -11,6 +11,7 @@ from sibyl_core.models.sources import (
     SourcePrivacyClass,
     SourceTransformBehavior,
 )
+from sibyl_core.services.source_adapters import clear_source_adapters
 
 
 @pytest.mark.asyncio
@@ -37,3 +38,16 @@ async def test_list_import_adapters_returns_registered_contracts() -> None:
     assert adapter.default_privacy_class == "personal"
     assert adapter.metadata_schema == {"message_id": "string"}
     assert adapter.supports_incremental is True
+
+
+@pytest.mark.asyncio
+async def test_list_import_adapters_includes_builtin_mailbox() -> None:
+    clear_source_adapters()
+    try:
+        response = await list_import_adapters()
+    finally:
+        clear_source_adapters()
+
+    names = {adapter.name for adapter in response.adapters}
+
+    assert "mbox" in names

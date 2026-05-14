@@ -147,6 +147,9 @@ class SourceAdapterRegistry:
             msg = f"Unknown source adapter: {name}"
             raise KeyError(msg) from exc
 
+    def has(self, name: str) -> bool:
+        return name in self._adapters
+
     def descriptors(self) -> list[SourceAdapterDescriptor]:
         return [adapter.descriptor for adapter in self._adapters.values()]
 

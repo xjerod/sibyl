@@ -67,6 +67,7 @@ from sibyl.persistence.content_runtime import (
 from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.models import CrawlStatus, SourceType
 from sibyl_core.models.sources import SourceAdapterDescriptor
+from sibyl_core.services.mailbox_adapter import ensure_mailbox_adapter_registered
 from sibyl_core.services.source_adapters import list_source_adapters
 
 log = structlog.get_logger()
@@ -379,6 +380,7 @@ async def preview_url(url: str) -> dict[str, str | None]:
 @router.get("/import-adapters", response_model=SourceAdapterListResponse)
 async def list_import_adapters() -> SourceAdapterListResponse:
     """List registered source import adapters."""
+    ensure_mailbox_adapter_registered()
     return SourceAdapterListResponse(
         adapters=[_source_adapter_to_response(adapter) for adapter in list_source_adapters()],
     )
