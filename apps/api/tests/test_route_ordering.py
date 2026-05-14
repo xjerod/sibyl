@@ -59,6 +59,7 @@ class TestRouteOrdering:
     def test_crawler_link_graph_routes_precede_dynamic_source_route(self) -> None:
         paths = [route.path for route in crawler_router.routes]
 
+        assert paths.index("/sources/import-adapters") < paths.index("/sources/{source_id}")
         assert paths.index("/sources/link-graph/status") < paths.index("/sources/{source_id}")
         assert paths.index("/sources/link-graph") < paths.index("/sources/{source_id}")
 

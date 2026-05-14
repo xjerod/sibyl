@@ -1086,6 +1086,26 @@ class CrawlSourceListResponse(BaseModel):
     total: int
 
 
+class SourceAdapterResponse(BaseModel):
+    """Registered source adapter contract."""
+
+    name: str
+    version: str
+    source_type: str
+    display_name: str
+    capabilities: list[str] = Field(default_factory=list)
+    default_privacy_class: str
+    transform_behavior: str
+    metadata_schema: dict[str, Any] = Field(default_factory=dict)
+    supports_incremental: bool = False
+
+
+class SourceAdapterListResponse(BaseModel):
+    """Registered source adapter list."""
+
+    adapters: list[SourceAdapterResponse]
+
+
 class CrawlDocumentResponse(BaseModel):
     """Crawled document summary."""
 

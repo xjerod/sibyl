@@ -33,6 +33,8 @@ from sibyl.api.schemas import (
     LinkGraphResponse,
     LinkGraphSourceStatus as LinkGraphSourceStatusResponse,
     LinkGraphStatusResponse,
+    SourceAdapterListResponse,
+    SourceAdapterResponse,
 )
 from sibyl.api.websocket import broadcast_event
 from sibyl.auth.dependencies import get_current_organization, require_org_role
@@ -64,6 +66,8 @@ from sibyl.persistence.content_runtime import (
 )
 from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.models import CrawlStatus, SourceType
+from sibyl_core.models.sources import SourceAdapterDescriptor
+from sibyl_core.services.source_adapters import list_source_adapters
 
 log = structlog.get_logger()
 
@@ -150,6 +154,20 @@ def _document_to_response(doc: CrawledDocumentRecord) -> CrawlDocumentResponse:
         crawled_at=doc.crawled_at,
         headings=doc.headings or [],
         code_languages=doc.code_languages or [],
+    )
+
+
+def _source_adapter_to_response(adapter: SourceAdapterDescriptor) -> SourceAdapterResponse:
+    return SourceAdapterResponse(
+        name=adapter.name,
+        version=adapter.version,
+        source_type=adapter.source_type,
+        display_name=adapter.display_name,
+        capabilities=[capability.value for capability in adapter.capabilities],
+        default_privacy_class=adapter.default_privacy_class.value,
+        transform_behavior=adapter.transform_behavior.value,
+        metadata_schema=adapter.metadata_schema,
+        supports_incremental=adapter.supports_incremental,
     )
 
 
@@ -356,6 +374,14 @@ async def preview_url(url: str) -> dict[str, str | None]:
             "domain": urlparse(url).netloc,
             "error": "Failed to preview URL",
         }
+
+
+@router.get("/import-adapters", response_model=SourceAdapterListResponse)
+async def list_import_adapters() -> SourceAdapterListResponse:
+    """List registered source import adapters."""
+    return SourceAdapterListResponse(
+        adapters=[_source_adapter_to_response(adapter) for adapter in list_source_adapters()],
+    )
 
 
 # =============================================================================

@@ -1,10 +1,12 @@
-"""Source and document models for documentation crawling."""
+"""Source and document models for documentation crawling and imports."""
+
+from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from sibyl_core.models.entities import Entity, EntityType
 
@@ -16,6 +18,141 @@ class SourceType(StrEnum):
     GITHUB = "github"  # GitHub repository
     LOCAL = "local"  # Local file path
     API_DOCS = "api_docs"  # API documentation (OpenAPI, etc.)
+
+
+class SourcePrivacyClass(StrEnum):
+    """Privacy class declared by a source adapter."""
+
+    PERSONAL = "personal"
+    PRIVATE = "private"
+    SENSITIVE = "sensitive"
+    PROJECT = "project"
+    ORGANIZATION = "organization"
+    PUBLIC = "public"
+
+
+class SourceTransformBehavior(StrEnum):
+    """Transformation expectation for an imported source record."""
+
+    RAW = "raw"
+    NORMALIZED = "normalized"
+    METADATA_ONLY = "metadata_only"
+
+
+class SourceAdapterCapability(StrEnum):
+    """Capabilities advertised by source adapters."""
+
+    ATTACHMENTS = "attachments"
+    CHECKPOINTS = "checkpoints"
+    INCREMENTAL = "incremental"
+    SKIPPED_RECORDS = "skipped_records"
+
+
+class SourceAdapterDescriptor(BaseModel):
+    """Stable source adapter identity and behavior contract."""
+
+    name: str = Field(..., min_length=1, max_length=80)
+    version: str = Field(..., min_length=1, max_length=80)
+    source_type: str = Field(..., min_length=1, max_length=80)
+    display_name: str = Field(default="", max_length=160)
+    capabilities: list[SourceAdapterCapability] = Field(default_factory=list)
+    default_privacy_class: SourcePrivacyClass = SourcePrivacyClass.PERSONAL
+    transform_behavior: SourceTransformBehavior = SourceTransformBehavior.RAW
+    metadata_schema: dict[str, Any] = Field(default_factory=dict)
+    supports_incremental: bool = False
+
+
+class SourceDedupeKey(BaseModel):
+    """Structured inputs and stable value for source-record dedupe."""
+
+    adapter_name: str = Field(..., min_length=1)
+    source_identity: str = Field(..., min_length=1)
+    source_version: str = Field(..., min_length=1)
+    adapter_record_id: str = Field(..., min_length=1)
+    content_hash: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1)
+
+
+class SourceImportCheckpoint(BaseModel):
+    """Resumable adapter checkpoint after a bounded batch."""
+
+    cursor: str | None = None
+    source_version: str | None = None
+    records_seen: int = Field(default=0, ge=0)
+    records_imported: int = Field(default=0, ge=0)
+    records_skipped: int = Field(default=0, ge=0)
+    done: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceImportManifest(BaseModel):
+    """Import manifest produced by an adapter and checked by import services."""
+
+    adapter_name: str = Field(..., min_length=1, max_length=80)
+    adapter_version: str = Field(..., min_length=1, max_length=80)
+    source_identity: str = Field(..., min_length=1, max_length=500)
+    source_uri: str | None = Field(default=None, max_length=2000)
+    source_version: str = Field(default="unknown", min_length=1, max_length=200)
+    target_memory_scope: str = Field(default="private", min_length=1)
+    target_scope_key: str | None = Field(default=None, max_length=500)
+    privacy_class: SourcePrivacyClass = SourcePrivacyClass.PERSONAL
+    transform_behavior: SourceTransformBehavior = SourceTransformBehavior.RAW
+    metadata_schema: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    options: dict[str, Any] = Field(default_factory=dict)
+    created_by: str | None = Field(default=None, max_length=500)
+
+
+class SourceAttachmentRecord(BaseModel):
+    """Attachment metadata emitted by an adapter for a source record."""
+
+    adapter_attachment_id: str = Field(..., min_length=1, max_length=500)
+    filename: str = Field(..., min_length=1, max_length=500)
+    media_type: str | None = Field(default=None, max_length=200)
+    size_bytes: int | None = Field(default=None, ge=0)
+    content_hash: str | None = Field(default=None, max_length=200)
+    source_path: str | None = Field(default=None, max_length=2000)
+    storage_pointer: str | None = Field(default=None, max_length=2000)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceRecord(BaseModel):
+    """Source-preserving record emitted by a source adapter."""
+
+    adapter_record_id: str = Field(..., min_length=1, max_length=500)
+    source_id: str = Field(..., min_length=1, max_length=500)
+    source_type: str = Field(..., min_length=1, max_length=80)
+    source_uri: str | None = Field(default=None, max_length=2000)
+    source_version: str = Field(default="unknown", min_length=1, max_length=200)
+    title: str = Field(default="", max_length=1000)
+    body: str = Field(default="")
+    content_hash: str = Field(..., min_length=1, max_length=200)
+    dedupe_key: str = Field(..., min_length=1, max_length=500)
+    privacy_class: SourcePrivacyClass = SourcePrivacyClass.PERSONAL
+    transform_behavior: SourceTransformBehavior = SourceTransformBehavior.RAW
+    transform_version: str | None = Field(default=None, max_length=200)
+    occurred_at: datetime | None = None
+    participants: list[str] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    attachments: list[SourceAttachmentRecord] = Field(default_factory=list)
+
+
+class SourceSkippedRecord(BaseModel):
+    """Adapter-reported skipped source item."""
+
+    adapter_record_id: str | None = Field(default=None, max_length=500)
+    source_uri: str | None = Field(default=None, max_length=2000)
+    reason: str = Field(..., min_length=1, max_length=500)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceRecordBatch(BaseModel):
+    """Bounded adapter output with a resume checkpoint."""
+
+    records: list[SourceRecord] = Field(default_factory=list)
+    skipped: list[SourceSkippedRecord] = Field(default_factory=list)
+    checkpoint: SourceImportCheckpoint
 
 
 class CrawlStatus(StrEnum):
