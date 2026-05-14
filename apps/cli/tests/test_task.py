@@ -60,6 +60,74 @@ def test_validate_task_id_accepts_api_uuid() -> None:
 
 
 @patch("sibyl_cli.task.get_client")
+def test_task_complete_with_learnings_reports_queued_capture(
+    mock_get_client: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.complete_task = AsyncMock(
+        return_value={
+            "success": True,
+            "message": "Task completed with learnings captured",
+            "data": {"status": "done", "learnings": "Reusable policy lesson"},
+        }
+    )
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(
+        task.app,
+        [
+            "complete",
+            "task_123456789abc",
+            "--hours",
+            "1.5",
+            "--learnings",
+            "Reusable policy lesson",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Task completed: task_123456789abc" in result.stdout
+    assert "Task learning capture queued" in result.stdout
+    mock_client.complete_task.assert_awaited_once_with(
+        "task_123456789abc",
+        1.5,
+        "Reusable policy lesson",
+    )
+
+
+@patch("sibyl_cli.task.get_client")
+def test_task_complete_json_preserves_api_policy_metadata(
+    mock_get_client: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.complete_task = AsyncMock(
+        return_value={
+            "success": False,
+            "message": "task learning capture denied: unverified_membership",
+            "data": {"policy_reason": "unverified_membership"},
+        }
+    )
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(
+        task.app,
+        [
+            "complete",
+            "task_123456789abc",
+            "--learnings",
+            "Denied lesson",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["data"]["policy_reason"] == "unverified_membership"
+
+
+@patch("sibyl_cli.task.get_client")
 def test_task_archive_stdin_json_reports_failed_ids(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()
     mock_client.archive_task = AsyncMock(

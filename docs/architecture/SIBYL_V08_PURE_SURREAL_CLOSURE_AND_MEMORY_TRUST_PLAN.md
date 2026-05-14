@@ -1566,6 +1566,37 @@ Exit criteria:
 - JSON output includes reason codes and source IDs needed by agents.
 - Human output makes hidden or denied context understandable without leaking hidden text.
 
+B3.3 receipt, 2026-05-14:
+
+- CLI memory capture now renders API-provided policy reasons instead of reinterpreting policy
+  locally. Raw and diary `remember` responses print `Policy: <reason>`, and graph-backed `remember`
+  preserves raw memory source IDs and `raw_policy_reason` in JSON output.
+- Raw and diary recall/search render `policy=<reason>` per raw-memory item while passing query,
+  scope, diary, agent, project, and limit intent to the API.
+- Context pack and reflection commands render the API/server markdown and response metadata rather
+  than rechecking memory scope in the CLI.
+- `memory-audit` supports API-backed filters, including `--policy allowed|denied`, and displays
+  allowed/denied state plus bounded source and derived ID summaries.
+- `memory-inspect` renders API `policy_allowed`, `policy_reason`, and `content_redacted` fields so
+  hidden or project-private content remains redacted while source and audit metadata stay
+  inspectable.
+- Promotion and share preview CLI commands render API preview decisions, source IDs, denied/missing
+  IDs, redaction counts, hidden-relevant counts, reason codes, and optional audit IDs without
+  enabling non-preview sharing.
+- Task completion with `--learnings` still delegates policy to the API/job path. Human output now
+  says task learning capture was queued, and JSON output preserves API policy metadata for scripted
+  callers.
+- `moon run cli:test`: 167 passed in 1.11s.
+- `moon run cli:lint cli:typecheck`: CLI lint and typecheck passed.
+- `moon run api:test -- tests/test_routes_memory.py tests/test_routes_context.py`: 48 passed in
+  1.22s.
+- `moon run docs:lint`: all matched files use Prettier style.
+- Independent final review passed at `/tmp/claude-review-b33-final.2Aou9B`; the earlier review at
+  `/tmp/claude-review-b33-cli-policy.MUdCLb` flagged the async task-learning wording, and the CLI
+  now says the capture was queued.
+- Residual accepted risk: CLI error output for nonzero JSON invocations still uses the shared prose
+  error renderer. Future scripted clients may want a structured error envelope on stderr.
+
 ### Packet B3.4: Job Policy Payloads
 
 Purpose: stop asynchronous memory writes from losing actor, project, and delegation context after

@@ -698,7 +698,7 @@ def complete_task(
             if response.get("success"):
                 success(f"Task completed: {task_id}")
                 if learnings:
-                    info("Learning episode created from task")
+                    info("Task learning capture queued")
             else:
                 error(f"Failed to complete task: {response.get('message', 'Unknown error')}")
 
@@ -773,9 +773,7 @@ def archive_task(
 
         if json_out:
             print_json(
-                _archive_bulk_payload(results, archived, failed)
-                if len(results) > 1
-                else results[0]
+                _archive_bulk_payload(results, archived, failed) if len(results) > 1 else results[0]
             )
             return
 
