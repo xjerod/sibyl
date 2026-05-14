@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 
 from sibyl_core.models.context import ContextFacet, ContextIntent, ContextLayer
 from sibyl_core.models.entities import EntityType, RelationshipType
+from sibyl_core.models.synthesis import (
+    SynthesisDepth,
+    SynthesisOutputType,
+    SynthesisRunStatus,
+    SynthesisVerificationStatus,
+)
 
 # =============================================================================
 # Entity Schemas
@@ -743,6 +749,119 @@ class ContextPackResponse(BaseModel):
         default=None,
         description="Compact Markdown rendering for agent prompt injection",
     )
+
+
+# =============================================================================
+# Synthesis Schemas
+# =============================================================================
+
+
+class SynthesisSectionPlanRequest(BaseModel):
+    """Requested outline section for source-grounded synthesis."""
+
+    title: str = Field(..., min_length=1, max_length=200)
+    prompt: str | None = Field(default=None, max_length=2000)
+    required_source_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class SynthesisPlanRequest(BaseModel):
+    """Request for a deterministic source-aware synthesis plan."""
+
+    goal: str = Field(..., min_length=1, max_length=1000)
+    output_type: SynthesisOutputType = Field(default=SynthesisOutputType.DOCUMENTATION)
+    audience: str | None = Field(default=None, max_length=500)
+    depth: SynthesisDepth = Field(default=SynthesisDepth.STANDARD)
+    seed_query: str | None = Field(default=None, max_length=1000)
+    project: str | None = Field(default=None, max_length=500)
+    domain: str | None = Field(default=None, max_length=200)
+    entity_ids: list[str] = Field(default_factory=list, max_length=100)
+    decision_ids: list[str] = Field(default_factory=list, max_length=100)
+    task_ids: list[str] = Field(default_factory=list, max_length=100)
+    artifact_ids: list[str] = Field(default_factory=list, max_length=100)
+    required_sections: list[SynthesisSectionPlanRequest] = Field(
+        default_factory=list,
+        max_length=12,
+    )
+    constraints: list[str] = Field(default_factory=list, max_length=50)
+    max_sections: int = Field(default=6, ge=1, le=12)
+    include_neighborhoods: bool = True
+
+
+class SynthesisSourceReferenceResponse(BaseModel):
+    """Source reference selected for a synthesis plan."""
+
+    id: str
+    type: str
+    name: str
+    content_preview: str = ""
+    score: float = 0.0
+    source: str | None = None
+    origin: str = "graph"
+    relation: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SynthesisGapResponse(BaseModel):
+    """Section-level synthesis source gap."""
+
+    section_id: str
+    title: str
+    reason: str
+    query: str
+    missing_source_ids: list[str] = Field(default_factory=list)
+
+
+class SynthesisOutlineSectionResponse(BaseModel):
+    """Planned synthesis outline section."""
+
+    section_id: str
+    title: str
+    prompt: str
+    source_query: str
+    source_ids: list[str] = Field(default_factory=list)
+    gaps: list[SynthesisGapResponse] = Field(default_factory=list)
+
+
+class SynthesisOutlineResponse(BaseModel):
+    """Source-aware synthesis outline."""
+
+    title: str
+    output_type: SynthesisOutputType
+    audience: str | None = None
+    sections: list[SynthesisOutlineSectionResponse] = Field(default_factory=list)
+
+
+class SynthesisSourcePackResponse(BaseModel):
+    """Placeholder source pack for a planned section."""
+
+    section_id: str
+    title: str
+    query: str
+    source_ids: list[str] = Field(default_factory=list)
+    sources: list[SynthesisSourceReferenceResponse] = Field(default_factory=list)
+    hidden_count: int = 0
+    redaction_count: int = 0
+    unresolved_claims: list[str] = Field(default_factory=list)
+
+
+class SynthesisVerificationResponse(BaseModel):
+    """Planning-time synthesis verification summary."""
+
+    status: SynthesisVerificationStatus
+    source_count: int = 0
+    gap_count: int = 0
+    gaps: list[SynthesisGapResponse] = Field(default_factory=list)
+
+
+class SynthesisPlanResponse(BaseModel):
+    """Deterministic synthesis planning response before drafting."""
+
+    run_id: str
+    status: SynthesisRunStatus
+    request: SynthesisPlanRequest
+    outline: SynthesisOutlineResponse
+    source_packs: list[SynthesisSourcePackResponse] = Field(default_factory=list)
+    verification: SynthesisVerificationResponse
 
 
 class ReflectionRequest(BaseModel):
