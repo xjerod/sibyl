@@ -54,12 +54,15 @@ database dump sidecars.
 ```bash
 SIBYL_STORE=surreal \
 SIBYL_SURREAL_URL=ws://localhost:8000/rpc \
-sibyld migrate import /tmp/sibyl-migration.tar.gz
+sibyld migrate import /tmp/sibyl-migration.tar.gz \
+  --source-type legacy-archive \
+  --target-mode surreal
 ```
 
 The structured `auth.json` and `content.json` payloads restore directly into SurrealDB. New
 structured archive exports read from Surreal; `--restore-database-dump` is only needed when
-explicitly replaying a retained `postgres.sql` archive during rehearsal or rollback validation.
+explicitly replaying a retained `postgres.sql` archive during rehearsal or rollback validation with
+`--source-type legacy-archive --target-mode postgres-rehearsal`.
 
 ### 3. Verify
 
@@ -116,7 +119,11 @@ FalkorDB export wrapper was retired after the v0.6.0 compatibility release, so l
 uses the same archive import path as production rehearsal:
 
 ```bash
-uv run --directory apps/api sibyld migrate import <archive> --yes --clean
+uv run --directory apps/api sibyld migrate import <archive> \
+  --source-type legacy-archive \
+  --target-mode surreal \
+  --yes \
+  --clean
 ```
 
 ## Cutover

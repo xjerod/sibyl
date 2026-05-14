@@ -70,6 +70,16 @@ class AuthReadOnlyMode(str, Enum):
     unfreeze = "unfreeze"
 
 
+class ArchiveSourceType(str, Enum):
+    surreal_archive = "surreal-archive"
+    legacy_archive = "legacy-archive"
+
+
+class ArchiveTargetMode(str, Enum):
+    surreal = "surreal"
+    postgres_rehearsal = "postgres-rehearsal"
+
+
 def _load_valid_archive(source: Path):
     try:
         archive = load_archive(source)
@@ -326,6 +336,99 @@ def _warn_if_content_payload_skipped(*, archive: object, restore_content: bool) 
     if settings.store != "surreal":
         warn("Archive includes content.json, but SIBYL_STORE is not surreal")
         info("The active runtime is not using Surreal; content.json will be skipped")
+
+
+def _payload_decision(*, present: bool, enabled: bool, blocked: bool = False) -> str:
+    if not present:
+        return "missing"
+    if not enabled:
+        return "ignored"
+    if blocked:
+        return "skipped by target runtime"
+    return "restore"
+
+
+def _unsupported_payload_names(archive: object) -> list[str]:
+    manifest = getattr(archive, "manifest", None)
+    files = getattr(manifest, "files", {}) if manifest is not None else {}
+    supported_kinds = {"auth", "content", "database_dump", "graph"}
+    supported_names = {AUTH_FILENAME, CONTENT_FILENAME, GRAPH_FILENAME, POSTGRES_FILENAME}
+    unsupported: list[str] = []
+    for name, file_manifest in files.items():
+        kind = getattr(file_manifest, "kind", "other")
+        if name not in supported_names or kind not in supported_kinds:
+            unsupported.append(name)
+    return sorted(unsupported)
+
+
+def _print_archive_restore_review(
+    *,
+    archive: object,
+    source_type: ArchiveSourceType,
+    target_mode: ArchiveTargetMode,
+    restore_database_dump: bool,
+    restore_graph: bool,
+    restore_auth: bool,
+    restore_content: bool,
+) -> None:
+    archive_files = getattr(archive, "files", {})
+    manifest = getattr(archive, "manifest", None)
+    manifest_source_store = getattr(manifest, "source_store", "unknown")
+    source_path = getattr(archive, "source", "unknown")
+
+    info("Archive restore review:")
+    info(f"  source: {source_path}")
+    info(f"  manifest source store: {manifest_source_store}")
+    info(f"  declared source type: {source_type.value}")
+    info(f"  target mode: {target_mode.value}")
+    info(
+        "  graph.json: "
+        + _payload_decision(present=GRAPH_FILENAME in archive_files, enabled=restore_graph)
+    )
+    info(
+        "  auth.json: "
+        + _payload_decision(
+            present=AUTH_FILENAME in archive_files,
+            enabled=restore_auth,
+            blocked=settings.uses_relational_auth,
+        )
+    )
+    info(
+        "  content.json: "
+        + _payload_decision(
+            present=CONTENT_FILENAME in archive_files,
+            enabled=restore_content,
+            blocked=settings.store != "surreal",
+        )
+    )
+    info(
+        "  postgres.sql: "
+        + _payload_decision(
+            present=POSTGRES_FILENAME in archive_files,
+            enabled=restore_database_dump,
+        )
+    )
+    unsupported = _unsupported_payload_names(archive)
+    if unsupported:
+        warn("Unsupported archive payloads will be ignored: " + ", ".join(unsupported))
+
+
+def _require_database_dump_restore_policy(
+    *,
+    restore_database_dump: bool,
+    source_type: ArchiveSourceType,
+    target_mode: ArchiveTargetMode,
+) -> None:
+    if not restore_database_dump:
+        return
+    if source_type is not ArchiveSourceType.legacy_archive:
+        error("Restoring postgres.sql requires --source-type legacy-archive")
+        info("postgres.sql is a historical migration payload, not a default restore path")
+        raise typer.Exit(code=1)
+    if target_mode is not ArchiveTargetMode.postgres_rehearsal:
+        error("Restoring postgres.sql requires --target-mode postgres-rehearsal")
+        info("This prevents accidental writes to ambient PostgreSQL services")
+        raise typer.Exit(code=1)
 
 
 async def _replay_baseline(
@@ -1050,11 +1153,23 @@ def export_archive(
 @app.command("import")
 def import_archive(
     source: Annotated[Path, typer.Argument(help="Archive .tar.gz or directory to import")],
+    source_type: Annotated[
+        ArchiveSourceType,
+        typer.Option("--source-type", help="Required archive source type for restore policy"),
+    ],
+    target_mode: Annotated[
+        ArchiveTargetMode,
+        typer.Option("--target-mode", help="Required restore target mode for policy checks"),
+    ],
     org_id: Annotated[
         str,
         typer.Option("--org-id", help="Organization UUID override"),
     ] = "",
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print the restore review without writing data"),
+    ] = False,
     clean: Annotated[
         bool,
         typer.Option("--clean", help="Clear the target graph before import"),
@@ -1091,6 +1206,11 @@ def import_archive(
         _resolve_org_id(org_id, archive.manifest.organization_id) if restore_graph else ""
     )
 
+    _require_database_dump_restore_policy(
+        restore_database_dump=restore_database_dump,
+        source_type=source_type,
+        target_mode=target_mode,
+    )
     if restore_database_dump and POSTGRES_FILENAME not in archive.files:
         error("Archive does not contain the database dump sidecar (postgres.sql)")
         raise typer.Exit(code=1)
@@ -1104,6 +1224,19 @@ def import_archive(
     )
     _warn_if_auth_payload_skipped(archive=archive, restore_auth=restore_auth)
     _warn_if_content_payload_skipped(archive=archive, restore_content=restore_content)
+    _print_archive_restore_review(
+        archive=archive,
+        source_type=source_type,
+        target_mode=target_mode,
+        restore_database_dump=restore_database_dump,
+        restore_graph=restore_graph,
+        restore_auth=restore_auth,
+        restore_content=restore_content,
+    )
+
+    if dry_run:
+        success("Archive import dry run complete")
+        return
 
     if not yes:
         warn("This will import archive data into the active runtime.")
@@ -1331,11 +1464,23 @@ def auth_readonly(
 @app.command("rehearse")
 def rehearse_archive(
     source: Annotated[Path, typer.Argument(help="Archive .tar.gz or directory to rehearse")],
+    source_type: Annotated[
+        ArchiveSourceType,
+        typer.Option("--source-type", help="Required archive source type for restore policy"),
+    ],
+    target_mode: Annotated[
+        ArchiveTargetMode,
+        typer.Option("--target-mode", help="Required restore target mode for policy checks"),
+    ],
     org_id: Annotated[
         str,
         typer.Option("--org-id", help="Organization UUID override"),
     ] = "",
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print the rehearsal restore review without writing data"),
+    ] = False,
     clean: Annotated[
         bool,
         typer.Option("--clean", help="Clear the target graph before import"),
@@ -1422,6 +1567,11 @@ def rehearse_archive(
     archive = _load_valid_archive(source)
     effective_org_id = _resolve_org_id(org_id, archive.manifest.organization_id)
 
+    _require_database_dump_restore_policy(
+        restore_database_dump=restore_database_dump,
+        source_type=source_type,
+        target_mode=target_mode,
+    )
     if restore_database_dump and POSTGRES_FILENAME not in archive.files:
         error("Archive does not contain the database dump sidecar (postgres.sql)")
         raise typer.Exit(code=1)
@@ -1434,6 +1584,19 @@ def rehearse_archive(
     )
     _warn_if_auth_payload_skipped(archive=archive, restore_auth=restore_auth)
     _warn_if_content_payload_skipped(archive=archive, restore_content=restore_content)
+    _print_archive_restore_review(
+        archive=archive,
+        source_type=source_type,
+        target_mode=target_mode,
+        restore_database_dump=restore_database_dump,
+        restore_graph=True,
+        restore_auth=restore_auth,
+        restore_content=restore_content,
+    )
+    if dry_run:
+        success("Migration rehearsal dry run complete")
+        return
+
     if run_baseline and not manifest_path.exists():
         error(f"Baseline manifest not found: {manifest_path}")
         raise typer.Exit(code=1)
@@ -1509,6 +1672,14 @@ def rehearse_archive(
 @app.command("cutover")
 def cutover_archive(
     source: Annotated[Path, typer.Argument(help="Archive .tar.gz or directory to cut over from")],
+    source_type: Annotated[
+        ArchiveSourceType,
+        typer.Option("--source-type", help="Required archive source type for restore policy"),
+    ],
+    target_mode: Annotated[
+        ArchiveTargetMode,
+        typer.Option("--target-mode", help="Required restore target mode for policy checks"),
+    ],
     org_id: Annotated[
         str,
         typer.Option("--org-id", help="Organization UUID override"),
@@ -1643,6 +1814,11 @@ def cutover_archive(
     archive = _load_valid_archive(source)
     effective_org_id = _resolve_org_id(org_id, archive.manifest.organization_id)
 
+    _require_database_dump_restore_policy(
+        restore_database_dump=restore_database_dump,
+        source_type=source_type,
+        target_mode=target_mode,
+    )
     if restore_database_dump and POSTGRES_FILENAME not in archive.files:
         error("Archive does not contain the database dump sidecar (postgres.sql)")
         raise typer.Exit(code=1)
@@ -1655,6 +1831,15 @@ def cutover_archive(
     )
     _warn_if_auth_payload_skipped(archive=archive, restore_auth=restore_auth)
     _warn_if_content_payload_skipped(archive=archive, restore_content=restore_content)
+    _print_archive_restore_review(
+        archive=archive,
+        source_type=source_type,
+        target_mode=target_mode,
+        restore_database_dump=restore_database_dump,
+        restore_graph=True,
+        restore_auth=restore_auth,
+        restore_content=restore_content,
+    )
 
     warn("Rollback is supported only until writes reopen on SurrealDB.")
     warn("This command does not unfreeze or freeze writes for you; it enforces the operator gate.")

@@ -22,6 +22,13 @@ from sibyl_core.migrate.archive import (
 )
 
 runner = CliRunner()
+LEGACY_ARCHIVE_FLAGS = ["--source-type", "legacy-archive", "--target-mode", "surreal"]
+LEGACY_POSTGRES_REHEARSAL_FLAGS = [
+    "--source-type",
+    "legacy-archive",
+    "--target-mode",
+    "postgres-rehearsal",
+]
 
 
 def _auth_payload(*, user_rows: int = 1) -> dict[str, object]:
@@ -545,7 +552,10 @@ def test_migrate_import_uses_archive_org_id(tmp_path: Path) -> None:
     _write_graph_archive(archive_path, org_id="org-xyz")
 
     with patch("sibyl.cli.migrate._restore_graph_payload", return_value=True) as restore_graph:
-        result = runner.invoke(migrate_cli.app, ["import", str(archive_path), "--yes"])
+        result = runner.invoke(
+            migrate_cli.app,
+            ["import", str(archive_path), *LEGACY_ARCHIVE_FLAGS, "--yes"],
+        )
 
     assert result.exit_code == 0
     payload, org_id = restore_graph.call_args.args[:2]
@@ -564,7 +574,13 @@ def test_migrate_import_restores_postgres_and_graph(tmp_path: Path) -> None:
     ):
         result = runner.invoke(
             migrate_cli.app,
-            ["import", str(archive_path), "--yes", "--restore-database-dump"],
+            [
+                "import",
+                str(archive_path),
+                "--yes",
+                "--restore-database-dump",
+                *LEGACY_POSTGRES_REHEARSAL_FLAGS,
+            ],
         )
 
     assert result.exit_code == 0
@@ -575,12 +591,264 @@ def test_migrate_import_restores_postgres_and_graph(tmp_path: Path) -> None:
     assert restore_graph.call_args.kwargs == {"clean": False}
 
 
+def test_migrate_import_requires_explicit_source_type_and_target_mode(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_graph_archive(archive_path)
+
+    with patch("sibyl.cli.migrate._restore_graph_payload", return_value=True) as restore_graph:
+        result = runner.invoke(migrate_cli.app, ["import", str(archive_path), "--yes"])
+        missing_target = runner.invoke(
+            migrate_cli.app,
+            [
+                "import",
+                str(archive_path),
+                "--source-type",
+                "legacy-archive",
+                "--yes",
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert "--source-type" in result.output
+    assert missing_target.exit_code != 0
+    assert "--target-mode" in missing_target.output
+    restore_graph.assert_not_called()
+
+
+def test_migrate_rehearse_and_cutover_require_explicit_policy_flags(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_graph_archive(archive_path)
+
+    command_args = [
+        ("rehearse", ["--yes", "--skip-baseline"]),
+        ("cutover", ["--dry-run", "--skip-baseline"]),
+    ]
+
+    for command, extra_args in command_args:
+        result = runner.invoke(
+            migrate_cli.app,
+            [command, str(archive_path), *extra_args],
+        )
+        missing_target = runner.invoke(
+            migrate_cli.app,
+            [
+                command,
+                str(archive_path),
+                "--source-type",
+                "legacy-archive",
+                *extra_args,
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "--source-type" in result.output
+        assert missing_target.exit_code != 0
+        assert "--target-mode" in missing_target.output
+
+
+def test_migrate_import_requires_explicit_postgres_restore_policy(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_full_archive(archive_path)
+
+    missing_flags = runner.invoke(
+        migrate_cli.app,
+        ["import", str(archive_path), "--yes", "--restore-database-dump"],
+    )
+    invalid_source = runner.invoke(
+        migrate_cli.app,
+        [
+            "import",
+            str(archive_path),
+            "--yes",
+            "--restore-database-dump",
+            "--source-type",
+            "surreal-archive",
+            "--target-mode",
+            "postgres-rehearsal",
+        ],
+    )
+    missing_target = runner.invoke(
+        migrate_cli.app,
+        [
+            "import",
+            str(archive_path),
+            "--yes",
+            "--restore-database-dump",
+            "--source-type",
+            "legacy-archive",
+            "--target-mode",
+            "surreal",
+        ],
+    )
+
+    assert missing_flags.exit_code != 0
+    assert "--source-type" in missing_flags.output
+    assert invalid_source.exit_code == 1
+    assert "--source-type legacy-archive" in invalid_source.output
+    assert "historical migration payload" in invalid_source.output
+    assert missing_target.exit_code == 1
+    assert "--target-mode postgres-rehearsal" in missing_target.output
+    assert "ambient PostgreSQL services" in missing_target.output
+
+
+def test_migrate_rehearse_and_cutover_require_postgres_restore_policy(
+    tmp_path: Path,
+) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_full_archive(archive_path)
+
+    command_args = [
+        ("rehearse", []),
+        ("cutover", []),
+    ]
+
+    with patch.object(migrate_cli.settings, "store", "surreal"):
+        for command, extra_args in command_args:
+            invalid_source = runner.invoke(
+                migrate_cli.app,
+                [
+                    command,
+                    str(archive_path),
+                    "--restore-database-dump",
+                    "--source-type",
+                    "surreal-archive",
+                    "--target-mode",
+                    "postgres-rehearsal",
+                    *extra_args,
+                ],
+            )
+            missing_target = runner.invoke(
+                migrate_cli.app,
+                [
+                    command,
+                    str(archive_path),
+                    "--restore-database-dump",
+                    "--source-type",
+                    "legacy-archive",
+                    "--target-mode",
+                    "surreal",
+                    *extra_args,
+                ],
+            )
+
+            assert invalid_source.exit_code == 1
+            assert "--source-type legacy-archive" in invalid_source.output
+            assert "historical migration payload" in invalid_source.output
+            assert missing_target.exit_code == 1
+            assert "--target-mode postgres-rehearsal" in missing_target.output
+            assert "ambient PostgreSQL services" in missing_target.output
+
+
+def test_migrate_commands_report_policy_before_missing_postgres_payload(
+    tmp_path: Path,
+) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_graph_archive(archive_path)
+
+    command_args = [
+        ("import", []),
+        ("rehearse", []),
+        ("cutover", []),
+    ]
+
+    with patch.object(migrate_cli.settings, "store", "surreal"):
+        for command, extra_args in command_args:
+            result = runner.invoke(
+                migrate_cli.app,
+                [
+                    command,
+                    str(archive_path),
+                    "--restore-database-dump",
+                    "--source-type",
+                    "surreal-archive",
+                    "--target-mode",
+                    "postgres-rehearsal",
+                    *extra_args,
+                ],
+            )
+
+            assert result.exit_code == 1
+            assert "--source-type legacy-archive" in result.output
+            assert "Archive does not contain" not in result.output
+
+
+def test_migrate_import_dry_run_reports_restore_review_without_writes(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    _write_full_archive(archive_path, include_auth=True, include_content=True)
+
+    with (
+        patch("sibyl.cli.migrate._restore_pg_sql") as restore_pg,
+        patch("sibyl.cli.migrate._restore_graph_payload", return_value=True) as restore_graph,
+        patch("sibyl.cli.migrate._restore_auth_payload", return_value=True) as restore_auth,
+        patch("sibyl.cli.migrate._restore_content_payload", return_value=True) as restore_content,
+    ):
+        result = runner.invoke(
+            migrate_cli.app,
+            [
+                "import",
+                str(archive_path),
+                "--dry-run",
+                *LEGACY_ARCHIVE_FLAGS,
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Archive restore review:" in result.output
+    assert "declared source type: legacy-archive" in result.output
+    assert "target mode: surreal" in result.output
+    assert "postgres.sql: ignored" in result.output
+    assert "Archive import dry run complete" in result.output
+    restore_pg.assert_not_called()
+    restore_graph.assert_not_called()
+    restore_auth.assert_not_called()
+    restore_content.assert_not_called()
+
+
+def test_migrate_import_dry_run_reports_unsupported_payloads(tmp_path: Path) -> None:
+    archive_path = tmp_path / "migration.tar.gz"
+    graph_payload = {
+        "version": "2.0",
+        "created_at": "2026-04-19T20:00:00+00:00",
+        "organization_id": "org-123",
+        "entity_count": 1,
+        "relationship_count": 0,
+        "entities": [{"id": "entity-1"}],
+        "relationships": [],
+    }
+    files = {
+        GRAPH_FILENAME: json.dumps(graph_payload).encode("utf-8"),
+        "old-falkor-export.json": b"{}",
+    }
+    manifest = build_manifest(
+        organization_id="org-123",
+        source_store="legacy",
+        files=files,
+        file_metadata={
+            GRAPH_FILENAME: {"kind": "graph", "entity_count": 1, "relationship_count": 0},
+            "old-falkor-export.json": {"kind": "graph"},
+        },
+    )
+    write_archive(archive_path, manifest=manifest, files=files)
+
+    result = runner.invoke(
+        migrate_cli.app,
+        ["import", str(archive_path), *LEGACY_ARCHIVE_FLAGS, "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert "Unsupported archive payloads will be ignored" in result.output
+    assert "old-falkor-export.json" in result.output
+
+
 def test_migrate_import_warns_when_postgres_payload_is_skipped(tmp_path: Path) -> None:
     archive_path = tmp_path / "migration.tar.gz"
     _write_full_archive(archive_path)
 
     with patch("sibyl.cli.migrate._restore_graph_payload", return_value=True):
-        result = runner.invoke(migrate_cli.app, ["import", str(archive_path), "--yes"])
+        result = runner.invoke(
+            migrate_cli.app,
+            ["import", str(archive_path), *LEGACY_ARCHIVE_FLAGS, "--yes"],
+        )
 
     assert result.exit_code == 0
     assert "database dump sidecar" in result.output
@@ -597,7 +865,7 @@ def test_migrate_import_warns_when_auth_payload_restore_is_disabled(tmp_path: Pa
     ):
         result = runner.invoke(
             migrate_cli.app,
-            ["import", str(archive_path), "--yes", "--skip-auth"],
+            ["import", str(archive_path), *LEGACY_ARCHIVE_FLAGS, "--yes", "--skip-auth"],
         )
 
     assert result.exit_code == 0
@@ -613,7 +881,10 @@ def test_migrate_import_restores_auth_when_surreal_auth_store_is_enabled(tmp_pat
         patch("sibyl.cli.migrate._restore_graph_payload", return_value=True),
         patch("sibyl.cli.migrate._restore_auth_payload", return_value=True) as restore_auth,
     ):
-        result = runner.invoke(migrate_cli.app, ["import", str(archive_path), "--yes"])
+        result = runner.invoke(
+            migrate_cli.app,
+            ["import", str(archive_path), *LEGACY_ARCHIVE_FLAGS, "--yes"],
+        )
 
     assert result.exit_code == 0
     payload = restore_auth.call_args.args[0]
@@ -631,7 +902,10 @@ def test_migrate_import_warns_when_content_payload_is_skipped_in_legacy_store(
         patch.object(migrate_cli.settings, "store", "legacy"),
         patch("sibyl.cli.migrate._restore_graph_payload", return_value=True),
     ):
-        result = runner.invoke(migrate_cli.app, ["import", str(archive_path), "--yes"])
+        result = runner.invoke(
+            migrate_cli.app,
+            ["import", str(archive_path), *LEGACY_ARCHIVE_FLAGS, "--yes"],
+        )
 
     assert result.exit_code == 0
     assert "Archive includes content.json, but SIBYL_STORE is not surreal" in result.output
@@ -646,7 +920,10 @@ def test_migrate_import_restores_content_when_surreal_store_is_enabled(tmp_path:
         patch("sibyl.cli.migrate._restore_graph_payload", return_value=True),
         patch("sibyl.cli.migrate._restore_content_payload", return_value=True) as restore_content,
     ):
-        result = runner.invoke(migrate_cli.app, ["import", str(archive_path), "--yes"])
+        result = runner.invoke(
+            migrate_cli.app,
+            ["import", str(archive_path), *LEGACY_ARCHIVE_FLAGS, "--yes"],
+        )
 
     assert result.exit_code == 0
     payload = restore_content.call_args.args[0]
@@ -871,6 +1148,7 @@ def test_migrate_rehearse_runs_verify_and_baseline(tmp_path: Path) -> None:
             [
                 "rehearse",
                 str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
                 "--yes",
                 "--manifest-path",
                 str(manifest_path),
@@ -904,6 +1182,7 @@ def test_migrate_rehearse_passes_auth_flow_options(tmp_path: Path) -> None:
             [
                 "rehearse",
                 str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
                 "--yes",
                 "--skip-baseline",
                 "--base-url",
@@ -933,7 +1212,13 @@ def test_migrate_cutover_requires_surreal_store(tmp_path: Path) -> None:
     with patch.object(migrate_cli.settings, "store", "legacy"):
         result = runner.invoke(
             migrate_cli.app,
-            ["cutover", str(archive_path), "--dry-run", "--skip-baseline"],
+            [
+                "cutover",
+                str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
+                "--dry-run",
+                "--skip-baseline",
+            ],
         )
 
     assert result.exit_code == 1
@@ -950,7 +1235,13 @@ def test_migrate_cutover_ignores_removed_postgres_auth_store(tmp_path: Path) -> 
     ):
         result = runner.invoke(
             migrate_cli.app,
-            ["cutover", str(archive_path), "--dry-run", "--skip-baseline"],
+            [
+                "cutover",
+                str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
+                "--dry-run",
+                "--skip-baseline",
+            ],
         )
 
     assert result.exit_code == 0
@@ -967,6 +1258,7 @@ def test_migrate_cutover_dry_run_prints_plan(tmp_path: Path) -> None:
             [
                 "cutover",
                 str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
                 "--dry-run",
                 "--skip-baseline",
                 "--run-bench-live-smoke",
@@ -992,7 +1284,13 @@ def test_migrate_cutover_requires_write_freeze_confirmation(tmp_path: Path) -> N
     with patch.object(migrate_cli.settings, "store", "surreal"):
         result = runner.invoke(
             migrate_cli.app,
-            ["cutover", str(archive_path), "--yes", "--skip-baseline"],
+            [
+                "cutover",
+                str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
+                "--yes",
+                "--skip-baseline",
+            ],
         )
 
     assert result.exit_code == 1
@@ -1021,6 +1319,7 @@ def test_migrate_cutover_leaves_writes_frozen_until_explicit_reopen(tmp_path: Pa
             [
                 "cutover",
                 str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
                 "--yes",
                 "--write-freeze-confirmed",
                 "--manifest-path",
@@ -1062,6 +1361,7 @@ def test_migrate_cutover_requires_ack_before_reopen(tmp_path: Path) -> None:
             [
                 "cutover",
                 str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
                 "--yes",
                 "--write-freeze-confirmed",
                 "--manifest-path",
@@ -1097,6 +1397,7 @@ def test_migrate_cutover_reopen_prints_rollback_boundary(tmp_path: Path) -> None
             [
                 "cutover",
                 str(archive_path),
+                *LEGACY_ARCHIVE_FLAGS,
                 "--yes",
                 "--write-freeze-confirmed",
                 "--manifest-path",

@@ -293,7 +293,8 @@ surrealdb error: connection refused
    tar -tzf migration-archive.tar.gz | grep postgres.sql
    ```
 
-3. **Run restore only in explicit rehearsal mode with `--restore-database-dump`.**
+3. **Run restore only in explicit rehearsal mode with
+   `--restore-database-dump --source-type legacy-archive --target-mode postgres-rehearsal`.**
 
 ### Kong Gateway Issues
 

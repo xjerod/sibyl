@@ -63,6 +63,6 @@ SIBYL_COORDINATION_BACKEND=local
   CLI-driven (`sibyld migrate export|import|verify`) and supports rehearsal runs.
 - **Local legacy dev install:** `moon run dev` detects existing legacy data before starting a fresh
   Surreal runtime. Import a previously exported archive with
-  `uv run --directory apps/api sibyld migrate import <archive> --yes --clean`.
+  `uv run --directory apps/api sibyld migrate import <archive> --source-type legacy-archive --target-mode surreal --yes --clean`.
 - **PostgreSQL auth removal:** if an old `.env` still sets `SIBYL_AUTH_STORE=postgres`, remove it.
   The server rejects that value, and `moon run dev` normalizes local startup back to Surreal auth.

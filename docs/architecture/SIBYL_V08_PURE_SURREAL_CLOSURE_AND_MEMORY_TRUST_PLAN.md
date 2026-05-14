@@ -2238,6 +2238,45 @@ Exit criteria:
 - Default recovery docs are Surreal-native.
 - Historical imports are explicit and cannot run from ambient service defaults.
 
+Receipt, 2026-05-14:
+
+- Commit: this packet's `fix(migrate): require explicit archive restore policy` commit.
+- Changed files:
+  - `apps/api/src/sibyl/cli/migrate.py`
+  - `apps/api/tests/test_cli_migrate.py`
+  - `README.md`
+  - `docs/api/auth-authorization.md`
+  - `docs/architecture/SURREALDB_PHASE2_LIVE_GATES.md`
+  - `docs/architecture/SURREALDB_PHASE3_BURNDOWN.md`
+  - `docs/deployment/docker-compose.md`
+  - `docs/deployment/troubleshooting.md`
+  - `docs/guide/installation.md`
+  - `docs/guide/migrating-from-falkor.md`
+  - `docs/guide/storage-modes.md`
+  - `docs/guide/surrealdb-migration-release-notes.md`
+  - `docs/testing/benchmark-methodology.md`
+  - `tools/dev/run-surreal-dev.sh`
+  - `tools/tests/test_dev_scripts.py`
+- Verification:
+  - `moon run api:test -- tests/test_cli_migrate.py` -> 43 passed in 1.52s.
+  - `moon run docs:lint` -> all matched files use Prettier code style.
+  - `moon run root:dev-script-test` -> 5 passed in 0.19s.
+  - `moon run api:lint` -> all checks passed.
+  - `moon run api:typecheck` -> exited 0 with existing 62 ty warnings.
+  - `moon run core:test -- tests/test_migrate_archive.py` -> 885 passed, 14 skipped, 20 deselected
+    in 5.28s.
+  - `moon run api:test` -> 1405 passed, 1 skipped, 16 deselected in 10.97s.
+  - `moon run core:no-graphiti-smoke` -> 2 passed in 2.56s.
+  - `git diff --check` -> passed.
+  - `moon run :check` -> 34 tasks completed.
+- Review: Claude cross-model review PASS at `/tmp/claude-review-a51-docs-final.YEQf5b`; the only
+  finding was heredoc indentation in `tools/dev/run-surreal-dev.sh`, fixed before commit.
+- Policy or compatibility decision: archive import, rehearsal, and cutover require explicit
+  `--source-type` and `--target-mode`; `postgres.sql` restore is historical-only and requires
+  `--restore-database-dump --source-type legacy-archive --target-mode postgres-rehearsal`.
+- Remaining risk: A5.2 still needs the broader retained-term inventory across active docs and
+  deployment surfaces; this packet sweeps archive command examples and restore-policy docs.
+
 ### Packet A5.2: Legacy Docs And Compose Sweep
 
 Purpose: remove stale default-runtime instructions for legacy services.

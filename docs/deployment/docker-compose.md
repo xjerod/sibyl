@@ -235,7 +235,7 @@ docker exec -it sibyl-redis redis-cli
 
 The default compose file no longer ships a PostgreSQL sidecar. Historical `postgres.sql` archive
 rehearsal must point at an explicitly managed external database, then run the migration command with
-`--restore-database-dump`.
+`--restore-database-dump --source-type legacy-archive --target-mode postgres-rehearsal`.
 
 ## Troubleshooting
 

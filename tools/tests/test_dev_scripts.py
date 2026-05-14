@@ -111,4 +111,6 @@ def test_legacy_guard_warns_when_legacy_exists_without_surreal_marker(tmp_path: 
     assert result.returncode == 1
     assert "Local legacy data detected" in result.stdout
     assert "sibyld migrate import <archive>" in result.stdout
+    assert "--source-type legacy-archive" in result.stdout
+    assert "--target-mode surreal" in result.stdout
     assert "moon run dev-legacy" not in result.stdout

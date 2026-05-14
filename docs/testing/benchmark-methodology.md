@@ -212,18 +212,19 @@ When you need to compare legacy and Surreal on the same graph data:
 1. Export a manifest archive from the source store with
    `sibyld migrate export --org-id <org> --output /tmp/migration.tar.gz`
 2. Rehearse the import path on the target store with
-   `moon run migrate-rehearse -- /tmp/migration.tar.gz --yes --restore-database-dump`
+   `moon run migrate-rehearse -- /tmp/migration.tar.gz --source-type legacy-archive --target-mode postgres-rehearsal --yes --restore-database-dump`
 3. Run `moon run bench-live -- --label <store> --metadata store=<store>`
 4. Compare the saved artifacts with
    `uv run python benchmarks/compare_eval_reports.py <legacy.json> <surreal.json>`
 
 The rehearsal command handles archive validation, optional PostgreSQL restore, graph import, runtime
-verification, and the deterministic baseline replay in one pass. Use `--restore-database-dump` when
-you want a full FalkorDB/PostgreSQL migration rehearsal instead of a graph-only replay. That keeps
-the public story honest and makes it much easier to compare runs over time.
+verification, and the deterministic baseline replay in one pass. Use `--restore-database-dump` with
+`--source-type legacy-archive --target-mode postgres-rehearsal` when you want a full
+FalkorDB/PostgreSQL migration rehearsal instead of a graph-only replay. That keeps the public story
+honest and makes it much easier to compare runs over time.
 
 When you are ready for a real maintenance-window swap, use
-`moon run migrate-cutover -- /tmp/migration.tar.gz --yes --write-freeze-confirmed --base-url <surreal-api>`
+`moon run migrate-cutover -- /tmp/migration.tar.gz --source-type legacy-archive --target-mode surreal --yes --write-freeze-confirmed --base-url <surreal-api>`
 on the Surreal runtime. That command keeps writes frozen through import, verification, baseline
 replay, and any optional live bench checks. Reopening writes is a separate explicit step with
 `--reopen-writes --acknowledge-no-instant-rollback`, because instant zero-loss rollback is not

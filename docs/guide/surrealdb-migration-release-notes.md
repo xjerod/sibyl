@@ -30,10 +30,26 @@ If you have an old local FalkorDB + PostgreSQL install, export an archive from t
 compatibility release before upgrading, then import it into SurrealDB:
 
 ```bash
-uv run --directory apps/api sibyld migrate import <archive> --yes --clean
+uv run --directory apps/api sibyld migrate import <archive> \
+  --source-type legacy-archive \
+  --target-mode surreal \
+  --dry-run
+
+uv run --directory apps/api sibyld migrate import <archive> \
+  --source-type legacy-archive \
+  --target-mode surreal \
+  --yes \
+  --clean
 ```
 
-Use `--restore-database-dump` only for rehearsal or rollback validation.
+Every archive import, rehearsal, and cutover now requires an explicit source type and target mode.
+Use `--source-type surreal-archive --target-mode surreal` for Surreal-native archive restores. Use
+`--source-type legacy-archive --target-mode surreal` for historical FalkorDB/PostgreSQL migration
+archives imported into SurrealDB.
+
+Use `--restore-database-dump` only for PostgreSQL rehearsal evidence, and always pair it with
+`--source-type legacy-archive --target-mode postgres-rehearsal`. `postgres.sql` is a historical
+migration payload, not the default restore path.
 
 ## Existing production installs
 
@@ -68,13 +84,20 @@ These paths remain available as migration and rollback evidence while Phase 3 cl
 surface:
 
 - archive import, verify, and cutover commands for existing legacy installs
-- retained `postgres.sql` restore through explicit `--restore-database-dump` rehearsal commands
-- graph archive payload import into SurrealDB
+- Surreal-native archive restore through explicit
+  `--source-type surreal-archive --target-mode surreal`
+- retained `postgres.sql` restore through explicit
+  `--restore-database-dump --source-type legacy-archive --target-mode postgres-rehearsal` rehearsal
+  commands
+- graph archive payload import into SurrealDB with dry-run restore review before writes
 
 The old PostgreSQL auth/RBAC runtime, active PostgreSQL content sidecars, ambient PostgreSQL
 startup/sync code, local FalkorDB runtime fallback, and Graphiti FalkorDB adapter have been removed.
 `SIBYL_STORE=legacy` is now source-side migration context for old installs, not a supported product
 runtime for new deployments.
+
+The active backup job writes Surreal auth/content snapshots and graph exports. It does not produce
+new `postgres.sql` sidecars in fully Surreal mode.
 
 ## Rollback posture
 

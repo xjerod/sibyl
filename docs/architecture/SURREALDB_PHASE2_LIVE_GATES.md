@@ -98,6 +98,8 @@ Validate the local archive import path:
 ```bash
 SURREAL_DATA_DIR="$SIBYL_GATE_DIR/single-org-surreal" \
 uv run --directory apps/api sibyld migrate import "$SIBYL_GATE_DIR/single-org.tar.gz" \
+  --source-type legacy-archive \
+  --target-mode surreal \
   --yes --clean \
   2>&1 | tee "$SIBYL_GATE_DIR/local-single-org.log"
 ```
@@ -118,6 +120,8 @@ Validate the explicit-org archive import path:
 ```bash
 SURREAL_DATA_DIR="$SIBYL_GATE_DIR/multi-org-surreal" \
 uv run --directory apps/api sibyld migrate import "$SIBYL_GATE_DIR/multi-org.tar.gz" \
+  --source-type legacy-archive \
+  --target-mode surreal \
   --org-id <org-uuid> --yes --clean \
   2>&1 | tee "$SIBYL_GATE_DIR/local-multi-org.log"
 ```

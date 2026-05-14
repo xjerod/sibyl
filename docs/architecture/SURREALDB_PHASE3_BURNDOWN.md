@@ -105,7 +105,7 @@ Decide each legacy module:
 
 `apps/api/src/sibyl/persistence/content_archive.py` is now Surreal-only for structured
 `content.json` export and restore. Retained `postgres.sql` payloads are restored only by explicit
-migration commands for rehearsal or rollback validation.
+historical migration commands that name the archive source and target mode before any write.
 
 Verification:
 
@@ -189,6 +189,16 @@ Completed evidence:
   and direct `sibyld db` PostgreSQL commands were deleted.
 - Runtime inventory now reports 0 SQLModel tables, 0 raw SQL query usage files, 0 session-backed
   storage access files, and no legacy transition dependencies.
+
+Archive policy update:
+
+- `sibyld migrate import`, `rehearse`, and `cutover` require explicit `--source-type` and
+  `--target-mode` flags.
+- `--source-type surreal-archive --target-mode surreal` is the Surreal-native restore path.
+- Restoring retained `postgres.sql` payloads requires
+  `--restore-database-dump --source-type legacy-archive --target-mode postgres-rehearsal`.
+- Import and rehearsal commands support `--dry-run` restore review before writes.
+- Unsupported or ignored archive payloads are reported before restore writes begin.
 
 ### Lane 5 - Remove Legacy Graph and Dependencies
 
@@ -302,4 +312,6 @@ used to support.
 - `moon run inventory-check inventory-typecheck inventory-test` passes.
 - `moon run api:check core:check cli:check web:check` passes for touched projects.
 - Live rehearsal evidence is appended to the Phase 2 migration plan or release notes.
-- Archive rollback policy is explicit before any `postgres.sql` support is removed.
+- Archive rollback policy is explicit: Surreal-native restore uses `surreal-archive` to `surreal`,
+  while retained `postgres.sql` support is historical `legacy-archive` to `postgres-rehearsal`
+  evidence.

@@ -94,7 +94,10 @@ warn_if_legacy_setup_detected() {
    `moon run dev` now starts the SurrealDB runtime by default.
 
    Import a previously exported archive with:
-     uv run --directory apps/api sibyld migrate import <archive> --yes --clean
+     uv run --directory apps/api sibyld migrate import <archive> \
+       --source-type legacy-archive \
+       --target-mode surreal \
+       --yes --clean
 
    Start a fresh SurrealDB dev runtime:
      moon run dev -- --ignore-legacy

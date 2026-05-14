@@ -168,7 +168,8 @@ This starts:
 - In-process background jobs and schedules
 
 The local FalkorDB/PostgreSQL dev fallback was retired after the v0.6.0 compatibility release. Use
-`sibyld migrate import <archive>` to move an exported archive into SurrealDB.
+`sibyld migrate import <archive> --source-type legacy-archive --target-mode surreal` to move an
+exported archive into SurrealDB.
 
 ### Individual Services
 
@@ -244,8 +245,11 @@ REMOVE NAMESPACE org_<uuid_hex>;
 
 ### Legacy Graph / Migration Errors
 
-Use a retained archive file with `sibyld migrate import`. Only pass `--restore-database-dump` when
-rehearsing a historical `postgres.sql` payload against an explicitly managed PostgreSQL database.
+Use a retained archive file with
+`sibyld migrate import <archive> --source-type legacy-archive --target-mode surreal`. Only pass
+`--restore-database-dump` when rehearsing a historical `postgres.sql` payload against an explicitly
+managed PostgreSQL database, paired with
+`--source-type legacy-archive --target-mode postgres-rehearsal`.
 
 ### OpenAI API Errors
 

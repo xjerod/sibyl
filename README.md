@@ -170,7 +170,7 @@ curl http://localhost:3334/api/health
 `moon run dev` is the Surreal single-machine flow. It starts local SurrealDB and runs jobs plus
 schedules in-process under `sibyld serve`. Redis stays opt-in for multi-process or distributed dev
 work. Existing local legacy installs should be migrated from a previously exported archive with
-`sibyld migrate import`.
+`sibyld migrate import <archive> --source-type legacy-archive --target-mode surreal`.
 
 ### Retrieval Benchmarks
 
@@ -477,8 +477,10 @@ moon run dev
 
 If local legacy data exists and no local Surreal data has been created yet, `moon run dev` prints
 the archive import path instead of starting SurrealDB. Import a previously exported archive with
-`uv run --directory apps/api sibyld migrate import <archive> --yes --clean`, then start dev again.
-Use `--restore-database-dump` only for migration rehearsal or rollback validation.
+`uv run --directory apps/api sibyld migrate import <archive> --source-type legacy-archive
+--target-mode surreal --yes --clean`, then start dev again. Use `--restore-database-dump` only
+for migration rehearsal or rollback validation with
+`--source-type legacy-archive --target-mode postgres-rehearsal`.
 
 ## Entity Types
 
