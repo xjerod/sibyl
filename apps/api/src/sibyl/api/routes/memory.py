@@ -662,6 +662,106 @@ def _audit_events_for_visibility(
     return [event.model_copy(update={"details": {}}) for event in events]
 
 
+def _metadata_dicts(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _correction_history(
+    *,
+    memory: RawMemory,
+    audit_events: list[MemoryAuditEventResponse],
+) -> list[dict[str, Any]]:
+    history = _metadata_dicts(memory.metadata.get("correction_history"))
+    for event in audit_events:
+        if not (
+            event.action.startswith("memory.correction")
+            or event.action in {
+                "memory.hide",
+                "memory.redact",
+                "memory.restore",
+                "memory.delete",
+            }
+        ):
+            continue
+        history.append(
+            {
+                "audit_event_id": event.id,
+                "action": event.action,
+                "policy_reason": event.policy_reason,
+                "derived_ids": list(event.derived_ids),
+                "created_at": event.created_at,
+            }
+        )
+    return history
+
+
+def _promotion_state(
+    *,
+    memory: RawMemory,
+    audit_events: list[MemoryAuditEventResponse],
+) -> dict[str, Any]:
+    promotion_events = [event.id for event in audit_events if "promote" in event.action]
+    promoted_id = _memory_metadata_str(memory, "promoted_entity_id")
+    state = "promoted" if memory.review_state == "promoted" or promoted_id else "not_promoted"
+    return {
+        "state": state,
+        "promoted_id": promoted_id,
+        "promoted_at": _memory_metadata_str(memory, "promoted_at"),
+        "audit_event_ids": promotion_events,
+    }
+
+
+def _share_state(audit_events: list[MemoryAuditEventResponse]) -> dict[str, Any]:
+    share_events = [event.id for event in audit_events if "share" in event.action]
+    return {
+        "state": "previewed" if share_events else "none",
+        "audit_event_ids": share_events,
+    }
+
+
+def _transform_versions(metadata: dict[str, object]) -> dict[str, Any]:
+    keys = (
+        "adapter_version",
+        "embedding_model",
+        "embedding_model_version",
+        "extraction_version",
+        "schema_version",
+        "source_adapter_version",
+        "transform_version",
+    )
+    return {key: metadata[key] for key in keys if key in metadata}
+
+
+def _available_source_actions(
+    *,
+    memory: RawMemory,
+    policy_decision: MemoryPolicyDecision,
+) -> list[dict[str, Any]]:
+    visible = policy_decision.allowed
+    lifecycle_open = memory.review_state not in {"archived", "promoted"}
+    return [
+        {"action": "inspect", "available": True, "preview_required": False},
+        {
+            "action": "promotion.preview",
+            "available": visible and lifecycle_open,
+            "preview_required": True,
+        },
+        {
+            "action": "share.preview",
+            "available": visible,
+            "preview_required": True,
+        },
+        {
+            "action": "correction.preview",
+            "available": False,
+            "preview_required": True,
+            "reason": "packet_b2_pending",
+        },
+    ]
+
+
 def _memory_source_inspect_response(
     *,
     memory: RawMemory,
@@ -687,6 +787,25 @@ def _memory_source_inspect_response(
         memory_scope=memory.memory_scope.value,
         scope_key=memory.scope_key,
         review_state=memory.review_state,
+        visibility={
+            "content_visible": policy_decision.allowed,
+            "content_redacted": content_redacted,
+            "memory_scope": memory.memory_scope.value,
+            "scope_key": memory.scope_key,
+            "principal_id": memory.principal_id,
+            "agent_id": memory.agent_id,
+            "project_id": project_id,
+            "policy_reason": policy_decision.reason,
+        },
+        correction_history=_correction_history(
+            memory=memory,
+            audit_events=visible_audit_events,
+        ),
+        promotion_state=_promotion_state(
+            memory=memory,
+            audit_events=visible_audit_events,
+        ),
+        share_state=_share_state(visible_audit_events),
         entity_type=memory.entity_type,
         title=memory.title,
         raw_content=None if content_redacted else memory.raw_content,
@@ -702,6 +821,7 @@ def _memory_source_inspect_response(
             "captured_at": memory.captured_at,
             "created_at": memory.created_at,
         },
+        transform_versions=_transform_versions(memory.metadata),
         policy_allowed=policy_decision.allowed,
         policy_reason=policy_decision.reason,
         policy_metadata={
@@ -714,6 +834,10 @@ def _memory_source_inspect_response(
         derived_records=derived_records,
         recent_audit_events=visible_audit_events,
         audit_event_count=len(visible_audit_events),
+        available_actions=_available_source_actions(
+            memory=memory,
+            policy_decision=policy_decision,
+        ),
     )
 
 

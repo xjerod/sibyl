@@ -979,6 +979,13 @@ async def test_inspect_memory_source_returns_metadata_and_visible_content() -> N
         entity_type="procedure",
         review_state="promoted",
         project_id="project_123",
+        metadata={
+            "domain": "sibyl",
+            "correction_history": [{"action": "mark_stale", "reason": "outdated"}],
+            "promoted_entity_id": "entity-1",
+            "promoted_at": "2026-05-13T12:02:00+00:00",
+            "transform_version": "native-v1",
+        },
     )
     remember_event = {
         "uuid": "audit-1",
@@ -1047,6 +1054,18 @@ async def test_inspect_memory_source_returns_metadata_and_visible_content() -> N
     assert response.content_redacted is False
     assert response.policy_allowed is True
     assert response.policy_reason == "private_principal_bound"
+    assert response.visibility["content_visible"] is True
+    assert response.visibility["project_id"] == "project_123"
+    assert response.correction_history == [{"action": "mark_stale", "reason": "outdated"}]
+    assert response.promotion_state["state"] == "promoted"
+    assert response.promotion_state["promoted_id"] == "entity-1"
+    assert response.share_state == {"state": "none", "audit_event_ids": []}
+    assert response.transform_versions == {"transform_version": "native-v1"}
+    assert response.available_actions[0] == {
+        "action": "inspect",
+        "available": True,
+        "preview_required": False,
+    }
     assert response.derived_ids == ["entity-1", "memory-1"]
     assert response.derived_types == ["graph_entity", "raw_memory"]
     assert response.audit_event_count == 2
@@ -1106,6 +1125,8 @@ async def test_inspect_memory_source_redacts_project_content_without_access() ->
     assert response.raw_content_length == len("Private project detail.")
     assert response.policy_allowed is False
     assert response.policy_reason == "unverified_membership"
+    assert response.visibility["content_visible"] is False
+    assert response.available_actions[1]["available"] is False
     assert response.metadata == {"domain": "sibyl"}
     assert response.recent_audit_events[0].details == {}
     audit.assert_awaited_once()

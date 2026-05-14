@@ -749,12 +749,15 @@ def test_memory_inspect_command_renders_source_summary(mock_get_client: MagicMoc
             "scope_key": "project_123",
             "project_id": "project_123",
             "review_state": "promoted",
+            "promotion_state": {"state": "promoted", "promoted_id": "entity-1"},
+            "correction_history": [{"action": "mark_stale"}],
             "entity_type": "procedure",
             "policy_allowed": False,
             "policy_reason": "unverified_membership",
             "content_redacted": True,
             "derived_ids": ["entity-1", "entity-2", "entity-3"],
             "audit_event_count": 2,
+            "available_actions": [{"action": "inspect", "available": True}],
         }
     )
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -767,6 +770,8 @@ def test_memory_inspect_command_renders_source_summary(mock_get_client: MagicMoc
     assert "memory-1" in result.stdout
     assert "source-1" in result.stdout
     assert "redacted" in result.stdout
+    assert "Corrections" in result.stdout
+    assert "inspect" in result.stdout
     assert "+1" in result.stdout
     mock_client.memory_inspect.assert_awaited_once_with("memory-1")
 

@@ -329,11 +329,17 @@ def _print_memory_source_inspect(data: dict[str, object]) -> None:
     table.add_row("Scope", scope)
     table.add_row("Project", str(data.get("project_id") or ""))
     table.add_row("Review", str(data.get("review_state") or ""))
+    promotion = data.get("promotion_state")
+    if isinstance(promotion, dict):
+        promotion_payload = cast("dict[str, object]", promotion)
+        table.add_row("Promotion", str(promotion_payload.get("state") or ""))
+    table.add_row("Corrections", _inspect_correction_count(data.get("correction_history")))
     table.add_row("Entity type", str(data.get("entity_type") or ""))
     table.add_row("Policy", policy)
     table.add_row("Content", content_state)
     table.add_row("Derived", _audit_id_summary(data.get("derived_ids")))
     table.add_row("Audits", str(data.get("audit_event_count") or 0))
+    table.add_row("Actions", _inspect_action_summary(data.get("available_actions")))
     console.print(table)
 
     raw_content = data.get("raw_content")
@@ -372,6 +378,25 @@ def _preview_count(value: object) -> str:
     if isinstance(value, int) and not isinstance(value, bool):
         return str(value)
     return "0"
+
+
+def _inspect_correction_count(value: object) -> str:
+    if isinstance(value, list):
+        return str(len(value))
+    return "0"
+
+
+def _inspect_action_summary(value: object) -> str:
+    if not isinstance(value, list):
+        return "-"
+    names: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        payload = cast("dict[str, object]", item)
+        if payload.get("available") is True:
+            names.append(str(payload.get("action")))
+    return ", ".join(names) if names else "-"
 
 
 def _preview_audit_id(data: dict[str, object]) -> str:

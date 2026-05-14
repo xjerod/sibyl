@@ -345,6 +345,22 @@ class MemorySourceInspectResponse(BaseModel):
     memory_scope: MemoryScopeLiteral = Field(..., description="Retrieval scope")
     scope_key: str | None = Field(default=None, description="Project/team/shared scope key")
     review_state: str = Field(..., description="Review queue state")
+    visibility: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Visibility summary for the requesting actor",
+    )
+    correction_history: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Correction and lifecycle events known for this source",
+    )
+    promotion_state: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Promotion state and related promotion receipts",
+    )
+    share_state: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Share preview or share state and related receipts",
+    )
     entity_type: str = Field(..., description="Memory entity type")
     title: str = Field(default="", description="Human title")
     raw_content: str | None = Field(default=None, description="Verbatim memory when readable")
@@ -359,6 +375,10 @@ class MemorySourceInspectResponse(BaseModel):
     freshness_timestamps: dict[str, datetime | None] = Field(
         default_factory=dict,
         description="Named source freshness timestamps",
+    )
+    transform_versions: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Transform, adapter, and extraction version metadata",
     )
     policy_allowed: bool = Field(..., description="Whether content was readable by policy")
     policy_reason: str = Field(..., description="Policy reason for content visibility")
@@ -377,6 +397,10 @@ class MemorySourceInspectResponse(BaseModel):
         description="Recent memory audit receipts mentioning this source",
     )
     audit_event_count: int = Field(..., description="Number of included audit receipts")
+    available_actions: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Safe next actions and whether a preview step is required",
+    )
 
 
 class ReflectionPromotionRequest(BaseModel):
