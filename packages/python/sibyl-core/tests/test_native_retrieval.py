@@ -250,6 +250,7 @@ async def test_deterministic_native_embedding_provider_batches_stably() -> None:
         "tokenizer_estimate_method": "utf8-byte-length",
         "text_version": "native-graph-v1",
         "normalize": True,
+        "input_kind_sensitive": True,
     }
 
 

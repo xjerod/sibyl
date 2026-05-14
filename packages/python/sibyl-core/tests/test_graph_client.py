@@ -1,3 +1,5 @@
+import asyncio
+from collections.abc import Sequence
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,6 +9,12 @@ import pytest
 import sibyl_core.graph.cached_embedder as cached_embedder
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.config import CoreConfig
+from sibyl_core.embeddings.native import (
+    CachedNativeEmbeddingProvider,
+    NativeEmbeddingInputKind,
+    NativeEmbeddingMetadata,
+    native_embedding_cache_key,
+)
 from sibyl_core.errors import GraphConnectionError
 from sibyl_core.graph import client as _graph_client
 from sibyl_core.graph.client import GraphClient
@@ -122,6 +130,225 @@ def test_create_embedder_uses_gemini_runtime_env(monkeypatch) -> None:
     assert embedder.config.embedding_model == "gemini-embedding-2"
     assert embedder.config.embedding_dim == 768
     assert embedder.config.api_key == "gemini-key"
+    assert embedder.provider.metadata.provider == "gemini"
+    assert embedder.provider.metadata.cache_namespace == "graph"
+
+
+def test_create_embedder_uses_openai_native_provider(monkeypatch) -> None:
+    client = GraphClient()
+
+    monkeypatch.setenv("SIBYL_GRAPH_EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("SIBYL_GRAPH_EMBEDDING_MODEL", "text-embedding-3-small")
+    monkeypatch.setenv("SIBYL_GRAPH_EMBEDDING_DIMENSIONS", "1024")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+
+    embedder = client._create_embedder()
+
+    assert embedder.config.provider == "openai"
+    assert embedder.config.embedding_model == "text-embedding-3-small"
+    assert embedder.config.embedding_dim == 1024
+    assert embedder.provider.metadata.provider == "openai"
+    assert embedder.provider.metadata.input_kind_sensitive is False
+
+
+def test_native_embedding_cache_key_includes_provider_shape() -> None:
+    metadata = NativeEmbeddingMetadata(
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=1024,
+        cache_namespace="graph",
+        tokenizer_estimate_method="provider-default",
+    )
+    base_key = native_embedding_cache_key(metadata, "same text", input_kind="query")
+
+    assert base_key != native_embedding_cache_key(
+        metadata,
+        "same text",
+        input_kind="document",
+    )
+    assert base_key != native_embedding_cache_key(
+        NativeEmbeddingMetadata(
+            provider="openai",
+            model="text-embedding-3-large",
+            dimensions=1024,
+            cache_namespace="graph",
+            tokenizer_estimate_method="provider-default",
+        ),
+        "same text",
+        input_kind="query",
+    )
+    shared_kind_metadata = NativeEmbeddingMetadata(
+        provider="openai",
+        model="text-embedding-3-small",
+        dimensions=1024,
+        cache_namespace="graph",
+        tokenizer_estimate_method="provider-default",
+        input_kind_sensitive=False,
+    )
+    assert native_embedding_cache_key(
+        shared_kind_metadata,
+        "same text",
+        input_kind="query",
+    ) == native_embedding_cache_key(
+        shared_kind_metadata,
+        "same text",
+        input_kind="document",
+    )
+    assert base_key != native_embedding_cache_key(
+        NativeEmbeddingMetadata(
+            provider="openai",
+            model="text-embedding-3-small",
+            dimensions=1536,
+            cache_namespace="graph",
+            tokenizer_estimate_method="provider-default",
+        ),
+        "same text",
+        input_kind="query",
+    )
+    assert base_key != native_embedding_cache_key(
+        NativeEmbeddingMetadata(
+            provider="openai",
+            model="text-embedding-3-small",
+            dimensions=1024,
+            cache_namespace="graph",
+            tokenizer_estimate_method="provider-default",
+            normalize=False,
+        ),
+        "same text",
+        input_kind="query",
+    )
+
+
+class _CountingNativeProvider:
+    metadata = NativeEmbeddingMetadata(
+        provider="deterministic",
+        model="unit",
+        dimensions=2,
+        cache_namespace="graph",
+        tokenizer_estimate_method="test",
+    )
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple[str, ...], str]] = []
+
+    async def embed_texts(
+        self,
+        texts: Sequence[str],
+        *,
+        input_kind: NativeEmbeddingInputKind = "document",
+    ) -> list[list[float]]:
+        self.calls.append((tuple(texts), input_kind))
+        return [[float(len(self.calls)), float(index)] for index, _ in enumerate(texts)]
+
+
+@pytest.mark.asyncio
+async def test_cached_native_provider_caches_by_input_kind() -> None:
+    wrapped = _CountingNativeProvider()
+    provider = CachedNativeEmbeddingProvider(wrapped)
+
+    first = await provider.embed_texts(["same text"], input_kind="query")
+    second = await provider.embed_texts(["same text"], input_kind="query")
+    document = await provider.embed_texts(["same text"], input_kind="document")
+
+    assert first == second
+    assert document != first
+    assert wrapped.calls == [
+        (("same text",), "query"),
+        (("same text",), "document"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cached_native_provider_shares_input_kind_when_metadata_allows() -> None:
+    wrapped = _CountingNativeProvider()
+    wrapped.metadata = NativeEmbeddingMetadata(
+        provider="openai",
+        model="unit",
+        dimensions=2,
+        cache_namespace="graph",
+        tokenizer_estimate_method="test",
+        input_kind_sensitive=False,
+    )
+    provider = CachedNativeEmbeddingProvider(wrapped)
+
+    first = await provider.embed_texts(["same text"], input_kind="query")
+    document = await provider.embed_texts(["same text"], input_kind="document")
+
+    assert first == document
+    assert wrapped.calls == [(("same text",), "query")]
+
+
+class _BlockingNativeProvider:
+    metadata = NativeEmbeddingMetadata(
+        provider="deterministic",
+        model="unit",
+        dimensions=2,
+        cache_namespace="graph",
+        tokenizer_estimate_method="test",
+    )
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple[str, ...], str]] = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def embed_texts(
+        self,
+        texts: Sequence[str],
+        *,
+        input_kind: NativeEmbeddingInputKind = "document",
+    ) -> list[list[float]]:
+        self.calls.append((tuple(texts), input_kind))
+        self.started.set()
+        await self.release.wait()
+        return [[1.0, float(index)] for index, _ in enumerate(texts)]
+
+
+@pytest.mark.asyncio
+async def test_cached_native_provider_dedupes_concurrent_misses() -> None:
+    wrapped = _BlockingNativeProvider()
+    provider = CachedNativeEmbeddingProvider(wrapped)
+
+    first_task = asyncio.create_task(provider.embed_texts(["same text"], input_kind="query"))
+    await wrapped.started.wait()
+    second_task = asyncio.create_task(provider.embed_texts(["same text"], input_kind="query"))
+
+    await asyncio.sleep(0)
+    wrapped.release.set()
+    first, second = await asyncio.gather(first_task, second_task)
+
+    assert first == second
+    assert wrapped.calls == [(("same text",), "query")]
+
+
+@pytest.mark.asyncio
+async def test_cached_native_provider_cleans_pending_on_cancellation() -> None:
+    wrapped = _BlockingNativeProvider()
+    provider = CachedNativeEmbeddingProvider(wrapped)
+
+    first_task = asyncio.create_task(provider.embed_texts(["same text"], input_kind="query"))
+    await wrapped.started.wait()
+    second_task = asyncio.create_task(provider.embed_texts(["same text"], input_kind="query"))
+
+    await asyncio.sleep(0)
+    first_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await first_task
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(second_task, timeout=1)
+
+    wrapped.release.set()
+    result = await asyncio.wait_for(
+        provider.embed_texts(["same text"], input_kind="query"),
+        timeout=1,
+    )
+
+    assert result == [[1.0, 0.0]]
+    assert wrapped.calls == [
+        (("same text",), "query"),
+        (("same text",), "query"),
+    ]
 
 
 def test_get_org_driver_reuses_same_clone_for_same_org() -> None:

@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
+from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
-from typing import Literal, Protocol
+from contextlib import suppress
+from dataclasses import asdict, dataclass, replace
+from typing import Any, Literal, Protocol, cast
 
+from sibyl_core.embeddings.gemini import (
+    build_gemini_contents,
+    format_gemini_embedding_text,
+)
 from sibyl_core.models.entities import Entity, Relationship
 
 type NativeEmbeddingInputKind = Literal["query", "document"]
@@ -22,6 +29,7 @@ class NativeEmbeddingMetadata:
     tokenizer_estimate_method: str
     text_version: str = "native-graph-v1"
     normalize: bool = True
+    input_kind_sensitive: bool = True
 
     def to_dict(self) -> dict[str, str | int | bool]:
         return asdict(self)
@@ -65,6 +73,228 @@ class DeterministicNativeEmbeddingProvider:
             _deterministic_vector(text, input_kind=input_kind, metadata=self.metadata)
             for text in texts
         ]
+
+
+class OpenAINativeEmbeddingProvider:
+    def __init__(
+        self,
+        *,
+        metadata: NativeEmbeddingMetadata,
+        api_key: str | None = None,
+        client: Any | None = None,
+    ) -> None:
+        self._metadata = replace(metadata, input_kind_sensitive=False)
+        if client is None:
+            from openai import AsyncOpenAI
+
+            client = AsyncOpenAI(api_key=api_key or None)
+        self._client = client
+
+    @property
+    def metadata(self) -> NativeEmbeddingMetadata:
+        return self._metadata
+
+    async def embed_texts(
+        self,
+        texts: Sequence[str],
+        *,
+        input_kind: NativeEmbeddingInputKind = "document",
+    ) -> list[list[float]]:
+        del input_kind
+        if not texts:
+            return []
+        result = await self._client.embeddings.create(
+            model=self.metadata.model,
+            input=list(texts),
+            dimensions=self.metadata.dimensions,
+        )
+        return [list(item.embedding) for item in result.data]
+
+
+class GeminiNativeEmbeddingProvider:
+    def __init__(
+        self,
+        *,
+        metadata: NativeEmbeddingMetadata,
+        api_key: str | None = None,
+        client: Any | None = None,
+    ) -> None:
+        self._metadata = metadata
+        if client is None:
+            from google import genai
+
+            client = genai.Client(api_key=api_key)
+        self._client = client
+
+    @property
+    def metadata(self) -> NativeEmbeddingMetadata:
+        return self._metadata
+
+    async def embed_texts(
+        self,
+        texts: Sequence[str],
+        *,
+        input_kind: NativeEmbeddingInputKind = "document",
+    ) -> list[list[float]]:
+        if not texts:
+            return []
+        from google.genai import types
+
+        kind = "query" if input_kind == "query" else "document"
+        formatted = [
+            format_gemini_embedding_text(
+                text,
+                model=self.metadata.model,
+                kind=kind,
+            )
+            for text in texts
+        ]
+        result = await self._client.aio.models.embed_content(
+            model=self.metadata.model,
+            contents=cast(Any, build_gemini_contents(formatted)),
+            config=types.EmbedContentConfig(output_dimensionality=self.metadata.dimensions),
+        )
+        if not result.embeddings:
+            raise ValueError("No embeddings returned from Gemini API")
+        embeddings = []
+        for embedding in result.embeddings:
+            if not embedding.values:
+                raise ValueError("Empty embedding returned from Gemini API")
+            embeddings.append(list(embedding.values))
+        return embeddings
+
+
+class CachedNativeEmbeddingProvider:
+    def __init__(
+        self,
+        provider: NativeEmbeddingProvider,
+        *,
+        max_size: int = 1000,
+        stats: dict[str, int] | None = None,
+    ) -> None:
+        self._provider = provider
+        self._max_size = max_size
+        self._cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._pending: dict[str, asyncio.Future[list[float]]] = {}
+        self._lock = asyncio.Lock()
+        self._stats = stats
+
+    @property
+    def metadata(self) -> NativeEmbeddingMetadata:
+        return self._provider.metadata
+
+    async def embed_texts(
+        self,
+        texts: Sequence[str],
+        *,
+        input_kind: NativeEmbeddingInputKind = "document",
+    ) -> list[list[float]]:
+        results: list[list[float] | None] = [None] * len(texts)
+        missing: list[tuple[int, str, str, asyncio.Future[list[float]]]] = []
+        pending: list[tuple[int, asyncio.Future[list[float]]]] = []
+
+        async with self._lock:
+            for index, text in enumerate(texts):
+                cache_key = native_embedding_cache_key(
+                    self.metadata,
+                    text,
+                    input_kind=input_kind,
+                )
+                if cache_key in self._cache:
+                    _increment_stat(self._stats, "hits")
+                    self._cache.move_to_end(cache_key)
+                    results[index] = self._cache[cache_key]
+                elif cache_key in self._pending:
+                    pending.append((index, self._pending[cache_key]))
+                else:
+                    future = asyncio.get_running_loop().create_future()
+                    self._pending[cache_key] = future
+                    missing.append((index, text, cache_key, future))
+
+        if missing:
+            _increment_stat(self._stats, "misses", len(missing))
+            try:
+                new_embeddings = await self._provider.embed_texts(
+                    [text for _, text, _, _ in missing],
+                    input_kind=input_kind,
+                )
+                if len(new_embeddings) != len(missing):
+                    raise ValueError(
+                        "embedding provider returned "
+                        f"{len(new_embeddings)} vectors for {len(missing)} texts"
+                    )
+            except asyncio.CancelledError:
+                async with self._lock:
+                    for _index, _text, cache_key, future in missing:
+                        self._pending.pop(cache_key, None)
+                        _set_future_exception(future, asyncio.CancelledError())
+                raise
+            except Exception as exc:
+                async with self._lock:
+                    for _index, _text, cache_key, future in missing:
+                        self._pending.pop(cache_key, None)
+                        _set_future_exception(future, exc)
+                raise
+
+            async with self._lock:
+                for (index, _text, cache_key, future), embedding in zip(
+                    missing,
+                    new_embeddings,
+                    strict=True,
+                ):
+                    vector = [float(value) for value in embedding]
+                    self._cache[cache_key] = vector
+                    self._cache.move_to_end(cache_key)
+                    self._pending.pop(cache_key, None)
+                    if not future.done():
+                        future.set_result(vector)
+                    results[index] = vector
+                while len(self._cache) > self._max_size:
+                    self._cache.popitem(last=False)
+                    _increment_stat(self._stats, "evictions")
+
+        if pending:
+            pending_embeddings = await asyncio.gather(*(future for _index, future in pending))
+            for (index, _future), embedding in zip(
+                pending,
+                pending_embeddings,
+                strict=True,
+            ):
+                results[index] = embedding
+
+        if any(result is None for result in results):
+            raise ValueError("embedding cache did not resolve every requested text")
+        return cast(list[list[float]], results)
+
+    def cache_size(self) -> int:
+        return len(self._cache)
+
+    def clear_cache(self) -> None:
+        self._cache.clear()
+
+
+def native_embedding_cache_key(
+    metadata: NativeEmbeddingMetadata,
+    text: str,
+    *,
+    input_kind: NativeEmbeddingInputKind,
+) -> str:
+    kind_bucket = input_kind if metadata.input_kind_sensitive else "shared"
+    payload = "\x1f".join(
+        (
+            metadata.cache_namespace,
+            metadata.provider,
+            metadata.model,
+            str(metadata.dimensions),
+            metadata.text_version,
+            metadata.tokenizer_estimate_method,
+            f"normalize={metadata.normalize}",
+            f"input_kind_sensitive={metadata.input_kind_sensitive}",
+            kind_bucket,
+            text.strip(),
+        )
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def native_entity_embedding_text(entity: Entity) -> str:
@@ -112,11 +342,35 @@ def _deterministic_vector(
     return [round(value / norm, 8) for value in values]
 
 
+def _increment_stat(
+    stats: dict[str, int] | None,
+    key: str,
+    amount: int = 1,
+) -> None:
+    if stats is not None:
+        stats[key] = stats.get(key, 0) + amount
+
+
+def _set_future_exception(
+    future: asyncio.Future[list[float]],
+    exc: BaseException,
+) -> None:
+    if future.done():
+        return
+    future.set_exception(exc)
+    with suppress(BaseException):
+        future.exception()
+
+
 __all__ = [
+    "CachedNativeEmbeddingProvider",
     "DeterministicNativeEmbeddingProvider",
+    "GeminiNativeEmbeddingProvider",
     "NativeEmbeddingInputKind",
     "NativeEmbeddingMetadata",
     "NativeEmbeddingProvider",
+    "OpenAINativeEmbeddingProvider",
+    "native_embedding_cache_key",
     "native_entity_embedding_text",
     "native_relationship_embedding_text",
 ]

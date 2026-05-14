@@ -65,6 +65,11 @@ if TYPE_CHECKING:
     from graphiti_core.embedder.client import EmbedderClient
     from graphiti_core.llm_client import LLMClient
 
+    from sibyl_core.embeddings.native import (
+        NativeEmbeddingMetadata,
+        NativeEmbeddingProvider,
+    )
+
 log = structlog.get_logger()
 
 
@@ -158,14 +163,44 @@ class GraphClient:
         return settings.graph_embedding_dimensions
 
     def _create_embedder(self) -> "EmbedderClient":
+        from sibyl_core.graph.gemini_embedder import (
+            SibylGeminiEmbedder,
+            SibylGeminiEmbedderConfig,
+            SibylNativeEmbedder,
+        )
+
+        native_provider = self._create_native_embedding_provider()
+        if native_provider.metadata.provider == "gemini":
+            return SibylGeminiEmbedder(
+                config=SibylGeminiEmbedderConfig(
+                    api_key=(
+                        os.getenv("SIBYL_GEMINI_API_KEY", "")
+                        or os.getenv("GEMINI_API_KEY", "")
+                        or os.getenv("GOOGLE_API_KEY", "")
+                        or settings.gemini_api_key.get_secret_value()
+                        or None
+                    ),
+                    embedding_model=native_provider.metadata.model,
+                    embedding_dim=native_provider.metadata.dimensions,
+                ),
+                provider=native_provider,
+            )
+        return SibylNativeEmbedder(native_provider)
+
+    def _create_native_embedding_provider(self) -> "NativeEmbeddingProvider":
         provider = self._graph_embedding_provider()
         model = self._graph_embedding_model()
         dimensions = self._graph_embedding_dimensions()
+        metadata = self._native_embedding_metadata(
+            provider=provider,
+            model=model,
+            dimensions=dimensions,
+        )
 
         if provider == "gemini":
-            from sibyl_core.graph.gemini_embedder import (
-                SibylGeminiEmbedder,
-                SibylGeminiEmbedderConfig,
+            from sibyl_core.embeddings.native import (
+                CachedNativeEmbeddingProvider,
+                GeminiNativeEmbeddingProvider,
             )
 
             api_key = (
@@ -174,29 +209,43 @@ class GraphClient:
                 or os.getenv("GOOGLE_API_KEY", "")
                 or settings.gemini_api_key.get_secret_value()
             )
-            log.debug("Using Gemini graph embedder", model=model, dimensions=dimensions)
-            return SibylGeminiEmbedder(
-                config=SibylGeminiEmbedderConfig(
-                    api_key=api_key or None,
-                    embedding_model=model,
-                    embedding_dim=dimensions,
-                )
+            log.debug("Using Gemini native graph embedder", model=model, dimensions=dimensions)
+            return CachedNativeEmbeddingProvider(
+                GeminiNativeEmbeddingProvider(metadata=metadata, api_key=api_key or None),
+                max_size=2000,
             )
 
-        from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
+        from sibyl_core.embeddings.native import (
+            CachedNativeEmbeddingProvider,
+            OpenAINativeEmbeddingProvider,
+        )
 
         api_key = (
             os.getenv("SIBYL_OPENAI_API_KEY", "")
             or os.getenv("OPENAI_API_KEY", "")
             or settings.openai_api_key.get_secret_value()
         )
-        log.debug("Using OpenAI graph embedder", model=model, dimensions=dimensions)
-        return OpenAIEmbedder(
-            config=OpenAIEmbedderConfig(
-                api_key=api_key or None,
-                embedding_model=model,
-                embedding_dim=dimensions,
-            )
+        log.debug("Using OpenAI native graph embedder", model=model, dimensions=dimensions)
+        return CachedNativeEmbeddingProvider(
+            OpenAINativeEmbeddingProvider(metadata=metadata, api_key=api_key or None),
+            max_size=2000,
+        )
+
+    def _native_embedding_metadata(
+        self,
+        *,
+        provider: str,
+        model: str,
+        dimensions: int,
+    ) -> "NativeEmbeddingMetadata":
+        from sibyl_core.embeddings.native import NativeEmbeddingMetadata
+
+        return NativeEmbeddingMetadata(
+            provider=provider,
+            model=model,
+            dimensions=dimensions,
+            cache_namespace="graph",
+            tokenizer_estimate_method="provider-default",
         )
 
     def _wrap_graphiti_embedder_cache(self) -> None:
@@ -241,7 +290,6 @@ class GraphClient:
             self._prepare_embedder_env()
             embedder = self._create_embedder()
             self._client = Graphiti(graph_driver=driver, llm_client=llm_client, embedder=embedder)
-            self._wrap_graphiti_embedder_cache()
 
             self._connected = True
             self._store = "surreal"
