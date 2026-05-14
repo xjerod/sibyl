@@ -62,6 +62,7 @@ export const queryKeys = {
       ['memory', 'audit', params] as const,
     spaces: ['memory', 'spaces'] as const,
     sourceImport: (importId: string) => ['memory', 'source-import', importId] as const,
+    sourceInspect: (sourceId: string) => ['memory', 'source-inspect', sourceId] as const,
   },
   session: {
     all: ['session'] as const,
@@ -616,6 +617,51 @@ export function useMemorySourceImport(
     queryFn: () => api.memory.sourceImportStatus(importId),
     enabled: (options?.enabled ?? true) && !!importId,
     initialData: options?.initialData,
+  });
+}
+
+export function useMemorySourceInspect(
+  sourceId: string,
+  options?: { enabled?: boolean; initialData?: import('./api').MemorySourceInspectResponse }
+) {
+  return useQuery({
+    queryKey: queryKeys.memory.sourceInspect(sourceId),
+    queryFn: () => api.memory.inspect.get(sourceId),
+    enabled: (options?.enabled ?? true) && !!sourceId,
+    initialData: options?.initialData,
+  });
+}
+
+export function usePreviewMemoryCorrection() {
+  return useMutation({
+    mutationFn: ({
+      sourceId,
+      request,
+    }: {
+      sourceId: string;
+      request: import('./api').MemoryCorrectionRequest;
+    }) => api.memory.inspect.previewCorrection(sourceId, request),
+  });
+}
+
+export function useApplyMemoryCorrection() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      sourceId,
+      request,
+    }: {
+      sourceId: string;
+      request: import('./api').MemoryCorrectionRequest;
+    }) => api.memory.inspect.applyCorrection(sourceId, request),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.memory.sourceInspect(variables.sourceId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.rawCaptures.all });
+    },
   });
 }
 

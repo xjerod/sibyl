@@ -179,9 +179,13 @@ function CaptureRows({
         }
 
         return (
-          <article key={capture.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3">
+          <Link
+            key={capture.id}
+            href={`/memory/sources/${encodeURIComponent(capture.id)}`}
+            className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3 transition-colors hover:bg-sc-bg-highlight/60"
+          >
             {body}
-          </article>
+          </Link>
         );
       })}
     </div>

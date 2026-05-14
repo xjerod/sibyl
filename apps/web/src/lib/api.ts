@@ -272,6 +272,87 @@ export interface MemorySpaceListResponse {
   spaces: MemorySpace[];
 }
 
+export interface MemoryDerivedRecord {
+  id: string;
+  record_type: string;
+  source_action: string;
+}
+
+export interface MemorySourceInspectResponse {
+  id: string;
+  organization_id: string;
+  source_id: string;
+  principal_id: string;
+  agent_id: string | null;
+  project_id: string | null;
+  memory_scope: MemoryScope;
+  scope_key: string | null;
+  review_state: string;
+  visibility: Record<string, unknown>;
+  correction_history: Record<string, unknown>[];
+  promotion_state: Record<string, unknown>;
+  share_state: Record<string, unknown>;
+  entity_type: string;
+  title: string;
+  raw_content: string | null;
+  content_redacted: boolean;
+  raw_content_length: number;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  capture_surface: string | null;
+  captured_at: string | null;
+  created_at: string | null;
+  freshness_timestamps: Record<string, string | null>;
+  transform_versions: Record<string, unknown>;
+  policy_allowed: boolean;
+  policy_reason: string;
+  policy_metadata: Record<string, unknown>;
+  derived_ids: string[];
+  derived_types: string[];
+  derived_records: MemoryDerivedRecord[];
+  recent_audit_events: MemoryAuditEvent[];
+  audit_event_count: number;
+  available_actions: Record<string, unknown>[];
+}
+
+export type MemoryCorrectionAction =
+  | 'delete'
+  | 'hide'
+  | 'mark_duplicate'
+  | 'mark_sensitive'
+  | 'mark_stale'
+  | 'mark_wrong'
+  | 'redact'
+  | 'restore'
+  | 'supersede';
+
+export interface MemoryCorrectionRequest {
+  action: MemoryCorrectionAction;
+  reason?: string | null;
+  replacement_source_id?: string | null;
+  duplicate_of_source_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MemoryCorrectionResponse {
+  allowed: boolean;
+  applied: boolean;
+  source_id: string;
+  action: string;
+  reason: string;
+  target_review_state: string;
+  updated_review_state: string | null;
+  affected_source_ids: string[];
+  affected_derived_ids: string[];
+  reversible: boolean;
+  recall_impact: Record<string, unknown>;
+  synthesis_impact: Record<string, unknown>;
+  audit_action: string;
+  policy_reasons: string[];
+  metadata: Record<string, unknown>;
+}
+
 export interface SourceImportProgress {
   imported_count: number;
   skipped_count: number;
@@ -1599,6 +1680,27 @@ export const api = {
       fetchApi<SourceImportStatusResponse>(
         `/memory/source-imports/${encodeURIComponent(importId)}`
       ),
+
+    inspect: {
+      get: (sourceId: string) =>
+        fetchApi<MemorySourceInspectResponse>(`/memory/inspect/${encodeURIComponent(sourceId)}`),
+      previewCorrection: (sourceId: string, request: MemoryCorrectionRequest) =>
+        fetchApi<MemoryCorrectionResponse>(
+          `/memory/inspect/${encodeURIComponent(sourceId)}/corrections/preview`,
+          {
+            method: 'POST',
+            body: JSON.stringify(request),
+          }
+        ),
+      applyCorrection: (sourceId: string, request: MemoryCorrectionRequest) =>
+        fetchApi<MemoryCorrectionResponse>(
+          `/memory/inspect/${encodeURIComponent(sourceId)}/corrections`,
+          {
+            method: 'POST',
+            body: JSON.stringify(request),
+          }
+        ),
+    },
   },
 
   // Search
