@@ -4,6 +4,14 @@ from typing import Any, Literal
 
 import pytest
 
+from sibyl_core.models.context import (
+    ContextFacet,
+    ContextIntent,
+    ContextItem,
+    ContextItemQualityMetadata,
+    ContextPack,
+    ContextSection,
+)
 from sibyl_core.models.synthesis import (
     SynthesisOutputType,
     SynthesisRequest,
@@ -11,7 +19,7 @@ from sibyl_core.models.synthesis import (
     SynthesisSourceReference,
     SynthesisVerificationStatus,
 )
-from sibyl_core.services.synthesis import plan_synthesis
+from sibyl_core.services.synthesis import materialize_synthesis_section_packs, plan_synthesis
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 
 
@@ -225,3 +233,241 @@ async def test_plan_synthesis_uses_entity_ids_and_graph_neighborhoods() -> None:
     assert related_calls == ["decision:root"]
     assert "decision:root" in all_source_ids
     assert "task:neighbor" in all_source_ids
+
+
+@pytest.mark.asyncio
+async def test_materialize_synthesis_section_packs_filters_unauthorized_text() -> None:
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
+
+    run = await plan_synthesis(
+        SynthesisRequest(
+            goal="Write source-safe report",
+            required_sections=[SynthesisSectionRequest(title="Evidence")],
+        ),
+        organization_id="org-123",
+        search_fn=fake_search,
+        related_fn=_empty_related,
+    )
+
+    context_calls: list[dict[str, Any]] = []
+
+    async def fake_context(**kwargs: Any) -> ContextPack:
+        context_calls.append(kwargs)
+        return ContextPack(
+            goal=kwargs["goal"],
+            intent=ContextIntent.RESEARCH,
+            query=kwargs["goal"],
+            domain=None,
+            project="proj-allowed",
+            sections=[
+                ContextSection(
+                    facet=ContextFacet.ARTIFACTS,
+                    title="Artifacts",
+                    items=[
+                        ContextItem(
+                            id="artifact:allowed",
+                            type="artifact",
+                            name="Allowed artifact",
+                            content="Allowed source text.",
+                            score=0.95,
+                            facet=ContextFacet.ARTIFACTS,
+                            reason="allowed source",
+                            source="source:allowed",
+                            quality=ContextItemQualityMetadata(
+                                project_id="proj-allowed",
+                                updated_at="2026-05-14T12:00:00Z",
+                            ),
+                            metadata={"source_id": "source:allowed"},
+                        ),
+                        ContextItem(
+                            id="artifact:hidden",
+                            type="artifact",
+                            name="Hidden artifact",
+                            content="Unauthorized source text must not leak.",
+                            score=0.91,
+                            facet=ContextFacet.ARTIFACTS,
+                            reason="hidden source",
+                            source="source:hidden",
+                            quality=ContextItemQualityMetadata(project_id="proj-secret"),
+                            metadata={"source_id": "source:hidden"},
+                        ),
+                        ContextItem(
+                            id="artifact:scope-hidden",
+                            type="artifact",
+                            name="Scope hidden artifact",
+                            content="Scope-key-only project text must not leak.",
+                            score=0.89,
+                            facet=ContextFacet.ARTIFACTS,
+                            reason="scope hidden source",
+                            source="source:scope-hidden",
+                            metadata={
+                                "source_id": "source:scope-hidden",
+                                "memory_scope": "project",
+                                "scope_key": "proj-secret",
+                            },
+                        ),
+                    ],
+                )
+            ],
+            total_items=3,
+        )
+
+    materialized = await materialize_synthesis_section_packs(
+        run,
+        organization_id="org-123",
+        principal_id="user-123",
+        accessible_projects={"proj-allowed"},
+        context_fn=fake_context,
+    )
+
+    pack = materialized.source_packs[0]
+    assert context_calls[0]["accessible_projects"] == {"proj-allowed"}
+    assert context_calls[0]["principal_id"] == "user-123"
+    assert pack.source_ids == ["source:allowed"]
+    assert materialized.outline.sections[0].source_ids == ["source:allowed"]
+    assert materialized.verification.source_count == 1
+    assert pack.hidden_count == 2
+    assert pack.sources[0].content_preview == "Allowed source text."
+    assert "Unauthorized source text" not in repr(pack)
+    assert "Scope-key-only project text" not in repr(pack)
+    assert pack.freshness == {"source:allowed": "2026-05-14T12:00:00Z"}
+
+
+@pytest.mark.asyncio
+async def test_materialize_synthesis_section_packs_redacts_visible_text() -> None:
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
+
+    run = await plan_synthesis(
+        SynthesisRequest(
+            goal="Write redaction report",
+            required_sections=[SynthesisSectionRequest(title="Evidence")],
+        ),
+        organization_id="org-123",
+        search_fn=fake_search,
+        related_fn=_empty_related,
+    )
+
+    async def fake_context(**kwargs: Any) -> ContextPack:
+        return ContextPack(
+            goal=kwargs["goal"],
+            intent=ContextIntent.RESEARCH,
+            query=kwargs["goal"],
+            domain=None,
+            project=None,
+            sections=[
+                ContextSection(
+                    facet=ContextFacet.RECENT_MEMORY,
+                    title="Recent Memory",
+                    items=[
+                        ContextItem(
+                            id="raw_memory:1",
+                            type="raw_memory",
+                            name="Sensitive source",
+                            content="Sensitive text should be blank.",
+                            score=0.8,
+                            facet=ContextFacet.RECENT_MEMORY,
+                            reason="redacted source",
+                            source="source:redacted",
+                            metadata={
+                                "source_id": "source:redacted",
+                                "lifecycle_state": "redacted",
+                                "unresolved_claims": ["needs citation"],
+                            },
+                        )
+                    ],
+                )
+            ],
+            total_items=1,
+        )
+
+    materialized = await materialize_synthesis_section_packs(
+        run,
+        organization_id="org-123",
+        principal_id="user-123",
+        context_fn=fake_context,
+    )
+
+    pack = materialized.source_packs[0]
+    assert pack.redaction_count == 1
+    assert pack.sources[0].content_preview == ""
+    assert pack.unresolved_claims == ["needs citation"]
+
+
+@pytest.mark.asyncio
+async def test_materialize_synthesis_section_packs_hides_private_sources_by_principal() -> None:
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
+
+    run = await plan_synthesis(
+        SynthesisRequest(
+            goal="Write private report",
+            required_sections=[SynthesisSectionRequest(title="Private Evidence")],
+        ),
+        organization_id="org-123",
+        search_fn=fake_search,
+        related_fn=_empty_related,
+    )
+
+    async def fake_context(**kwargs: Any) -> ContextPack:
+        return ContextPack(
+            goal=kwargs["goal"],
+            intent=ContextIntent.RESEARCH,
+            query=kwargs["goal"],
+            domain=None,
+            project=None,
+            sections=[
+                ContextSection(
+                    facet=ContextFacet.RECENT_MEMORY,
+                    title="Recent Memory",
+                    items=[
+                        ContextItem(
+                            id="raw_memory:private",
+                            type="raw_memory",
+                            name="Other user's source",
+                            content="Other user's private text must not leak.",
+                            score=0.8,
+                            facet=ContextFacet.RECENT_MEMORY,
+                            reason="private source",
+                            source="source:private",
+                            metadata={
+                                "source_id": "source:private",
+                                "memory_scope": "private",
+                                "principal_id": "user-other",
+                            },
+                        ),
+                        ContextItem(
+                            id="raw_memory:ownerless",
+                            type="raw_memory",
+                            name="Ownerless private source",
+                            content="Ownerless private text must not leak.",
+                            score=0.78,
+                            facet=ContextFacet.RECENT_MEMORY,
+                            reason="ownerless private source",
+                            source="source:ownerless",
+                            metadata={
+                                "source_id": "source:ownerless",
+                                "memory_scope": "private",
+                            },
+                        ),
+                    ],
+                )
+            ],
+            total_items=2,
+        )
+
+    materialized = await materialize_synthesis_section_packs(
+        run,
+        organization_id="org-123",
+        principal_id="user-123",
+        context_fn=fake_context,
+    )
+
+    pack = materialized.source_packs[0]
+    assert pack.source_ids == []
+    assert pack.hidden_count == 2
+    assert "Other user's private text" not in repr(pack)
+    assert "Ownerless private text" not in repr(pack)
+    assert materialized.verification.status is SynthesisVerificationStatus.GAPS
+    assert materialized.verification.gaps[-1].reason == "no_materialized_sources"

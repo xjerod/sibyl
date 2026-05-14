@@ -510,6 +510,39 @@ def _quality_value(quality: Any, key: str) -> str | None:
     return _compact_metadata_value(getattr(quality, key, None))
 
 
+def context_item_source_id(item: ContextItem) -> str:
+    return (
+        _compact_metadata_value(item.metadata.get("source_id"))
+        or _compact_metadata_value(item.source)
+        or item.id
+    )
+
+
+def context_item_project_id(item: ContextItem) -> str | None:
+    quality = getattr(item, "quality", item.metadata.get("quality", {}))
+    return (
+        _quality_value(quality, "project_id")
+        or _compact_metadata_value(item.metadata.get("project_id"))
+        or _compact_metadata_value(item.metadata.get("project"))
+    )
+
+
+def context_item_freshness(item: ContextItem) -> str | None:
+    quality = getattr(item, "quality", item.metadata.get("quality", {}))
+    return (
+        _quality_value(quality, "valid_at")
+        or _quality_value(quality, "updated_at")
+        or _quality_value(quality, "created_at")
+        or _compact_metadata_value(item.metadata.get("freshness"))
+    )
+
+
+def context_item_lifecycle_state(item: ContextItem) -> str | None:
+    return _compact_metadata_value(
+        item.metadata.get("lifecycle_state") or item.metadata.get("review_state")
+    )
+
+
 def _quality_metadata_to_markdown(quality: Any) -> str:
     parts: list[str] = []
     if origin := _quality_value(quality, "origin"):
@@ -942,6 +975,10 @@ __all__ = [
     "FACET_TYPES",
     "INTENT_FACETS",
     "compile_context",
+    "context_item_freshness",
+    "context_item_lifecycle_state",
+    "context_item_project_id",
+    "context_item_source_id",
     "context_pack_to_dict",
     "context_pack_to_markdown",
 ]

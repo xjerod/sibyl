@@ -10,9 +10,24 @@ import pytest
 
 import sibyl_core.retrieval.native as native_module
 import sibyl_core.tools.context as context_module
-from sibyl_core.models.context import ContextFacet, ContextIntent, ContextLayer, ContextRelatedItem
+from sibyl_core.models.context import (
+    ContextFacet,
+    ContextIntent,
+    ContextItem,
+    ContextItemQualityMetadata,
+    ContextLayer,
+    ContextRelatedItem,
+)
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
-from sibyl_core.tools.context import compile_context, context_pack_to_dict, context_pack_to_markdown
+from sibyl_core.tools.context import (
+    compile_context,
+    context_item_freshness,
+    context_item_lifecycle_state,
+    context_item_project_id,
+    context_item_source_id,
+    context_pack_to_dict,
+    context_pack_to_markdown,
+)
 from sibyl_core.tools.responses import SearchResponse, SearchResult
 
 
@@ -832,6 +847,54 @@ async def test_compile_context_falls_back_to_graph_id_for_source_metadata() -> N
     assert item.source == "decision-1"
     assert item.metadata["source_id"] == "decision-1"
     assert item.quality.source == "decision-1"
+
+
+def test_context_item_metadata_helpers_normalize_source_policy_fields() -> None:
+    item = ContextItem(
+        id="artifact:fallback",
+        type="artifact",
+        name="Artifact",
+        content="Artifact content",
+        score=0.8,
+        facet=ContextFacet.ARTIFACTS,
+        reason="supports the section",
+        source="source:fallback",
+        quality=ContextItemQualityMetadata(
+            project_id="project-quality",
+            updated_at="2026-05-14T10:00:00Z",
+        ),
+        metadata={
+            "project_id": "project-metadata",
+            "lifecycle_state": "redacted",
+        },
+    )
+
+    assert context_item_source_id(item) == "source:fallback"
+    assert context_item_project_id(item) == "project-quality"
+    assert context_item_freshness(item) == "2026-05-14T10:00:00Z"
+    assert context_item_lifecycle_state(item) == "redacted"
+
+
+def test_context_item_metadata_helpers_fall_back_to_metadata() -> None:
+    item = ContextItem(
+        id="artifact:id",
+        type="artifact",
+        name="Artifact",
+        content="Artifact content",
+        score=0.8,
+        facet=ContextFacet.ARTIFACTS,
+        reason="supports the section",
+        metadata={
+            "freshness": "snapshot:2026-05-14",
+            "project": "project-metadata",
+            "review_state": "hidden",
+        },
+    )
+
+    assert context_item_source_id(item) == "artifact:id"
+    assert context_item_project_id(item) == "project-metadata"
+    assert context_item_freshness(item) == "snapshot:2026-05-14"
+    assert context_item_lifecycle_state(item) == "hidden"
 
 
 @pytest.mark.asyncio

@@ -91,6 +91,13 @@ async def plan_synthesis_route(
             search_fn=synthesis_service.default_search,
             related_fn=synthesis_service.default_related_sources,
         )
+        run = await synthesis_service.materialize_synthesis_section_packs(
+            run,
+            organization_id=str(org.id),
+            principal_id=ctx.user_id,
+            accessible_projects=accessible_projects,
+            context_fn=synthesis_service.default_context_pack,
+        )
         return SynthesisPlanResponse.model_validate(synthesis_service.synthesis_run_to_dict(run))
     except (ProjectAccessDeniedError, ProjectAuthorizationError):
         raise

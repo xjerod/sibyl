@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
+from sibyl_core.models.context import ContextIntent, ContextLayer, ContextPack
 from sibyl_core.models.synthesis import (
     SynthesisGap,
     SynthesisOutline,
@@ -26,6 +27,7 @@ from sibyl_core.tools.responses import ExploreResponse, SearchResponse, SearchRe
 
 SynthesisSearchFn = Callable[..., Awaitable[SearchResponse]]
 SynthesisRelatedFn = Callable[..., Awaitable[list[SynthesisSourceReference]]]
+SynthesisContextFn = Callable[..., Awaitable[ContextPack]]
 
 SECTION_TEMPLATES: dict[SynthesisOutputType, list[tuple[str, str]]] = {
     SynthesisOutputType.DOCUMENTATION: [
@@ -117,6 +119,12 @@ async def default_related_sources(
         limit=limit,
     )
     return _sources_from_explore(response)
+
+
+async def default_context_pack(**kwargs: Any) -> ContextPack:
+    from sibyl_core.tools.context import compile_context
+
+    return await compile_context(**kwargs)
 
 
 def _sources_from_explore(response: ExploreResponse) -> list[SynthesisSourceReference]:
@@ -373,6 +381,193 @@ def _run_id(request: SynthesisRequest) -> str:
     return f"synthesis:{digest}"
 
 
+def _metadata_unresolved_claims(metadata: dict[str, Any]) -> list[str]:
+    value = metadata.get("unresolved_claims")
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if metadata.get("supported") is False:
+        return [str(metadata.get("claim") or "unsupported_claim")]
+    return []
+
+
+def _context_item_is_redacted(metadata: dict[str, Any], lifecycle_state: str | None) -> bool:
+    return bool(metadata.get("redacted")) or lifecycle_state == "redacted"
+
+
+def _context_item_is_hidden(lifecycle_state: str | None) -> bool:
+    return lifecycle_state in {"deleted", "hidden"}
+
+
+def _context_item_allowed_for_render(
+    *,
+    metadata: dict[str, Any],
+    project_id: str | None,
+    principal_id: str | None,
+    accessible_projects: set[str] | None,
+) -> bool:
+    memory_scope = metadata.get("memory_scope")
+    memory_scope_value = str(memory_scope) if memory_scope is not None else None
+    if memory_scope_value == "private":
+        item_principal = metadata.get("principal_id")
+        if item_principal is None or principal_id != str(item_principal):
+            return False
+    if memory_scope_value:
+        from sibyl_core.auth.memory_policy import authorize_memory_read
+
+        decision = authorize_memory_read(
+            principal_id=principal_id,
+            memory_scope=memory_scope_value,
+            scope_key=str(metadata.get("scope_key") or project_id or "")
+            or None,
+            project_id=project_id,
+            accessible_projects=accessible_projects,
+        )
+        return decision.allowed
+    return not (
+        accessible_projects is not None
+        and project_id is not None
+        and project_id not in accessible_projects
+    )
+
+
+async def materialize_synthesis_section_packs(
+    run: SynthesisRun,
+    *,
+    organization_id: str,
+    principal_id: str | None,
+    accessible_projects: set[str] | None = None,
+    context_fn: SynthesisContextFn = default_context_pack,
+) -> SynthesisRun:
+    """Populate section packs with policy-filtered context-pack sources."""
+
+    from sibyl_core.tools.context import (
+        context_item_freshness,
+        context_item_lifecycle_state,
+        context_item_project_id,
+        context_item_source_id,
+    )
+
+    materialized_packs: list[SynthesisSourcePack] = []
+    outline_sections: list[SynthesisOutlineSection] = []
+    materialization_gaps: list[SynthesisGap] = []
+    for section in run.outline.sections:
+        pack = await context_fn(
+            goal=section.source_query,
+            intent=ContextIntent.RESEARCH,
+            layer=ContextLayer.RECALL,
+            domain=run.request.domain,
+            project=run.request.project,
+            accessible_projects=accessible_projects,
+            principal_id=principal_id,
+            organization_id=organization_id,
+            limit=8,
+            include_related=True,
+            related_limit=3,
+        )
+        sources: list[SynthesisSourceReference] = []
+        freshness: dict[str, str | None] = {}
+        unresolved_claims: list[str] = []
+        hidden_count = 0
+        redaction_count = 0
+        seen_source_ids: set[str] = set()
+        for item in pack.items:
+            source_id = context_item_source_id(item)
+            lifecycle_state = context_item_lifecycle_state(item)
+            metadata = dict(item.metadata)
+            project_id = context_item_project_id(item)
+            if _context_item_is_hidden(lifecycle_state) or not _context_item_allowed_for_render(
+                metadata=metadata,
+                project_id=project_id,
+                principal_id=principal_id,
+                accessible_projects=accessible_projects,
+            ):
+                hidden_count += 1
+                continue
+            redacted = _context_item_is_redacted(metadata, lifecycle_state)
+            if redacted:
+                redaction_count += 1
+            if source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_id)
+            item_freshness = context_item_freshness(item)
+            freshness[source_id] = item_freshness
+            unresolved_claims.extend(_metadata_unresolved_claims(metadata))
+            source_metadata = {
+                **metadata,
+                "facet": item.facet.value,
+                "freshness": item_freshness,
+                "project_id": project_id,
+                "reason": item.reason,
+            }
+            sources.append(
+                SynthesisSourceReference(
+                    id=source_id,
+                    type=item.type,
+                    name=item.name,
+                    content_preview="" if redacted else _compact_text(item.content),
+                    score=item.score,
+                    source=item.source,
+                    origin="context_pack",
+                    metadata=source_metadata,
+                )
+            )
+
+        if not sources:
+            materialization_gaps.append(
+                SynthesisGap(
+                    section_id=section.section_id,
+                    title=section.title,
+                    reason="no_materialized_sources",
+                    query=section.source_query,
+                )
+            )
+        source_ids = [source.id for source in sources]
+        section_gaps = [
+            *section.gaps,
+            *[
+                gap
+                for gap in materialization_gaps
+                if gap.section_id == section.section_id
+            ],
+        ]
+        outline_sections.append(
+            replace(section, source_ids=source_ids, gaps=section_gaps)
+        )
+        materialized_packs.append(
+            SynthesisSourcePack(
+                section_id=section.section_id,
+                title=section.title,
+                query=section.source_query,
+                source_ids=source_ids,
+                sources=sources,
+                hidden_count=hidden_count,
+                redaction_count=redaction_count,
+                freshness=freshness,
+                unresolved_claims=list(dict.fromkeys(unresolved_claims)),
+            )
+        )
+
+    gaps = [*run.verification.gaps, *materialization_gaps]
+    verification = SynthesisVerification(
+        status=(
+            SynthesisVerificationStatus.GAPS
+            if gaps
+            else run.verification.status
+        ),
+        source_count=len({source_id for pack in materialized_packs for source_id in pack.source_ids}),
+        gap_count=len(gaps),
+        gaps=gaps,
+    )
+    return replace(
+        run,
+        outline=replace(run.outline, sections=outline_sections),
+        source_packs=materialized_packs,
+        verification=verification,
+    )
+
+
 async def plan_synthesis(
     request: SynthesisRequest,
     *,
@@ -520,10 +715,13 @@ def synthesis_run_to_dict(run: SynthesisRun) -> dict[str, Any]:
 
 
 __all__ = [
+    "SynthesisContextFn",
     "SynthesisRelatedFn",
     "SynthesisSearchFn",
+    "default_context_pack",
     "default_related_sources",
     "default_search",
+    "materialize_synthesis_section_packs",
     "plan_synthesis",
     "synthesis_run_to_dict",
 ]
