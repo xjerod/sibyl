@@ -2,20 +2,28 @@ from __future__ import annotations
 
 import ast
 
+import pytest
 from tools.inventory.runtime_surface import (
     GRAPHITI_COMPATIBILITY_ALLOWLIST,
     GRAPHITI_EXIT_INVENTORY_PATH,
+    LEGACY_TERM_ALLOWLIST,
     PYPROJECT_PATHS,
     REPO_ROOT,
     SNAPSHOT_PATH,
     GraphitiImportRecord,
+    LegacyTermAllowlistRecord,
+    LegacyTermRecord,
     RuntimeSurface,
+    _path_matches_allowlist,
+    check_legacy_term_inventory,
     collect_runtime_surface,
     default_runtime_graphiti_imports,
     graphiti_allowlist_record,
+    legacy_term_allowlist_record,
     parse_dependency_name,
     render_markdown,
     unclassified_graphiti_imports,
+    unclassified_legacy_term_records,
 )
 
 EXPECTED_ROUTER_COUNT = 24
@@ -24,6 +32,26 @@ EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
 EXPECTED_MCP_TOOL_COUNT = 8
 EXPECTED_MCP_RESOURCE_COUNT = 2
 EXPECTED_SQLMODEL_TABLE_COUNT = 0
+EXPECTED_LEGACY_TERM_SCAN_PATHS = {
+    ".env.example",
+    ".env.quickstart.example",
+    ".env.quickstart.test",
+    ".env.test.example",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "Tiltfile",
+    "infra/local/README.md",
+    "infra/local/secrets.yaml.example",
+    "infra/local/sibyl-values.yaml",
+    "infra/local/valkey-values.yaml",
+    "moon.yml",
+    "packages/python/sibyl-core/README.md",
+    "packages/python/sibyl-core/moon.yml",
+    "skills/sibyl/EXAMPLES.md",
+    "skills/sibyl/SKILL.md",
+    "setup-dev.sh",
+    "tools/dev/run-surreal-dev.sh",
+}
 CORE_GRAPHITI_COMPATIBILITY_TESTS = (
     "tests/graph/surreal",
     "tests/test_graph_batch.py",
@@ -116,6 +144,25 @@ def runtime_surface_with_graphiti(
         raw_sql_usage=(),
         session_storage_usage=(),
         graphiti_imports=records,
+        legacy_term_records=(),
+        dependencies=(),
+    )
+
+
+def runtime_surface_with_legacy_terms(
+    *records: LegacyTermRecord,
+) -> RuntimeSurface:
+    return RuntimeSurface(
+        rest_routers=(),
+        top_level_http_routes=(),
+        websocket_routes=(),
+        mcp_tools=(),
+        mcp_resources=(),
+        sqlmodel_tables=(),
+        raw_sql_usage=(),
+        session_storage_usage=(),
+        graphiti_imports=(),
+        legacy_term_records=records,
         dependencies=(),
     )
 
@@ -251,6 +298,63 @@ def test_graphiti_exit_inventory_tracks_no_graphiti_smoke_plan() -> None:
     for loop_name in ("remember", "recall", "context", "wake", "reflect"):
         assert f"- `{loop_name}`:" in inventory
     assert "Current blockers:" not in inventory
+
+
+def test_legacy_term_inventory_covers_active_docs_and_configs() -> None:
+    surface = collect_runtime_surface()
+    inventory = SNAPSHOT_PATH.read_text(encoding="utf-8")
+    record_paths = {record.path for record in surface.legacy_term_records}
+    literal_allowlist_paths = {
+        allowed.path for allowed in LEGACY_TERM_ALLOWLIST if not allowed.path.endswith("*")
+    }
+
+    assert "## Retained Legacy Term Inventory" in inventory
+    assert unclassified_legacy_term_records(surface) == ()
+    assert record_paths >= EXPECTED_LEGACY_TERM_SCAN_PATHS
+    assert record_paths >= literal_allowlist_paths
+    for record in surface.legacy_term_records:
+        allowed = legacy_term_allowlist_record(record.path)
+        assert allowed is not None
+        matching_rows = [
+            line for line in inventory.splitlines() if line.startswith(f"| `{record.path}` |")
+        ]
+        assert len(matching_rows) == 1
+        row = matching_rows[0]
+        assert f"| {allowed.owner} |" in row
+        assert f"| {allowed.reason} |" in row
+
+
+def test_legacy_term_inventory_rejects_unowned_active_doc() -> None:
+    record = LegacyTermRecord(
+        path="docs/guide/new-default-postgres.md",
+        terms=("postgres",),
+        count=1,
+    )
+    surface = runtime_surface_with_legacy_terms(record)
+
+    assert legacy_term_allowlist_record(record.path) is None
+    assert unclassified_legacy_term_records(surface) == (record,)
+
+
+def test_legacy_term_inventory_check_reports_unowned_doc(capsys) -> None:
+    record = LegacyTermRecord(
+        path="docs/guide/new-default-postgres.md",
+        terms=("postgres",),
+        count=1,
+    )
+    surface = runtime_surface_with_legacy_terms(record)
+
+    assert check_legacy_term_inventory(surface) == 1
+    captured = capsys.readouterr()
+    assert "Legacy term inventory is missing 1 active doc/config files:" in captured.err
+    assert "- docs/guide/new-default-postgres.md" in captured.err
+
+
+def test_allowlist_matching_rejects_bare_wildcard() -> None:
+    record = LegacyTermAllowlistRecord(path="*", owner="bad", reason="bad")
+
+    with pytest.raises(ValueError, match="Bare wildcard"):
+        _path_matches_allowlist("docs/guide/new-default-postgres.md", record)
 
 
 def test_runtime_surface_finds_known_contracts() -> None:

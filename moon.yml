@@ -255,16 +255,67 @@ tasks:
     inputs:
       - tools/**/*.py
       - docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
-      - docs/research/rust-port/INVENTORY.md
       - moon.yml
       - apps/api/moon.yml
       - packages/python/sibyl-core/moon.yml
+      - README.md
+      - AGENTS.md
+      - CLAUDE.md
+      - Tiltfile
+      - .env.example
+      - .env.quickstart.example
+      - .env.quickstart.test
+      - .env.test.example
+      - apps/**/*.example
+      - apps/**/*.md
+      - apps/**/*.mdx
+      - apps/**/*.sh
+      - apps/**/*.yml
+      - apps/**/*.yaml
+      - charts/**/*
+      - charts/**/*.example
+      - compose.e2e.yml
+      - docker-compose*.yml
+      - docs/**/*.example
+      - docs/**/*.md
+      - docs/**/*.mdx
+      - docs/**/*.sh
+      - docs/**/*.yml
+      - docs/**/*.yaml
+      - .github/**/*.example
+      - .github/**/*.md
+      - .github/**/*.mdx
+      - .github/**/*.sh
+      - .github/**/*.yml
+      - .github/**/*.yaml
+      - infra/**/*.example
+      - infra/**/*.md
+      - infra/**/*.mdx
+      - infra/**/*.sh
+      - infra/**/*.yml
+      - infra/**/*.yaml
+      - packages/**/*.example
+      - packages/**/*.md
+      - packages/**/*.mdx
+      - packages/**/*.sh
+      - packages/**/*.yml
+      - packages/**/*.yaml
+      - skills/**/*.example
+      - skills/**/*.md
+      - skills/**/*.mdx
+      - skills/**/*.sh
+      - skills/**/*.yml
+      - skills/**/*.yaml
+      - setup-dev.sh
+      - tools/**/*.example
+      - tools/**/*.md
+      - tools/**/*.mdx
+      - tools/**/*.sh
+      - tools/**/*.yml
+      - tools/**/*.yaml
       - apps/api/src/**/*.py
       - packages/python/sibyl-core/src/**/*.py
-      - pyproject.toml
-      - apps/api/pyproject.toml
-      - apps/cli/pyproject.toml
-      - packages/python/sibyl-core/pyproject.toml
+      - "**/pyproject.toml"
     outputs:
       - docs/research/rust-port/INVENTORY.md
 
@@ -277,17 +328,70 @@ tasks:
       - moon.yml
       - apps/api/moon.yml
       - packages/python/sibyl-core/moon.yml
+      - README.md
+      - AGENTS.md
+      - CLAUDE.md
+      - Tiltfile
+      - .env.example
+      - .env.quickstart.example
+      - .env.quickstart.test
+      - .env.test.example
+      - apps/**/*.example
+      - apps/**/*.md
+      - apps/**/*.mdx
+      - apps/**/*.sh
+      - apps/**/*.yml
+      - apps/**/*.yaml
+      - charts/**/*
+      - charts/**/*.example
+      - compose.e2e.yml
+      - docker-compose*.yml
+      - docs/**/*.example
+      - docs/**/*.md
+      - docs/**/*.mdx
+      - docs/**/*.sh
+      - docs/**/*.yml
+      - docs/**/*.yaml
+      - .github/**/*.example
+      - .github/**/*.md
+      - .github/**/*.mdx
+      - .github/**/*.sh
+      - .github/**/*.yml
+      - .github/**/*.yaml
+      - infra/**/*.example
+      - infra/**/*.md
+      - infra/**/*.mdx
+      - infra/**/*.sh
+      - infra/**/*.yml
+      - infra/**/*.yaml
+      - packages/**/*.example
+      - packages/**/*.md
+      - packages/**/*.mdx
+      - packages/**/*.sh
+      - packages/**/*.yml
+      - packages/**/*.yaml
+      - skills/**/*.example
+      - skills/**/*.md
+      - skills/**/*.mdx
+      - skills/**/*.sh
+      - skills/**/*.yml
+      - skills/**/*.yaml
+      - setup-dev.sh
+      - tools/**/*.example
+      - tools/**/*.md
+      - tools/**/*.mdx
+      - tools/**/*.sh
+      - tools/**/*.yml
+      - tools/**/*.yaml
       - apps/api/src/**/*.py
       - packages/python/sibyl-core/src/**/*.py
-      - pyproject.toml
-      - apps/api/pyproject.toml
-      - apps/cli/pyproject.toml
-      - packages/python/sibyl-core/pyproject.toml
+      - "**/pyproject.toml"
 
   inventory-lint:
     script: uv run ruff check tools && uv run ruff format --check tools
     inputs:
       - tools/**/*.py
+      - pyproject.toml
 
   inventory-typecheck:
     command: uv run ty check tools
@@ -303,15 +407,67 @@ tasks:
       - tools/**/*.py
       - docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
       - docs/research/rust-port/INVENTORY.md
+      - README.md
+      - AGENTS.md
+      - CLAUDE.md
+      - Tiltfile
+      - .env.example
+      - .env.quickstart.example
+      - .env.quickstart.test
+      - .env.test.example
+      - apps/**/*.example
+      - apps/**/*.md
+      - apps/**/*.mdx
+      - apps/**/*.sh
+      - apps/**/*.yml
+      - apps/**/*.yaml
+      - charts/**/*
+      - charts/**/*.example
+      - compose.e2e.yml
+      - docker-compose*.yml
+      - docs/**/*.example
+      - docs/**/*.md
+      - docs/**/*.mdx
+      - docs/**/*.sh
+      - docs/**/*.yml
+      - docs/**/*.yaml
+      - .github/**/*.example
+      - .github/**/*.md
+      - .github/**/*.mdx
+      - .github/**/*.sh
+      - .github/**/*.yml
+      - .github/**/*.yaml
+      - infra/**/*.example
+      - infra/**/*.md
+      - infra/**/*.mdx
+      - infra/**/*.sh
+      - infra/**/*.yml
+      - infra/**/*.yaml
+      - packages/**/*.example
+      - packages/**/*.md
+      - packages/**/*.mdx
+      - packages/**/*.sh
+      - packages/**/*.yml
+      - packages/**/*.yaml
+      - skills/**/*.example
+      - skills/**/*.md
+      - skills/**/*.mdx
+      - skills/**/*.sh
+      - skills/**/*.yml
+      - skills/**/*.yaml
+      - setup-dev.sh
+      - tools/**/*.example
+      - tools/**/*.md
+      - tools/**/*.mdx
+      - tools/**/*.sh
+      - tools/**/*.yml
+      - tools/**/*.yaml
       - moon.yml
       - apps/api/moon.yml
       - packages/python/sibyl-core/moon.yml
       - apps/api/src/**/*.py
       - packages/python/sibyl-core/src/**/*.py
-      - pyproject.toml
-      - apps/api/pyproject.toml
-      - apps/cli/pyproject.toml
-      - packages/python/sibyl-core/pyproject.toml
+      - "**/pyproject.toml"
 
   dev-script-test:
     command:

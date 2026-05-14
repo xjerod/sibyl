@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import difflib
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,67 @@ LEGACY_DEPENDENCY_NAMES = {
 GRAPH_DEPENDENCY_NAMES = {"graphiti-core"}
 TARGET_DEPENDENCY_NAMES = {"surrealdb"}
 GraphitiSurfaceClass = Literal["admin", "archived_docs", "compatibility", "migration", "test"]
+LEGACY_TERM_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(postgresql|postgres|falkordb|falkor|redis|valkey|graphiti)"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+LEGACY_TERM_CANONICAL_NAMES = {
+    "postgresql": "postgres",
+    "postgres": "postgres",
+    "falkordb": "falkor",
+    "falkor": "falkor",
+    "redis": "redis",
+    "valkey": "valkey",
+    "graphiti": "graphiti",
+}
+LEGACY_TERM_SCAN_EXTENSIONS = {".example", ".md", ".mdx", ".yml", ".yaml", ".sh"}
+LEGACY_TERM_SCAN_ROOTS = (
+    REPO_ROOT / "apps",
+    REPO_ROOT / "charts",
+    REPO_ROOT / "docs",
+    REPO_ROOT / ".github",
+    REPO_ROOT / "infra",
+    REPO_ROOT / "packages",
+    REPO_ROOT / "skills",
+    REPO_ROOT / "tools",
+)
+LEGACY_TERM_SCAN_FILES = tuple(
+    sorted(
+        path
+        for path in (
+            REPO_ROOT / "AGENTS.md",
+            REPO_ROOT / "CLAUDE.md",
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "Tiltfile",
+            REPO_ROOT / ".env.example",
+            REPO_ROOT / ".env.quickstart.example",
+            REPO_ROOT / ".env.quickstart.test",
+            REPO_ROOT / ".env.test.example",
+            REPO_ROOT / "moon.yml",
+            REPO_ROOT / "setup-dev.sh",
+            *REPO_ROOT.glob("docker-compose*.yml"),
+            REPO_ROOT / "compose.e2e.yml",
+        )
+        if path.exists()
+    )
+)
+LEGACY_TERM_EXCLUDED_PARTS = {
+    ".git",
+    ".moon",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    ".vitepress",
+    "__pycache__",
+    "_archive",
+    "build",
+    "dist",
+    "node_modules",
+}
 
 
 def _is_repo_pyproject(path: Path) -> bool:
@@ -134,6 +196,20 @@ class GraphitiCompatibilityRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class LegacyTermRecord:
+    path: str
+    terms: tuple[str, ...]
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyTermAllowlistRecord:
+    path: str
+    owner: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class DependencyRecord:
     project: str
     dependency: str
@@ -152,7 +228,17 @@ class RuntimeSurface:
     raw_sql_usage: tuple[SqlUsageRecord, ...]
     session_storage_usage: tuple[SqlUsageRecord, ...]
     graphiti_imports: tuple[GraphitiImportRecord, ...]
+    legacy_term_records: tuple[LegacyTermRecord, ...]
     dependencies: tuple[DependencyRecord, ...]
+
+
+def legacy_term_allowlist_records(
+    paths: tuple[str, ...],
+    *,
+    owner: str,
+    reason: str,
+) -> tuple[LegacyTermAllowlistRecord, ...]:
+    return tuple(LegacyTermAllowlistRecord(path=path, owner=owner, reason=reason) for path in paths)
 
 
 GRAPHITI_COMPATIBILITY_ALLOWLIST = (
@@ -215,6 +301,197 @@ GRAPHITI_COMPATIBILITY_ALLOWLIST = (
         classification="compatibility",
         owner="v0.7 Graphiti exit",
         criteria="No default or fallback memory path constructs Graphiti or calls Graphiti model operation interfaces.",
+    ),
+)
+
+ARCHITECTURE_LEGACY_TERM_FILES = (
+    "docs/architecture/PERMISSION_SYSTEM_AUDIT.md",
+    "docs/architecture/PERMISSION_SYSTEM_PLAN.md",
+    "docs/architecture/SIBYL_NORTHSTAR.md",
+    "docs/architecture/SIBYL_POST_V08_SYNTHESIS_AND_MEMORY_COCKPIT_PLAN.md",
+    "docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md",
+    "docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md",
+    "docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md",
+    "docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md",
+    "docs/architecture/SURREALDB_NATIVE_MEMORY_CORE_SPEC.md",
+    "docs/architecture/SURREALDB_PHASE1_BUGS.md",
+    "docs/architecture/SURREALDB_PHASE2_AUTH_MIGRATION.md",
+    "docs/architecture/SURREALDB_PHASE2_LIVE_GATES.md",
+    "docs/architecture/SURREALDB_PHASE3_BURNDOWN.md",
+    "docs/architecture/SURREALDB_V07_GRAPHITI_EXIT_AND_PURE_SURREAL_PLAN.md",
+    "docs/architecture/TASKIQ_MIGRATION_PLAN.md",
+)
+GUIDE_LEGACY_TERM_FILES = (
+    "docs/guide/capturing-knowledge.md",
+    "docs/guide/claude-code.md",
+    "docs/guide/entity-types.md",
+    "docs/guide/index.md",
+    "docs/guide/installation.md",
+    "docs/guide/knowledge-graph.md",
+    "docs/guide/mcp-configuration.md",
+    "docs/guide/migrating-from-falkor.md",
+    "docs/guide/quick-start.md",
+    "docs/guide/semantic-search.md",
+    "docs/guide/setting-up-prompts.md",
+    "docs/guide/sources.md",
+    "docs/guide/storage-modes.md",
+    "docs/guide/surrealdb-migration-release-notes.md",
+    "docs/guide/task-management.md",
+    "docs/guide/why-surreal.md",
+    "docs/guide/working-with-agents.md",
+)
+DEPLOYMENT_LEGACY_TERM_FILES = (
+    "docs/deployment/docker-compose.md",
+    "docs/deployment/environment.md",
+    "docs/deployment/helm-chart.md",
+    "docs/deployment/index.md",
+    "docs/deployment/kubernetes.md",
+    "docs/deployment/monitoring.md",
+    "docs/deployment/tilt-minikube.md",
+    "docs/deployment/troubleshooting.md",
+)
+API_CLI_LEGACY_TERM_FILES = (
+    "docs/api/auth-authorization.md",
+    "docs/api/mcp-add.md",
+    "docs/api/mcp-explore.md",
+    "docs/api/rest-projects.md",
+    "docs/api/rest-tasks.md",
+    "docs/cli/add.md",
+    "docs/cli/entity.md",
+    "docs/cli/project.md",
+    "docs/cli/search.md",
+    "docs/cli/task-create.md",
+    "docs/cli/task-lifecycle.md",
+)
+APP_LEGACY_TERM_FILES = (
+    "apps/api/README.md",
+    "apps/api/moon.yml",
+    "apps/cli/README.md",
+    "apps/cli/src/sibyl_cli/data/skills/sibyl/EXAMPLES.md",
+    "apps/cli/src/sibyl_cli/data/skills/sibyl/SKILL.md",
+)
+SKILL_SOURCE_LEGACY_TERM_FILES = (
+    "skills/sibyl/EXAMPLES.md",
+    "skills/sibyl/SKILL.md",
+)
+DEPLOYMENT_CONFIG_LEGACY_TERM_FILES = (
+    "charts/sibyl/Chart.yaml",
+    "charts/sibyl/templates/backend-deployment.yaml",
+    "charts/sibyl/templates/configmap.yaml",
+    "charts/sibyl/templates/redis-secret.yaml",
+    "charts/sibyl/templates/worker-deployment.yaml",
+    "charts/sibyl/values.yaml",
+    "docker-compose.prod.yml",
+    "docker-compose.quickstart.yml",
+    "docker-compose.yml",
+)
+PROJECT_INSTRUCTION_LEGACY_TERM_FILES = (
+    "AGENTS.md",
+    "CLAUDE.md",
+)
+ROOT_TASK_LEGACY_TERM_FILES = ("moon.yml",)
+ENV_TEMPLATE_LEGACY_TERM_FILES = (
+    ".env.example",
+    ".env.quickstart.example",
+    ".env.quickstart.test",
+    ".env.test.example",
+    "infra/local/secrets.yaml.example",
+)
+LOCAL_INFRA_LEGACY_TERM_FILES = (
+    "Tiltfile",
+    "infra/local/README.md",
+    "infra/local/sibyl-values.yaml",
+    "infra/local/valkey-values.yaml",
+)
+PACKAGE_LEGACY_TERM_FILES = (
+    "packages/python/sibyl-core/COVERAGE_PLAN.md",
+    "packages/python/sibyl-core/README.md",
+    "packages/python/sibyl-core/moon.yml",
+)
+DEV_SCRIPT_LEGACY_TERM_FILES = (
+    "setup-dev.sh",
+    "tools/dev/run-surreal-dev.sh",
+)
+LEGACY_TERM_ALLOWLIST = (
+    LegacyTermAllowlistRecord(
+        path="README.md",
+        owner="v0.8 pure Surreal closure",
+        reason="Default quickstart plus explicit legacy migration and optional Redis coordination notes.",
+    ),
+    LegacyTermAllowlistRecord(
+        path="docs/index.md",
+        owner="v0.8 docs",
+        reason="Top-level docs mention current Surreal default and historical migration context.",
+    ),
+    LegacyTermAllowlistRecord(
+        path="docs/testing/benchmark-methodology.md",
+        owner="benchmark evidence",
+        reason="Benchmark comparison flow names historical migration rehearsal mode.",
+    ),
+    *legacy_term_allowlist_records(
+        PROJECT_INSTRUCTION_LEGACY_TERM_FILES,
+        owner="project instructions",
+        reason="Project agent guides preserve ports, archive shapes, and compatibility boundaries.",
+    ),
+    *legacy_term_allowlist_records(
+        ROOT_TASK_LEGACY_TERM_FILES,
+        owner="v0.7 Graphiti exit",
+        reason="Root moon tasks retain the explicit Graphiti compatibility test island.",
+    ),
+    *legacy_term_allowlist_records(
+        ENV_TEMPLATE_LEGACY_TERM_FILES,
+        owner="dev env templates",
+        reason="Environment templates keep legacy ports, migration knobs, and optional Redis/Valkey secrets.",
+    ),
+    *legacy_term_allowlist_records(
+        ARCHITECTURE_LEGACY_TERM_FILES,
+        owner="v0.8 architecture",
+        reason="Architecture and release plans preserve migration, benchmark, and compatibility history.",
+    ),
+    *legacy_term_allowlist_records(
+        GUIDE_LEGACY_TERM_FILES,
+        owner="v0.8 docs",
+        reason="User guides label legacy services as historical migration or explicit coordination opt-in.",
+    ),
+    *legacy_term_allowlist_records(
+        DEPLOYMENT_LEGACY_TERM_FILES,
+        owner="v0.8 deployment docs",
+        reason="Deployment docs retain optional Redis/Valkey coordination and historical restore notes.",
+    ),
+    *legacy_term_allowlist_records(
+        API_CLI_LEGACY_TERM_FILES,
+        owner="v0.8 API/CLI docs",
+        reason="API and CLI docs reference memory history, migration payloads, or optional coordination.",
+    ),
+    *legacy_term_allowlist_records(
+        APP_LEGACY_TERM_FILES,
+        owner="v0.8 packaged docs",
+        reason="Packaged README and skill docs retain migration and optional coordination language.",
+    ),
+    *legacy_term_allowlist_records(
+        SKILL_SOURCE_LEGACY_TERM_FILES,
+        owner="v0.8 skill docs",
+        reason="Source skill docs retain examples that mention Redis as historical troubleshooting context.",
+    ),
+    *legacy_term_allowlist_records(
+        DEPLOYMENT_CONFIG_LEGACY_TERM_FILES,
+        owner="v0.8 deployment config",
+        reason="Compose and chart files retain Redis as an explicit coordination profile or chart option.",
+    ),
+    *legacy_term_allowlist_records(
+        LOCAL_INFRA_LEGACY_TERM_FILES,
+        owner="local Kubernetes/Tilt dev",
+        reason="Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data.",
+    ),
+    *legacy_term_allowlist_records(
+        PACKAGE_LEGACY_TERM_FILES,
+        owner="v0.7 Graphiti exit",
+        reason="Core package docs and tasks preserve compatibility coverage and historical Graphiti context.",
+    ),
+    *legacy_term_allowlist_records(
+        DEV_SCRIPT_LEGACY_TERM_FILES,
+        owner="dev bootstrap",
+        reason="Dev scripts mention legacy migration checks and optional Redis coordination.",
     ),
 )
 
@@ -585,6 +862,47 @@ def collect_dependencies() -> tuple[DependencyRecord, ...]:
     )
 
 
+def _legacy_term_scan_path(path: Path) -> bool:
+    if path == SNAPSHOT_PATH:
+        return False
+    if path.suffix not in LEGACY_TERM_SCAN_EXTENSIONS:
+        return False
+    relative_parts = path.relative_to(REPO_ROOT).parts
+    return not any(part in LEGACY_TERM_EXCLUDED_PARTS for part in relative_parts)
+
+
+def iter_legacy_term_files() -> tuple[Path, ...]:
+    paths: set[Path] = set()
+    for root in LEGACY_TERM_SCAN_ROOTS:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and _legacy_term_scan_path(path):
+                paths.add(path)
+    paths.update(path for path in LEGACY_TERM_SCAN_FILES if path != SNAPSHOT_PATH)
+    return tuple(sorted(paths))
+
+
+def collect_legacy_term_records() -> tuple[LegacyTermRecord, ...]:
+    records: list[LegacyTermRecord] = []
+    for path in iter_legacy_term_files():
+        text = path.read_text(encoding="utf-8")
+        terms = [
+            LEGACY_TERM_CANONICAL_NAMES[match.group(1).lower()]
+            for match in LEGACY_TERM_PATTERN.finditer(text)
+        ]
+        if not terms:
+            continue
+        records.append(
+            LegacyTermRecord(
+                path=relpath(path),
+                terms=tuple(sorted(set(terms))),
+                count=len(terms),
+            )
+        )
+    return tuple(records)
+
+
 def collect_runtime_surface() -> RuntimeSurface:
     rest_routers, top_level_http_routes, websocket_routes = collect_rest_surface()
     mcp_tools, mcp_resources = collect_mcp_surface()
@@ -599,11 +917,18 @@ def collect_runtime_surface() -> RuntimeSurface:
         raw_sql_usage=raw_sql_usage,
         session_storage_usage=session_storage_usage,
         graphiti_imports=collect_graphiti_imports(),
+        legacy_term_records=collect_legacy_term_records(),
         dependencies=collect_dependencies(),
     )
 
 
-def _path_matches_allowlist(path: str, allowed: GraphitiCompatibilityRecord) -> bool:
+def _path_matches_allowlist(
+    path: str,
+    allowed: GraphitiCompatibilityRecord | LegacyTermAllowlistRecord,
+) -> bool:
+    if allowed.path == "*":
+        msg = "Bare wildcard allowlist entries are not allowed"
+        raise ValueError(msg)
     if allowed.path.endswith("*"):
         return path.startswith(allowed.path.removesuffix("*"))
     return path == allowed.path
@@ -611,6 +936,13 @@ def _path_matches_allowlist(path: str, allowed: GraphitiCompatibilityRecord) -> 
 
 def graphiti_allowlist_record(path: str) -> GraphitiCompatibilityRecord | None:
     for allowed in GRAPHITI_COMPATIBILITY_ALLOWLIST:
+        if _path_matches_allowlist(path, allowed):
+            return allowed
+    return None
+
+
+def legacy_term_allowlist_record(path: str) -> LegacyTermAllowlistRecord | None:
+    for allowed in LEGACY_TERM_ALLOWLIST:
         if _path_matches_allowlist(path, allowed):
             return allowed
     return None
@@ -653,6 +985,16 @@ def default_runtime_graphiti_imports(
     )
 
 
+def unclassified_legacy_term_records(
+    surface: RuntimeSurface,
+) -> tuple[LegacyTermRecord, ...]:
+    return tuple(
+        record
+        for record in surface.legacy_term_records
+        if legacy_term_allowlist_record(record.path) is None
+    )
+
+
 def render_markdown(surface: RuntimeSurface) -> str:
     legacy_dependencies = tuple(
         record for record in surface.dependencies if record.classification == "legacy"
@@ -679,6 +1021,7 @@ def render_markdown(surface: RuntimeSurface) -> str:
         f"- Raw SQL query usage files: {len(surface.raw_sql_usage)}",
         f"- Session-backed storage access files: {len(surface.session_storage_usage)}",
         f"- Graphiti import files: {len(surface.graphiti_imports)}",
+        f"- Retained legacy term files: {len(surface.legacy_term_records)}",
         f"- Dependency records: {len(surface.dependencies)}",
         "",
         "## API Surface",
@@ -786,6 +1129,25 @@ def render_markdown(surface: RuntimeSurface) -> str:
         for record in surface.graphiti_imports
     )
 
+    lines.extend(
+        [
+            "",
+            "## Retained Legacy Term Inventory",
+            "",
+            "Every active doc or deployment config that mentions retired or optional legacy services",
+            "must carry an owner and reason here.",
+            "",
+            "| File | Terms | Matches | Owner | Reason |",
+            "| ---- | ----- | ------- | ----- | ------ |",
+        ]
+    )
+    for record in surface.legacy_term_records:
+        allowed = legacy_term_allowlist_record(record.path)
+        owner = allowed.owner if allowed else "UNCLASSIFIED"
+        reason = allowed.reason if allowed else "UNCLASSIFIED"
+        terms = ", ".join(f"`{term}`" for term in record.terms)
+        lines.append(f"| `{record.path}` | {terms} | {record.count} | {owner} | {reason} |")
+
     lines.extend(["", "## Dependency Inventory", ""])
     lines.extend(render_dependency_table("Legacy and transition dependencies", legacy_dependencies))
     lines.extend([""])
@@ -848,6 +1210,24 @@ def check_graphiti_exit_inventory(surface: RuntimeSurface) -> int:
     return 1
 
 
+def check_legacy_term_inventory(surface: RuntimeSurface) -> int:
+    unclassified = unclassified_legacy_term_records(surface)
+    if not unclassified:
+        emit(
+            "Legacy term inventory covers "
+            f"{len(surface.legacy_term_records)} active doc/config files"
+        )
+        return 0
+
+    emit(
+        f"Legacy term inventory is missing {len(unclassified)} active doc/config files:",
+        stream=sys.stderr,
+    )
+    for record in unclassified:
+        emit(f"- {record.path}", stream=sys.stderr)
+    return 1
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate the Sibyl runtime inventory snapshot.")
     parser.add_argument(
@@ -872,8 +1252,9 @@ def main() -> int:
 
     if args.check:
         status = check_snapshot(output_path, rendered)
-        inventory_status = check_graphiti_exit_inventory(surface)
-        return 1 if status or inventory_status else 0
+        graphiti_status = check_graphiti_exit_inventory(surface)
+        legacy_status = check_legacy_term_inventory(surface)
+        return 1 if status or graphiti_status or legacy_status else 0
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")

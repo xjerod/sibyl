@@ -2324,6 +2324,37 @@ Exit criteria:
 - A new user following active docs starts a Surreal-only default stack.
 - Retained legacy references are labeled and intentional.
 
+Receipt, 2026-05-14:
+
+- Commit: this packet's retained legacy-term inventory commit.
+- Changed files:
+  - `tools/inventory/runtime_surface.py`
+  - `tools/tests/test_runtime_surface.py`
+  - `docs/research/rust-port/INVENTORY.md`
+  - `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md`
+  - `moon.yml`
+- Verification:
+  - `moon run inventory-check` -> generated snapshot current, Graphiti exit inventory covers 21
+    import files, and retained legacy-term inventory covers 87 active doc/config files.
+  - `moon run inventory-test` -> 26 passed in 6.90s.
+  - `moon run inventory-lint` -> all checks passed; 28 files already formatted.
+  - `moon run inventory-typecheck` -> all checks passed.
+  - `moon run docs:lint` -> all matched files use Prettier code style.
+  - `git diff --check` -> passed.
+  - `moon run :check` -> 34 tasks completed. API reported 1405 passed, 1 skipped, 16 deselected; web
+    reported 21 test files and 91 tests passed; inventory reported 26 passed.
+- Review: Claude cross-model review PASS at `/tmp/claude-review-a52-closed.0K0C5w`. Follow-up notes
+  were non-blocking and centered on future scan-scope hardening for extensionless config files and
+  wildcard allowlist entries.
+- Policy or compatibility decision: active docs, deployment configs, root project instructions,
+  environment templates, root moon tasks, dev scripts, package docs, and source/packaged Sibyl skill
+  docs now appear in the retained legacy-term inventory whenever they mention retired or optional
+  legacy services. Every retained reference must render with an owner and reason on the same
+  generated inventory row, and unowned references fail `inventory-check`.
+- Remaining risk: extensionless or non-scanned formats such as Dockerfiles, Helm `_helpers.tpl`,
+  JSON, or TOML can still acquire future legacy terms without this guard noticing. Add those formats
+  when one becomes an active legacy-reference carrier.
+
 ### Packet A6.1: Pure Surreal Release Audit
 
 Purpose: prove the default runtime, default docs, default dependencies, and default CI are
