@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -22,6 +23,7 @@ from sibyl_core.migrate.archive import (
 )
 
 runner = CliRunner()
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 LEGACY_ARCHIVE_FLAGS = ["--source-type", "legacy-archive", "--target-mode", "surreal"]
 LEGACY_POSTGRES_REHEARSAL_FLAGS = [
     "--source-type",
@@ -29,6 +31,10 @@ LEGACY_POSTGRES_REHEARSAL_FLAGS = [
     "--target-mode",
     "postgres-rehearsal",
 ]
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", text)
 
 
 def _auth_payload(*, user_rows: int = 1) -> dict[str, object]:
@@ -609,9 +615,9 @@ def test_migrate_import_requires_explicit_source_type_and_target_mode(tmp_path: 
         )
 
     assert result.exit_code != 0
-    assert "--source-type" in result.output
+    assert "--source-type" in _strip_ansi(result.output)
     assert missing_target.exit_code != 0
-    assert "--target-mode" in missing_target.output
+    assert "--target-mode" in _strip_ansi(missing_target.output)
     restore_graph.assert_not_called()
 
 
@@ -641,9 +647,9 @@ def test_migrate_rehearse_and_cutover_require_explicit_policy_flags(tmp_path: Pa
         )
 
         assert result.exit_code != 0
-        assert "--source-type" in result.output
+        assert "--source-type" in _strip_ansi(result.output)
         assert missing_target.exit_code != 0
-        assert "--target-mode" in missing_target.output
+        assert "--target-mode" in _strip_ansi(missing_target.output)
 
 
 def test_migrate_import_requires_explicit_postgres_restore_policy(tmp_path: Path) -> None:
@@ -682,7 +688,7 @@ def test_migrate_import_requires_explicit_postgres_restore_policy(tmp_path: Path
     )
 
     assert missing_flags.exit_code != 0
-    assert "--source-type" in missing_flags.output
+    assert "--source-type" in _strip_ansi(missing_flags.output)
     assert invalid_source.exit_code == 1
     assert "--source-type legacy-archive" in invalid_source.output
     assert "historical migration payload" in invalid_source.output
