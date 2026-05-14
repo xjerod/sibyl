@@ -9,6 +9,7 @@
   - Memory Trust Foundation: `epic_539eea7afeb3`
 - Related docs:
   - `docs/architecture/SIBYL_NORTHSTAR.md`
+  - `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md`
   - `docs/architecture/SURREALDB_NATIVE_MEMORY_CORE_SPEC.md`
   - `docs/architecture/SURREALDB_V07_GRAPHITI_EXIT_AND_PURE_SURREAL_PLAN.md`
   - `docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md`
