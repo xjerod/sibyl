@@ -1718,7 +1718,7 @@ B5.1 receipt, 2026-05-13:
 - Remaining B5 risk: unauthorized project targets still fail with the existing route-level 403
   instead of returning a structured `allowed=false` preview response, the preview response uses
   `promote_to_scope`/`promote_to_scope_key` while the write response uses
-  `memory_scope`/`scope_key`, and B5.2 share preview remains unimplemented.
+  `memory_scope`/`scope_key`, and B5.3 still needs to expose the preview flows from the CLI.
 
 ### Packet B5.2: Share Preview Contract
 
@@ -1762,6 +1762,40 @@ Exit criteria:
 - Share preview proves what would be visible, hidden, or denied.
 - Cross-org and broad sharing remain disabled with stable reason codes.
 - Private-leak fixtures stay at zero leaks.
+
+B5.2 receipt, 2026-05-13:
+
+- Added `NativeMemorySharePreview` and `preview_memory_share` as a dry-run sharing contract that
+  accepts source IDs, target scope, target scope key, and optional recipient organization context.
+- The preview loads each source by raw-memory ID, evaluates source read policy before exposing it as
+  visible, and returns denied source IDs for unreadable or missing inputs without exposing hidden
+  source content or hidden source scope metadata.
+- The contract returns redaction counts, hidden-but-relevant counts, visible source IDs, denied
+  source IDs, typed missing source IDs, visible input scopes, source denial reasons, and policy
+  reason metadata.
+- Actual sharing remains disabled in v0.8. Cross-organization and broad share targets return
+  `allowed=false` with stable `scope_not_enabled` or `share_not_enabled` reasons instead of mutating
+  memory.
+- Added `POST /memory/share/preview` with the normal memory write role gate, user authentication,
+  project target verification, accessible-project context, and `memory.share.preview` audit
+  receipts.
+- Added REST schemas for share preview request/response so the future CLI and UI can consume the
+  same stable shape.
+- Tests cover disabled organization preview, private source redaction, missing sources, visible
+  project sources, cross-organization denial, no-write guarantees, REST authentication, response
+  shape, service arguments, and audit receipt fields.
+- `moon run core:test -- tests/test_native_memory.py tests/test_memory_policy.py`: 1347 passed, 15
+  skipped in 8.74s.
+- `moon run api:test -- tests/test_routes_memory.py`: 23 passed in 1.20s.
+- `moon run api:lint api:typecheck core:lint core:typecheck`: API and core lint passed; typecheck
+  exited 0 with the existing 63 API and 26 core diagnostics.
+- Independent review passed at `/tmp/claude-review-b52-share-preview-final-20260513185408.txt` after
+  privacy hardening removed hidden source scope metadata from REST-visible `input_scopes`.
+- Remaining B5 risk: actual share writes remain disabled, unauthorized project targets still fail
+  through route-level project authorization rather than returning structured preview denial, and
+  B5.3 still needs CLI commands for promotion and share preview. The CLI must not render internal
+  `policy_decisions` raw because denied-source policy decisions can carry hidden scope keys for
+  internal auditing.
 
 ### Packet B5.3: Promotion And Share CLI Surface
 

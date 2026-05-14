@@ -10,18 +10,21 @@ from fastapi import HTTPException
 
 from sibyl.api.routes.memory import (
     list_memory_audit,
+    preview_memory_share_route,
     preview_reflection_promotion,
     promote_reflection_candidate,
     recall_raw,
     remember_raw,
 )
 from sibyl.api.schemas import (
+    MemorySharePreviewRequest,
     RawMemoryRecallRequest,
     RawMemoryRememberRequest,
     ReflectionPromotionRequest,
 )
 from sibyl_core.auth import OrganizationRole, ProjectRole
 from sibyl_core.services.native_memory import (
+    NativeMemorySharePreview,
     NativeReflectionPromotionPreview,
     NativeReflectionPromotionResult,
 )
@@ -671,6 +674,126 @@ async def test_list_memory_audit_rejects_non_memory_action() -> None:
 
     assert exc.value.status_code == 400
     assert exc.value.detail == "invalid_memory_audit_action"
+
+
+@pytest.mark.asyncio
+async def test_preview_memory_share_returns_disabled_contract_and_audit() -> None:
+    org = _org()
+    ctx = _ctx()
+    http_request = _http_request()
+    result = NativeMemorySharePreview(
+        allowed=False,
+        reason="scope_not_enabled",
+        target_scope=MemoryScope.ORGANIZATION,
+        target_scope_key=None,
+        source_ids=["memory-1"],
+        visible_source_ids=["memory-1"],
+        denied_source_ids=[],
+        missing_source_ids=[],
+        redacted_count=0,
+        hidden_but_relevant_count=0,
+        metadata={
+            "input_scopes": [
+                {
+                    "id": "memory-1",
+                    "memory_scope": "private",
+                    "scope_key": None,
+                }
+            ],
+            "policy_reasons": [
+                "scope_not_enabled",
+                "private_principal_bound",
+            ],
+            "source_count": 1,
+            "visible_count": 1,
+        },
+    )
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project_123"}),
+        ) as accessible,
+        patch(
+            "sibyl.api.routes.memory.preview_memory_share",
+            AsyncMock(return_value=result),
+        ) as preview,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+    ):
+        response = await preview_memory_share_route(
+            MemorySharePreviewRequest(
+                source_ids=["memory-1"],
+                target_scope="organization",
+                recipient_organization_id="org-2",
+            ),
+            http_request=http_request,
+            org=org,
+            ctx=ctx,
+        )
+
+    accessible.assert_awaited_once_with(ctx)
+    preview.assert_awaited_once_with(
+        source_ids=["memory-1"],
+        organization_id=str(org.id),
+        principal_id="user-123",
+        target_scope="organization",
+        target_scope_key=None,
+        recipient_organization_id="org-2",
+        accessible_projects={"project_123"},
+    )
+    audit.assert_awaited_once_with(
+        action="memory.share.preview",
+        user_id="user-123",
+        organization_id="org-1",
+        request=http_request,
+        memory_scope="organization",
+        scope_key=None,
+        project_id=None,
+        source_surface="memory_share_preview",
+        source_ids=["memory-1"],
+        derived_ids=[],
+        policy_allowed=False,
+        policy_reason="scope_not_enabled",
+        details={
+            "denied_source_count": 0,
+            "hidden_but_relevant_count": 0,
+            "preview": True,
+            "recipient_organization_id": "org-2",
+            "redacted_count": 0,
+            "target_scope": "organization",
+            "visible_source_count": 1,
+        },
+    )
+    assert response.allowed is False
+    assert response.reason == "scope_not_enabled"
+    assert response.target_scope == "organization"
+    assert response.visible_source_ids == ["memory-1"]
+    assert response.denied_source_ids == []
+    assert response.missing_source_ids == []
+    assert response.policy_reasons == [
+        "scope_not_enabled",
+        "private_principal_bound",
+    ]
+    assert response.input_scopes[0].id == "memory-1"
+
+
+@pytest.mark.asyncio
+async def test_preview_memory_share_requires_authenticated_user() -> None:
+    ctx = _ctx()
+    ctx.user_id = None
+
+    with pytest.raises(HTTPException) as exc:
+        await preview_memory_share_route(
+            MemorySharePreviewRequest(
+                source_ids=["memory-1"],
+                target_scope="organization",
+            ),
+            http_request=_http_request(),
+            org=_org(),
+            ctx=ctx,
+        )
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Not authenticated"
 
 
 @pytest.mark.asyncio

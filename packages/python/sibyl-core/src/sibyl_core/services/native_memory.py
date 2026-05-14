@@ -10,8 +10,11 @@ from enum import StrEnum
 from typing import Any
 
 from sibyl_core.auth.memory_policy import (
+    MemoryPolicyAction,
     MemoryPolicyDecision,
+    authorize_memory_read,
     authorize_memory_reflect,
+    authorize_memory_share,
     authorize_memory_write,
 )
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
@@ -61,6 +64,22 @@ class NativeReflectionPromotionPreview:
     memory_scope: MemoryScope | None
     scope_key: str | None
     raw_source_ids: list[str]
+    policy_decisions: tuple[MemoryPolicyDecision, ...] = ()
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NativeMemorySharePreview:
+    allowed: bool
+    reason: str
+    target_scope: MemoryScope | None
+    target_scope_key: str | None
+    source_ids: list[str]
+    visible_source_ids: list[str]
+    denied_source_ids: list[str]
+    missing_source_ids: list[str]
+    redacted_count: int
+    hidden_but_relevant_count: int
     policy_decisions: tuple[MemoryPolicyDecision, ...] = ()
     metadata: dict[str, Any] | None = None
 
@@ -354,6 +373,104 @@ async def preview_reflection_candidate_promotion(
     )
 
 
+async def preview_memory_share(
+    *,
+    source_ids: Sequence[str],
+    organization_id: str,
+    principal_id: str | None,
+    target_scope: MemoryScope | str | None,
+    target_scope_key: str | None = None,
+    recipient_organization_id: str | None = None,
+    accessible_projects: Iterable[str] | None = None,
+    accessible_delegations: Iterable[str] | None = None,
+) -> NativeMemorySharePreview:
+    requested_source_ids = [str(source_id) for source_id in source_ids]
+    normalized_target = _coerce_promotion_scope(target_scope)
+    target_decision = _authorize_share_target(
+        principal_id=principal_id,
+        target_scope=normalized_target,
+        target_scope_key=target_scope_key,
+        recipient_organization_id=recipient_organization_id,
+        organization_id=organization_id,
+        accessible_projects=accessible_projects,
+        accessible_delegations=accessible_delegations,
+    )
+    decisions: list[MemoryPolicyDecision] = [target_decision]
+    visible_source_ids: list[str] = []
+    denied_source_ids: list[str] = []
+    missing_source_ids: list[str] = []
+    source_denial_reasons: dict[str, str] = {}
+    input_scopes: list[dict[str, str | None]] = []
+    hidden_but_relevant_count = 0
+
+    for source_id in requested_source_ids:
+        memory = await get_raw_memory(
+            organization_id=organization_id,
+            memory_id=source_id,
+        )
+        if memory is None:
+            denied_source_ids.append(source_id)
+            missing_source_ids.append(source_id)
+            source_denial_reasons[source_id] = "source_not_found"
+            decisions.append(
+                MemoryPolicyDecision(
+                    action=MemoryPolicyAction.READ,
+                    allowed=False,
+                    reason="source_not_found",
+                    memory_scope=MemoryScope.PRIVATE,
+                    scope_key=None,
+                )
+            )
+            continue
+
+        read_decision = _authorize_share_source_read(
+            memory=memory,
+            principal_id=principal_id,
+            accessible_projects=accessible_projects,
+            accessible_delegations=accessible_delegations,
+        )
+        decisions.append(read_decision)
+        if read_decision.allowed:
+            visible_source_ids.append(memory.id)
+            input_scopes.extend(_scope_metadata([memory]))
+            continue
+
+        denied_source_ids.append(memory.id)
+        source_denial_reasons[memory.id] = read_decision.reason
+        hidden_but_relevant_count += 1
+
+    reason = target_decision.reason
+    if target_decision.allowed:
+        reason = "share_not_enabled"
+    metadata: dict[str, Any] = {
+        "cross_organization": bool(
+            recipient_organization_id and str(recipient_organization_id) != str(organization_id)
+        ),
+        "input_scopes": input_scopes,
+        "missing_source_ids": missing_source_ids,
+        "policy_reasons": [decision.reason for decision in decisions],
+        "recipient_organization_id": recipient_organization_id,
+        "source_denial_reasons": source_denial_reasons,
+        "source_count": len(requested_source_ids),
+        "target_policy_reason": target_decision.reason,
+        "visible_count": len(visible_source_ids),
+    }
+    return NativeMemorySharePreview(
+        allowed=False,
+        reason=reason,
+        target_scope=normalized_target,
+        target_scope_key=target_scope_key,
+        source_ids=requested_source_ids,
+        visible_source_ids=visible_source_ids,
+        denied_source_ids=denied_source_ids,
+        missing_source_ids=missing_source_ids,
+        redacted_count=hidden_but_relevant_count,
+        hidden_but_relevant_count=hidden_but_relevant_count,
+        policy_decisions=tuple(decisions),
+        metadata=metadata,
+    )
+
+
 async def _resolve_reflection_promotion_plan(
     *,
     candidate_id: str,
@@ -584,6 +701,65 @@ def _promotion_preview_from_denial(
         raw_source_ids=result.raw_source_ids,
         policy_decisions=result.policy_decisions,
         metadata=result.metadata,
+    )
+
+
+def _authorize_share_target(
+    *,
+    principal_id: str | None,
+    target_scope: MemoryScope | None,
+    target_scope_key: str | None,
+    recipient_organization_id: str | None,
+    organization_id: str,
+    accessible_projects: Iterable[str] | None,
+    accessible_delegations: Iterable[str] | None,
+) -> MemoryPolicyDecision:
+    if target_scope is None:
+        return MemoryPolicyDecision(
+            action=MemoryPolicyAction.SHARE,
+            allowed=False,
+            reason="missing_memory_scope",
+            memory_scope=MemoryScope.PRIVATE,
+            scope_key=target_scope_key,
+        )
+    if recipient_organization_id and str(recipient_organization_id) != str(organization_id):
+        return MemoryPolicyDecision(
+            action=MemoryPolicyAction.SHARE,
+            allowed=False,
+            reason="scope_not_enabled",
+            memory_scope=target_scope,
+            scope_key=target_scope_key,
+        )
+    return authorize_memory_share(
+        principal_id=principal_id,
+        memory_scope=target_scope,
+        scope_key=target_scope_key,
+        accessible_projects=accessible_projects,
+        accessible_delegations=accessible_delegations,
+    )
+
+
+def _authorize_share_source_read(
+    *,
+    memory: RawMemory,
+    principal_id: str | None,
+    accessible_projects: Iterable[str] | None,
+    accessible_delegations: Iterable[str] | None,
+) -> MemoryPolicyDecision:
+    if memory.memory_scope is MemoryScope.PRIVATE and memory.principal_id != principal_id:
+        return MemoryPolicyDecision(
+            action=MemoryPolicyAction.READ,
+            allowed=False,
+            reason="principal_mismatch",
+            memory_scope=memory.memory_scope,
+            scope_key=memory.scope_key,
+        )
+    return authorize_memory_read(
+        principal_id=principal_id,
+        memory_scope=memory.memory_scope,
+        scope_key=memory.scope_key,
+        accessible_projects=accessible_projects,
+        accessible_delegations=accessible_delegations,
     )
 
 
@@ -955,6 +1131,7 @@ def _relationship(
 
 
 __all__ = [
+    "NativeMemorySharePreview",
     "NativeReflectionPromotionPreview",
     "NativeReflectionPromotionResult",
     "NativeReflectionWriteResult",
@@ -964,6 +1141,7 @@ __all__ = [
     "native_write_mode_from_env",
     "persist_reflection_candidate_native",
     "persist_reflection_source_native",
+    "preview_memory_share",
     "preview_reflection_candidate_promotion",
     "promote_reflection_candidate_review",
 ]

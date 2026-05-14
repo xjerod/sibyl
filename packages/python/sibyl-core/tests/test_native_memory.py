@@ -12,6 +12,7 @@ from sibyl_core.services.native_memory import (
     coerce_native_write_mode,
     native_reflection_write_enabled,
     native_write_mode_from_env,
+    preview_memory_share,
     preview_reflection_candidate_promotion,
     promote_reflection_candidate_review,
 )
@@ -143,6 +144,150 @@ async def test_preview_review_candidate_returns_missing_without_write(
     assert result.reason == "candidate_not_found"
     assert result.raw_source_ids == []
     persist.assert_not_awaited()
+    save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_share_preview_denies_organization_target_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _raw_review_candidate(id="source-1")
+    monkeypatch.setattr(native_memory, "get_raw_memory", AsyncMock(return_value=source))
+    save = AsyncMock()
+    monkeypatch.setattr(native_memory, "save_raw_memory", save)
+
+    result = await preview_memory_share(
+        source_ids=["source-1"],
+        organization_id="org-1",
+        principal_id="user-1",
+        target_scope="organization",
+    )
+
+    assert not result.allowed
+    assert result.reason == "scope_not_enabled"
+    assert result.target_scope is MemoryScope.ORGANIZATION
+    assert result.source_ids == ["source-1"]
+    assert result.visible_source_ids == ["source-1"]
+    assert result.denied_source_ids == []
+    assert result.redacted_count == 0
+    assert result.hidden_but_relevant_count == 0
+    assert result.metadata is not None
+    assert result.metadata["policy_reasons"] == [
+        "scope_not_enabled",
+        "private_principal_bound",
+    ]
+    save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_share_preview_redacts_unreadable_and_missing_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _raw_review_candidate(id="source-1", principal_id="other-user")
+    monkeypatch.setattr(
+        native_memory,
+        "get_raw_memory",
+        AsyncMock(side_effect=[source, None]),
+    )
+    save = AsyncMock()
+    monkeypatch.setattr(native_memory, "save_raw_memory", save)
+
+    result = await preview_memory_share(
+        source_ids=["source-1", "missing-1"],
+        organization_id="org-1",
+        principal_id="user-1",
+        target_scope="shared",
+    )
+
+    assert not result.allowed
+    assert result.reason == "scope_not_enabled"
+    assert result.visible_source_ids == []
+    assert result.denied_source_ids == ["source-1", "missing-1"]
+    assert result.missing_source_ids == ["missing-1"]
+    assert result.redacted_count == 1
+    assert result.hidden_but_relevant_count == 1
+    assert result.metadata is not None
+    assert result.metadata["input_scopes"] == []
+    assert result.metadata["missing_source_ids"] == ["missing-1"]
+    assert result.metadata["source_denial_reasons"] == {
+        "source-1": "principal_mismatch",
+        "missing-1": "source_not_found",
+    }
+    assert result.metadata["policy_reasons"] == [
+        "scope_not_enabled",
+        "principal_mismatch",
+        "source_not_found",
+    ]
+    save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_share_preview_allows_visible_project_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _raw_review_candidate(
+        id="source-1",
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="project_123",
+    )
+    monkeypatch.setattr(native_memory, "get_raw_memory", AsyncMock(return_value=source))
+    save = AsyncMock()
+    monkeypatch.setattr(native_memory, "save_raw_memory", save)
+
+    result = await preview_memory_share(
+        source_ids=["source-1"],
+        organization_id="org-1",
+        principal_id="user-1",
+        target_scope="shared",
+        accessible_projects={"project_123"},
+    )
+
+    assert not result.allowed
+    assert result.reason == "scope_not_enabled"
+    assert result.visible_source_ids == ["source-1"]
+    assert result.denied_source_ids == []
+    assert result.missing_source_ids == []
+    assert result.metadata is not None
+    assert result.metadata["input_scopes"] == [
+        {
+            "id": "source-1",
+            "memory_scope": "project",
+            "scope_key": "project_123",
+        }
+    ]
+    assert result.metadata["policy_reasons"] == [
+        "scope_not_enabled",
+        "project_access_verified",
+    ]
+    save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_share_preview_cross_org_remains_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _raw_review_candidate(id="source-1")
+    monkeypatch.setattr(native_memory, "get_raw_memory", AsyncMock(return_value=source))
+    save = AsyncMock()
+    monkeypatch.setattr(native_memory, "save_raw_memory", save)
+
+    result = await preview_memory_share(
+        source_ids=["source-1"],
+        organization_id="org-1",
+        principal_id="user-1",
+        target_scope="project",
+        target_scope_key="project_123",
+        recipient_organization_id="org-2",
+        accessible_projects={"project_123"},
+    )
+
+    assert not result.allowed
+    assert result.reason == "scope_not_enabled"
+    assert result.target_scope is MemoryScope.PROJECT
+    assert result.visible_source_ids == ["source-1"]
+    assert result.metadata is not None
+    assert result.metadata["cross_organization"] is True
+    assert result.metadata["target_policy_reason"] == "scope_not_enabled"
     save.assert_not_awaited()
 
 

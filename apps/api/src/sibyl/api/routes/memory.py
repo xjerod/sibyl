@@ -13,6 +13,8 @@ from sibyl.api.schemas import (
     MemoryAuditListResponse,
     MemoryScopeInputResponse,
     MemoryScopeLiteral,
+    MemorySharePreviewRequest,
+    MemorySharePreviewResponse,
     RawMemoryRecallRequest,
     RawMemoryRecallResponse,
     RawMemoryRememberRequest,
@@ -37,8 +39,10 @@ from sibyl_core.auth.memory_policy import (
     authorize_memory_write,
 )
 from sibyl_core.services.native_memory import (
+    NativeMemorySharePreview,
     NativeReflectionPromotionPreview,
     NativeReflectionPromotionResult,
+    preview_memory_share,
     preview_reflection_candidate_promotion,
     promote_reflection_candidate_review,
 )
@@ -341,6 +345,35 @@ def _promotion_preview_response(
     )
 
 
+def _share_preview_response(result: NativeMemorySharePreview) -> MemorySharePreviewResponse:
+    metadata = dict(result.metadata or {})
+    return MemorySharePreviewResponse(
+        allowed=result.allowed,
+        reason=result.reason,
+        target_scope=result.target_scope.value if result.target_scope else None,
+        target_scope_key=result.target_scope_key,
+        source_ids=list(result.source_ids),
+        visible_source_ids=list(result.visible_source_ids),
+        denied_source_ids=list(result.denied_source_ids),
+        missing_source_ids=list(result.missing_source_ids),
+        redacted_count=result.redacted_count,
+        hidden_but_relevant_count=result.hidden_but_relevant_count,
+        policy_reasons=_metadata_str_list(metadata.get("policy_reasons")),
+        input_scopes=[
+            MemoryScopeInputResponse(
+                id=str(item.get("id") or ""),
+                memory_scope=cast(
+                    "MemoryScopeLiteral",
+                    str(item.get("memory_scope") or "private"),
+                ),
+                scope_key=str(item["scope_key"]) if item.get("scope_key") else None,
+            )
+            for item in _metadata_dict_list(metadata.get("input_scopes"))
+        ],
+        metadata=metadata,
+    )
+
+
 def _metadata_str_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -446,6 +479,32 @@ async def _accessible_projects_for_promotion(
         return project_ids
     accessible_projects = await list_accessible_project_graph_ids(ctx)
     return {str(project_id) for project_id in accessible_projects or set()}
+
+
+async def _accessible_projects_for_share_preview(
+    *,
+    ctx: AuthContext,
+    request: MemorySharePreviewRequest,
+    http_request: Request | None = None,
+) -> set[str]:
+    target_project = request.target_scope_key if request.target_scope == "project" else None
+    project_ids = {project_id for project_id in (target_project, request.project_id) if project_id}
+    for project_id in project_ids:
+        await _authorize_project_filter(
+            ctx=ctx,
+            project_id=project_id,
+            required_project_role=ProjectRole.CONTRIBUTOR,
+            surface="memory_share_preview",
+            memory_scope=request.target_scope,
+            scope_key=request.target_scope_key,
+            policy_action="share_preview",
+            request=http_request,
+        )
+
+    accessible_projects = await list_accessible_project_graph_ids(ctx)
+    projects = {str(project_id) for project_id in accessible_projects or set()}
+    projects.update(project_ids)
+    return projects
 
 
 @router.post(
@@ -660,6 +719,75 @@ async def list_memory_audit(
         events=[_audit_event_response(row) for row in rows],
         limit=limit,
     )
+
+
+@router.post(
+    "/share/preview",
+    response_model=MemorySharePreviewResponse,
+    dependencies=[Depends(require_org_role(*_WRITE_ROLES))],
+)
+async def preview_memory_share_route(
+    request: MemorySharePreviewRequest,
+    http_request: Request = _REQUEST_AUTO_INJECT_SENTINEL,
+    org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> MemorySharePreviewResponse:
+    """Preview memory sharing without enabling a share write."""
+    principal_id = ctx.user_id
+    if not principal_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        accessible_projects = await _accessible_projects_for_share_preview(
+            ctx=ctx,
+            request=request,
+            http_request=http_request,
+        )
+        result = await preview_memory_share(
+            source_ids=request.source_ids,
+            organization_id=str(org.id),
+            principal_id=principal_id,
+            target_scope=request.target_scope,
+            target_scope_key=request.target_scope_key,
+            recipient_organization_id=request.recipient_organization_id,
+            accessible_projects=accessible_projects,
+        )
+        await _log_memory_audit(
+            action="memory.share.preview",
+            ctx=ctx,
+            request=http_request,
+            memory_scope=result.target_scope.value if result.target_scope else request.target_scope,
+            scope_key=result.target_scope_key or request.target_scope_key,
+            project_id=request.project_id
+            or (request.target_scope_key if request.target_scope == "project" else None),
+            source_surface="memory_share_preview",
+            source_ids=list(result.source_ids),
+            derived_ids=[],
+            policy_allowed=result.allowed,
+            policy_reason=result.reason,
+            details={
+                "denied_source_count": len(result.denied_source_ids),
+                "hidden_but_relevant_count": result.hidden_but_relevant_count,
+                "preview": True,
+                "recipient_organization_id": request.recipient_organization_id,
+                "redacted_count": result.redacted_count,
+                "target_scope": result.target_scope.value if result.target_scope else None,
+                "visible_source_count": len(result.visible_source_ids),
+            },
+        )
+        return _share_preview_response(result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception(
+            "preview_memory_share_failed",
+            error=str(e),
+            source_count=len(request.source_ids),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to preview memory sharing.",
+        ) from e
 
 
 @router.post(

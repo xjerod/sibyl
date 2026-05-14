@@ -286,6 +286,37 @@ class ReflectionPromotionPreviewResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class MemorySharePreviewRequest(BaseModel):
+    """Request to preview memory sharing without enabling a write."""
+
+    source_ids: list[str] = Field(..., min_length=1, description="Raw memory IDs to preview")
+    target_scope: MemoryScopeLiteral = Field(..., description="Intended share target scope")
+    target_scope_key: str | None = Field(default=None, description="Target project/team/shared key")
+    recipient_organization_id: str | None = Field(
+        default=None,
+        description="Optional recipient organization for future cross-org sharing",
+    )
+    project_id: str | None = Field(default=None, description="Project associated with the preview")
+
+
+class MemorySharePreviewResponse(BaseModel):
+    """Dry-run share outcome with redaction and source metadata."""
+
+    allowed: bool
+    reason: str
+    target_scope: MemoryScopeLiteral | None = None
+    target_scope_key: str | None = None
+    source_ids: list[str] = Field(default_factory=list)
+    visible_source_ids: list[str] = Field(default_factory=list)
+    denied_source_ids: list[str] = Field(default_factory=list)
+    missing_source_ids: list[str] = Field(default_factory=list)
+    redacted_count: int = 0
+    hidden_but_relevant_count: int = 0
+    policy_reasons: list[str] = Field(default_factory=list)
+    input_scopes: list[MemoryScopeInputResponse] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 # =============================================================================
 # Session Bundle Schemas
 # =============================================================================
