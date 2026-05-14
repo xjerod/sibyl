@@ -352,7 +352,8 @@ def _entity_matches_list_filters(
             return False
 
     if category:
-        entity_cat = getattr(entity, "category", "") or ""
+        metadata = getattr(entity, "metadata", {}) or {}
+        entity_cat = getattr(entity, "category", None) or metadata.get("category") or ""
         if category.lower() not in entity_cat.lower():
             return False
 
@@ -376,9 +377,10 @@ def _can_use_bounded_entity_list(
     sort_order: SortOrder,
 ) -> bool:
     surreal_ops = getattr(entity_manager, "_surreal_entity_node_ops", None)
+    native_bounded = getattr(entity_manager, "supports_bounded_entity_list", False) is True
+    compatibility_bounded = callable(surreal_ops) and surreal_ops() is not None
     return (
-        callable(surreal_ops)
-        and surreal_ops() is not None
+        (native_bounded or compatibility_bounded)
         and not language
         and not category
         and not search

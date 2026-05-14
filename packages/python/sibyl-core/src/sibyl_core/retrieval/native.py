@@ -909,8 +909,10 @@ def _candidate_from_node_record(
     content = _content_for_record(row, attributes)
     project_id = _string_value(row.get("project_id") or attributes.get("project_id"))
     source = _string_value(
-        attributes.get("source_id")
+        row.get("source_id")
+        or attributes.get("source_id")
         or attributes.get("source")
+        or row.get("source_file")
         or attributes.get("source_file")
         or row.get("uuid")
     )
@@ -1047,6 +1049,15 @@ def _selected_record_metadata(row: Mapping[str, object]) -> dict[str, object]:
         "project_id",
         "epic_id",
         "task_id",
+        "source_id",
+        "source_ids",
+        "confidence",
+        "valid_at",
+        "valid_from",
+        "valid_to",
+        "invalid_at",
+        "created_by",
+        "modified_by",
     ):
         value = row.get(key)
         if value is not None:

@@ -223,6 +223,41 @@ def test_vector_matches_with_lexical_signal_do_not_demote() -> None:
     assert "vector_only_demoted" not in ranked[0][2]
 
 
+def test_node_record_candidates_keep_top_level_provenance_metadata() -> None:
+    candidate = native_module._candidate_from_node_record(
+        {
+            "uuid": "procedure-1",
+            "name": "Procedure",
+            "entity_type": "procedure",
+            "content": "Use native Surreal rows.",
+            "project_id": "project_123",
+            "source_id": "raw_1",
+            "source_ids": ["raw_1", "raw_2"],
+            "confidence": 0.91,
+            "valid_at": "2026-05-13T12:00:00+00:00",
+            "valid_from": "2026-05-13T12:00:00+00:00",
+            "valid_to": "2026-05-14T12:00:00+00:00",
+            "invalid_at": None,
+            "created_by": "stef",
+            "modified_by": "nova",
+            "attributes": {},
+        },
+        signal=NativeRetrievalSignal.NODE_FULLTEXT,
+        score=0.8,
+    )
+
+    assert candidate.source == "raw_1"
+    assert candidate.project_id == "project_123"
+    assert candidate.metadata["source_id"] == "raw_1"
+    assert candidate.metadata["source_ids"] == ["raw_1", "raw_2"]
+    assert candidate.metadata["confidence"] == 0.91
+    assert candidate.metadata["valid_at"] == "2026-05-13T12:00:00+00:00"
+    assert candidate.metadata["valid_from"] == "2026-05-13T12:00:00+00:00"
+    assert candidate.metadata["valid_to"] == "2026-05-14T12:00:00+00:00"
+    assert candidate.metadata["created_by"] == "stef"
+    assert candidate.metadata["modified_by"] == "nova"
+
+
 @pytest.mark.asyncio
 async def test_raw_candidates_sort_by_relevance_across_scopes() -> None:
     plan = build_native_context_retrieval_plan(

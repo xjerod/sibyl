@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
@@ -18,7 +18,20 @@ from sibyl_core.backends.surreal.dedicated_client import DedicatedSurrealClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.backends.surreal.schema import bootstrap_schema
 from sibyl_core.config import settings
-from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.models.entities import (
+    Entity,
+    EntityType,
+    Procedure,
+    ProcedureStep,
+    Relationship,
+    RelationshipType,
+)
+from sibyl_core.models.tasks import (
+    Task,
+    TaskComplexity,
+    TaskPriority,
+    TaskStatus,
+)
 
 type SurrealRecord = dict[str, object]
 
@@ -66,6 +79,8 @@ class NativeSurrealGraphClient(DedicatedSurrealClient):
 
 
 class NativeEntityManager:
+    supports_bounded_entity_list = True
+
     def __init__(self, client: NativeSurrealGraphClient, *, group_id: str) -> None:
         self._client = client
         self._group_id = group_id
@@ -494,7 +509,7 @@ class NativeEntityManager:
                     FROM entity
                     WHERE group_id = $group_id
                       AND entity_type = $entity_type
-                    ORDER BY created_at DESC, uuid DESC
+                    ORDER BY updated_at DESC, created_at DESC, uuid DESC
                     LIMIT $limit START $offset;
                     """,
                     group_id=self._group_id,
@@ -573,7 +588,7 @@ class NativeEntityManager:
                     SELECT *
                     FROM entity
                     WHERE group_id = $group_id
-                    ORDER BY created_at DESC, uuid DESC
+                    ORDER BY updated_at DESC, created_at DESC, uuid DESC
                     LIMIT $limit START $offset;
                     """,
                     group_id=self._group_id,
@@ -988,10 +1003,11 @@ def _namespace_for_group(prefix: str, group_id: str) -> str:
     return f"{prefix}{sanitized}"
 
 
-def _entity_from_row(row: SurrealRecord) -> Entity:
-    attributes = row.get("attributes")
-    metadata = dict(attributes) if isinstance(attributes, dict) else {}
-    raw_metadata = metadata.get("metadata", row.get("metadata"))
+def entity_from_surreal_row(row: Mapping[str, object]) -> Entity:
+    normalized_row = {str(key): value for key, value in row.items()}
+    attributes = _row_attributes(normalized_row)
+    metadata = dict(attributes)
+    raw_metadata = metadata.get("metadata", normalized_row.get("metadata"))
     if isinstance(raw_metadata, str):
         try:
             parsed = json.loads(raw_metadata)
@@ -1003,35 +1019,278 @@ def _entity_from_row(row: SurrealRecord) -> Entity:
     elif isinstance(raw_metadata, dict):
         metadata.pop("metadata", None)
         metadata = {str(key): value for key, value in raw_metadata.items()} | metadata
-    for key in ("project_id", "epic_id", "task_id", "status", "priority", "complexity", "feature"):
-        value = row.get(key)
+
+    if metadata.get("category") is None:
+        metadata.pop("category", None)
+
+    for key in (
+        "project_id",
+        "epic_id",
+        "task_id",
+        "status",
+        "priority",
+        "complexity",
+        "feature",
+        "source_id",
+        "source_ids",
+        "confidence",
+        "valid_at",
+        "valid_from",
+        "valid_to",
+        "invalid_at",
+        "created_by",
+        "modified_by",
+    ):
+        value = normalized_row.get(key)
         if value is not None and metadata.get(key) is None:
             metadata[key] = value
-    row_tags = row.get("tags")
+    row_tags = normalized_row.get("tags")
     if row_tags is not None and metadata.get("tags") is None:
         metadata["tags"] = row_tags
 
-    return Entity(
-        id=str(row.get("uuid") or ""),
-        entity_type=_entity_type_from_row(row),
-        name=str(row.get("name") or ""),
-        description=str(row.get("description") or metadata.get("description") or ""),
-        content=str(row.get("content") or metadata.get("content") or ""),
-        organization_id=str(row.get("group_id") or "") or None,
+    entity_id = _entity_id_from_row(normalized_row)
+    record_id = _row_record_id(normalized_row)
+    if record_id and record_id != entity_id and metadata.get("record_id") is None:
+        metadata["record_id"] = record_id
+
+    entity = Entity(
+        id=entity_id,
+        entity_type=_entity_type_from_row(normalized_row, attributes=attributes),
+        name=_first_text(normalized_row.get("name"), normalized_row.get("title"), entity_id),
+        description=_first_text(
+            normalized_row.get("description"),
+            normalized_row.get("summary"),
+            metadata.get("description"),
+        ),
+        content=_first_text(
+            normalized_row.get("content"),
+            metadata.get("content"),
+            normalized_row.get("summary"),
+        ),
+        organization_id=_first_text(
+            normalized_row.get("group_id"),
+            metadata.get("group_id"),
+            normalized_row.get("organization_id"),
+            metadata.get("organization_id"),
+        )
+        or None,
+        created_by=_first_text(normalized_row.get("created_by"), metadata.get("created_by"))
+        or None,
+        modified_by=_first_text(normalized_row.get("modified_by"), metadata.get("modified_by"))
+        or None,
         metadata=metadata,
-        created_at=_row_datetime(row.get("created_at")) or datetime.now(UTC),
-        updated_at=_row_datetime(row.get("updated_at")) or datetime.now(UTC),
-        source_file=str(metadata.get("source_file") or "") or None,
-        embedding=_row_embedding(row.get("name_embedding")),
+        created_at=_row_datetime(normalized_row.get("created_at") or metadata.get("created_at"))
+        or datetime.now(UTC),
+        updated_at=_row_datetime(normalized_row.get("updated_at") or metadata.get("updated_at"))
+        or datetime.now(UTC),
+        source_file=_first_text(normalized_row.get("source_file"), metadata.get("source_file"))
+        or None,
+        embedding=_row_embedding(
+            normalized_row.get("name_embedding") or normalized_row.get("embedding")
+        ),
+    )
+    return _coerce_native_entity(entity)
+
+
+def _entity_from_row(row: SurrealRecord) -> Entity:
+    return entity_from_surreal_row(row)
+
+
+def _entity_type_from_row(
+    row: Mapping[str, object],
+    *,
+    attributes: Mapping[str, object] | None = None,
+) -> EntityType:
+    row_attributes = attributes if attributes is not None else _row_attributes(row)
+    candidates: list[object] = [
+        row.get("entity_type"),
+        row_attributes.get("entity_type"),
+    ]
+    labels = row.get("labels")
+    if isinstance(labels, list | tuple):
+        candidates.extend(label for label in labels if str(label).lower() != "entity")
+    for candidate in candidates:
+        value = str(candidate or "").lower()
+        if not value:
+            continue
+        try:
+            return EntityType(value)
+        except ValueError:
+            continue
+    return EntityType.ARTIFACT
+
+
+def _entity_id_from_row(row: Mapping[str, object]) -> str:
+    for key in ("uuid", "entity_id"):
+        if text := _first_text(row.get(key)):
+            return text
+    raw_id = row.get("id")
+    if raw_id is None:
+        raw_id = row.get("record_id")
+    if text := _first_text(raw_id):
+        return _entity_id_from_record_text(text)
+    return ""
+
+
+def _entity_id_from_record_text(value: str) -> str:
+    if ":" not in value:
+        return value
+    _table, record_key = value.split(":", 1)
+    return record_key.strip("`'\"⟨⟩<>") or value
+
+
+def _row_record_id(row: Mapping[str, object]) -> str | None:
+    return _first_text(row.get("record_id"), row.get("id")) or None
+
+
+def _row_attributes(row: Mapping[str, object]) -> dict[str, object]:
+    attributes = row.get("attributes")
+    if not isinstance(attributes, Mapping):
+        return {}
+    return {str(key): value for key, value in attributes.items()}
+
+
+def _first_text(*values: object) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _coerce_native_entity(entity: Entity) -> Entity:
+    if entity.entity_type == EntityType.TASK:
+        return _entity_to_task(entity)
+    if entity.entity_type == EntityType.PROCEDURE:
+        return _entity_to_procedure(entity)
+    return entity
+
+
+def _coerce_enum(enum_type: type[Enum], value: object, default: Enum) -> Enum:
+    if value is None:
+        return default
+    if isinstance(value, enum_type):
+        return value
+    try:
+        return enum_type(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _entity_to_task(entity: Entity) -> Task:
+    meta = entity.metadata or {}
+    return Task(
+        id=entity.id,
+        entity_type=EntityType.TASK,
+        name=entity.name,
+        title=str(meta.get("title") or entity.name),
+        description=entity.description or str(meta.get("description") or ""),
+        content=entity.content or str(meta.get("content") or ""),
+        organization_id=entity.organization_id,
+        created_by=entity.created_by,
+        modified_by=entity.modified_by,
+        metadata=meta,
+        created_at=entity.created_at,
+        updated_at=entity.updated_at,
+        source_file=entity.source_file,
+        embedding=entity.embedding,
+        status=cast("TaskStatus", _coerce_enum(TaskStatus, meta.get("status"), TaskStatus.TODO)),
+        priority=cast(
+            "TaskPriority",
+            _coerce_enum(TaskPriority, meta.get("priority"), TaskPriority.MEDIUM),
+        ),
+        task_order=_int_value(meta.get("task_order")),
+        project_id=_optional_text(meta.get("project_id")),
+        epic_id=_optional_text(meta.get("epic_id")),
+        feature=_optional_text(meta.get("feature")),
+        sprint=_optional_text(meta.get("sprint")),
+        assignees=_metadata_str_list(meta.get("assignees")) or [],
+        due_date=_row_datetime(meta.get("due_date")),
+        estimated_hours=_float_value(meta.get("estimated_hours")),
+        actual_hours=_float_value(meta.get("actual_hours")),
+        domain=_optional_text(meta.get("domain")),
+        technologies=_metadata_str_list(meta.get("technologies")) or [],
+        complexity=cast(
+            "TaskComplexity",
+            _coerce_enum(TaskComplexity, meta.get("complexity"), TaskComplexity.MEDIUM),
+        ),
+        tags=_metadata_str_list(meta.get("tags")) or [],
+        branch_name=_optional_text(meta.get("branch_name")),
+        commit_shas=_metadata_str_list(meta.get("commit_shas")) or [],
+        pr_url=_optional_text(meta.get("pr_url")),
+        learnings=str(meta.get("learnings") or ""),
+        blockers_encountered=_metadata_str_list(meta.get("blockers_encountered")) or [],
+        started_at=_row_datetime(meta.get("started_at")),
+        completed_at=_row_datetime(meta.get("completed_at")),
+        reviewed_at=_row_datetime(meta.get("reviewed_at")),
     )
 
 
-def _entity_type_from_row(row: SurrealRecord) -> EntityType:
-    value = str(row.get("entity_type") or "").lower()
-    try:
-        return EntityType(value)
-    except ValueError:
-        return EntityType.ARTIFACT
+def _entity_to_procedure(entity: Entity) -> Procedure:
+    meta = entity.metadata or {}
+    steps: list[ProcedureStep] = []
+    for raw_step in meta.get("steps") or []:
+        if isinstance(raw_step, ProcedureStep):
+            steps.append(raw_step)
+        elif isinstance(raw_step, Mapping):
+            steps.append(ProcedureStep.model_validate(raw_step))
+
+    return Procedure(
+        id=entity.id,
+        entity_type=EntityType.PROCEDURE,
+        name=entity.name,
+        description=entity.description or str(meta.get("description") or ""),
+        content=entity.content or str(meta.get("content") or ""),
+        organization_id=entity.organization_id,
+        created_by=entity.created_by,
+        modified_by=entity.modified_by,
+        metadata=meta,
+        created_at=entity.created_at,
+        updated_at=entity.updated_at,
+        source_file=entity.source_file,
+        embedding=entity.embedding,
+        steps=steps,
+        required_tools=_metadata_str_list(meta.get("required_tools")) or [],
+        category=str(meta.get("category") or ""),
+        estimated_minutes=_optional_int(meta.get("estimated_minutes")),
+        automation_level=str(meta.get("automation_level") or "manual"),
+    )
+
+
+def _optional_text(value: object) -> str | None:
+    return _first_text(value) or None
+
+
+def _int_value(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return _int_value(value)
+
+
+def _float_value(value: object) -> float | None:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _row_datetime(value: object) -> datetime | None:
@@ -1244,7 +1503,17 @@ def _normalize_record(record: object) -> SurrealRecord | None:
     payload = {str(key): value for key, value in record.items()}
     if "result" in payload and ("status" in payload or "time" in payload):
         return None
-    payload.pop("id", None)
+    raw_id = payload.pop("id", None)
+    if raw_id is not None and payload.get("record_id") is None:
+        payload["record_id"] = raw_id
+    if (
+        raw_id is not None
+        and payload.get("uuid") is None
+        and payload.get("entity_id") is None
+        and (text_id := _first_text(raw_id))
+        and ":" not in text_id
+    ):
+        payload["uuid"] = text_id
     return payload
 
 
@@ -1527,6 +1796,7 @@ __all__ = [
     "NativeRelationshipManager",
     "NativeSurrealGraphClient",
     "close_native_graph_clients",
+    "entity_from_surreal_row",
     "get_native_graph_client",
     "get_native_graph_runtime",
     "normalize_records",

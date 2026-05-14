@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import builtins
+import json
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
 
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
-from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.models.entities import Entity, EntityType, Procedure, Relationship, RelationshipType
 from sibyl_core.retrieval.dedup import EntityDeduplicator
 from sibyl_core.services.native_graph import (
     NativeEntityManager,
     NativeRelationshipManager,
     NativeSurrealGraphClient,
+    entity_from_surreal_row,
     normalize_records,
     prepare_native_graph_schema,
 )
@@ -32,6 +35,169 @@ def _block_graphiti_imports(monkeypatch: pytest.MonkeyPatch) -> None:
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+
+def test_entity_from_surreal_row_preserves_native_policy_metadata() -> None:
+    entity = entity_from_surreal_row(
+        {
+            "id": "entity:procedure_native",
+            "uuid": "procedure_native",
+            "name": "Native Procedure",
+            "entity_type": "procedure",
+            "description": "Top-level description",
+            "content": "Top-level content",
+            "group_id": "org-native",
+            "created_by": "stef",
+            "modified_by": "nova",
+            "project_id": "project_native",
+            "source_id": "raw_1",
+            "source_ids": ["raw_1", "raw_2"],
+            "confidence": 0.94,
+            "valid_at": "2026-05-13T12:00:00+00:00",
+            "valid_from": "2026-05-13T12:00:00+00:00",
+            "invalid_at": "2026-05-14T12:00:00+00:00",
+            "tags": ["native", "procedure"],
+            "attributes": {
+                "metadata": json.dumps(
+                    {
+                        "category": None,
+                        "required_tools": ["moon"],
+                        "steps": [
+                            {
+                                "order": 1,
+                                "title": "Verify",
+                                "success_criteria": "Targeted tests pass",
+                            }
+                        ],
+                    }
+                ),
+                "source_file": "docs/native.md",
+            },
+            "created_at": "2026-05-13T12:00:00+00:00",
+            "updated_at": "2026-05-13T12:30:00+00:00",
+            "name_embedding": [0.5] * EMBEDDING_DIM,
+        }
+    )
+
+    assert isinstance(entity, Procedure)
+    assert entity.id == "procedure_native"
+    assert entity.category == ""
+    assert entity.required_tools == ["moon"]
+    assert entity.steps[0].title == "Verify"
+    assert entity.created_by == "stef"
+    assert entity.modified_by == "nova"
+    assert entity.source_file == "docs/native.md"
+    assert entity.embedding == [0.5] * EMBEDDING_DIM
+    assert entity.metadata["project_id"] == "project_native"
+    assert entity.metadata["source_id"] == "raw_1"
+    assert entity.metadata["source_ids"] == ["raw_1", "raw_2"]
+    assert entity.metadata["confidence"] == 0.94
+    assert entity.metadata["valid_at"] == "2026-05-13T12:00:00+00:00"
+    assert entity.metadata["valid_from"] == "2026-05-13T12:00:00+00:00"
+    assert entity.metadata["invalid_at"] == "2026-05-14T12:00:00+00:00"
+    assert entity.metadata["record_id"] == "entity:procedure_native"
+    assert "category" not in entity.metadata
+
+
+def test_entity_from_surreal_row_hydrates_legacy_shaped_rows() -> None:
+    entity = entity_from_surreal_row(
+        {
+            "id": "legacy_procedure",
+            "name": "Legacy Procedure",
+            "labels": ["Entity", "Procedure"],
+            "summary": "Legacy summary",
+            "attributes": {
+                "metadata": {
+                    "category": None,
+                    "project_id": "project_legacy",
+                    "source_ids": ["graphiti:episode_1"],
+                },
+                "created_by": "legacy-agent",
+            },
+            "created_at": "2026-05-13T12:00:00+00:00",
+        }
+    )
+
+    assert isinstance(entity, Procedure)
+    assert entity.id == "legacy_procedure"
+    assert entity.entity_type == EntityType.PROCEDURE
+    assert entity.description == "Legacy summary"
+    assert entity.content == "Legacy summary"
+    assert entity.category == ""
+    assert entity.created_by == "legacy-agent"
+    assert entity.metadata["project_id"] == "project_legacy"
+    assert entity.metadata["source_ids"] == ["graphiti:episode_1"]
+
+
+def test_normalize_records_preserves_surreal_record_id_without_leaking_id() -> None:
+    records = normalize_records(
+        {
+            "id": "entity:procedure_native",
+            "uuid": "procedure_native",
+            "name": "Native Procedure",
+        }
+    )
+
+    assert records == [
+        {
+            "record_id": "entity:procedure_native",
+            "uuid": "procedure_native",
+            "name": "Native Procedure",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_native_entity_lists_order_by_updated_at_before_created_at() -> None:
+    client = NativeSurrealGraphClient(group_id="org-native-ordering", url="memory://")
+    try:
+        await prepare_native_graph_schema(client)
+        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+
+        await entity_manager.create_direct(
+            Entity(
+                id="task_created_newer",
+                entity_type=EntityType.TASK,
+                name="Created newer",
+                organization_id=client.group_id,
+                created_at=datetime(2026, 5, 14, tzinfo=UTC),
+                metadata={
+                    "status": "todo",
+                    "updated_at": "2026-05-13T12:00:00+00:00",
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_updated_newer",
+                entity_type=EntityType.TASK,
+                name="Updated newer",
+                organization_id=client.group_id,
+                created_at=datetime(2026, 5, 13, tzinfo=UTC),
+                metadata={
+                    "status": "todo",
+                    "updated_at": "2026-05-15T12:00:00+00:00",
+                },
+            )
+        )
+
+        typed = await entity_manager.list_by_type(
+            EntityType.TASK,
+            include_archived=True,
+            limit=2,
+        )
+        all_entities = await entity_manager.list_all(include_archived=True, limit=2)
+
+        assert [entity.id for entity in typed] == [
+            "task_updated_newer",
+            "task_created_newer",
+        ]
+        assert [entity.id for entity in all_entities] == [
+            "task_updated_newer",
+            "task_created_newer",
+        ]
+    finally:
+        await client.close()
 
 
 @pytest.mark.asyncio

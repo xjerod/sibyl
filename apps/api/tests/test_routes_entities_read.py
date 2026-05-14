@@ -11,8 +11,15 @@ from fastapi import HTTPException
 from sibyl.api.routes.entities import _should_fallback_to_document_entity, get_entity
 from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl.persistence.content_common import DocumentEntityRecord
+from sibyl.persistence.graph_runtime import GraphEntityStore
 from sibyl_core.auth import ProjectRole
-from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.models.entities import (
+    Entity,
+    EntityType,
+    Procedure,
+    Relationship,
+    RelationshipType,
+)
 from sibyl_core.storage import EntityBundle
 
 
@@ -47,6 +54,24 @@ def test_should_fallback_to_document_entity_requires_chunk_id_shape(
     expected: bool,
 ) -> None:
     assert _should_fallback_to_document_entity(entity_id) is expected
+
+
+def test_graph_entity_store_hydrates_native_mapping_without_node_to_entity() -> None:
+    store = GraphEntityStore(SimpleNamespace(), driver=object(), group_id="org-1")
+
+    entity = store.entity_from_node(
+        {
+            "uuid": "procedure-1",
+            "name": "Procedure",
+            "entity_type": "procedure",
+            "group_id": "org-1",
+            "attributes": {"metadata": {"category": None}},
+        }
+    )
+
+    assert isinstance(entity, Procedure)
+    assert entity.id == "procedure-1"
+    assert entity.category == ""
 
 
 @pytest.mark.asyncio

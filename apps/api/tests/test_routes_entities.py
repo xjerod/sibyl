@@ -168,6 +168,60 @@ class TestListEntitiesRoute:
         assert response.has_more is False
 
     @pytest.mark.asyncio
+    async def test_category_filter_uses_metadata_for_native_base_entities(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        manager = MagicMock()
+        match = _entity(
+            "procedure-match",
+            project_id=None,
+            name="Match",
+            entity_type=EntityType.PROCEDURE,
+        )
+        other = _entity(
+            "procedure-other",
+            project_id=None,
+            name="Other",
+            entity_type=EntityType.PROCEDURE,
+        )
+        match.metadata["category"] = "workflow"
+        other.metadata["category"] = "debugging"
+        manager.list_by_type = AsyncMock(
+            side_effect=[
+                [match, other],
+                [],
+            ]
+        )
+        manager.list_all = AsyncMock()
+        runtime = SimpleNamespace(entity_manager=manager)
+
+        with (
+            patch(
+                "sibyl.api.routes.entities.get_entity_graph_runtime",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+                AsyncMock(return_value=set()),
+            ),
+        ):
+            response = await list_entities(
+                org=org,
+                ctx=_ctx(),
+                entity_type=EntityType.PROCEDURE,
+                language=None,
+                category="work",
+                search=None,
+                project_ids=None,
+                page=1,
+                page_size=50,
+                sort_by=SortField.UPDATED_AT,
+                sort_order=SortOrder.DESC,
+            )
+
+        assert [entity.id for entity in response.entities] == ["procedure-match"]
+        assert response.entities[0].category == "workflow"
+
+    @pytest.mark.asyncio
     async def test_typed_entity_queries_page_past_first_batch(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
         manager = MagicMock()

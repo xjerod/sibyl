@@ -19,6 +19,7 @@ from sibyl_core.services.native_graph import (
     NativeGraphRuntime,
     NativeRelationshipManager,
     NativeSurrealGraphClient,
+    entity_from_surreal_row,
     get_native_graph_runtime,
     normalize_records,
 )
@@ -464,7 +465,18 @@ class GraphEntityStore(EntityStore):
         return await self._manager.search(query, entity_types=entity_types, limit=limit)
 
     def entity_from_node(self, node: Any) -> Entity:
-        return self._manager.node_to_entity(node)
+        if isinstance(node, dict):
+            return entity_from_surreal_row(node)
+        node_to_entity = getattr(self._manager, "node_to_entity", None)
+        if callable(node_to_entity):
+            return node_to_entity(node)
+        model_dump = getattr(node, "model_dump", None)
+        if callable(model_dump):
+            return entity_from_surreal_row(model_dump(mode="python"))
+        try:
+            return entity_from_surreal_row(vars(node))
+        except TypeError as exc:
+            raise TypeError(f"cannot hydrate entity from {type(node).__name__}") from exc
 
     async def count(self) -> int:
         if _surreal_driver_for(self._driver) is not None:
