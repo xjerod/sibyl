@@ -25,9 +25,61 @@ Recorded on 2026-05-13 at local commit `1de0b408`.
 
 ## Coverage Rule
 
-Every generated Graphiti import path must appear as a backticked path in this document, except
-`packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*`, which covers the Graphiti operation
+Every generated Graphiti import path must match the code allowlist in
+`tools/inventory/runtime_surface.py` and appear as a backticked path in this document. A path that
+is only documented here still fails the inventory gate unless the code allowlist classifies it. The
+group `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*` covers the Graphiti operation
 adapter package as one named compatibility surface.
+
+## Compatibility Allowlist
+
+These are the only retained Graphiti import surfaces. Each entry has a machine-enforced class,
+owner, and deletion or retention criterion.
+
+- `apps/api/src/sibyl/persistence/graph_runtime.py`
+  - Class: `admin`
+  - Owner: v0.7 Graphiti exit
+  - Criteria: API graph runtime resolves to native Surreal managers with no Graphiti edge or error
+    model imports.
+- `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py`
+  - Class: `compatibility`
+  - Owner: v0.7 Graphiti exit
+  - Criteria: Graphiti client construction is deleted and native services own graph access.
+- `packages/python/sibyl-core/src/sibyl_core/graph/client.py`
+  - Class: `compatibility`
+  - Owner: v0.7 Graphiti exit
+  - Criteria: Native graph client replaces Graphiti construction and provider adapters.
+- `packages/python/sibyl-core/src/sibyl_core/graph/entities.py`
+  - Class: `compatibility`
+  - Owner: v0.7 native memory
+  - Criteria: Native write, exact lookup, semantic search, and entity hydration cover the seeded
+    graph behavior without Graphiti node APIs.
+- `packages/python/sibyl-core/src/sibyl_core/graph/relationships.py`
+  - Class: `compatibility`
+  - Owner: v0.7 native write adapter
+  - Criteria: Native relation manager owns relates_to, mentions, and relationship model hydration.
+- `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py`
+  - Class: `compatibility`
+  - Owner: v0.7 native retrieval
+  - Criteria: Compare mode no longer calls Graphiti search and seeded native retrieval is the
+    default path.
+- `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py`
+  - Class: `compatibility`
+  - Owner: v0.7 native retrieval
+  - Criteria: Native embedding service owns caching without Graphiti embedder types.
+- `packages/python/sibyl-core/src/sibyl_core/graph/gemini_embedder.py`
+  - Class: `compatibility`
+  - Owner: v0.7 native retrieval
+  - Criteria: Native embedding service supports Gemini directly.
+- `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py`
+  - Class: `test`
+  - Owner: v0.7 reflection
+  - Criteria: Native reflection tests no longer instantiate Graphiti extraction clients.
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*`
+  - Class: `compatibility`
+  - Owner: v0.7 Graphiti exit
+  - Criteria: No default or fallback memory path constructs Graphiti or calls Graphiti model
+    operation interfaces.
 
 ## Default Loop Position
 

@@ -6,7 +6,7 @@ import difflib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Literal, TextIO
 
 import tomllib
 
@@ -37,7 +37,6 @@ HTTP_METHOD_DECORATORS = {
 }
 SQL_IMPORT_PREFIXES = ("sqlalchemy", "sqlmodel")
 GRAPHITI_IMPORT_PREFIXES = ("graphiti", "graphiti_core")
-GRAPHITI_EXIT_INVENTORY_GROUPS = ("packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*",)
 SQL_SESSION_IMPORTS = {
     "AsyncSession",
     "Session",
@@ -72,6 +71,7 @@ LEGACY_DEPENDENCY_NAMES = {
 }
 GRAPH_DEPENDENCY_NAMES = {"graphiti-core"}
 TARGET_DEPENDENCY_NAMES = {"surrealdb"}
+GraphitiSurfaceClass = Literal["admin", "archived_docs", "compatibility", "migration", "test"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +110,14 @@ class GraphitiImportRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class GraphitiCompatibilityRecord:
+    path: str
+    classification: GraphitiSurfaceClass
+    owner: str
+    criteria: str
+
+
+@dataclass(frozen=True, slots=True)
 class DependencyRecord:
     project: str
     dependency: str
@@ -128,6 +136,70 @@ class RuntimeSurface:
     session_storage_usage: tuple[SqlUsageRecord, ...]
     graphiti_imports: tuple[GraphitiImportRecord, ...]
     dependencies: tuple[DependencyRecord, ...]
+
+
+GRAPHITI_COMPATIBILITY_ALLOWLIST = (
+    GraphitiCompatibilityRecord(
+        path="apps/api/src/sibyl/persistence/graph_runtime.py",
+        classification="admin",
+        owner="v0.7 Graphiti exit",
+        criteria="API graph runtime resolves to native Surreal managers with no Graphiti edge or error model imports.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py",
+        classification="compatibility",
+        owner="v0.7 Graphiti exit",
+        criteria="Graphiti client construction is deleted and native services own graph access.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/client.py",
+        classification="compatibility",
+        owner="v0.7 Graphiti exit",
+        criteria="Native graph client replaces Graphiti construction and provider adapters.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/entities.py",
+        classification="compatibility",
+        owner="v0.7 native memory",
+        criteria="Native write, exact lookup, semantic search, and entity hydration cover the seeded graph behavior without Graphiti node APIs.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/relationships.py",
+        classification="compatibility",
+        owner="v0.7 native write adapter",
+        criteria="Native relation manager owns relates_to, mentions, and relationship model hydration.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py",
+        classification="compatibility",
+        owner="v0.7 native retrieval",
+        criteria="Compare mode no longer calls Graphiti search and seeded native retrieval is the default path.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py",
+        classification="compatibility",
+        owner="v0.7 native retrieval",
+        criteria="Native embedding service owns caching without Graphiti embedder types.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/gemini_embedder.py",
+        classification="compatibility",
+        owner="v0.7 native retrieval",
+        criteria="Native embedding service supports Gemini directly.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py",
+        classification="test",
+        owner="v0.7 reflection",
+        criteria="Native reflection tests no longer instantiate Graphiti extraction clients.",
+    ),
+    GraphitiCompatibilityRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*",
+        classification="compatibility",
+        owner="v0.7 Graphiti exit",
+        criteria="No default or fallback memory path constructs Graphiti or calls Graphiti model operation interfaces.",
+    ),
+)
 
 
 class SqlUsageVisitor(ast.NodeVisitor):
@@ -482,14 +554,28 @@ def collect_runtime_surface() -> RuntimeSurface:
     )
 
 
-def _graphiti_path_is_classified(path: str, inventory_text: str) -> bool:
-    if f"`{path}`" in inventory_text:
-        return True
-    for group in GRAPHITI_EXIT_INVENTORY_GROUPS:
-        prefix = group.removesuffix("*")
-        if path.startswith(prefix) and f"`{group}`" in inventory_text:
-            return True
-    return False
+def _path_matches_allowlist(path: str, allowed: GraphitiCompatibilityRecord) -> bool:
+    if allowed.path.endswith("*"):
+        return path.startswith(allowed.path.removesuffix("*"))
+    return path == allowed.path
+
+
+def graphiti_allowlist_record(path: str) -> GraphitiCompatibilityRecord | None:
+    for allowed in GRAPHITI_COMPATIBILITY_ALLOWLIST:
+        if _path_matches_allowlist(path, allowed):
+            return allowed
+    return None
+
+
+def graphiti_surface_class(path: str) -> GraphitiSurfaceClass | Literal["default"]:
+    allowed = graphiti_allowlist_record(path)
+    return "default" if allowed is None else allowed.classification
+
+
+def _graphiti_path_is_documented(path: str, inventory_text: str) -> bool:
+    allowed = graphiti_allowlist_record(path)
+    documented_path = path if allowed is None else allowed.path
+    return f"`{documented_path}`" in inventory_text
 
 
 def unclassified_graphiti_imports(
@@ -503,7 +589,18 @@ def unclassified_graphiti_imports(
     return tuple(
         record
         for record in surface.graphiti_imports
-        if not _graphiti_path_is_classified(record.path, inventory_text)
+        if graphiti_allowlist_record(record.path) is None
+        or not _graphiti_path_is_documented(record.path, inventory_text)
+    )
+
+
+def default_runtime_graphiti_imports(
+    surface: RuntimeSurface,
+) -> tuple[GraphitiImportRecord, ...]:
+    return tuple(
+        record
+        for record in surface.graphiti_imports
+        if graphiti_allowlist_record(record.path) is None
     )
 
 
@@ -633,7 +730,10 @@ def render_markdown(surface: RuntimeSurface) -> str:
         ]
     )
     lines.extend(
-        f"- `{record.path}` — {', '.join(f'`{item}`' for item in record.imports)}"
+        (
+            f"- `{record.path}` — class: `{graphiti_surface_class(record.path)}`"
+            f"; imports: {', '.join(f'`{item}`' for item in record.imports)}"
+        )
         for record in surface.graphiti_imports
     )
 
@@ -670,17 +770,32 @@ def check_snapshot(output_path: Path, rendered: str) -> int:
 
 
 def check_graphiti_exit_inventory(surface: RuntimeSurface) -> int:
+    default_imports = default_runtime_graphiti_imports(surface)
     missing = unclassified_graphiti_imports(surface)
-    if not missing:
-        emit(f"Graphiti exit inventory covers {len(surface.graphiti_imports)} import files")
+    if not default_imports and not missing:
+        emit(
+            "Graphiti exit inventory covers "
+            f"{len(surface.graphiti_imports)} import files with compatibility classes"
+        )
         return 0
 
-    emit(
-        f"Graphiti exit inventory is missing {len(missing)} import files:",
-        stream=sys.stderr,
-    )
-    for record in missing:
-        emit(f"- {record.path}", stream=sys.stderr)
+    if default_imports:
+        emit(
+            f"Default runtime contains {len(default_imports)} Graphiti import files:",
+            stream=sys.stderr,
+        )
+        for record in default_imports:
+            emit(f"- {record.path}", stream=sys.stderr)
+
+    default_import_set = set(default_imports)
+    undocumented = tuple(record for record in missing if record not in default_import_set)
+    if undocumented:
+        emit(
+            f"Graphiti exit inventory is missing {len(undocumented)} classified import files:",
+            stream=sys.stderr,
+        )
+        for record in undocumented:
+            emit(f"- {record.path}", stream=sys.stderr)
     return 1
 
 

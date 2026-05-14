@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import tomllib
 from tools.inventory.runtime_surface import (
+    GRAPHITI_COMPATIBILITY_ALLOWLIST,
     GRAPHITI_EXIT_INVENTORY_PATH,
     REPO_ROOT,
     SNAPSHOT_PATH,
+    GraphitiImportRecord,
+    RuntimeSurface,
     collect_runtime_surface,
+    default_runtime_graphiti_imports,
+    graphiti_allowlist_record,
     parse_dependency_name,
     render_markdown,
     unclassified_graphiti_imports,
@@ -17,6 +22,23 @@ EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
 EXPECTED_MCP_TOOL_COUNT = 8
 EXPECTED_MCP_RESOURCE_COUNT = 2
 EXPECTED_SQLMODEL_TABLE_COUNT = 0
+
+
+def runtime_surface_with_graphiti(
+    *records: GraphitiImportRecord,
+) -> RuntimeSurface:
+    return RuntimeSurface(
+        rest_routers=(),
+        top_level_http_routes=(),
+        websocket_routes=(),
+        mcp_tools=(),
+        mcp_resources=(),
+        sqlmodel_tables=(),
+        raw_sql_usage=(),
+        session_storage_usage=(),
+        graphiti_imports=records,
+        dependencies=(),
+    )
 
 
 def test_dependency_parser_strips_extras_and_markers() -> None:
@@ -34,6 +56,41 @@ def test_graphiti_exit_inventory_covers_runtime_imports() -> None:
 
     assert GRAPHITI_EXIT_INVENTORY_PATH.exists()
     assert unclassified_graphiti_imports(surface) == ()
+    assert default_runtime_graphiti_imports(surface) == ()
+
+
+def test_graphiti_exit_inventory_rejects_docs_only_default_import(tmp_path) -> None:
+    record = GraphitiImportRecord(
+        path="apps/api/src/sibyl/api/routes/memory.py",
+        imports=("graphiti_core.nodes",),
+    )
+    inventory_path = tmp_path / "inventory.md"
+    inventory_path.write_text(f"`{record.path}`\n", encoding="utf-8")
+    surface = runtime_surface_with_graphiti(record)
+
+    assert default_runtime_graphiti_imports(surface) == (record,)
+    assert unclassified_graphiti_imports(surface, inventory_path=inventory_path) == (record,)
+
+
+def test_graphiti_exit_inventory_allows_named_compatibility_imports() -> None:
+    record = GraphitiImportRecord(
+        path="packages/python/sibyl-core/src/sibyl_core/graph/client.py",
+        imports=("graphiti_core",),
+    )
+    surface = runtime_surface_with_graphiti(record)
+
+    assert graphiti_allowlist_record(record.path) is not None
+    assert default_runtime_graphiti_imports(surface) == ()
+
+
+def test_graphiti_exit_inventory_documents_allowlist_ownership() -> None:
+    inventory = GRAPHITI_EXIT_INVENTORY_PATH.read_text(encoding="utf-8")
+    normalized_inventory = " ".join(inventory.split())
+
+    for allowed in GRAPHITI_COMPATIBILITY_ALLOWLIST:
+        assert f"`{allowed.path}`" in inventory
+        assert f"Owner: {allowed.owner}" in normalized_inventory
+        assert allowed.criteria in normalized_inventory
 
 
 def test_graphiti_exit_inventory_tracks_no_graphiti_smoke_plan() -> None:
