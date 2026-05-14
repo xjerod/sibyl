@@ -115,6 +115,18 @@ _AUTH_ARCHIVE_SQL = {
         "delete_by_uuid": "DELETE FROM team_projects WHERE uuid = $uuid;",
         "create": "CREATE team_projects CONTENT $record;",
     },
+    "memory_spaces": {
+        "select": "SELECT * FROM memory_spaces ORDER BY id ASC;",
+        "delete_all": "DELETE FROM memory_spaces;",
+        "delete_by_uuid": "DELETE FROM memory_spaces WHERE uuid = $uuid;",
+        "create": "CREATE memory_spaces CONTENT $record;",
+    },
+    "memory_space_members": {
+        "select": "SELECT * FROM memory_space_members ORDER BY id ASC;",
+        "delete_all": "DELETE FROM memory_space_members;",
+        "delete_by_uuid": "DELETE FROM memory_space_members WHERE uuid = $uuid;",
+        "create": "CREATE memory_space_members CONTENT $record;",
+    },
 }
 AUTH_ARCHIVE_TABLES = tuple(_AUTH_ARCHIVE_SQL)
 _SELECT_TABLE_ROWS = {table: queries["select"] for table, queries in _AUTH_ARCHIVE_SQL.items()}

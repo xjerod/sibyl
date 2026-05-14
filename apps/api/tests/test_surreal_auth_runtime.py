@@ -112,6 +112,9 @@ def test_surreal_auth_runtime_exports_neutral_surface() -> None:
     assert "start_device_authorization" in surreal_auth_runtime.__all__
     assert "exchange_device_code" in surreal_auth_runtime.__all__
     assert "list_accessible_project_graph_ids" in surreal_auth_runtime.__all__
+    assert "create_memory_space" in surreal_auth_runtime.__all__
+    assert "add_memory_space_member" in surreal_auth_runtime.__all__
+    assert "list_memory_space_members" in surreal_auth_runtime.__all__
     assert "resolve_auth_context" in surreal_auth_runtime.__all__
     assert "validate_access_session" in surreal_auth_runtime.__all__
 
@@ -1729,6 +1732,320 @@ async def test_verify_entity_project_access_can_require_existing_project(
 
     assert getattr(exc.value, "status_code", None) == 404
     assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_memory_space_defaults_private_scope_to_actor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    written_records: list[dict[str, object]] = []
+
+    async def execute_query(_query: str, **kwargs):
+        if "record" in kwargs:
+            written_records.append(kwargs["record"])
+            return [kwargs["record"]]
+        return []
+
+    client = SimpleNamespace(execute_query=AsyncMock(side_effect=execute_query))
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    space = await surreal_auth_runtime.create_memory_space(
+        organization_id=org_id,
+        created_by_user_id=user_id,
+        memory_scope="private",
+        name="Private memory",
+    )
+
+    assert space.organization_id == org_id
+    assert space.memory_scope == "private"
+    assert space.scope_key == str(user_id)
+    assert space.state == "active"
+    assert space.disabled_reason is None
+    assert written_records[0]["scope_key"] == str(user_id)
+
+
+@pytest.mark.asyncio
+async def test_create_private_memory_space_rejects_other_scope_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    other_user_id = uuid4()
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected auth storage")),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await surreal_auth_runtime.create_memory_space(
+            organization_id=org_id,
+            created_by_user_id=user_id,
+            memory_scope="private",
+            scope_key=str(other_user_id),
+            name="Shadow memory",
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "private_scope_key_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_create_project_memory_space_requires_canonical_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    project_lookup = AsyncMock(return_value=SimpleNamespace(graph_project_id="project_alpha"))
+
+    async def execute_query(_query: str, **kwargs):
+        if "record" in kwargs:
+            return [kwargs["record"]]
+        return []
+
+    client = SimpleNamespace(execute_query=AsyncMock(side_effect=execute_query))
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+    monkeypatch.setattr(surreal_auth_runtime, "get_project_record_by_graph_id", project_lookup)
+
+    space = await surreal_auth_runtime.create_memory_space(
+        organization_id=org_id,
+        created_by_user_id=user_id,
+        memory_scope="project",
+        scope_key="project_alpha",
+        name="Project memory",
+    )
+
+    project_lookup.assert_awaited_once_with(
+        organization_id=org_id,
+        graph_project_id="project_alpha",
+    )
+    assert space.memory_scope == "project"
+    assert space.scope_key == "project_alpha"
+
+
+@pytest.mark.asyncio
+async def test_disabled_memory_scope_records_stable_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+
+    async def execute_query(_query: str, **kwargs):
+        if "record" in kwargs:
+            return [kwargs["record"]]
+        return []
+
+    client = SimpleNamespace(execute_query=AsyncMock(side_effect=execute_query))
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    space = await surreal_auth_runtime.create_memory_space(
+        organization_id=org_id,
+        created_by_user_id=user_id,
+        memory_scope="team",
+        scope_key="team_alpha",
+        name="Team memory",
+    )
+
+    assert space.state == "disabled"
+    assert space.disabled_reason == "scope_not_enabled"
+
+
+@pytest.mark.asyncio
+async def test_add_memory_space_member_rejects_disabled_space(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    space_id = uuid4()
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "get_memory_space",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id=space_id,
+                state="disabled",
+                disabled_reason="scope_not_enabled",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected auth write")),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await surreal_auth_runtime.add_memory_space_member(
+            organization_id=org_id,
+            space_id=space_id,
+            created_by_user_id=user_id,
+            principal_type="user",
+            principal_id=str(user_id),
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "scope_not_enabled"
+
+
+@pytest.mark.asyncio
+async def test_add_memory_space_member_writes_control_plane_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    space_id = uuid4()
+    written_records: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "get_memory_space",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id=space_id,
+                state="active",
+                disabled_reason=None,
+            )
+        ),
+    )
+
+    async def execute_query(_query: str, **kwargs):
+        if "record" in kwargs:
+            written_records.append(kwargs["record"])
+            return [kwargs["record"]]
+        return []
+
+    client = SimpleNamespace(execute_query=AsyncMock(side_effect=execute_query))
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    member = await surreal_auth_runtime.add_memory_space_member(
+        organization_id=org_id,
+        space_id=space_id,
+        created_by_user_id=user_id,
+        principal_type="agent",
+        principal_id="agent:nova",
+        role="reader",
+        permissions=["read"],
+    )
+
+    assert member.organization_id == org_id
+    assert member.space_id == space_id
+    assert member.principal_type == "agent"
+    assert member.principal_id == "agent:nova"
+    assert member.permissions == ["read"]
+    assert written_records[0]["organization_id"] == str(org_id)
+    assert written_records[0]["space_id"] == str(space_id)
+
+
+@pytest.mark.asyncio
+async def test_list_memory_space_members_scopes_by_org_and_space(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    space_id = uuid4()
+    member_id = uuid4()
+    now = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
+    client = _RecordingAuthClient(
+        [
+            {
+                "uuid": str(member_id),
+                "organization_id": str(org_id),
+                "space_id": str(space_id),
+                "principal_type": "user",
+                "principal_id": str(user_id),
+                "role": "reader",
+                "permissions": ["read"],
+                "expires_at": None,
+                "created_by_user_id": str(user_id),
+                "created_at": now,
+                "updated_at": now,
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    members = await surreal_auth_runtime.list_memory_space_members(
+        organization_id=org_id,
+        space_id=space_id,
+    )
+
+    assert members[0].id == member_id
+    assert members[0].principal_id == str(user_id)
+    assert client.calls[0][1] == {
+        "organization_id": str(org_id),
+        "space_id": str(space_id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_memory_space_preserves_manual_disabled_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    space_id = uuid4()
+    now = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
+    existing = {
+        "uuid": str(space_id),
+        "organization_id": str(org_id),
+        "memory_scope": "project",
+        "scope_key": "project_alpha",
+        "name": "Project memory",
+        "description": None,
+        "state": "disabled",
+        "disabled_reason": "manually_disabled",
+        "metadata": {},
+        "created_by_user_id": str(user_id),
+        "created_at": now,
+        "updated_at": now,
+    }
+    written_records: list[dict[str, object]] = []
+
+    async def execute_query(_query: str, **kwargs):
+        if "record" in kwargs:
+            written_records.append(kwargs["record"])
+            return [kwargs["record"]]
+        return [existing]
+
+    client = SimpleNamespace(execute_query=AsyncMock(side_effect=execute_query))
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    space = await surreal_auth_runtime.update_memory_space(
+        organization_id=org_id,
+        space_id=space_id,
+        metadata={"fresh": True},
+    )
+
+    assert space.state == "disabled"
+    assert space.disabled_reason == "manually_disabled"
+    assert written_records[0]["state"] == "disabled"
+    assert written_records[0]["disabled_reason"] == "manually_disabled"
 
 
 @pytest.mark.asyncio

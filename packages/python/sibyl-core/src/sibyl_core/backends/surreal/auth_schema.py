@@ -26,6 +26,8 @@ EXTENDED_AUTH_TABLES = (
     "projects",
     "project_members",
     "team_projects",
+    "memory_spaces",
+    "memory_space_members",
 )
 AUTH_TABLES = (*CORE_AUTH_TABLES, *EXTENDED_AUTH_TABLES)
 
@@ -397,6 +399,53 @@ DEFINE INDEX IF NOT EXISTS idx_team_projects_team
     ON team_projects FIELDS team_id;
 DEFINE INDEX IF NOT EXISTS idx_team_projects_project
     ON team_projects FIELDS project_id;
+
+DEFINE TABLE IF NOT EXISTS memory_spaces SCHEMAFULL;
+ALTER TABLE IF EXISTS memory_spaces SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS uuid ON memory_spaces TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON memory_spaces TYPE string;
+DEFINE FIELD IF NOT EXISTS memory_scope ON memory_spaces TYPE string;
+DEFINE FIELD IF NOT EXISTS scope_key ON memory_spaces TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS name ON memory_spaces TYPE string DEFAULT '';
+DEFINE FIELD IF NOT EXISTS description ON memory_spaces TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS state ON memory_spaces TYPE string DEFAULT 'active';
+DEFINE FIELD IF NOT EXISTS disabled_reason ON memory_spaces TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS metadata ON memory_spaces TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD IF NOT EXISTS created_by_user_id ON memory_spaces TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON memory_spaces TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON memory_spaces TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_memory_spaces_uuid
+    ON memory_spaces FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_memory_spaces_org
+    ON memory_spaces FIELDS organization_id;
+DEFINE INDEX IF NOT EXISTS idx_memory_spaces_scope
+    ON memory_spaces FIELDS organization_id, memory_scope, scope_key UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_memory_spaces_creator
+    ON memory_spaces FIELDS created_by_user_id;
+
+DEFINE TABLE IF NOT EXISTS memory_space_members SCHEMAFULL;
+ALTER TABLE IF EXISTS memory_space_members SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS uuid ON memory_space_members TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON memory_space_members TYPE string;
+DEFINE FIELD IF NOT EXISTS space_id ON memory_space_members TYPE string;
+DEFINE FIELD IF NOT EXISTS principal_type ON memory_space_members TYPE string;
+DEFINE FIELD IF NOT EXISTS principal_id ON memory_space_members TYPE string;
+DEFINE FIELD IF NOT EXISTS role ON memory_space_members TYPE string DEFAULT 'reader';
+DEFINE FIELD IF NOT EXISTS permissions ON memory_space_members TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS expires_at ON memory_space_members TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS created_by_user_id ON memory_space_members TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON memory_space_members TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON memory_space_members TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_memory_space_members_uuid
+    ON memory_space_members FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_memory_space_members_org
+    ON memory_space_members FIELDS organization_id;
+DEFINE INDEX IF NOT EXISTS idx_memory_space_members_space_principal
+    ON memory_space_members FIELDS space_id, principal_type, principal_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_memory_space_members_principal
+    ON memory_space_members FIELDS principal_type, principal_id;
 """
 
 

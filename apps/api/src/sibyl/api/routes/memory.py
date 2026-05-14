@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
+from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -17,6 +18,13 @@ from sibyl.api.schemas import (
     MemorySharePreviewRequest,
     MemorySharePreviewResponse,
     MemorySourceInspectResponse,
+    MemorySpaceCreateRequest,
+    MemorySpaceListResponse,
+    MemorySpaceMemberCreateRequest,
+    MemorySpaceMemberResponse,
+    MemorySpaceResponse,
+    MemorySpaceStateLiteral,
+    MemorySpaceUpdateRequest,
     RawMemoryRecallRequest,
     RawMemoryRecallResponse,
     RawMemoryRememberRequest,
@@ -29,9 +37,15 @@ from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.persistence.auth_runtime import (
+    add_memory_space_member,
+    create_memory_space,
+    get_memory_space,
     list_accessible_project_graph_ids,
     list_memory_audit_events,
+    list_memory_space_members,
+    list_memory_spaces,
     log_memory_audit_event,
+    update_memory_space,
 )
 from sibyl_core.auth import AuthOrganization, MemoryPolicyContext, OrganizationRole, ProjectRole
 from sibyl_core.auth.memory_policy import (
@@ -300,6 +314,53 @@ def _raw_memory_response(
         created_at=memory.created_at,
         score=memory.score,
         policy_reason=policy_reason,
+    )
+
+
+def _actor_user_uuid(ctx: AuthContext) -> UUID:
+    if not ctx.user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        return UUID(str(ctx.user_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="invalid_actor") from exc
+
+
+def _memory_space_member_response(member: Any) -> MemorySpaceMemberResponse:
+    return MemorySpaceMemberResponse(
+        id=str(member.id),
+        organization_id=str(member.organization_id),
+        space_id=str(member.space_id),
+        principal_type=str(member.principal_type),
+        principal_id=str(member.principal_id),
+        role=str(member.role),
+        permissions=list(getattr(member, "permissions", [])),
+        expires_at=getattr(member, "expires_at", None),
+        created_by_user_id=str(member.created_by_user_id),
+        created_at=getattr(member, "created_at", None),
+        updated_at=getattr(member, "updated_at", None),
+    )
+
+
+def _memory_space_response(
+    space: Any,
+    *,
+    members: list[Any] | None = None,
+) -> MemorySpaceResponse:
+    return MemorySpaceResponse(
+        id=str(space.id),
+        organization_id=str(space.organization_id),
+        memory_scope=cast("MemoryScopeLiteral", str(space.memory_scope)),
+        scope_key=getattr(space, "scope_key", None),
+        name=str(space.name),
+        description=getattr(space, "description", None),
+        state=cast("MemorySpaceStateLiteral", str(space.state)),
+        disabled_reason=getattr(space, "disabled_reason", None),
+        metadata=dict(getattr(space, "metadata", {}) or {}),
+        created_by_user_id=str(space.created_by_user_id),
+        created_at=getattr(space, "created_at", None),
+        updated_at=getattr(space, "updated_at", None),
+        members=[_memory_space_member_response(member) for member in members or []],
     )
 
 
@@ -707,6 +768,109 @@ async def _accessible_projects_for_share_preview(
     projects = {str(project_id) for project_id in accessible_projects or set()}
     projects.update(project_ids)
     return projects
+
+
+@router.get(
+    "/spaces",
+    response_model=MemorySpaceListResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def list_memory_space_records(
+    org: AuthOrganization = Depends(get_current_organization),
+) -> MemorySpaceListResponse:
+    """List persisted memory spaces for owner/admin inspection."""
+    spaces = await list_memory_spaces(organization_id=org.id)
+    return MemorySpaceListResponse(
+        spaces=[_memory_space_response(space) for space in spaces],
+    )
+
+
+@router.post(
+    "/spaces",
+    response_model=MemorySpaceResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def create_memory_space_record(
+    request: MemorySpaceCreateRequest,
+    org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> MemorySpaceResponse:
+    """Create a persisted memory-space record."""
+    actor_user_id = _actor_user_uuid(ctx)
+    space = await create_memory_space(
+        organization_id=org.id,
+        created_by_user_id=actor_user_id,
+        memory_scope=request.memory_scope,
+        scope_key=request.scope_key,
+        name=request.name,
+        description=request.description,
+        metadata=request.metadata,
+    )
+    return _memory_space_response(space)
+
+
+@router.get(
+    "/spaces/{space_id}",
+    response_model=MemorySpaceResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def get_memory_space_record(
+    space_id: UUID,
+    org: AuthOrganization = Depends(get_current_organization),
+) -> MemorySpaceResponse:
+    """Inspect a persisted memory-space record and its memberships."""
+    space = await get_memory_space(organization_id=org.id, space_id=space_id)
+    members = await list_memory_space_members(organization_id=org.id, space_id=space_id)
+    return _memory_space_response(space, members=members)
+
+
+@router.patch(
+    "/spaces/{space_id}",
+    response_model=MemorySpaceResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def update_memory_space_record(
+    space_id: UUID,
+    request: MemorySpaceUpdateRequest,
+    org: AuthOrganization = Depends(get_current_organization),
+) -> MemorySpaceResponse:
+    """Update memory-space metadata or state."""
+    space = await update_memory_space(
+        organization_id=org.id,
+        space_id=space_id,
+        name=request.name,
+        description=request.description,
+        state=request.state,
+        metadata=request.metadata,
+    )
+    members = await list_memory_space_members(organization_id=org.id, space_id=space_id)
+    return _memory_space_response(space, members=members)
+
+
+@router.post(
+    "/spaces/{space_id}/members",
+    response_model=MemorySpaceMemberResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def add_memory_space_member_record(
+    space_id: UUID,
+    request: MemorySpaceMemberCreateRequest,
+    org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> MemorySpaceMemberResponse:
+    """Grant a principal membership in a memory space."""
+    actor_user_id = _actor_user_uuid(ctx)
+    member = await add_memory_space_member(
+        organization_id=org.id,
+        space_id=space_id,
+        created_by_user_id=actor_user_id,
+        principal_type=request.principal_type,
+        principal_id=request.principal_id,
+        role=request.role,
+        permissions=request.permissions,
+        expires_at=request.expires_at,
+    )
+    return _memory_space_member_response(member)
 
 
 @router.post(

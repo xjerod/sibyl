@@ -44,7 +44,9 @@ __all__ += [
     "authenticate_api_key",
     "authenticate_local_user",
     "confirm_password_reset",
+    "add_memory_space_member",
     "create_api_key_for_user",
+    "create_memory_space",
     "create_project_record",
     "create_session_record",
     "delete_project_record",
@@ -52,6 +54,7 @@ __all__ += [
     "ensure_personal_organization",
     "exchange_device_code",
     "get_device_request_by_user_code",
+    "get_memory_space",
     "get_project_record_by_graph_id",
     "get_project_record_by_id",
     "get_user_by_id",
@@ -59,6 +62,8 @@ __all__ += [
     "list_accessible_project_graph_ids",
     "list_api_keys_for_user",
     "list_memory_audit_events",
+    "list_memory_space_members",
+    "list_memory_spaces",
     "list_oauth_connections",
     "list_user_organizations",
     "list_user_sessions",
@@ -85,6 +90,7 @@ __all__ += [
     "signup_local_user",
     "start_device_authorization",
     "update_auth_user",
+    "update_memory_space",
     "update_project_record",
     "validate_access_session",
     "verify_entity_project_access",
@@ -242,6 +248,30 @@ async def list_api_keys_for_user(**kwargs: object):
 
 async def list_memory_audit_events(**kwargs: object):
     return await _call_backend_export("list_memory_audit_events", **kwargs)
+
+
+async def list_memory_spaces(**kwargs: object):
+    return await _call_backend_export("list_memory_spaces", **kwargs)
+
+
+async def create_memory_space(**kwargs: object):
+    return await _call_backend_export("create_memory_space", **kwargs)
+
+
+async def get_memory_space(**kwargs: object):
+    return await _call_backend_export("get_memory_space", **kwargs)
+
+
+async def list_memory_space_members(**kwargs: object):
+    return await _call_backend_export("list_memory_space_members", **kwargs)
+
+
+async def update_memory_space(**kwargs: object):
+    return await _call_backend_export("update_memory_space", **kwargs)
+
+
+async def add_memory_space_member(**kwargs: object):
+    return await _call_backend_export("add_memory_space_member", **kwargs)
 
 
 async def create_api_key_for_user(**kwargs: object):

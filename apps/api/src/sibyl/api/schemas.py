@@ -227,6 +227,78 @@ class MemoryAuditListResponse(BaseModel):
     limit: int
 
 
+MemorySpaceStateLiteral = Literal["active", "disabled"]
+
+
+class MemorySpaceCreateRequest(BaseModel):
+    """Request to create a persisted memory space."""
+
+    memory_scope: MemoryScopeLiteral = Field(default="private", description="Memory scope")
+    scope_key: str | None = Field(default=None, max_length=500, description="Scope key")
+    name: str = Field(..., min_length=1, max_length=200, description="Human name")
+    description: str | None = Field(default=None, max_length=2000, description="Description")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Auxiliary metadata")
+
+
+class MemorySpaceUpdateRequest(BaseModel):
+    """Request to update memory-space metadata."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    state: MemorySpaceStateLiteral | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class MemorySpaceMemberCreateRequest(BaseModel):
+    """Request to grant a principal access to a memory space."""
+
+    principal_type: str = Field(..., min_length=1, max_length=50)
+    principal_id: str = Field(..., min_length=1, max_length=500)
+    role: str = Field(default="reader", min_length=1, max_length=50)
+    permissions: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
+
+
+class MemorySpaceMemberResponse(BaseModel):
+    """Persisted memory-space membership."""
+
+    id: str
+    organization_id: str
+    space_id: str
+    principal_type: str
+    principal_id: str
+    role: str
+    permissions: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
+    created_by_user_id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class MemorySpaceResponse(BaseModel):
+    """Persisted memory space with optional membership details."""
+
+    id: str
+    organization_id: str
+    memory_scope: MemoryScopeLiteral
+    scope_key: str | None = None
+    name: str
+    description: str | None = None
+    state: MemorySpaceStateLiteral
+    disabled_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_by_user_id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    members: list[MemorySpaceMemberResponse] = Field(default_factory=list)
+
+
+class MemorySpaceListResponse(BaseModel):
+    """Memory-space list response."""
+
+    spaces: list[MemorySpaceResponse]
+
+
 class MemoryDerivedRecordResponse(BaseModel):
     """Derived memory record summarized from audit receipts."""
 

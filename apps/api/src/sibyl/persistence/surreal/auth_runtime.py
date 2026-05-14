@@ -110,9 +110,23 @@ _UPSERT_QUERY_BY_TABLE = {
     ),
     "oauth_connections": "UPSERT oauth_connections CONTENT $record WHERE uuid = $uuid;",
     "password_reset_tokens": "UPSERT password_reset_tokens CONTENT $record WHERE uuid = $uuid;",
+    "memory_spaces": "UPSERT memory_spaces CONTENT $record WHERE uuid = $uuid;",
+    "memory_space_members": (
+        "UPSERT memory_space_members CONTENT $record WHERE uuid = $uuid;"
+    ),
     "projects": "UPSERT projects CONTENT $record WHERE uuid = $uuid;",
     "user_sessions": "UPSERT user_sessions CONTENT $record WHERE uuid = $uuid;",
     "users": "UPSERT users CONTENT $record WHERE uuid = $uuid;",
+}
+_ENABLED_MEMORY_SPACE_SCOPES = {"private", "delegated", "project"}
+_MEMORY_SPACE_SCOPES = {
+    "private",
+    "delegated",
+    "project",
+    "team",
+    "organization",
+    "shared",
+    "public",
 }
 type SurrealRecord = dict[str, object]
 
@@ -2131,6 +2145,98 @@ def _project_record_namespace(record: SurrealRecord) -> SimpleNamespace:
     )
 
 
+def _memory_space_state(memory_scope: str, state: str | None = None) -> tuple[str, str | None]:
+    if memory_scope not in _MEMORY_SPACE_SCOPES:
+        raise HTTPException(status_code=400, detail="invalid_memory_scope")
+    if state is not None and state not in {"active", "disabled"}:
+        raise HTTPException(status_code=400, detail="invalid_memory_space_state")
+    if memory_scope not in _ENABLED_MEMORY_SPACE_SCOPES:
+        return "disabled", "scope_not_enabled"
+    if state == "disabled":
+        return "disabled", "manually_disabled"
+    return "active", None
+
+
+def _memory_space_scope_key(
+    *,
+    memory_scope: str,
+    scope_key: str | None,
+    created_by_user_id: UUID,
+) -> str | None:
+    if memory_scope == "private":
+        actor_scope_key = str(created_by_user_id)
+        if scope_key and scope_key != actor_scope_key:
+            raise HTTPException(status_code=400, detail="private_scope_key_mismatch")
+        return actor_scope_key
+    if memory_scope in {"delegated", "project", "team", "shared"} and not scope_key:
+        raise HTTPException(status_code=400, detail="missing_scope_key")
+    return scope_key
+
+
+def _memory_space_namespace(record: SurrealRecord) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=_coerce_uuid(record.get("uuid"), field_name="memory_spaces.uuid"),
+        organization_id=_coerce_uuid(
+            record.get("organization_id"), field_name="memory_spaces.organization_id"
+        ),
+        memory_scope=str(record.get("memory_scope") or "private"),
+        scope_key=_optional_str(record.get("scope_key")),
+        name=str(record.get("name") or ""),
+        description=_optional_str(record.get("description")),
+        state=str(record.get("state") or "active"),
+        disabled_reason=_optional_str(record.get("disabled_reason")),
+        metadata=_record_payload(record.get("metadata")),
+        created_by_user_id=_coerce_uuid(
+            record.get("created_by_user_id"),
+            field_name="memory_spaces.created_by_user_id",
+        ),
+        created_at=_coerce_datetime(record.get("created_at")),
+        updated_at=_coerce_datetime(record.get("updated_at")),
+    )
+
+
+def _memory_space_member_namespace(record: SurrealRecord) -> SimpleNamespace:
+    permissions_value = record.get("permissions", [])
+    permissions = (
+        [str(item) for item in permissions_value if str(item)]
+        if isinstance(permissions_value, list)
+        else []
+    )
+    return SimpleNamespace(
+        id=_coerce_uuid(record.get("uuid"), field_name="memory_space_members.uuid"),
+        organization_id=_coerce_uuid(
+            record.get("organization_id"),
+            field_name="memory_space_members.organization_id",
+        ),
+        space_id=_coerce_uuid(record.get("space_id"), field_name="memory_space_members.space_id"),
+        principal_type=str(record.get("principal_type") or "user"),
+        principal_id=str(record.get("principal_id") or ""),
+        role=str(record.get("role") or "reader"),
+        permissions=permissions,
+        expires_at=_coerce_datetime(record.get("expires_at")),
+        created_by_user_id=_coerce_uuid(
+            record.get("created_by_user_id"),
+            field_name="memory_space_members.created_by_user_id",
+        ),
+        created_at=_coerce_datetime(record.get("created_at")),
+        updated_at=_coerce_datetime(record.get("updated_at")),
+    )
+
+
+async def _assert_project_space_target(
+    *,
+    organization_id: UUID,
+    memory_scope: str,
+    scope_key: str | None,
+) -> None:
+    if memory_scope != "project" or not scope_key:
+        return
+    await get_project_record_by_graph_id(
+        organization_id=organization_id,
+        graph_project_id=scope_key,
+    )
+
+
 async def create_project_record(
     *,
     organization_id: UUID,
@@ -2282,6 +2388,213 @@ async def get_project_record_by_id(
         if record is None:
             raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
         return _project_record_namespace(record)
+
+
+async def list_memory_spaces(*, organization_id: UUID):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        records = await repo.select_many(
+            "SELECT * FROM memory_spaces "
+            "WHERE organization_id = $organization_id "
+            "ORDER BY created_at ASC;",
+            organization_id=str(organization_id),
+        )
+        return [_memory_space_namespace(record) for record in records]
+
+
+async def create_memory_space(
+    *,
+    organization_id: UUID,
+    created_by_user_id: UUID,
+    memory_scope: str,
+    scope_key: str | None = None,
+    name: str,
+    description: str | None = None,
+    metadata: Mapping[str, object] | None = None,
+):
+    normalized_scope = str(memory_scope)
+    normalized_scope_key = _memory_space_scope_key(
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+        created_by_user_id=created_by_user_id,
+    )
+    state, disabled_reason = _memory_space_state(normalized_scope)
+    await _assert_project_space_target(
+        organization_id=organization_id,
+        memory_scope=normalized_scope,
+        scope_key=normalized_scope_key,
+    )
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        existing = await repo.select_one(
+            "SELECT * FROM memory_spaces "
+            "WHERE organization_id = $organization_id "
+            "AND memory_scope = $memory_scope "
+            "AND scope_key = $scope_key "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            memory_scope=normalized_scope,
+            scope_key=normalized_scope_key,
+        )
+        if existing is not None:
+            return _memory_space_namespace(existing)
+
+        now = _utcnow()
+        record: SurrealRecord = {
+            "uuid": str(uuid4()),
+            "organization_id": str(organization_id),
+            "memory_scope": normalized_scope,
+            "scope_key": normalized_scope_key,
+            "name": name[:200],
+            "description": description[:2000] if description else None,
+            "state": state,
+            "disabled_reason": disabled_reason,
+            "metadata": dict(metadata or {}),
+            "created_by_user_id": str(created_by_user_id),
+            "created_at": now,
+            "updated_at": now,
+        }
+        created = await repo.replace_record(
+            "memory_spaces",
+            uuid=_coerce_uuid(record["uuid"], field_name="memory_spaces.uuid"),
+            record=record,
+        )
+        return _memory_space_namespace(created)
+
+
+async def get_memory_space(*, organization_id: UUID, space_id: UUID):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        record = await repo.select_one(
+            "SELECT * FROM memory_spaces "
+            "WHERE organization_id = $organization_id AND uuid = $space_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            space_id=str(space_id),
+        )
+        if record is None:
+            raise HTTPException(status_code=404, detail="memory_space_not_found")
+        return _memory_space_namespace(record)
+
+
+async def list_memory_space_members(*, organization_id: UUID, space_id: UUID):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        records = await repo.select_many(
+            "SELECT * FROM memory_space_members "
+            "WHERE organization_id = $organization_id AND space_id = $space_id "
+            "ORDER BY created_at ASC;",
+            organization_id=str(organization_id),
+            space_id=str(space_id),
+        )
+        return [_memory_space_member_namespace(record) for record in records]
+
+
+async def update_memory_space(
+    *,
+    organization_id: UUID,
+    space_id: UUID,
+    name: str | None = None,
+    description: str | None = None,
+    state: str | None = None,
+    metadata: Mapping[str, object] | None = None,
+):
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        existing = await repo.select_one(
+            "SELECT * FROM memory_spaces "
+            "WHERE organization_id = $organization_id AND uuid = $space_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            space_id=str(space_id),
+        )
+        if existing is None:
+            raise HTTPException(status_code=404, detail="memory_space_not_found")
+
+        updated: SurrealRecord = dict(existing)
+        if name is not None:
+            updated["name"] = name[:200]
+        if description is not None:
+            updated["description"] = description[:2000] if description else None
+        if metadata is not None:
+            updated["metadata"] = dict(metadata)
+        memory_scope = str(updated.get("memory_scope") or "private")
+        if state is None:
+            if memory_scope not in _ENABLED_MEMORY_SPACE_SCOPES:
+                next_state, disabled_reason = "disabled", "scope_not_enabled"
+            else:
+                next_state = str(updated.get("state") or "active")
+                disabled_reason = (
+                    _optional_str(updated.get("disabled_reason"))
+                    if next_state == "disabled"
+                    else None
+                )
+        else:
+            next_state, disabled_reason = _memory_space_state(memory_scope, state)
+        updated["state"] = next_state
+        updated["disabled_reason"] = disabled_reason
+        updated["updated_at"] = _utcnow()
+        saved = await repo.replace_record(
+            "memory_spaces",
+            uuid=_coerce_uuid(existing.get("uuid"), field_name="memory_spaces.uuid"),
+            record=updated,
+        )
+        return _memory_space_namespace(saved)
+
+
+async def add_memory_space_member(
+    *,
+    organization_id: UUID,
+    space_id: UUID,
+    created_by_user_id: UUID,
+    principal_type: str,
+    principal_id: str,
+    role: str = "reader",
+    permissions: list[str] | None = None,
+    expires_at: datetime | None = None,
+):
+    space = await get_memory_space(organization_id=organization_id, space_id=space_id)
+    if space.state == "disabled":
+        raise HTTPException(status_code=409, detail=space.disabled_reason or "scope_not_enabled")
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        existing = await repo.select_one(
+            "SELECT * FROM memory_space_members "
+            "WHERE organization_id = $organization_id "
+            "AND space_id = $space_id "
+            "AND principal_type = $principal_type "
+            "AND principal_id = $principal_id "
+            "LIMIT 1;",
+            organization_id=str(organization_id),
+            space_id=str(space_id),
+            principal_type=principal_type,
+            principal_id=principal_id,
+        )
+        now = _utcnow()
+        record: SurrealRecord = dict(existing or {})
+        record.update(
+            {
+                "uuid": str(record.get("uuid") or uuid4()),
+                "organization_id": str(organization_id),
+                "space_id": str(space_id),
+                "principal_type": principal_type,
+                "principal_id": principal_id,
+                "role": role,
+                "permissions": list(permissions or []),
+                "expires_at": expires_at,
+                "created_by_user_id": str(
+                    record.get("created_by_user_id") or created_by_user_id
+                ),
+                "updated_at": now,
+            }
+        )
+        record.setdefault("created_at", now)
+        saved = await repo.replace_record(
+            "memory_space_members",
+            uuid=_coerce_uuid(record["uuid"], field_name="memory_space_members.uuid"),
+            record=record,
+        )
+        return _memory_space_member_namespace(saved)
 
 
 async def list_api_keys_for_user(*, organization_id: UUID, user_id: UUID):
@@ -3141,7 +3454,9 @@ __all__ = [
     "authenticate_local_user",
     "build_surreal_auth_client",
     "confirm_password_reset",
+    "add_memory_space_member",
     "create_api_key_for_user",
+    "create_memory_space",
     "create_project_record",
     "create_session_record",
     "delete_project_record",
@@ -3149,6 +3464,7 @@ __all__ = [
     "ensure_personal_organization",
     "exchange_device_code",
     "get_device_request_by_user_code",
+    "get_memory_space",
     "get_project_record_by_graph_id",
     "get_project_record_by_id",
     "get_user_by_id",
@@ -3156,6 +3472,8 @@ __all__ = [
     "list_accessible_project_graph_ids",
     "list_api_keys_for_user",
     "list_memory_audit_events",
+    "list_memory_space_members",
+    "list_memory_spaces",
     "list_oauth_connections",
     "list_user_organizations",
     "list_user_sessions",
@@ -3182,6 +3500,7 @@ __all__ = [
     "signup_local_user",
     "start_device_authorization",
     "update_auth_user",
+    "update_memory_space",
     "update_project_record",
     "validate_access_session",
     "verify_entity_project_access",

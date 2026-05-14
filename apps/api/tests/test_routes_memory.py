@@ -9,16 +9,24 @@ import pytest
 from fastapi import HTTPException
 
 from sibyl.api.routes.memory import (
+    add_memory_space_member_record,
+    create_memory_space_record,
+    get_memory_space_record,
     inspect_memory_source,
     list_memory_audit,
+    list_memory_space_records,
     preview_memory_share_route,
     preview_reflection_promotion,
     promote_reflection_candidate,
     recall_raw,
     remember_raw,
+    update_memory_space_record,
 )
 from sibyl.api.schemas import (
     MemorySharePreviewRequest,
+    MemorySpaceCreateRequest,
+    MemorySpaceMemberCreateRequest,
+    MemorySpaceUpdateRequest,
     RawMemoryRecallRequest,
     RawMemoryRememberRequest,
     ReflectionPromotionRequest,
@@ -77,6 +85,43 @@ def _memory(**overrides: object) -> RawMemory:
     }
     values.update(overrides)
     return RawMemory(**values)
+
+
+def _space(**overrides: object) -> SimpleNamespace:
+    values = {
+        "id": uuid4(),
+        "organization_id": uuid4(),
+        "memory_scope": "private",
+        "scope_key": "user-123",
+        "name": "Private memory",
+        "description": "Personal source truth",
+        "state": "active",
+        "disabled_reason": None,
+        "metadata": {"source": "test"},
+        "created_by_user_id": uuid4(),
+        "created_at": datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC),
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _space_member(**overrides: object) -> SimpleNamespace:
+    values = {
+        "id": uuid4(),
+        "organization_id": uuid4(),
+        "space_id": uuid4(),
+        "principal_type": "user",
+        "principal_id": "user-123",
+        "role": "reader",
+        "permissions": ["read"],
+        "expires_at": None,
+        "created_by_user_id": uuid4(),
+        "created_at": datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC),
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 @pytest.mark.asyncio
@@ -590,6 +635,180 @@ async def test_recall_raw_maps_scope_errors_to_400() -> None:
     assert exc.value.status_code == 400
     assert exc.value.detail == "missing_scope_key"
     recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_list_memory_space_records_returns_disabled_reason() -> None:
+    org = _org()
+    space = _space(
+        organization_id=org.id,
+        memory_scope="team",
+        state="disabled",
+        disabled_reason="scope_not_enabled",
+    )
+
+    with patch(
+        "sibyl.api.routes.memory.list_memory_spaces",
+        AsyncMock(return_value=[space]),
+    ) as list_spaces:
+        response = await list_memory_space_records(org=org)
+
+    list_spaces.assert_awaited_once_with(organization_id=org.id)
+    assert len(response.spaces) == 1
+    assert response.spaces[0].memory_scope == "team"
+    assert response.spaces[0].state == "disabled"
+    assert response.spaces[0].disabled_reason == "scope_not_enabled"
+    assert response.spaces[0].members == []
+
+
+@pytest.mark.asyncio
+async def test_create_memory_space_record_uses_authenticated_actor() -> None:
+    org = _org()
+    actor_id = uuid4()
+    space = _space(
+        organization_id=org.id,
+        created_by_user_id=actor_id,
+        memory_scope="project",
+        scope_key="project_alpha",
+        name="Project memory",
+    )
+
+    with patch(
+        "sibyl.api.routes.memory.create_memory_space",
+        AsyncMock(return_value=space),
+    ) as create_space:
+        response = await create_memory_space_record(
+            MemorySpaceCreateRequest(
+                memory_scope="project",
+                scope_key="project_alpha",
+                name="Project memory",
+                metadata={"kind": "roadmap"},
+            ),
+            org=org,
+            ctx=_ctx(user_id=str(actor_id), org_role=OrganizationRole.OWNER),
+        )
+
+    create_space.assert_awaited_once_with(
+        organization_id=org.id,
+        created_by_user_id=actor_id,
+        memory_scope="project",
+        scope_key="project_alpha",
+        name="Project memory",
+        description=None,
+        metadata={"kind": "roadmap"},
+    )
+    assert response.id == str(space.id)
+    assert response.created_by_user_id == str(actor_id)
+
+
+@pytest.mark.asyncio
+async def test_get_memory_space_record_includes_memberships() -> None:
+    org = _org()
+    space_id = uuid4()
+    space = _space(organization_id=org.id, id=space_id)
+    member = _space_member(
+        organization_id=org.id,
+        space_id=space_id,
+        principal_type="agent",
+        principal_id="agent:nova",
+        role="reader",
+    )
+
+    with (
+        patch(
+            "sibyl.api.routes.memory.get_memory_space",
+            AsyncMock(return_value=space),
+        ) as get_space,
+        patch(
+            "sibyl.api.routes.memory.list_memory_space_members",
+            AsyncMock(return_value=[member]),
+        ) as list_members,
+    ):
+        response = await get_memory_space_record(space_id, org=org)
+
+    get_space.assert_awaited_once_with(organization_id=org.id, space_id=space_id)
+    list_members.assert_awaited_once_with(organization_id=org.id, space_id=space_id)
+    assert response.id == str(space_id)
+    assert response.members[0].principal_type == "agent"
+    assert response.members[0].principal_id == "agent:nova"
+
+
+@pytest.mark.asyncio
+async def test_update_memory_space_record_returns_memberships() -> None:
+    org = _org()
+    space_id = uuid4()
+    space = _space(organization_id=org.id, id=space_id, name="Renamed memory")
+    member = _space_member(organization_id=org.id, space_id=space_id)
+
+    with (
+        patch(
+            "sibyl.api.routes.memory.update_memory_space",
+            AsyncMock(return_value=space),
+        ) as update_space,
+        patch(
+            "sibyl.api.routes.memory.list_memory_space_members",
+            AsyncMock(return_value=[member]),
+        ) as list_members,
+    ):
+        response = await update_memory_space_record(
+            space_id,
+            MemorySpaceUpdateRequest(name="Renamed memory", metadata={"fresh": True}),
+            org=org,
+        )
+
+    update_space.assert_awaited_once_with(
+        organization_id=org.id,
+        space_id=space_id,
+        name="Renamed memory",
+        description=None,
+        state=None,
+        metadata={"fresh": True},
+    )
+    list_members.assert_awaited_once_with(organization_id=org.id, space_id=space_id)
+    assert response.name == "Renamed memory"
+    assert response.members[0].principal_id == "user-123"
+
+
+@pytest.mark.asyncio
+async def test_add_memory_space_member_record_returns_grant() -> None:
+    org = _org()
+    actor_id = uuid4()
+    space_id = uuid4()
+    member = _space_member(
+        organization_id=org.id,
+        space_id=space_id,
+        principal_type="agent",
+        principal_id="agent:nova",
+        created_by_user_id=actor_id,
+    )
+
+    with patch(
+        "sibyl.api.routes.memory.add_memory_space_member",
+        AsyncMock(return_value=member),
+    ) as add_member:
+        response = await add_memory_space_member_record(
+            space_id,
+            MemorySpaceMemberCreateRequest(
+                principal_type="agent",
+                principal_id="agent:nova",
+                permissions=["read"],
+            ),
+            org=org,
+            ctx=_ctx(user_id=str(actor_id), org_role=OrganizationRole.OWNER),
+        )
+
+    add_member.assert_awaited_once_with(
+        organization_id=org.id,
+        space_id=space_id,
+        created_by_user_id=actor_id,
+        principal_type="agent",
+        principal_id="agent:nova",
+        role="reader",
+        permissions=["read"],
+        expires_at=None,
+    )
+    assert response.principal_type == "agent"
+    assert response.principal_id == "agent:nova"
 
 
 @pytest.mark.asyncio
