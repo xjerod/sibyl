@@ -1,6 +1,6 @@
 # Sibyl Post-v0.8 Synthesis and Memory Cockpit Plan
 
-- Status: draft execution plan
+- Status: full execution plan draft
 - Target release: v0.9 candidate
 - Depends on:
   - `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md`
@@ -59,6 +59,17 @@ Post-v0.8 is ready when all of these are true:
   write, inspect, correction, promotion, sharing preview, and synthesis.
 - New release gates catch source-grounding regressions, permission leaks, synthesis citation gaps,
   adapter ingest drift, and UI trust-flow regressions.
+
+The first shippable product cut does not need every adapter, every cockpit panel, or broad sharing.
+It does need one vertical path that proves the loop end to end:
+
+1. A user can inspect an authorized source and see derived memory, visibility, policy, and audit
+   context.
+2. A user can correct or hide memory and watch that correction change recall and synthesis.
+3. A user or agent can synthesize a source-backed architecture artifact from authorized project
+   memory.
+4. The artifact can be remembered with section citations, unresolved claims, and provenance.
+5. A release gate can fail if citations, policy filtering, correction handling, or provenance drift.
 
 ## 3. Non-Goals
 
@@ -142,6 +153,37 @@ audience, and freshness timestamp.
 The web flow should say "source", "visible to", "used by", "hidden", "redacted", "stale",
 "replacement", and "promoted" before it says edge, node, relation, or namespace. Power surfaces can
 expose graph details after the human has context.
+
+### 5.6 Deterministic Before Generative
+
+Synthesis planning, source selection, policy filtering, citation coverage, freshness checks, and
+verification should be deterministic. LLM drafting can turn verified section packs into prose, but
+it should not decide which hidden records are safe, which citations are mandatory, or which claims
+are supported.
+
+### 5.7 Audit Metadata Is Not Source Content
+
+Audit receipts should be rich enough to answer who, what, where, why, and under which policy
+decision. They should not copy private message bodies, document text, generated paragraphs, or raw
+attachment content. Receipts carry IDs, counts, reason codes, hashes, timestamps, and bounded
+metadata.
+
+### 5.8 Jobs Carry Authority Explicitly
+
+Background jobs must not infer actor authority from environment, default organization, queue name,
+or current server process. They carry a serialized policy context, reauthorize before writes, and
+fail closed when the payload is missing or stale.
+
+### 5.9 Product Surfaces Share One Contract
+
+The API is the contract owner. CLI, MCP, web, prompt hooks, and jobs may shape presentation, but
+they should not fork authorization, redaction, citation, correction, or synthesis semantics.
+
+### 5.10 Full-Text Search Is An Accelerator, Not Truth
+
+Surreal full-text indexes and vector search can accelerate recall and source discovery. They do not
+own lifecycle state, visibility, source truth, correction state, or citation guarantees. Those live
+in explicit records and policy-aware services.
 
 ## 6. Workstreams
 
@@ -410,7 +452,319 @@ The first screen should be the working memory cockpit, not a landing page. It sh
 memory activity, pending review, import progress, and quick actions for inspect, import, and
 synthesize.
 
-## 11. Implementation Packets
+## 11. System Contracts
+
+This section turns the plan into implementation contracts. Packets can adjust names while coding,
+but they should preserve these semantics unless the doc is intentionally revised first.
+
+### 11.1 Memory Policy Contract
+
+Every trust-sensitive operation receives or derives a `MemoryPolicyContext` before touching memory:
+
+- actor user ID
+- organization ID and organization role
+- accessible project IDs
+- accessible delegated authority IDs
+- agent ID when an agent acts on behalf of a user
+- requested memory scope and scope key
+- requested project ID when project memory is involved
+- source surface such as `api`, `cli`, `mcp`, `job`, `prompt_hook`, or `web`
+
+Operations covered by this contract:
+
+- raw memory read and write
+- context pack render
+- wake, recall, search, and reflection render
+- reflection promotion
+- task-learning episode and procedure creation
+- source inspect
+- correction, hide, redact, restore, supersede, export, and delete preview or apply
+- promotion and share preview or apply
+- source import start, resume, extraction, and promotion
+- synthesis plan, section materialization, draft, verify, and remember
+
+Stable deny reasons:
+
+- `missing_actor`
+- `missing_organization`
+- `missing_memory_space`
+- `missing_scope_key`
+- `missing_project_id`
+- `scope_disabled`
+- `unverified_membership`
+- `delegation_required`
+- `delegation_expired`
+- `unsupported_scope`
+- `hidden_source`
+- `redacted_source`
+- `source_deleted`
+- `job_policy_context_missing`
+- `job_policy_context_stale`
+
+Policy decisions return the same high-level shape everywhere:
+
+```json
+{
+  "allowed": false,
+  "reason": "unverified_membership",
+  "memory_scope": "project",
+  "scope_key": "project_123",
+  "source_surface": "mcp",
+  "audit_id": "audit_..."
+}
+```
+
+The response may include redacted counts and denied IDs when the actor is allowed to know that
+hidden context exists. It must not include hidden source text.
+
+### 11.2 Source And Derived Memory Contract
+
+Raw source records are the root of trust. Derived graph entities, episodes, procedures, artifacts,
+facts, and relationships point back to source IDs. Retrieval may rank derived records, but inspect,
+correction, deletion, export, synthesis, and audit should all be able to walk from a derived record
+to its source.
+
+Minimum source record fields:
+
+- `id`
+- `organization_id`
+- `memory_scope`
+- `scope_key`
+- `source_type`
+- `source_uri` or source-local identity
+- `source_version`
+- `content_hash`
+- `metadata`
+- `privacy_class`
+- `created_by`
+- `created_at`
+- `updated_at`
+- `lifecycle_state`
+
+Lifecycle states:
+
+- `active`: available to authorized recall and synthesis
+- `hidden`: excluded from normal recall, inspectable by owners/admins
+- `redacted`: content replaced or partially masked, metadata preserved
+- `superseded`: retained but ranked below replacement records
+- `duplicate`: retained for provenance, grouped under canonical source
+- `deleted`: content unavailable except retention metadata when policy requires it
+
+Derived records carry:
+
+- source IDs and source hashes
+- transform version
+- policy metadata from the write decision
+- freshness timestamp
+- correction and supersession pointers
+- confidence or extraction quality when applicable
+
+### 11.3 Inspect Contract
+
+Source inspect answers four questions:
+
+1. What is this memory?
+2. Why is it visible or hidden to this actor?
+3. What did Sibyl derive from it?
+4. What actions can this actor safely take next?
+
+Inspect responses include:
+
+- source metadata and redacted content preview when allowed
+- derived entity, relationship, episode, procedure, artifact, and fact IDs
+- visibility summary by scope and principal type
+- lifecycle state and correction history
+- promotion or share state
+- recent audit receipts
+- freshness and transform version metadata
+- available actions with preview-required flags
+
+Inspect never leaks hidden content through nested audit details, derived snippets, error messages,
+or action labels.
+
+### 11.4 Correction Contract
+
+Correction actions are previewable before apply. The preview returns affected source IDs, derived
+IDs, relationship IDs, recall impact, synthesis impact, reversible flag, and audit action name.
+
+Correction actions:
+
+- `mark_wrong`
+- `mark_stale`
+- `mark_sensitive`
+- `mark_duplicate`
+- `supersede`
+- `hide`
+- `redact`
+- `restore`
+- `delete`
+
+Retrieval and synthesis must understand these actions:
+
+- Hidden and deleted records are excluded unless the actor explicitly requests an inspect/admin
+  surface.
+- Superseded records can be used as historical context only when the current replacement is also
+  visible.
+- Redacted records can contribute metadata and hidden-context counts, not redacted text.
+- Duplicate records collapse under the canonical source for synthesis citations.
+
+### 11.5 Source Adapter Contract
+
+Adapters expose source records without owning memory policy. The import service owns target scope,
+policy context, persistence, audit, and job behavior.
+
+Adapter responsibilities:
+
+- identify a source corpus and version
+- iterate source records deterministically
+- emit source-local IDs, timestamps, participants, labels, metadata, body text, and attachments
+- emit a stable dedupe key
+- emit a checkpoint token after bounded batches
+- classify privacy and transform requirements
+- report skipped records with reasons
+
+Import service responsibilities:
+
+- verify target memory scope before start and resume
+- persist import manifest, counters, checkpoint, errors, and dedupe stats
+- write raw source records before extraction
+- preserve attachments or attachment metadata according to storage policy
+- enqueue extraction and embedding as follow-up work
+- default all personal corpus imports to private memory
+- require explicit promotion preview before project or shared visibility
+
+Import states:
+
+- `pending`
+- `running`
+- `paused`
+- `completed`
+- `failed`
+- `cancelled`
+
+Record extraction states:
+
+- `metadata_ready`
+- `content_ready`
+- `extraction_pending`
+- `extracted`
+- `embedding_pending`
+- `indexed`
+- `skipped`
+- `failed`
+
+### 11.6 Synthesis Contract
+
+Synthesis runs as a staged pipeline:
+
+1. `plan`: build an outline and expected evidence requirements.
+2. `sections`: materialize policy-filtered source packs per section.
+3. `draft`: render Markdown or JSON from section packs.
+4. `verify`: check citation coverage, hidden-context handling, freshness, and unsupported claims.
+5. `remember`: persist the generated artifact through normal memory write policy.
+
+The first implementation should support a deterministic non-LLM path through plan, sections, and
+verify. Drafting can use templates or an LLM adapter, but it receives only authorized section packs.
+
+Synthesis request fields:
+
+- actor and organization context
+- optional delegated principal or agent ID
+- target project or memory-space set
+- output type
+- audience
+- seed query
+- source IDs and entity IDs
+- freshness policy
+- outline override
+- output format
+
+Section packs contain:
+
+- section title and outline path
+- source IDs
+- source snippets or structured facts allowed for the actor
+- derived IDs
+- hidden-but-relevant counts
+- denied source counts
+- redaction metadata
+- freshness metadata
+- unresolved claim candidates
+- policy reason codes
+
+Verification statuses:
+
+- `passed`
+- `passed_with_gaps`
+- `blocked_missing_sources`
+- `blocked_policy_denial`
+- `blocked_unsupported_claims`
+- `blocked_stale_sources`
+
+Generated artifacts are memory. Persisted artifacts must include:
+
+- source pack IDs or source IDs per section
+- generated text hash
+- unresolved claims
+- verification summary
+- actor and policy context
+- freshness timestamp
+- output type and audience
+
+### 11.7 Cockpit Contract
+
+The cockpit is a working surface for memory trust. The default screen prioritizes action over
+analytics:
+
+- recent captures and imports
+- pending corrections or review suggestions
+- recent recalls and context renders
+- agent access previews
+- source inspections
+- synthesis drafts and verification gaps
+- import progress and skipped records
+
+Every cockpit action that changes visibility, lifecycle, promotion, sharing, deletion, or generated
+artifact persistence must use preview before apply. The UI can make happy paths fast, but the server
+remains the source of truth for policy and consequences.
+
+### 11.8 Release Cut Lines
+
+The post-v0.8 work should ship in visible cuts:
+
+#### Cut 1: Trust Inspection
+
+- Memory-space listing and access preview.
+- Source inspect API, CLI, and first web panel.
+- Correction preview for hide, redact, stale, and supersede.
+- `memory-trust-gate` remains green.
+
+#### Cut 2: Source-Grounded Synthesis
+
+- Synthesis plan, section materialization, verification, and artifact remember.
+- CLI and MCP synthesis surfaces.
+- `synthesis-gate` blocks missing citations, hidden source text, and unsupported claims.
+
+#### Cut 3: Memory Cockpit
+
+- Working `/memory` cockpit.
+- Inspect, correction, import progress, and synthesis UI.
+- Component and browser checks cover the trust flows.
+
+#### Cut 4: Large Source Import
+
+- Source adapter contract.
+- First mailbox adapter.
+- Resumable import jobs and private-memory default.
+- `adapter-ingest-gate` blocks dedupe, checkpoint, and policy regressions.
+
+#### Cut 5: Release Audit
+
+- Clean final gates.
+- CI, docs deploy, nightly, memory trust, synthesis, adapter, and benchmark receipts.
+- Binary ship or hold recommendation.
+
+## 12. Implementation Packets
 
 Each packet should land as one atomic commit unless the implementation exposes a smaller natural
 boundary. Every packet needs focused tests, lint/typecheck for touched packages, `git diff --check`,
@@ -909,7 +1263,7 @@ Exit criteria:
 - The release can claim source-grounded synthesis, inspectable and correctable memory,
   source-preserving ingest, and a usable memory cockpit.
 
-## 12. Verification Matrix
+## 13. Verification Matrix
 
 | Surface              | Gate                                                  | Required before |
 | -------------------- | ----------------------------------------------------- | --------------- |
@@ -925,7 +1279,7 @@ Exit criteria:
 | Web cockpit          | `moon run web:test`                                   | E3, F2          |
 | Full release         | `moon run :check`                                     | F2              |
 
-## 13. Risk Register
+## 14. Risk Register
 
 | Risk                                | Why it matters                           | Mitigation                                            |
 | ----------------------------------- | ---------------------------------------- | ----------------------------------------------------- |
@@ -938,7 +1292,7 @@ Exit criteria:
 | Live UI outruns permission tests    | Realtime can leak state changes          | Defer live queries until permission fixtures pass     |
 | Import jobs bypass actor policy     | Background workers become a side channel | Serialize policy context into job payloads            |
 
-## 14. Open Questions
+## 15. Open Questions
 
 - Should the first mailbox adapter be MBOX or Maildir?
 - Should source attachments be stored inside SurrealDB records, content storage, or
@@ -955,7 +1309,7 @@ Exit criteria:
 - Which source adapter should follow mailbox import: repo snapshot, chat export, docs crawl,
   calendar export, or Haven event history?
 
-## 15. Recommendation
+## 16. Recommendation
 
 Start with Track B and Track D in a narrow vertical slice:
 
