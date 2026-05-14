@@ -221,6 +221,7 @@ tasks:
       - ~:storage-access-check
       - ~:storage-access-test
       - ~:baseline-test
+      - ~:memory-trust-gate-test
       - core:check
       - api:check
       - cli:check
@@ -238,6 +239,7 @@ tasks:
       - ~:chaos-test
       - ~:storage-access-test
       - ~:baseline-test
+      - ~:memory-trust-gate-test
       - core:test
       - api:test
       - cli:test
@@ -417,6 +419,20 @@ tasks:
     inputs:
       - tools/**/*.py
       - pyproject.toml
+
+  memory-trust-gate:
+    command: uv run python -m tools.trust.memory_trust_gate
+    options:
+      cache: false
+
+  memory-trust-gate-test:
+    command: uv run pytest tools/tests/test_memory_trust_gate.py -v
+    inputs:
+      - tools/trust/**/*.py
+      - tools/tests/conftest.py
+      - tools/tests/test_memory_trust_gate.py
+      - pyproject.toml
+      - moon.yml
 
   migrate-rehearse:
     command: uv run sibyld migrate rehearse

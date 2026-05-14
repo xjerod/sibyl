@@ -60,6 +60,38 @@ tasks:
     options:
       envFile: .env
 
+  memory-trust-rest-test:
+    command: uv run pytest tests/test_routes_memory.py tests/test_surreal_auth_runtime.py -v
+    inputs:
+      - "@group(sources)"
+      - tests/test_routes_memory.py
+      - tests/test_surreal_auth_runtime.py
+    options:
+      envFile: .env
+
+  memory-trust-context-test:
+    command: uv run pytest tests/test_routes_context.py tests/test_routes_session.py -v
+    inputs:
+      - "@group(sources)"
+      - tests/test_routes_context.py
+      - tests/test_routes_session.py
+    options:
+      envFile: .env
+
+  memory-trust-mcp-test:
+    command:
+      uv run pytest tests/test_server_accessible_projects.py
+      tests/test_auth_mcp_token_verifier.py tests/test_mcp_oauth_session_refresh.py
+      tests/test_mcp_oauth_multi_org_selection.py -v
+    inputs:
+      - "@group(sources)"
+      - tests/test_server_accessible_projects.py
+      - tests/test_auth_mcp_token_verifier.py
+      - tests/test_mcp_oauth_session_refresh.py
+      - tests/test_mcp_oauth_multi_org_selection.py
+    options:
+      envFile: .env
+
   test-cov:
     command: uv run pytest --cov=src --cov-report=term-missing --cov-report=xml:coverage.xml
     inputs:

@@ -1867,21 +1867,39 @@ Depends on:
 Files:
 
 - `moon.yml`
+- `tools/trust/memory_trust_gate.py`
 - `tools/tests/test_memory_trust_gate.py`
+- `packages/python/sibyl-core/moon.yml`
 - `packages/python/sibyl-core/tests/test_memory_policy.py`
+- `packages/python/sibyl-core/tests/test_native_memory.py`
+- `packages/python/sibyl-core/tests/test_context_pack.py`
+- `packages/python/sibyl-core/tests/test_session_bundle.py`
+- `apps/api/moon.yml`
 - `apps/api/tests/test_routes_memory.py`
+- `apps/api/tests/test_surreal_auth_runtime.py`
 - `apps/api/tests/test_routes_context.py`
+- `apps/api/tests/test_routes_session.py`
 - `apps/api/tests/test_server_accessible_projects.py`
+- `apps/api/tests/test_auth_mcp_token_verifier.py`
+- `apps/api/tests/test_mcp_oauth_session_refresh.py`
+- `apps/api/tests/test_mcp_oauth_multi_org_selection.py`
+- `apps/cli/moon.yml`
 - `apps/cli/tests/test_main_capture.py`
+- `apps/cli/tests/test_main_search.py`
+- `apps/cli/tests/test_context_pack.py`
+- `apps/cli/tests/test_session.py`
+- `apps/cli/tests/test_user_prompt_hook.py`
 - `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md`
 
 Implementation:
 
-- Add a `memory-trust-gate` moon task or documented task group that runs the trust-sensitive tests.
+- Add a `memory-trust-gate` moon task backed by a small Python harness that runs trust-sensitive
+  package slice tasks through `moon run`.
 - Include raw memory, context pack, wake, recall, reflect, MCP, CLI, promotion preview, share
-  preview, audit, and inspect coverage.
-- Make the gate print a concise receipt summary suitable for release notes.
-- Keep the gate composed from existing package tasks so failures point to actionable slices.
+  preview, audit, and inspect coverage in the harness metadata.
+- Make the gate print a concise receipt summary suitable for release notes, including pass/fail
+  status, elapsed time per slice, and covered surfaces.
+- Keep each slice pointed at an explicit package test task so failures stay actionable.
 
 Verify:
 
@@ -1893,6 +1911,27 @@ Release note:
 
 - B6 owns the memory trust claim. A6 still owns final baseline, benchmark, inventory, CI, and
   nightly release receipts on the final tree.
+
+Current receipt:
+
+- `memory-trust-gate` is a root moon task backed by `tools.trust.memory_trust_gate`.
+- The gate runs explicit package slice tasks:
+  - `core:memory-trust-policy-test`: memory policy plus native promotion/share preview coverage.
+  - `core:memory-trust-context-test`: context pack, wake, recall, and raw-memory blend coverage.
+  - `api:memory-trust-rest-test`: raw memory REST, preview, audit, and inspect coverage.
+  - `api:memory-trust-context-test`: context pack, session wake, reflection, and audit coverage.
+  - `api:memory-trust-mcp-test`: MCP scoping, memory write, reflection, and auth coverage.
+  - `cli:memory-trust-test`: CLI remember, recall, wake, reflect, prompt hook, preview, audit, and
+    inspect coverage.
+- `moon run inventory-lint inventory-typecheck memory-trust-gate-test`: tool lint and typecheck
+  passed; harness tests passed with 8 tests.
+- `moon run memory-trust-gate`: PASS with 6 slices, 255 total focused tests, and covered surfaces
+  `audit`, `cli`, `context pack`, `inspect`, `mcp`, `memory policy`, `promotion preview`,
+  `prompt hook`, `raw memory`, `recall`, `reflect`, `share preview`, and `wake`.
+- Follow-up after independent review: the gate now also requires and reports `prompt hook` coverage,
+  converts runner exceptions into FAIL receipts, and keeps the uncached root gate free of decorative
+  `inputs` metadata. Job-side memory policy is not in the B6.1 gate because current background jobs
+  do not read or write native raw memory policy surfaces.
 
 Exit criteria:
 
