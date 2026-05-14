@@ -259,6 +259,15 @@ class MemorySpaceMemberCreateRequest(BaseModel):
     expires_at: datetime | None = None
 
 
+class MemorySpaceAccessPreviewRequest(BaseModel):
+    """Request to preview effective memory-space recall."""
+
+    target_principal_type: Literal["user", "agent", "delegated"] = "agent"
+    target_principal_id: str = Field(..., min_length=1, max_length=500)
+    additional_space_ids: list[str] = Field(default_factory=list, max_length=25)
+    limit: int = Field(default=50, ge=1, le=200)
+
+
 class MemorySpaceMemberResponse(BaseModel):
     """Persisted memory-space membership."""
 
@@ -297,6 +306,23 @@ class MemorySpaceListResponse(BaseModel):
     """Memory-space list response."""
 
     spaces: list[MemorySpaceResponse]
+
+
+class MemorySpaceAccessPreviewResponse(BaseModel):
+    """Non-mutating effective recall preview for memory spaces."""
+
+    allowed: bool
+    reason: str
+    target_principal_type: str
+    target_principal_id: str
+    memory_space_ids: list[str] = Field(default_factory=list)
+    visible_source_ids: list[str] = Field(default_factory=list)
+    denied_source_ids: list[str] = Field(default_factory=list)
+    missing_source_ids: list[str] = Field(default_factory=list)
+    redacted_count: int = 0
+    hidden_but_relevant_count: int = 0
+    policy_reasons: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class MemoryDerivedRecordResponse(BaseModel):

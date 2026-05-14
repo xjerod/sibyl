@@ -16,6 +16,7 @@ from sibyl.api.routes.memory import (
     list_memory_audit,
     list_memory_space_records,
     preview_memory_share_route,
+    preview_memory_space_member_access,
     preview_reflection_promotion,
     promote_reflection_candidate,
     recall_raw,
@@ -24,6 +25,7 @@ from sibyl.api.routes.memory import (
 )
 from sibyl.api.schemas import (
     MemorySharePreviewRequest,
+    MemorySpaceAccessPreviewRequest,
     MemorySpaceCreateRequest,
     MemorySpaceMemberCreateRequest,
     MemorySpaceUpdateRequest,
@@ -33,6 +35,7 @@ from sibyl.api.schemas import (
 )
 from sibyl_core.auth import OrganizationRole, ProjectRole
 from sibyl_core.services.native_memory import (
+    NativeMemoryAccessPreview,
     NativeMemorySharePreview,
     NativeReflectionPromotionPreview,
     NativeReflectionPromotionResult,
@@ -809,6 +812,70 @@ async def test_add_memory_space_member_record_returns_grant() -> None:
     )
     assert response.principal_type == "agent"
     assert response.principal_id == "agent:nova"
+
+
+@pytest.mark.asyncio
+async def test_preview_memory_space_member_access_audits_agent_visibility() -> None:
+    org = _org()
+    actor_id = uuid4()
+    space_id = uuid4()
+    space = _space(
+        organization_id=org.id,
+        id=space_id,
+        memory_scope="project",
+        scope_key="project_alpha",
+    )
+    result = NativeMemoryAccessPreview(
+        allowed=True,
+        reason="access_preview_allowed",
+        target_principal_type="agent",
+        target_principal_id="agent:nova",
+        memory_space_ids=[str(space_id)],
+        visible_source_ids=["raw-1"],
+        denied_source_ids=[],
+        missing_source_ids=[],
+        redacted_count=0,
+        hidden_but_relevant_count=0,
+        metadata={"policy_reasons": ["project_access_verified"]},
+    )
+
+    with (
+        patch(
+            "sibyl.api.routes.memory.get_memory_space",
+            AsyncMock(return_value=space),
+        ) as get_space,
+        patch(
+            "sibyl.api.routes.memory.preview_memory_access",
+            AsyncMock(return_value=result),
+        ) as preview_access,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+    ):
+        response = await preview_memory_space_member_access(
+            space_id,
+            MemorySpaceAccessPreviewRequest(
+                target_principal_type="agent",
+                target_principal_id="agent:nova",
+                limit=25,
+            ),
+            http_request=_http_request(),
+            org=org,
+            ctx=_ctx(user_id=str(actor_id), org_role=OrganizationRole.OWNER),
+        )
+
+    get_space.assert_awaited_once_with(organization_id=org.id, space_id=space_id)
+    preview_access.assert_awaited_once_with(
+        organization_id=str(org.id),
+        actor_user_id=str(actor_id),
+        target_principal_type="agent",
+        target_principal_id="agent:nova",
+        memory_spaces=[space],
+        limit=25,
+    )
+    audit.assert_awaited_once()
+    assert response.allowed is True
+    assert response.visible_source_ids == ["raw-1"]
+    assert response.memory_space_ids == [str(space_id)]
+    assert response.policy_reasons == ["project_access_verified"]
 
 
 @pytest.mark.asyncio

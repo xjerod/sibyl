@@ -935,6 +935,28 @@ class SibylClient:
             data["project_id"] = project_id
         return await self._request("POST", "/memory/share/preview", json=data)
 
+    async def preview_memory_space_access(
+        self,
+        *,
+        space_id: str,
+        target_principal_type: str,
+        target_principal_id: str,
+        additional_space_ids: list[str] | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Preview effective recall for a memory-space principal."""
+        data: dict[str, Any] = {
+            "target_principal_type": target_principal_type,
+            "target_principal_id": target_principal_id,
+            "additional_space_ids": additional_space_ids or [],
+            "limit": limit,
+        }
+        return await self._request(
+            "POST",
+            f"/memory/spaces/{quote(space_id, safe='')}/members/preview",
+            json=data,
+        )
+
     async def context_pack(
         self,
         goal: str,

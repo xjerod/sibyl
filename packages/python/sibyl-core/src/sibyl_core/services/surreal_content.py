@@ -913,6 +913,38 @@ async def recall_raw_memory(
     )
 
 
+async def list_raw_memories_for_scope(
+    *,
+    organization_id: str,
+    principal_id: str,
+    memory_scope: MemoryScope | str = MemoryScope.PRIVATE,
+    scope_key: str | None = None,
+    agent_id: str | None = None,
+    project_id: str | None = None,
+    limit: int = 50,
+) -> list[RawMemory]:
+    if limit <= 0:
+        return []
+    normalized_scope = _coerce_memory_scope(memory_scope)
+    where_clause, params = _memory_scope_where(
+        organization_id=organization_id,
+        principal_id=principal_id,
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+        agent_id=agent_id,
+        project_id=project_id,
+    )
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            f"SELECT * FROM raw_captures WHERE {where_clause} "
+            "ORDER BY captured_at DESC LIMIT $limit;",
+            **params,
+            limit=limit,
+        )
+    return [_raw_memory_from_record(row) for row in rows]
+
+
 async def get_or_create_source(
     url: str,
     depth: int,
@@ -1299,6 +1331,7 @@ __all__ = [
     "get_shared_surreal_content_client",
     "lexical_score",
     "lexical_score_from_tokens",
+    "list_raw_memories_for_scope",
     "list_source_ids_for_org",
     "list_unlinked_document_chunks",
     "load_search_scope",

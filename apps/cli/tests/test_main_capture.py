@@ -50,6 +50,32 @@ async def test_memory_inspect_client_url_encodes_source_id() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_memory_space_access_client_url_encodes_space_id() -> None:
+    client = SibylClient(base_url="http://example.test/api", auth_token="token")
+    client._request = AsyncMock(return_value={"allowed": True})  # type: ignore[method-assign]
+
+    data = await client.preview_memory_space_access(
+        space_id="space/with/slash",
+        target_principal_type="agent",
+        target_principal_id="agent:nova",
+        additional_space_ids=["space-2"],
+        limit=25,
+    )
+
+    assert data == {"allowed": True}
+    client._request.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/memory/spaces/space%2Fwith%2Fslash/members/preview",
+        json={
+            "target_principal_type": "agent",
+            "target_principal_id": "agent:nova",
+            "additional_space_ids": ["space-2"],
+            "limit": 25,
+        },
+    )
+
+
 @patch("sibyl_cli.main.get_client")
 def test_capture_command_derives_title_and_marks_quick_capture(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()
@@ -897,6 +923,58 @@ def test_memory_share_without_preview_is_denied(mock_get_client: MagicMock) -> N
     assert result.exit_code == 1
     assert "only supports --preview" in result.stdout
     mock_get_client.assert_not_called()
+
+
+@patch("sibyl_cli.main.get_client")
+def test_memory_space_preview_agent_command_renders_access(
+    mock_get_client: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.preview_memory_space_access = AsyncMock(
+        return_value={
+            "allowed": True,
+            "reason": "access_preview_allowed",
+            "target_principal_type": "agent",
+            "target_principal_id": "agent:nova",
+            "memory_space_ids": ["space-1", "space-2"],
+            "visible_source_ids": ["raw-1"],
+            "denied_source_ids": [],
+            "redacted_count": 0,
+            "hidden_but_relevant_count": 0,
+            "policy_reasons": ["project_access_verified"],
+            "metadata": {"access_state": "partial"},
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "memory-space",
+            "preview-agent",
+            "agent:nova",
+            "--space",
+            "space-1",
+            "--also-space",
+            "space-2",
+            "--limit",
+            "25",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Access preview" in result.stdout
+    assert "partial" in result.stdout
+    assert "raw-1" in result.stdout
+    assert "project_access_verified" in result.stdout
+    mock_client.preview_memory_space_access.assert_awaited_once_with(
+        space_id="space-1",
+        target_principal_type="agent",
+        target_principal_id="agent:nova",
+        additional_space_ids=["space-2"],
+        limit=25,
+    )
 
 
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")

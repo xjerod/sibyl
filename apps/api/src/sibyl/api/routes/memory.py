@@ -18,6 +18,8 @@ from sibyl.api.schemas import (
     MemorySharePreviewRequest,
     MemorySharePreviewResponse,
     MemorySourceInspectResponse,
+    MemorySpaceAccessPreviewRequest,
+    MemorySpaceAccessPreviewResponse,
     MemorySpaceCreateRequest,
     MemorySpaceListResponse,
     MemorySpaceMemberCreateRequest,
@@ -55,9 +57,11 @@ from sibyl_core.auth.memory_policy import (
     authorize_memory_write,
 )
 from sibyl_core.services.native_memory import (
+    NativeMemoryAccessPreview,
     NativeMemorySharePreview,
     NativeReflectionPromotionPreview,
     NativeReflectionPromotionResult,
+    preview_memory_access,
     preview_memory_share,
     preview_reflection_candidate_promotion,
     promote_reflection_candidate_review,
@@ -435,6 +439,25 @@ def _share_preview_response(result: NativeMemorySharePreview) -> MemorySharePrev
             )
             for item in _metadata_dict_list(metadata.get("input_scopes"))
         ],
+        metadata=metadata,
+    )
+
+
+def _access_preview_response(result: NativeMemoryAccessPreview) -> MemorySpaceAccessPreviewResponse:
+    metadata = dict(result.metadata or {})
+    return MemorySpaceAccessPreviewResponse(
+        allowed=result.allowed,
+        reason=result.reason,
+        target_principal_type=result.target_principal_type,
+        target_principal_id=result.target_principal_id,
+        memory_space_ids=list(result.memory_space_ids),
+        visible_source_ids=list(result.visible_source_ids),
+        denied_source_ids=list(result.denied_source_ids),
+        missing_source_ids=list(result.missing_source_ids),
+        redacted_count=result.redacted_count,
+        hidden_but_relevant_count=result.hidden_but_relevant_count,
+        policy_reasons=[decision.reason for decision in result.policy_decisions]
+        or _metadata_str_list(metadata.get("policy_reasons")),
         metadata=metadata,
     )
 
@@ -871,6 +894,87 @@ async def add_memory_space_member_record(
         expires_at=request.expires_at,
     )
     return _memory_space_member_response(member)
+
+
+async def _preview_memory_spaces(
+    *,
+    organization_id: UUID,
+    primary_space_id: UUID,
+    additional_space_ids: list[str],
+) -> list[object]:
+    seen: set[UUID] = set()
+    spaces: list[object] = []
+    for space_id in (primary_space_id, *additional_space_ids):
+        try:
+            normalized_space_id = space_id if isinstance(space_id, UUID) else UUID(str(space_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid_memory_space_id") from exc
+        if normalized_space_id in seen:
+            continue
+        seen.add(normalized_space_id)
+        spaces.append(
+            await get_memory_space(
+                organization_id=organization_id,
+                space_id=normalized_space_id,
+            )
+        )
+    return spaces
+
+
+@router.post(
+    "/spaces/{space_id}/members/preview",
+    response_model=MemorySpaceAccessPreviewResponse,
+    dependencies=[Depends(require_org_role(*_ADMIN_ROLES))],
+)
+async def preview_memory_space_member_access(
+    space_id: UUID,
+    request: MemorySpaceAccessPreviewRequest,
+    http_request: Request = _REQUEST_AUTO_INJECT_SENTINEL,
+    org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> MemorySpaceAccessPreviewResponse:
+    """Preview what a principal could recall from selected memory spaces."""
+    if not ctx.user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    spaces = await _preview_memory_spaces(
+        organization_id=org.id,
+        primary_space_id=space_id,
+        additional_space_ids=request.additional_space_ids,
+    )
+    result = await preview_memory_access(
+        organization_id=str(org.id),
+        actor_user_id=str(ctx.user_id),
+        target_principal_type=request.target_principal_type,
+        target_principal_id=request.target_principal_id,
+        memory_spaces=spaces,
+        limit=request.limit,
+    )
+    await _log_memory_audit(
+        action="memory.access.preview",
+        ctx=ctx,
+        request=http_request,
+        memory_scope=str(getattr(spaces[0], "memory_scope", "private")) if spaces else None,
+        scope_key=getattr(spaces[0], "scope_key", None) if spaces else None,
+        project_id=(
+            getattr(spaces[0], "scope_key", None)
+            if spaces and getattr(spaces[0], "memory_scope", None) == "project"
+            else None
+        ),
+        source_surface="memory_access_preview",
+        source_ids=list(result.visible_source_ids),
+        derived_ids=list(result.memory_space_ids),
+        policy_allowed=result.allowed,
+        policy_reason=result.reason,
+        details={
+            "hidden_but_relevant_count": result.hidden_but_relevant_count,
+            "preview": True,
+            "redacted_count": result.redacted_count,
+            "target_principal_id": request.target_principal_id,
+            "target_principal_type": request.target_principal_type,
+            "visible_source_count": len(result.visible_source_ids),
+        },
+    )
+    return _access_preview_response(result)
 
 
 @router.post(

@@ -69,6 +69,7 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=False,
 )
+memory_space_app = typer.Typer(help="Memory-space inspection and preview commands")
 
 
 # Register subcommand groups
@@ -89,6 +90,7 @@ app.add_typer(context_app, name="context")
 app.add_typer(local_app, name="local")
 app.add_typer(logs_app, name="logs")
 app.add_typer(update_app, name="update")
+app.add_typer(memory_space_app, name="memory-space")
 
 
 SEARCH_PREVIEW_CHARS = 220
@@ -344,6 +346,15 @@ def _preview_state(value: object) -> str:
     return "allowed" if value is True else "denied"
 
 
+def _access_preview_state(data: dict[str, object]) -> str:
+    metadata = data.get("metadata")
+    if isinstance(metadata, dict):
+        state = cast("dict[str, object]", metadata).get("access_state")
+        if state in {"allowed", "partial", "denied"}:
+            return str(state)
+    return _preview_state(data.get("allowed"))
+
+
 def _preview_target(scope: object, scope_key: object) -> str:
     target = str(scope or "default")
     if scope_key:
@@ -402,6 +413,26 @@ def _print_share_preview(data: dict[str, object]) -> None:
     table.add_row("Visible", _preview_id_summary(data.get("visible_source_ids")))
     table.add_row("Denied", _preview_id_summary(data.get("denied_source_ids")))
     table.add_row("Missing", _preview_id_summary(data.get("missing_source_ids")))
+    table.add_row("Redacted", _preview_count(data.get("redacted_count")))
+    table.add_row("Hidden relevant", _preview_count(data.get("hidden_but_relevant_count")))
+    table.add_row("Reasons", _preview_id_summary(data.get("policy_reasons")))
+    if audit_id := _preview_audit_id(data):
+        table.add_row("Audit", audit_id)
+    console.print(table)
+
+
+def _print_access_preview(data: dict[str, object]) -> None:
+    console.print("\n[bold]Access preview[/bold]\n")
+    table = create_table(None, "Field", "Value", expand=False)
+    table.add_row("State", _access_preview_state(data))
+    table.add_row("Reason", str(data.get("reason") or ""))
+    table.add_row(
+        "Target",
+        _preview_target(data.get("target_principal_type"), data.get("target_principal_id")),
+    )
+    table.add_row("Spaces", _preview_id_summary(data.get("memory_space_ids")))
+    table.add_row("Visible", _preview_id_summary(data.get("visible_source_ids")))
+    table.add_row("Denied", _preview_id_summary(data.get("denied_source_ids")))
     table.add_row("Redacted", _preview_count(data.get("redacted_count")))
     table.add_row("Hidden relevant", _preview_count(data.get("hidden_but_relevant_count")))
     table.add_row("Reasons", _preview_id_summary(data.get("policy_reasons")))
@@ -1001,6 +1032,42 @@ def memory_share(
             _handle_client_error(e)
 
     run_memory_share()
+
+
+@memory_space_app.command("preview-agent")
+def memory_space_preview_agent(
+    agent_id: str = typer.Argument(..., help="Agent principal ID"),
+    space_id: str = typer.Option(..., "--space", help="Primary memory space ID"),
+    additional_spaces: str | None = typer.Option(
+        None,
+        "--also-space",
+        help="Comma-separated additional memory space IDs",
+    ),
+    limit: int = typer.Option(50, "--limit", "-l", min=1, max=200, help="Maximum sources"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Preview what an agent could recall from selected memory spaces."""
+    extra_space_ids = _parse_csv_ids(additional_spaces)
+
+    @run_async
+    async def run_memory_space_preview_agent() -> None:
+        try:
+            async with get_client() as client:
+                data = await client.preview_memory_space_access(
+                    space_id=space_id,
+                    target_principal_type="agent",
+                    target_principal_id=agent_id,
+                    additional_space_ids=extra_space_ids,
+                    limit=limit,
+                )
+            if json_output:
+                print_json(data)
+                return
+            _print_access_preview(cast("dict[str, object]", data))
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_memory_space_preview_agent()
 
 
 @app.command("remember")

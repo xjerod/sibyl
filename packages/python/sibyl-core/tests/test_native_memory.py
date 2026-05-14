@@ -12,6 +12,7 @@ from sibyl_core.services.native_memory import (
     coerce_native_write_mode,
     native_reflection_write_enabled,
     native_write_mode_from_env,
+    preview_memory_access,
     preview_memory_share,
     preview_reflection_candidate_promotion,
     promote_reflection_candidate_review,
@@ -219,6 +220,134 @@ async def test_share_preview_redacts_unreadable_and_missing_sources(
         "source_not_found",
     ]
     save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_access_preview_uses_selected_project_space_as_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_memory = _raw_review_candidate(
+        id="raw-1",
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="project_123",
+        principal_id="user-2",
+    )
+    list_memories = AsyncMock(return_value=[raw_memory])
+    monkeypatch.setattr(native_memory, "list_raw_memories_for_scope", list_memories)
+
+    result = await preview_memory_access(
+        organization_id="org-1",
+        actor_user_id="user-1",
+        target_principal_type="agent",
+        target_principal_id="agent:nova",
+        memory_spaces=[
+            {
+                "id": "space-1",
+                "memory_scope": "project",
+                "scope_key": "project_123",
+                "state": "active",
+            }
+        ],
+        limit=25,
+    )
+
+    assert result.allowed
+    assert result.reason == "access_preview_allowed"
+    assert result.visible_source_ids == ["raw-1"]
+    assert result.metadata is not None
+    assert result.metadata["access_state"] == "allowed"
+    assert result.metadata["policy_reasons"] == ["project_access_verified"]
+    list_memories.assert_awaited_once_with(
+        organization_id="org-1",
+        principal_id="user-1",
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="project_123",
+        agent_id=None,
+        limit=25,
+    )
+
+
+@pytest.mark.asyncio
+async def test_access_preview_denies_disabled_space_without_listing_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    list_memories = AsyncMock()
+    monkeypatch.setattr(native_memory, "list_raw_memories_for_scope", list_memories)
+
+    result = await preview_memory_access(
+        organization_id="org-1",
+        actor_user_id="user-1",
+        target_principal_type="agent",
+        target_principal_id="agent:nova",
+        memory_spaces=[
+            {
+                "id": "space-1",
+                "memory_scope": "team",
+                "scope_key": "team_123",
+                "state": "disabled",
+                "disabled_reason": "scope_not_enabled",
+            }
+        ],
+    )
+
+    assert not result.allowed
+    assert result.reason == "scope_not_enabled"
+    assert result.visible_source_ids == []
+    assert result.redacted_count == 1
+    assert result.hidden_but_relevant_count == 1
+    assert result.metadata is not None
+    assert result.metadata["access_state"] == "denied"
+    assert result.metadata["denied_memory_space_ids"] == ["space-1"]
+    list_memories.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_access_preview_keeps_denials_after_source_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_memory = _raw_review_candidate(
+        id="raw-1",
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="project_123",
+        principal_id="user-2",
+    )
+    list_memories = AsyncMock(return_value=[raw_memory])
+    monkeypatch.setattr(native_memory, "list_raw_memories_for_scope", list_memories)
+
+    result = await preview_memory_access(
+        organization_id="org-1",
+        actor_user_id="user-1",
+        target_principal_type="agent",
+        target_principal_id="agent:nova",
+        memory_spaces=[
+            {
+                "id": "space-1",
+                "memory_scope": "project",
+                "scope_key": "project_123",
+                "state": "active",
+            },
+            {
+                "id": "space-2",
+                "memory_scope": "team",
+                "scope_key": "team_123",
+                "state": "disabled",
+                "disabled_reason": "scope_not_enabled",
+            },
+        ],
+        limit=1,
+    )
+
+    assert not result.allowed
+    assert result.reason == "scope_not_enabled"
+    assert result.visible_source_ids == ["raw-1"]
+    assert result.redacted_count == 1
+    assert result.metadata is not None
+    assert result.metadata["access_state"] == "partial"
+    assert result.metadata["denied_memory_space_ids"] == ["space-2"]
+    assert result.metadata["policy_reasons"] == [
+        "project_access_verified",
+        "scope_not_enabled",
+    ]
 
 
 @pytest.mark.asyncio

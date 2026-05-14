@@ -24,6 +24,7 @@ from sibyl_core.services.surreal_content import (
     MemoryScope,
     RawMemory,
     get_raw_memory,
+    list_raw_memories_for_scope,
     save_raw_memory,
 )
 from sibyl_core.tools.helpers import _generate_id
@@ -75,6 +76,22 @@ class NativeMemorySharePreview:
     target_scope: MemoryScope | None
     target_scope_key: str | None
     source_ids: list[str]
+    visible_source_ids: list[str]
+    denied_source_ids: list[str]
+    missing_source_ids: list[str]
+    redacted_count: int
+    hidden_but_relevant_count: int
+    policy_decisions: tuple[MemoryPolicyDecision, ...] = ()
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NativeMemoryAccessPreview:
+    allowed: bool
+    reason: str
+    target_principal_type: str
+    target_principal_id: str
+    memory_space_ids: list[str]
     visible_source_ids: list[str]
     denied_source_ids: list[str]
     missing_source_ids: list[str]
@@ -461,6 +478,186 @@ async def preview_memory_share(
         target_scope=normalized_target,
         target_scope_key=target_scope_key,
         source_ids=requested_source_ids,
+        visible_source_ids=visible_source_ids,
+        denied_source_ids=denied_source_ids,
+        missing_source_ids=missing_source_ids,
+        redacted_count=hidden_but_relevant_count,
+        hidden_but_relevant_count=hidden_but_relevant_count,
+        policy_decisions=tuple(decisions),
+        metadata=metadata,
+    )
+
+
+def _space_field(space: Mapping[str, object] | object, key: str) -> object | None:
+    if isinstance(space, Mapping):
+        return space.get(key)
+    return getattr(space, key, None)
+
+
+def _preview_target_identity(
+    *,
+    target_principal_type: str,
+    target_principal_id: str,
+    actor_user_id: str | None,
+    memory_scope: MemoryScope,
+) -> tuple[str | None, str | None]:
+    principal_type = target_principal_type.strip().lower()
+    if principal_type == "agent":
+        return actor_user_id or target_principal_id, (
+            target_principal_id if memory_scope is MemoryScope.PRIVATE else None
+        )
+    if principal_type == "delegated":
+        return actor_user_id or target_principal_id, None
+    return target_principal_id, None
+
+
+def _preview_private_scope_allowed(
+    *,
+    target_principal_type: str,
+    target_principal_id: str,
+    actor_user_id: str | None,
+    scope_key: str | None,
+) -> bool:
+    if not scope_key:
+        return True
+    principal_type = target_principal_type.strip().lower()
+    if principal_type == "agent":
+        return actor_user_id is not None and scope_key == actor_user_id
+    if principal_type == "user":
+        return scope_key == target_principal_id
+    return False
+
+
+async def preview_memory_access(
+    *,
+    organization_id: str,
+    actor_user_id: str | None,
+    target_principal_type: str,
+    target_principal_id: str,
+    memory_spaces: Sequence[Mapping[str, object] | object],
+    limit: int = 50,
+) -> NativeMemoryAccessPreview:
+    normalized_target_type = target_principal_type.strip().lower() or "user"
+    visible_source_ids: list[str] = []
+    denied_source_ids: list[str] = []
+    missing_source_ids: list[str] = []
+    denied_space_ids: list[str] = []
+    input_scopes: list[dict[str, str | None]] = []
+    decisions: list[MemoryPolicyDecision] = []
+    hidden_but_relevant_count = 0
+
+    for space in memory_spaces:
+        space_id = str(_space_field(space, "id") or "")
+        scope = _coerce_promotion_scope(str(_space_field(space, "memory_scope") or "private"))
+        scope_key = _metadata_str({"scope_key": _space_field(space, "scope_key")}, "scope_key")
+        state = str(_space_field(space, "state") or "active")
+        disabled_reason = _metadata_str(
+            {"disabled_reason": _space_field(space, "disabled_reason")},
+            "disabled_reason",
+        )
+        if scope is None:
+            denied_space_ids.append(space_id)
+            hidden_but_relevant_count += 1
+            decisions.append(
+                MemoryPolicyDecision(
+                    action=MemoryPolicyAction.READ,
+                    allowed=False,
+                    reason="scope_not_enabled",
+                    memory_scope=MemoryScope.PRIVATE,
+                    scope_key=scope_key,
+                )
+            )
+            continue
+        if state == "disabled":
+            reason = disabled_reason or "scope_not_enabled"
+            denied_space_ids.append(space_id)
+            hidden_but_relevant_count += 1
+            decisions.append(
+                MemoryPolicyDecision(
+                    action=MemoryPolicyAction.READ,
+                    allowed=False,
+                    reason=reason,
+                    memory_scope=scope,
+                    scope_key=scope_key,
+                )
+            )
+            continue
+        principal_id, agent_id = _preview_target_identity(
+            target_principal_type=normalized_target_type,
+            target_principal_id=target_principal_id,
+            actor_user_id=actor_user_id,
+            memory_scope=scope,
+        )
+        accessible_projects = {scope_key} if scope is MemoryScope.PROJECT and scope_key else None
+        accessible_delegations = (
+            {scope_key} if scope is MemoryScope.DELEGATED and scope_key else None
+        )
+        read_decision = authorize_memory_read(
+            principal_id=principal_id,
+            memory_scope=scope,
+            scope_key=scope_key,
+            agent_id=agent_id,
+            accessible_projects=accessible_projects,
+            accessible_delegations=accessible_delegations,
+        )
+        if scope is MemoryScope.PRIVATE and not _preview_private_scope_allowed(
+            target_principal_type=normalized_target_type,
+            target_principal_id=target_principal_id,
+            actor_user_id=actor_user_id,
+            scope_key=scope_key,
+        ):
+            read_decision = replace(
+                read_decision,
+                allowed=False,
+                reason="unverified_membership",
+            )
+        decisions.append(read_decision)
+        if not read_decision.allowed:
+            denied_space_ids.append(space_id)
+            hidden_but_relevant_count += 1
+            continue
+        if len(visible_source_ids) >= limit:
+            continue
+
+        memories = await list_raw_memories_for_scope(
+            organization_id=organization_id,
+            principal_id=principal_id or target_principal_id,
+            memory_scope=scope,
+            scope_key=scope_key,
+            agent_id=agent_id,
+            limit=max(limit - len(visible_source_ids), 0),
+        )
+        visible_source_ids.extend(memory.id for memory in memories)
+        input_scopes.extend(_scope_metadata(memories))
+
+    policy_reasons = [decision.reason for decision in decisions]
+    denied_reasons = [decision.reason for decision in decisions if not decision.allowed]
+    allowed = not denied_reasons
+    access_state = (
+        "allowed"
+        if allowed
+        else "partial"
+        if visible_source_ids
+        else "denied"
+    )
+    metadata: dict[str, Any] = {
+        "access_state": access_state,
+        "denied_memory_space_ids": [space_id for space_id in denied_space_ids if space_id],
+        "input_scopes": input_scopes,
+        "policy_reasons": policy_reasons,
+        "target_principal_type": normalized_target_type,
+        "visible_count": len(visible_source_ids),
+    }
+    return NativeMemoryAccessPreview(
+        allowed=allowed,
+        reason="access_preview_allowed" if allowed else denied_reasons[0],
+        target_principal_type=normalized_target_type,
+        target_principal_id=target_principal_id,
+        memory_space_ids=[
+            str(_space_field(space, "id"))
+            for space in memory_spaces
+            if _space_field(space, "id")
+        ],
         visible_source_ids=visible_source_ids,
         denied_source_ids=denied_source_ids,
         missing_source_ids=missing_source_ids,
@@ -1131,6 +1328,7 @@ def _relationship(
 
 
 __all__ = [
+    "NativeMemoryAccessPreview",
     "NativeMemorySharePreview",
     "NativeReflectionPromotionPreview",
     "NativeReflectionPromotionResult",
@@ -1141,6 +1339,7 @@ __all__ = [
     "native_write_mode_from_env",
     "persist_reflection_candidate_native",
     "persist_reflection_source_native",
+    "preview_memory_access",
     "preview_memory_share",
     "preview_reflection_candidate_promotion",
     "promote_reflection_candidate_review",
