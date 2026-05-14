@@ -60,6 +60,10 @@ class TestRouteOrdering:
         paths = [route.path for route in crawler_router.routes]
 
         assert paths.index("/sources/import-adapters") < paths.index("/sources/{source_id}")
+        assert paths.index("/sources/imports") < paths.index("/sources/{source_id}")
+        assert paths.index("/sources/imports/{import_id:path}") < paths.index(
+            "/sources/{source_id}"
+        )
         assert paths.index("/sources/link-graph/status") < paths.index("/sources/{source_id}")
         assert paths.index("/sources/link-graph") < paths.index("/sources/{source_id}")
 

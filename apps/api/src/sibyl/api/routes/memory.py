@@ -36,10 +36,12 @@ from sibyl.api.schemas import (
     ReflectionPromotionPreviewResponse,
     ReflectionPromotionRequest,
     ReflectionPromotionResponse,
+    SourceImportStatusResponse,
 )
 from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
+from sibyl.jobs.source_imports import get_source_import_status
 from sibyl.persistence.auth_runtime import (
     add_memory_space_member,
     create_memory_space,
@@ -1379,6 +1381,33 @@ async def list_memory_audit(
         events=[_audit_event_response(row) for row in rows],
         limit=limit,
     )
+
+
+@router.get(
+    "/source-imports/{import_id:path}",
+    response_model=SourceImportStatusResponse,
+    dependencies=[Depends(require_org_role(*_READ_ROLES))],
+)
+async def get_memory_source_import_status(
+    import_id: str,
+    org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> SourceImportStatusResponse:
+    """Get source-safe import progress from the memory surface."""
+    principal_id = ctx.user_id
+    if not principal_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = await get_source_import_status(
+            import_id,
+            organization_id=str(org.id),
+            principal_id=principal_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="source_import_not_found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="source_import_forbidden") from exc
+    return SourceImportStatusResponse.model_validate(payload)
 
 
 @router.get(

@@ -437,6 +437,10 @@ class Settings(BaseSettings):
         default=100,
         description="Token overlap between chunks",
     )
+    source_import_dir: Path = Field(
+        default=Path("./source-imports"),
+        description="Directory containing local source archives that API imports may read",
+    )
 
     # Backup configuration
     backup_dir: Path = Field(

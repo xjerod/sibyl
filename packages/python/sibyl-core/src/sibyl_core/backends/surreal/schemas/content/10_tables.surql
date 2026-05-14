@@ -126,6 +126,42 @@ DEFINE INDEX IF NOT EXISTS idx_raw_captures_content_ft ON raw_captures FIELDS ra
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_captured_at ON raw_captures FIELDS captured_at;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_created_at ON raw_captures FIELDS created_at;
 
+DEFINE TABLE IF NOT EXISTS source_imports SCHEMAFULL;
+ALTER TABLE IF EXISTS source_imports SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS uuid ON source_imports TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON source_imports TYPE string;
+DEFINE FIELD IF NOT EXISTS principal_id ON source_imports TYPE string;
+DEFINE FIELD IF NOT EXISTS adapter_name ON source_imports TYPE string DEFAULT '';
+DEFINE FIELD IF NOT EXISTS adapter_version ON source_imports TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_uri ON source_imports TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_identity ON source_imports TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_version ON source_imports TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS privacy_class ON source_imports TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS target_memory_scope ON source_imports TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS target_scope_key ON source_imports TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS status ON source_imports TYPE string DEFAULT 'pending';
+DEFINE FIELD IF NOT EXISTS checkpoint ON source_imports TYPE option<object> FLEXIBLE;
+DEFINE FIELD IF NOT EXISTS options ON source_imports TYPE object FLEXIBLE DEFAULT {{}};
+DEFINE FIELD IF NOT EXISTS policy_context ON source_imports TYPE object FLEXIBLE DEFAULT {{}};
+DEFINE FIELD IF NOT EXISTS counters ON source_imports TYPE object FLEXIBLE DEFAULT {{}};
+DEFINE FIELD IF NOT EXISTS raw_memory_ids ON source_imports TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS source_ids ON source_imports TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS dedupe_keys ON source_imports TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS duplicate_dedupe_keys ON source_imports TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS skipped_records ON source_imports TYPE array<object> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS errors ON source_imports TYPE array<object> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS raw_memory_by_source_id ON source_imports TYPE object FLEXIBLE DEFAULT {{}};
+DEFINE FIELD IF NOT EXISTS batch_size ON source_imports TYPE int DEFAULT 100;
+DEFINE FIELD IF NOT EXISTS promotion_preview_approved ON source_imports TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS created_at ON source_imports TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON source_imports TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS completed_at ON source_imports TYPE option<datetime>;
+
+DEFINE INDEX IF NOT EXISTS idx_source_imports_uuid ON source_imports FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_source_imports_org ON source_imports FIELDS organization_id;
+DEFINE INDEX IF NOT EXISTS idx_source_imports_principal ON source_imports FIELDS organization_id, principal_id;
+DEFINE INDEX IF NOT EXISTS idx_source_imports_status ON source_imports FIELDS organization_id, status;
+
 DEFINE TABLE IF NOT EXISTS system_settings SCHEMAFULL;
 ALTER TABLE IF EXISTS system_settings SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS key ON system_settings TYPE string;

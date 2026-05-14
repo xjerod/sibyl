@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,6 +13,7 @@ from sibyl.api.routes.memory import (
     add_memory_space_member_record,
     apply_memory_correction_route,
     create_memory_space_record,
+    get_memory_source_import_status,
     get_memory_space_record,
     inspect_memory_source,
     list_memory_audit,
@@ -36,6 +38,7 @@ from sibyl.api.schemas import (
     RawMemoryRememberRequest,
     ReflectionPromotionRequest,
 )
+from sibyl.jobs import source_imports
 from sibyl_core.auth import OrganizationRole, ProjectRole
 from sibyl_core.services.native_memory import (
     NativeMemoryAccessPreview,
@@ -130,6 +133,50 @@ def _space_member(**overrides: object) -> SimpleNamespace:
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+@pytest.fixture(autouse=True)
+def _clear_source_imports() -> Iterator[None]:
+    source_imports.clear_source_import_runs()
+    yield
+    source_imports.clear_source_import_runs()
+
+
+@pytest.mark.asyncio
+async def test_memory_source_import_status_returns_source_safe_progress() -> None:
+    org = _org()
+    run = source_imports.SourceImportRun(
+        import_id="source_import:test",
+        organization_id=str(org.id),
+        principal_id="user-123",
+        source_uri="/private/mailbox.mbox",
+        adapter_name="mbox",
+        options={},
+        policy_context={
+            "actor_user_id": "user-123",
+            "organization_id": str(org.id),
+            "organization_role": "member",
+            "memory_space": "private",
+            "scope_key": None,
+            "source_surface": "source_import",
+        },
+        batch_size=1,
+        promotion_preview_approved=False,
+        status=source_imports.SourceImportStatus.PAUSED,
+        imported_count=1,
+        skipped_count=2,
+        dedupe_count=1,
+    )
+    source_imports._SOURCE_IMPORT_RUNS[run.import_id] = run
+
+    response = await get_memory_source_import_status(run.import_id, org=org, ctx=_ctx())
+
+    assert response.import_id == run.import_id
+    assert response.status == "paused"
+    assert response.progress.imported_count == 1
+    assert response.progress.skipped_count == 2
+    assert response.progress.dedupe_count == 1
+    assert not hasattr(response, "source_uri")
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 
-from sibyl.api.routes.crawler import list_import_adapters
+from sibyl.api.routes.crawler import _resolve_route_import_source_uri, list_import_adapters
+from sibyl.config import settings
 from sibyl_core.models.sources import (
     SourceAdapterCapability,
     SourceAdapterDescriptor,
@@ -51,3 +54,23 @@ async def test_list_import_adapters_includes_builtin_mailbox() -> None:
     names = {adapter.name for adapter in response.adapters}
 
     assert "mbox" in names
+
+
+def test_source_import_route_rejects_paths_outside_import_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import_root = tmp_path / "imports"
+    import_root.mkdir()
+    allowed = import_root / "mail.mbox"
+    allowed.write_text("", encoding="utf-8")
+    denied = tmp_path / "outside.mbox"
+    denied.write_text("", encoding="utf-8")
+    monkeypatch.setattr(settings, "source_import_dir", import_root)
+
+    assert _resolve_route_import_source_uri(str(allowed)) == str(allowed.resolve())
+    with pytest.raises(HTTPException) as exc:
+        _resolve_route_import_source_uri(str(denied))
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "source_import_path_denied"

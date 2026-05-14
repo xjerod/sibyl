@@ -31,12 +31,14 @@ _DELETE_BY_UUID = {
     "crawled_documents": "DELETE FROM crawled_documents WHERE uuid = $uuid;",
     "document_chunks": "DELETE FROM document_chunks WHERE uuid = $uuid;",
     "raw_captures": "DELETE FROM raw_captures WHERE uuid = $uuid;",
+    "source_imports": "DELETE FROM source_imports WHERE uuid = $uuid;",
 }
 _UPSERT_RECORD = {
     "crawl_sources": "UPSERT crawl_sources CONTENT $record WHERE uuid = $uuid;",
     "crawled_documents": "UPSERT crawled_documents CONTENT $record WHERE uuid = $uuid;",
     "document_chunks": "UPSERT document_chunks CONTENT $record WHERE uuid = $uuid;",
     "raw_captures": "UPSERT raw_captures CONTENT $record WHERE uuid = $uuid;",
+    "source_imports": "UPSERT source_imports CONTENT $record WHERE uuid = $uuid;",
 }
 type SurrealRecord = dict[str, object]
 

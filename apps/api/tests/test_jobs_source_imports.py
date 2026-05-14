@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -17,8 +18,49 @@ from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 @pytest.fixture(autouse=True)
 def _clear_registry() -> Iterator[None]:
     clear_source_adapters()
+    source_imports.clear_source_import_runs()
     yield
     clear_source_adapters()
+    source_imports.clear_source_import_runs()
+
+
+def _policy_context(
+    *,
+    organization_id: str = "org-1",
+    actor_user_id: str = "user-1",
+    memory_space: str = "private",
+    scope_key: str | None = None,
+) -> dict[str, object]:
+    return {
+        "actor_user_id": actor_user_id,
+        "organization_id": organization_id,
+        "organization_role": "member",
+        "accessible_projects": [scope_key] if memory_space == "project" and scope_key else [],
+        "accessible_delegations": [],
+        "memory_space": memory_space,
+        "scope_key": scope_key,
+        "source_surface": "source_import",
+    }
+
+
+def _raw_memory_from_kwargs(kwargs: dict[str, object], *, raw_id: str) -> RawMemory:
+    return RawMemory(
+        id=raw_id,
+        organization_id=str(kwargs["organization_id"]),
+        source_id=str(kwargs["source_id"]),
+        principal_id=str(kwargs["principal_id"]),
+        memory_scope=kwargs["memory_scope"],
+        scope_key=kwargs["scope_key"],
+        title=str(kwargs["title"]),
+        raw_content=str(kwargs["raw_content"]),
+        tags=list(kwargs["tags"]),
+        metadata=dict(kwargs["metadata"]),
+        provenance=dict(kwargs["provenance"]),
+        capture_surface=str(kwargs["capture_surface"]),
+        entity_type=str(kwargs["entity_type"]),
+        captured_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
+        created_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
+    )
 
 
 def _write_mbox(path: Path) -> Path:
@@ -45,6 +87,25 @@ def _write_mbox(path: Path) -> Path:
     return path
 
 
+def _write_resume_mbox(path: Path) -> Path:
+    first = EmailMessage()
+    first["Message-ID"] = "<first@example.com>"
+    first["Subject"] = "First"
+    first.set_content("first body")
+    second = EmailMessage()
+    second["Message-ID"] = "<second@example.com>"
+    second["Subject"] = "Second"
+    second.set_content("second body")
+    box = mailbox.mbox(path)
+    try:
+        box.add(first)
+        box.add(second)
+        box.flush()
+    finally:
+        box.close()
+    return path
+
+
 @pytest.mark.asyncio
 async def test_import_source_archive_imports_mbox_with_private_scope(tmp_path: Path) -> None:
     mbox_path = _write_mbox(tmp_path / "job.mbox")
@@ -52,35 +113,23 @@ async def test_import_source_archive_imports_mbox_with_private_scope(tmp_path: P
 
     async def fake_remember(**kwargs: object) -> RawMemory:
         writes.append(dict(kwargs))
-        return RawMemory(
-            id=f"raw-{len(writes)}",
-            organization_id=str(kwargs["organization_id"]),
-            source_id=str(kwargs["source_id"]),
-            principal_id=str(kwargs["principal_id"]),
-            memory_scope=kwargs["memory_scope"],
-            scope_key=kwargs["scope_key"],
-            title=str(kwargs["title"]),
-            raw_content=str(kwargs["raw_content"]),
-            tags=list(kwargs["tags"]),
-            metadata=dict(kwargs["metadata"]),
-            provenance=dict(kwargs["provenance"]),
-            capture_surface=str(kwargs["capture_surface"]),
-            entity_type=str(kwargs["entity_type"]),
-            captured_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
-            created_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
-        )
+        return _raw_memory_from_kwargs(dict(kwargs), raw_id=f"raw-{len(writes)}")
 
     result = await source_imports.import_source_archive(
         {},
         str(mbox_path),
         organization_id="org-1",
         principal_id="user-1",
+        policy_context=_policy_context(),
         remember=fake_remember,
     )
 
     assert result["adapter_name"] == "mbox"
     assert result["imported_count"] == 1
     assert result["skipped_count"] == 0
+    assert result["dedupe_count"] == 0
+    assert result["attachment_count"] == 1
+    assert result["extraction_pending_count"] == 1
     assert result["checkpoint"]["done"] is True
     assert result["policy"]["target_memory_scope"] == "private"
     assert result["policy"]["requires_promotion_preview"] is False
@@ -95,46 +144,17 @@ async def test_import_source_archive_imports_mbox_with_private_scope(tmp_path: P
 
 @pytest.mark.asyncio
 async def test_import_source_archive_resumes_from_checkpoint(tmp_path: Path) -> None:
-    first = EmailMessage()
-    first["Message-ID"] = "<first@example.com>"
-    first["Subject"] = "First"
-    first.set_content("first body")
-    second = EmailMessage()
-    second["Message-ID"] = "<second@example.com>"
-    second["Subject"] = "Second"
-    second.set_content("second body")
-    box = mailbox.mbox(tmp_path / "resume.mbox")
-    try:
-        box.add(first)
-        box.add(second)
-        box.flush()
-    finally:
-        box.close()
+    _write_resume_mbox(tmp_path / "resume.mbox")
 
     async def fake_remember(**kwargs: object) -> RawMemory:
-        return RawMemory(
-            id=str(kwargs["source_id"]),
-            organization_id=str(kwargs["organization_id"]),
-            source_id=str(kwargs["source_id"]),
-            principal_id=str(kwargs["principal_id"]),
-            memory_scope=kwargs["memory_scope"],
-            scope_key=kwargs["scope_key"],
-            title=str(kwargs["title"]),
-            raw_content=str(kwargs["raw_content"]),
-            tags=list(kwargs["tags"]),
-            metadata=dict(kwargs["metadata"]),
-            provenance=dict(kwargs["provenance"]),
-            capture_surface=str(kwargs["capture_surface"]),
-            entity_type=str(kwargs["entity_type"]),
-            captured_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
-            created_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
-        )
+        return _raw_memory_from_kwargs(dict(kwargs), raw_id=str(kwargs["source_id"]))
 
     first_result = await source_imports.import_source_archive(
         {},
         str(tmp_path / "resume.mbox"),
         organization_id="org-1",
         principal_id="user-1",
+        policy_context=_policy_context(),
         batch_size=1,
         remember=fake_remember,
     )
@@ -143,6 +163,7 @@ async def test_import_source_archive_resumes_from_checkpoint(tmp_path: Path) -> 
         str(tmp_path / "resume.mbox"),
         organization_id="org-1",
         principal_id="user-1",
+        policy_context=_policy_context(),
         checkpoint=first_result["checkpoint"],
         batch_size=1,
         remember=fake_remember,
@@ -153,6 +174,217 @@ async def test_import_source_archive_resumes_from_checkpoint(tmp_path: Path) -> 
     assert second_result["checkpoint"]["cursor"] is None
     assert second_result["checkpoint"]["done"] is True
     assert first_result["dedupe_keys"] != second_result["dedupe_keys"]
+
+
+@pytest.mark.asyncio
+async def test_import_source_archive_fails_closed_without_policy_context(tmp_path: Path) -> None:
+    mbox_path = _write_mbox(tmp_path / "job.mbox")
+
+    with pytest.raises(ValueError, match="job_policy_context_missing"):
+        await source_imports.import_source_archive(
+            {},
+            str(mbox_path),
+            organization_id="org-1",
+            principal_id="user-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_source_import_run_resumes_from_persisted_checkpoint(
+    tmp_path: Path,
+) -> None:
+    mbox_path = _write_resume_mbox(tmp_path / "resume.mbox")
+    writes: list[dict[str, object]] = []
+
+    async def fake_remember(**kwargs: object) -> RawMemory:
+        writes.append(dict(kwargs))
+        return _raw_memory_from_kwargs(dict(kwargs), raw_id=f"raw-{len(writes)}")
+
+    with patch(
+        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        AsyncMock(return_value=None),
+    ):
+        first = await source_imports.start_source_import(
+            source_uri=str(mbox_path),
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            batch_size=1,
+            remember=fake_remember,
+        )
+        second = await source_imports.resume_source_import(
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            remember=fake_remember,
+        )
+
+    assert first["status"] == "paused"
+    assert first["checkpoint"]["cursor"] == "1"
+    assert first["progress"]["imported_count"] == 1
+    assert second["status"] == "completed"
+    assert second["checkpoint"]["done"] is True
+    assert second["progress"]["imported_count"] == 2
+    assert len(writes) == 2
+    assert writes[0]["source_id"] != writes[1]["source_id"]
+
+
+@pytest.mark.asyncio
+async def test_source_import_run_records_dedupe_without_duplicate_write(
+    tmp_path: Path,
+) -> None:
+    mbox_path = _write_mbox(tmp_path / "dedupe.mbox")
+    writes: list[dict[str, object]] = []
+
+    async def fake_remember(**kwargs: object) -> RawMemory:
+        writes.append(dict(kwargs))
+        return _raw_memory_from_kwargs(dict(kwargs), raw_id="raw-existing")
+
+    with patch(
+        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        AsyncMock(return_value=None),
+    ):
+        first = await source_imports.start_source_import(
+            source_uri=str(mbox_path),
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            batch_size=1,
+            remember=fake_remember,
+    )
+    run = source_imports._SOURCE_IMPORT_RUNS[first["import_id"]]
+    run.checkpoint = None
+    run.status = source_imports.SourceImportStatus.PAUSED
+    run.completed_at = None
+
+    with patch(
+        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        AsyncMock(return_value=None),
+    ):
+        second = await source_imports.resume_source_import(
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            remember=fake_remember,
+        )
+
+    assert len(writes) == 1
+    assert second["progress"]["dedupe_count"] == 1
+    assert second["progress"]["skipped_count"] == 1
+    assert second["skipped_records"][0]["reason"] == "duplicate_dedupe_key"
+
+
+@pytest.mark.asyncio
+async def test_cancel_source_import_blocks_resume(tmp_path: Path) -> None:
+    mbox_path = _write_resume_mbox(tmp_path / "cancel.mbox")
+
+    async def fake_remember(**kwargs: object) -> RawMemory:
+        return _raw_memory_from_kwargs(dict(kwargs), raw_id=str(kwargs["source_id"]))
+
+    with patch(
+        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        AsyncMock(return_value=None),
+    ):
+        first = await source_imports.start_source_import(
+            source_uri=str(mbox_path),
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            batch_size=1,
+            remember=fake_remember,
+        )
+
+    canceled = await source_imports.cancel_source_import(
+        first["import_id"],
+        organization_id="org-1",
+        principal_id="user-1",
+    )
+
+    assert canceled["status"] == "canceled"
+    with pytest.raises(ValueError, match="source_import_canceled"):
+        await source_imports.resume_source_import(
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            remember=fake_remember,
+        )
+
+
+@pytest.mark.asyncio
+async def test_source_import_controls_are_principal_bound(tmp_path: Path) -> None:
+    mbox_path = _write_resume_mbox(tmp_path / "principal.mbox")
+
+    async def fake_remember(**kwargs: object) -> RawMemory:
+        return _raw_memory_from_kwargs(dict(kwargs), raw_id=str(kwargs["source_id"]))
+
+    with patch(
+        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        AsyncMock(return_value=None),
+    ):
+        first = await source_imports.start_source_import(
+            source_uri=str(mbox_path),
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            batch_size=1,
+            remember=fake_remember,
+        )
+
+    with pytest.raises(PermissionError, match="source_import_forbidden"):
+        await source_imports.resume_source_import(
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-2",
+            policy_context=_policy_context(actor_user_id="user-2"),
+            remember=fake_remember,
+        )
+    with pytest.raises(PermissionError, match="source_import_forbidden"):
+        await source_imports.cancel_source_import(
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-2",
+        )
+
+
+@pytest.mark.asyncio
+async def test_resume_source_import_rechecks_current_policy_context(tmp_path: Path) -> None:
+    mbox_path = _write_resume_mbox(tmp_path / "project.mbox")
+
+    async def fake_remember(**kwargs: object) -> RawMemory:
+        return _raw_memory_from_kwargs(dict(kwargs), raw_id=str(kwargs["source_id"]))
+
+    with patch(
+        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        AsyncMock(return_value=None),
+    ):
+        first = await source_imports.start_source_import(
+            source_uri=str(mbox_path),
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(memory_space="project", scope_key="project-1"),
+            options={
+                "target_memory_scope": "project",
+                "target_scope_key": "project-1",
+            },
+            batch_size=1,
+            promotion_preview_approved=True,
+            remember=fake_remember,
+        )
+
+    stale_context = _policy_context(memory_space="project", scope_key="project-1")
+    stale_context["accessible_projects"] = []
+    with pytest.raises(ValueError, match="unverified_membership"):
+        await source_imports.resume_source_import(
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=stale_context,
+            promotion_preview_approved=True,
+            remember=fake_remember,
+        )
 
 
 def test_worker_settings_registers_source_import_job() -> None:

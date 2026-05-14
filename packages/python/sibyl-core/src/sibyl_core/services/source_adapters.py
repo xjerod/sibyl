@@ -84,6 +84,16 @@ class RawMemoryRememberer(Protocol):
     ) -> RawMemory: ...
 
 
+@runtime_checkable
+class SourceRecordDuplicateChecker(Protocol):
+    async def __call__(
+        self,
+        *,
+        record: SourceRecord,
+        payload: SourceRawMemoryWrite,
+    ) -> str | None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class SourceImportPolicy:
     privacy_class: SourcePrivacyClass
@@ -120,8 +130,13 @@ class SourceRawMemoryWrite:
 class SourceImportResult:
     imported_count: int
     skipped_count: int
+    dedupe_count: int
+    attachment_count: int
+    extraction_pending_count: int
     raw_memory_ids: tuple[str, ...]
+    source_ids: tuple[str, ...]
     dedupe_keys: tuple[str, ...]
+    duplicate_dedupe_keys: tuple[str, ...]
     skipped_records: tuple[SourceSkippedRecord, ...]
     checkpoint: SourceImportCheckpoint | None
     policy: SourceImportPolicy
@@ -361,11 +376,16 @@ async def import_source_batch(
     batch_size: int = 100,
     promotion_preview_approved: bool = False,
     remember: RawMemoryRememberer = remember_raw_memory,
+    duplicate_checker: SourceRecordDuplicateChecker | None = None,
 ) -> SourceImportResult:
     plan = plan_source_import(adapter, manifest)
     raw_memory_ids: list[str] = []
+    source_ids: list[str] = []
     dedupe_keys: list[str] = []
+    duplicate_dedupe_keys: list[str] = []
     skipped_records: list[SourceSkippedRecord] = []
+    attachment_count = 0
+    extraction_pending_count = 0
     last_checkpoint = checkpoint
 
     async for batch in adapter.iter_records(
@@ -393,6 +413,30 @@ async def import_source_batch(
             raise ValueError(msg)
 
         for record, payload in batch_payloads:
+            existing_raw_memory_id = None
+            if duplicate_checker is not None:
+                existing_raw_memory_id = await duplicate_checker(
+                    record=record,
+                    payload=payload,
+                )
+            if existing_raw_memory_id is not None:
+                duplicate_dedupe_keys.append(record.dedupe_key)
+                skipped_records.append(
+                    SourceSkippedRecord(
+                        adapter_record_id=record.adapter_record_id,
+                        source_uri=record.source_uri,
+                        reason="duplicate_dedupe_key",
+                        metadata={
+                            "dedupe_key": record.dedupe_key,
+                            "raw_memory_id": existing_raw_memory_id,
+                            "source_id": record.source_id,
+                        },
+                    )
+                )
+                continue
+
+            attachment_count += len(record.attachments)
+            extraction_pending_count += len(record.attachments)
             memory = await remember(
                 organization_id=payload.organization_id,
                 principal_id=payload.principal_id,
@@ -408,13 +452,19 @@ async def import_source_batch(
                 entity_type=payload.entity_type,
             )
             raw_memory_ids.append(memory.id)
+            source_ids.append(record.source_id)
             dedupe_keys.append(record.dedupe_key)
 
     return SourceImportResult(
         imported_count=len(raw_memory_ids),
         skipped_count=len(skipped_records),
+        dedupe_count=len(duplicate_dedupe_keys),
+        attachment_count=attachment_count,
+        extraction_pending_count=extraction_pending_count,
         raw_memory_ids=tuple(raw_memory_ids),
+        source_ids=tuple(source_ids),
         dedupe_keys=tuple(dedupe_keys),
+        duplicate_dedupe_keys=tuple(duplicate_dedupe_keys),
         skipped_records=tuple(skipped_records),
         checkpoint=last_checkpoint,
         policy=plan.policy,
@@ -429,6 +479,7 @@ __all__ = [
     "SourceImportPolicy",
     "SourceImportResult",
     "SourceRawMemoryWrite",
+    "SourceRecordDuplicateChecker",
     "build_source_content_hash",
     "build_source_dedupe_key",
     "build_source_record_id",
