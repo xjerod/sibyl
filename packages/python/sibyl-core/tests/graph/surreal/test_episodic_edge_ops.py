@@ -9,7 +9,7 @@ from graphiti_core.edges import EpisodicEdge
 from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.backends.surreal import SurrealDriver
-from sibyl_core.graph.surreal.ops.episodic_edge_ops import SurrealEpisodicEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.episodic_edge_ops import SurrealEpisodicEdgeOperations
 
 
 async def _seed_entity(driver: SurrealDriver, uuid: str, name: str = "E") -> None:

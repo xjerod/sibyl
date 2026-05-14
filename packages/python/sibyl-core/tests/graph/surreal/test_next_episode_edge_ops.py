@@ -9,7 +9,9 @@ from graphiti_core.edges import NextEpisodeEdge
 from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.backends.surreal import SurrealDriver
-from sibyl_core.graph.surreal.ops.next_episode_edge_ops import SurrealNextEpisodeEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.next_episode_edge_ops import (
+    SurrealNextEpisodeEdgeOperations,
+)
 
 
 async def _seed_episode(driver: SurrealDriver, uuid: str, name: str = "ep") -> None:

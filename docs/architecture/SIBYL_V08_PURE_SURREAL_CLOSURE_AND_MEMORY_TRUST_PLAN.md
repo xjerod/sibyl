@@ -286,7 +286,7 @@ artifact or is removed.
 
 Implementation:
 
-- Audit `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*` after A1-A3.
+- Audit `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*` after A1-A3.
 - Delete modules with no compatibility owner.
 - Move retained modules under a clearly named compatibility namespace if they still support
   migration, admin, or explicit compare workflows.
@@ -295,7 +295,7 @@ Implementation:
 
 Files:
 
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
 - `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py`
 - `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py`
 - `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py`
@@ -2171,7 +2171,7 @@ Depends on:
 
 Files:
 
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/**`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/**`
 - `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py`
 - `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py`
 - `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py`

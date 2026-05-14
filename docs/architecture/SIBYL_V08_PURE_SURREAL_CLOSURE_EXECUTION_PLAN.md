@@ -302,14 +302,14 @@ compatibility namespace.
 
 Implement:
 
-- Audit every file under `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/`.
+- Audit every file under `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/`.
 - Classify each module as delete, migrate-to-native, compatibility-retain, admin-only,
   benchmark-only, or historical migration.
 - Record the owner, removal condition, and verification task for every retained module.
 
 Files:
 
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/**`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/**`
 - `docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md`
 
 Verify:
@@ -331,7 +331,7 @@ Implement:
 
 Files:
 
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/**`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/**`
 - `packages/python/sibyl-core/src/sibyl_core/graph/**`
 - `packages/python/sibyl-core/tests/**`
 - `apps/api/tests/**`

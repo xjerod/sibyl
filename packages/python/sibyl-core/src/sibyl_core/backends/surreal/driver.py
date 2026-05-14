@@ -184,7 +184,7 @@ _EPISODE_SELECT_FIELDS = (
 
 
 def _graphiti_episode_records(result: object) -> list[SurrealRecord]:
-    from sibyl_core.graph.surreal.ops._common import normalize_records
+    from sibyl_core.graph.surreal.compat.ops._common import normalize_records
 
     records = normalize_records(result)
     for record in records:
@@ -194,7 +194,7 @@ def _graphiti_episode_records(result: object) -> list[SurrealRecord]:
 
 
 def _graphiti_records(result: object) -> list[SurrealRecord]:
-    from sibyl_core.graph.surreal.ops._common import normalize_records
+    from sibyl_core.graph.surreal.compat.ops._common import normalize_records
 
     return normalize_records(result)
 
@@ -655,7 +655,7 @@ class SurrealDriver(GraphDriver):
         self._client: SurrealClient | None = None
         self._query_lock = asyncio.Lock()
         from sibyl_core.graph.search_interface import SurrealSearchInterface
-        from sibyl_core.graph.surreal.ops.graph_operations_interface import (
+        from sibyl_core.graph.surreal.compat.ops.graph_operations_interface import (
             SurrealGraphOperationsInterface,
         )
 
@@ -676,7 +676,7 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _entity_node_ops(self):
-        from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
+        from sibyl_core.graph.surreal.compat.ops.entity_node_ops import SurrealEntityNodeOperations
 
         return SurrealEntityNodeOperations()
 
@@ -686,7 +686,9 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _episode_node_ops(self):
-        from sibyl_core.graph.surreal.ops.episode_node_ops import SurrealEpisodeNodeOperations
+        from sibyl_core.graph.surreal.compat.ops.episode_node_ops import (
+            SurrealEpisodeNodeOperations,
+        )
 
         return SurrealEpisodeNodeOperations()
 
@@ -696,7 +698,9 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _community_node_ops(self):
-        from sibyl_core.graph.surreal.ops.community_node_ops import SurrealCommunityNodeOperations
+        from sibyl_core.graph.surreal.compat.ops.community_node_ops import (
+            SurrealCommunityNodeOperations,
+        )
 
         return SurrealCommunityNodeOperations()
 
@@ -706,7 +710,7 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _saga_node_ops(self):
-        from sibyl_core.graph.surreal.ops.saga_node_ops import SurrealSagaNodeOperations
+        from sibyl_core.graph.surreal.compat.ops.saga_node_ops import SurrealSagaNodeOperations
 
         return SurrealSagaNodeOperations()
 
@@ -716,7 +720,7 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _entity_edge_ops(self):
-        from sibyl_core.graph.surreal.ops.entity_edge_ops import SurrealEntityEdgeOperations
+        from sibyl_core.graph.surreal.compat.ops.entity_edge_ops import SurrealEntityEdgeOperations
 
         return SurrealEntityEdgeOperations()
 
@@ -726,7 +730,9 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _episodic_edge_ops(self):
-        from sibyl_core.graph.surreal.ops.episodic_edge_ops import SurrealEpisodicEdgeOperations
+        from sibyl_core.graph.surreal.compat.ops.episodic_edge_ops import (
+            SurrealEpisodicEdgeOperations,
+        )
 
         return SurrealEpisodicEdgeOperations()
 
@@ -736,7 +742,9 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _community_edge_ops(self):
-        from sibyl_core.graph.surreal.ops.community_edge_ops import SurrealCommunityEdgeOperations
+        from sibyl_core.graph.surreal.compat.ops.community_edge_ops import (
+            SurrealCommunityEdgeOperations,
+        )
 
         return SurrealCommunityEdgeOperations()
 
@@ -746,7 +754,7 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _has_episode_edge_ops(self):
-        from sibyl_core.graph.surreal.ops.has_episode_edge_ops import (
+        from sibyl_core.graph.surreal.compat.ops.has_episode_edge_ops import (
             SurrealHasEpisodeEdgeOperations,
         )
 
@@ -758,7 +766,7 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _next_episode_edge_ops(self):
-        from sibyl_core.graph.surreal.ops.next_episode_edge_ops import (
+        from sibyl_core.graph.surreal.compat.ops.next_episode_edge_ops import (
             SurrealNextEpisodeEdgeOperations,
         )
 
@@ -770,7 +778,7 @@ class SurrealDriver(GraphDriver):
 
     @cached_property
     def _graph_ops(self):
-        from sibyl_core.graph.surreal.ops.graph_ops import SurrealGraphMaintenanceOperations
+        from sibyl_core.graph.surreal.compat.ops.graph_ops import SurrealGraphMaintenanceOperations
 
         return SurrealGraphMaintenanceOperations()
 

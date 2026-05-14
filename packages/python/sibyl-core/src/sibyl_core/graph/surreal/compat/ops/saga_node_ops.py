@@ -17,7 +17,7 @@ from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.helpers import parse_db_date
 from graphiti_core.nodes import SagaNode
 
-from sibyl_core.graph.surreal.ops._common import (
+from sibyl_core.graph.surreal.compat.ops._common import (
     SurrealRecord,
     build_node_bulk_upsert_query,
     build_node_upsert_query,

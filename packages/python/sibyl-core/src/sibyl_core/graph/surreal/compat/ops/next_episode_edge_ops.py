@@ -1,22 +1,20 @@
-"""Episodic edge operations for the SurrealDB driver.
+"""NextEpisode edge operations for the SurrealDB driver.
 
-Implements Graphiti's ``EpisodicEdgeOperations`` contract against SurrealDB's
-``mentions`` RELATION table. The name mismatch is intentional: Graphiti calls
-the edge class ``EpisodicEdge`` but the relation direction is episode -> entity,
-so the SurrealDB table is named ``mentions`` to reflect the semantic role.
+Implements Graphiti's ``NextEpisodeEdgeOperations`` contract against
+SurrealDB's ``next_episode`` RELATION table (episode -> episode sequence link).
 """
 
 from __future__ import annotations
 
 import logging
 
-from graphiti_core.driver.operations.episodic_edge_ops import EpisodicEdgeOperations
+from graphiti_core.driver.operations.next_episode_edge_ops import NextEpisodeEdgeOperations
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
-from graphiti_core.edges import EpisodicEdge
+from graphiti_core.edges import NextEpisodeEdge
 from graphiti_core.errors import EdgeNotFoundError
 from graphiti_core.helpers import parse_db_date
 
-from sibyl_core.graph.surreal.ops._common import (
+from sibyl_core.graph.surreal.compat.ops._common import (
     SurrealRecord,
     build_relation_save_query,
     normalize_records,
@@ -27,14 +25,14 @@ from sibyl_core.graph.surreal.ops._common import (
 
 logger = logging.getLogger(__name__)
 
-EDGE_TABLE = "mentions"
+EDGE_TABLE = "next_episode"
 SOURCE_TABLE = "episode"
-TARGET_TABLE = "entity"
+TARGET_TABLE = "episode"
 _EDGE_SAVE = build_relation_save_query(EDGE_TABLE, ("uuid", "group_id", "created_at"))
 
 
-def _episodic_edge_from_record(record: SurrealRecord) -> EpisodicEdge:
-    return EpisodicEdge(
+def _next_episode_edge_from_record(record: SurrealRecord) -> NextEpisodeEdge:
+    return NextEpisodeEdge(
         uuid=str(record["uuid"]),
         group_id=str(record["group_id"]),
         source_node_uuid=str(record["source_node_uuid"]),
@@ -43,16 +41,13 @@ def _episodic_edge_from_record(record: SurrealRecord) -> EpisodicEdge:
     )
 
 
-class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
-    """SurrealDB implementation of Graphiti's EpisodicEdgeOperations.
-
-    Persists episode -> entity edges into the ``mentions`` RELATION table.
-    """
+class SurrealNextEpisodeEdgeOperations(NextEpisodeEdgeOperations):
+    """SurrealDB implementation of Graphiti's NextEpisodeEdgeOperations."""
 
     async def save(
         self,
         executor: QueryExecutor,
-        edge: EpisodicEdge,
+        edge: NextEpisodeEdge,
         tx: Transaction | None = None,
     ) -> None:
         src_id = await resolve_record_id(executor, tx, SOURCE_TABLE, edge.source_node_uuid)
@@ -60,7 +55,7 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
         if src_id is None or tgt_id is None:
             msg = (
                 f"Cannot save {EDGE_TABLE} edge {edge.uuid!r}: "
-                f"source episode {edge.source_node_uuid!r} or target entity "
+                f"source episode {edge.source_node_uuid!r} or target episode "
                 f"{edge.target_node_uuid!r} not found"
             )
             raise ValueError(msg)
@@ -81,18 +76,18 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
     async def save_bulk(
         self,
         executor: QueryExecutor,
-        edges: list[EpisodicEdge],
+        edges: list[NextEpisodeEdge],
         tx: Transaction | None = None,
         batch_size: int = 100,
     ) -> None:
-        del batch_size  # RELATE can't batch while resolving endpoints; loop is fine.
+        del batch_size
         for edge in edges:
             await self.save(executor, edge, tx=tx)
 
     async def delete(
         self,
         executor: QueryExecutor,
-        edge: EpisodicEdge,
+        edge: NextEpisodeEdge,
         tx: Transaction | None = None,
     ) -> None:
         await run_query(
@@ -122,7 +117,7 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
         self,
         executor: QueryExecutor,
         uuid: str,
-    ) -> EpisodicEdge:
+    ) -> NextEpisodeEdge:
         records = normalize_records(
             await executor.execute_query(
                 f"SELECT uuid, group_id, created_at, "
@@ -133,13 +128,13 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
         )
         if not records:
             raise EdgeNotFoundError(uuid)
-        return _episodic_edge_from_record(records[0])
+        return _next_episode_edge_from_record(records[0])
 
     async def get_by_uuids(
         self,
         executor: QueryExecutor,
         uuids: list[str],
-    ) -> list[EpisodicEdge]:
+    ) -> list[NextEpisodeEdge]:
         if not uuids:
             return []
         records = normalize_records(
@@ -150,57 +145,7 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
                 uuids=uuids,
             )
         )
-        return [_episodic_edge_from_record(r) for r in records]
-
-    async def get_between_nodes(
-        self,
-        executor: QueryExecutor,
-        source_node_uuid: str,
-        target_node_uuid: str,
-        group_ids: list[str] | None = None,
-        limit: int | None = None,
-    ) -> list[EpisodicEdge]:
-        group_clause = "AND group_id IN $group_ids" if group_ids else ""
-        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
-        records = normalize_records(
-            await executor.execute_query(
-                f"SELECT uuid, group_id, created_at, "
-                f"in.uuid AS source_node_uuid, out.uuid AS target_node_uuid "
-                f"FROM {EDGE_TABLE} "
-                "WHERE in.uuid = $src_uuid AND out.uuid = $tgt_uuid "
-                f"{group_clause} "
-                "ORDER BY uuid DESC "
-                f"{limit_clause};",
-                src_uuid=source_node_uuid,
-                tgt_uuid=target_node_uuid,
-                group_ids=group_ids,
-            )
-        )
-        return [_episodic_edge_from_record(r) for r in records]
-
-    async def get_by_node_uuid(
-        self,
-        executor: QueryExecutor,
-        node_uuid: str,
-        group_ids: list[str] | None = None,
-        limit: int | None = None,
-    ) -> list[EpisodicEdge]:
-        group_clause = "AND group_id IN $group_ids" if group_ids else ""
-        limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
-        records = normalize_records(
-            await executor.execute_query(
-                f"SELECT uuid, group_id, created_at, "
-                f"in.uuid AS source_node_uuid, out.uuid AS target_node_uuid "
-                f"FROM {EDGE_TABLE} "
-                "WHERE (in.uuid = $node_uuid OR out.uuid = $node_uuid) "
-                f"{group_clause} "
-                "ORDER BY uuid DESC "
-                f"{limit_clause};",
-                node_uuid=node_uuid,
-                group_ids=group_ids,
-            )
-        )
-        return [_episodic_edge_from_record(r) for r in records]
+        return [_next_episode_edge_from_record(r) for r in records]
 
     async def get_by_group_ids(
         self,
@@ -208,7 +153,7 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
         group_ids: list[str],
         limit: int | None = None,
         uuid_cursor: str | None = None,
-    ) -> list[EpisodicEdge]:
+    ) -> list[NextEpisodeEdge]:
         cursor_clause = "AND uuid < $cursor" if uuid_cursor else ""
         limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
         query = (
@@ -227,7 +172,7 @@ class SurrealEpisodicEdgeOperations(EpisodicEdgeOperations):
                 cursor=uuid_cursor,
             )
         )
-        return [_episodic_edge_from_record(r) for r in records]
+        return [_next_episode_edge_from_record(r) for r in records]
 
 
-__all__ = ["SurrealEpisodicEdgeOperations"]
+__all__ = ["SurrealNextEpisodeEdgeOperations"]

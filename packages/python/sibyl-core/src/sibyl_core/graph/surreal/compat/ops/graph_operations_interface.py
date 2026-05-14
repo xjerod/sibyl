@@ -16,7 +16,7 @@ from graphiti_core.edges import (
 )
 from graphiti_core.nodes import CommunityNode, EntityNode, EpisodeType, EpisodicNode, SagaNode
 
-from sibyl_core.graph.surreal.ops._common import SurrealRecord, normalize_records
+from sibyl_core.graph.surreal.compat.ops._common import SurrealRecord, normalize_records
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.driver import SurrealDriver
@@ -154,9 +154,7 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         del group_id
         await driver.entity_node_ops.delete_by_uuids(driver, uuids, batch_size=batch_size)
 
-    async def node_get_by_uuid(
-        self, _cls: object, driver: SurrealDriver, uuid: str
-    ) -> EntityNode:
+    async def node_get_by_uuid(self, _cls: object, driver: SurrealDriver, uuid: str) -> EntityNode:
         return await driver.entity_node_ops.get_by_uuid(driver, uuid)
 
     async def node_get_by_uuids(
@@ -184,11 +182,7 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         batch_size: int = 100,
     ) -> dict[str, list[float]]:
         await driver.entity_node_ops.load_embeddings_bulk(driver, nodes, batch_size=batch_size)
-        return {
-            node.uuid: node.name_embedding
-            for node in nodes
-            if node.name_embedding is not None
-        }
+        return {node.uuid: node.name_embedding for node in nodes if node.name_embedding is not None}
 
     async def episodic_node_save(self, node: EpisodicNode, driver: SurrealDriver) -> None:
         await driver.episode_node_ops.save(driver, node)
@@ -246,7 +240,9 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         del group_id
         await driver.episode_node_ops.delete_by_uuids(driver, uuids, batch_size=batch_size)
 
-    async def episodic_node_get_by_uuid(self, _cls: object, driver: SurrealDriver, uuid: str) -> EpisodicNode:
+    async def episodic_node_get_by_uuid(
+        self, _cls: object, driver: SurrealDriver, uuid: str
+    ) -> EpisodicNode:
         return await driver.episode_node_ops.get_by_uuid(driver, uuid)
 
     async def episodic_node_get_by_uuids(
@@ -279,9 +275,7 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         if source is not None:
             clauses.append("source = $source")
         if saga is not None:
-            clauses.append(
-                "id IN (SELECT VALUE out FROM has_episode WHERE in.name = $saga)"
-            )
+            clauses.append("id IN (SELECT VALUE out FROM has_episode WHERE in.name = $saga)")
         records = normalize_records(
             await driver.execute_query(
                 "SELECT * FROM episode WHERE "
@@ -334,7 +328,9 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         del group_id
         await driver.community_node_ops.delete_by_uuids(driver, uuids, batch_size=batch_size)
 
-    async def community_node_get_by_uuid(self, _cls: object, driver: SurrealDriver, uuid: str) -> CommunityNode:
+    async def community_node_get_by_uuid(
+        self, _cls: object, driver: SurrealDriver, uuid: str
+    ) -> CommunityNode:
         return await driver.community_node_ops.get_by_uuid(driver, uuid)
 
     async def community_node_get_by_uuids(
@@ -395,7 +391,9 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         del group_id
         await driver.saga_node_ops.delete_by_uuids(driver, uuids, batch_size=batch_size)
 
-    async def saga_node_get_by_uuid(self, _cls: object, driver: SurrealDriver, uuid: str) -> SagaNode:
+    async def saga_node_get_by_uuid(
+        self, _cls: object, driver: SurrealDriver, uuid: str
+    ) -> SagaNode:
         return await driver.saga_node_ops.get_by_uuid(driver, uuid)
 
     async def saga_node_get_by_uuids(
@@ -495,11 +493,7 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         batch_size: int = 100,
     ) -> dict[str, list[float]]:
         await driver.entity_edge_ops.load_embeddings_bulk(driver, edges, batch_size=batch_size)
-        return {
-            edge.uuid: edge.fact_embedding
-            for edge in edges
-            if edge.fact_embedding is not None
-        }
+        return {edge.uuid: edge.fact_embedding for edge in edges if edge.fact_embedding is not None}
 
     async def episodic_edge_save(self, edge: EpisodicEdge, driver: SurrealDriver) -> None:
         await driver.episodic_edge_ops.save(driver, edge)
@@ -517,7 +511,9 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         del group_id
         await driver.episodic_edge_ops.delete_by_uuids(driver, uuids)
 
-    async def episodic_edge_get_by_uuid(self, _cls: object, driver: SurrealDriver, uuid: str) -> EpisodicEdge:
+    async def episodic_edge_get_by_uuid(
+        self, _cls: object, driver: SurrealDriver, uuid: str
+    ) -> EpisodicEdge:
         return await driver.episodic_edge_ops.get_by_uuid(driver, uuid)
 
     async def episodic_edge_get_by_uuids(
@@ -553,7 +549,9 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         del group_id
         await driver.community_edge_ops.delete_by_uuids(driver, uuids)
 
-    async def community_edge_get_by_uuid(self, _cls: object, driver: SurrealDriver, uuid: str) -> CommunityEdge:
+    async def community_edge_get_by_uuid(
+        self, _cls: object, driver: SurrealDriver, uuid: str
+    ) -> CommunityEdge:
         return await driver.community_edge_ops.get_by_uuid(driver, uuid)
 
     async def community_edge_get_by_uuids(

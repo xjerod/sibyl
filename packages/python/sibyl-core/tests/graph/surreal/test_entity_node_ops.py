@@ -11,7 +11,7 @@ from graphiti_core.nodes import EntityNode
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
-from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
+from sibyl_core.graph.surreal.compat.ops.entity_node_ops import SurrealEntityNodeOperations
 
 
 def _make_entity(

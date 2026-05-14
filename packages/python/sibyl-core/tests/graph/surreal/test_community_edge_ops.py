@@ -10,8 +10,8 @@ from graphiti_core.errors import EdgeNotFoundError
 from graphiti_core.nodes import CommunityNode, EntityNode
 
 from sibyl_core.backends.surreal import SurrealDriver
-from sibyl_core.graph.surreal.ops.community_edge_ops import SurrealCommunityEdgeOperations
-from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
+from sibyl_core.graph.surreal.compat.ops.community_edge_ops import SurrealCommunityEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.entity_node_ops import SurrealEntityNodeOperations
 
 
 def _naive_now() -> datetime:

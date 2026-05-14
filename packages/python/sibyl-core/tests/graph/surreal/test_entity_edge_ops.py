@@ -13,8 +13,8 @@ from surrealdb import RecordID
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
-from sibyl_core.graph.surreal.ops.entity_edge_ops import SurrealEntityEdgeOperations
-from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
+from sibyl_core.graph.surreal.compat.ops.entity_edge_ops import SurrealEntityEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.entity_node_ops import SurrealEntityNodeOperations
 
 
 def _naive_now() -> datetime:

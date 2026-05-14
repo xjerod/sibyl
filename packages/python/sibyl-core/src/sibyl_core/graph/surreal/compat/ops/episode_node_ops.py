@@ -16,7 +16,7 @@ from graphiti_core.driver.record_parsers import episodic_node_from_record
 from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import EpisodicNode
 
-from sibyl_core.graph.surreal.ops._common import (
+from sibyl_core.graph.surreal.compat.ops._common import (
     SurrealRecord,
     build_node_bulk_upsert_query,
     build_node_upsert_query,

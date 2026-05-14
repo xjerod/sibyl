@@ -255,7 +255,7 @@ Files:
 - `apps/api/src/sibyl/persistence/graph_runtime.py`
 - `packages/python/sibyl-core/src/sibyl_core/graph/client.py`
 - `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
 - `packages/python/sibyl-core/tests/test_no_graphiti_default_loop.py`
 
 Verify:

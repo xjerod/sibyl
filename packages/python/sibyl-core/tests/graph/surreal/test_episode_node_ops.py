@@ -10,7 +10,7 @@ from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import EpisodeType, EpisodicNode
 
 from sibyl_core.backends.surreal import SurrealDriver
-from sibyl_core.graph.surreal.ops.episode_node_ops import SurrealEpisodeNodeOperations
+from sibyl_core.graph.surreal.compat.ops.episode_node_ops import SurrealEpisodeNodeOperations
 
 
 def _make_episode(

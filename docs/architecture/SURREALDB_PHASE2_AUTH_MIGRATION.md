@@ -329,8 +329,8 @@ covering.
   - A periodic arq task (every 60s) flushes pending entries via scoped SurrealQL
     `UPDATE api_key SET last_used_at = $ts WHERE uuid = $uuid` — field-scoped update only. **Never**
     full-record upsert (Surreal graph path uses delete+create,
-    `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_node_ops.py:61-87`, which
-    would resurrect revoked keys by clearing `revoked_at`).
+    `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/entity_node_ops.py:61-87`,
+    which would resurrect revoked keys by clearing `revoked_at`).
   - Flusher skips records whose `revoked_at` is non-null at flush time (defense in depth).
 - Refresh-token rotation concurrency:
   - `apps/api/src/sibyl/auth/sessions.py:117-141` replaces token hashes in place; three code paths

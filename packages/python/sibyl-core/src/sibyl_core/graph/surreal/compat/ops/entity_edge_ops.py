@@ -17,7 +17,7 @@ from graphiti_core.driver.record_parsers import entity_edge_from_record
 from graphiti_core.edges import EntityEdge
 from graphiti_core.errors import EdgeNotFoundError
 
-from sibyl_core.graph.surreal.ops._common import (
+from sibyl_core.graph.surreal.compat.ops._common import (
     SurrealRecord,
     build_relation_save_query,
     normalize_embedding,

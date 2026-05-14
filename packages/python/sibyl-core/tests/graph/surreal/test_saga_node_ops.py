@@ -10,7 +10,7 @@ from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import SagaNode
 
 from sibyl_core.backends.surreal import SurrealDriver
-from sibyl_core.graph.surreal.ops.saga_node_ops import SurrealSagaNodeOperations
+from sibyl_core.graph.surreal.compat.ops.saga_node_ops import SurrealSagaNodeOperations
 
 
 def _make_saga(

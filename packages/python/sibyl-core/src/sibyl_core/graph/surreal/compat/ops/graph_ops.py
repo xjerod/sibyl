@@ -31,7 +31,7 @@ from graphiti_core.nodes import CommunityNode, EntityNode, EpisodicNode
 
 from sibyl_core.backends.surreal.driver import SurrealDriver
 from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
-from sibyl_core.graph.surreal.ops._common import normalize_records
+from sibyl_core.graph.surreal.compat.ops._common import normalize_records
 
 logger = logging.getLogger(__name__)
 
@@ -159,9 +159,7 @@ class SurrealGraphMaintenanceOperations(GraphMaintenanceOperations):
                     uuid = str(row.get("uuid") or "")
                     if not uuid or uuid == node.uuid:
                         continue
-                    combined[uuid] = combined.get(uuid, 0) + _count_value(
-                        row.get("count")
-                    )
+                    combined[uuid] = combined.get(uuid, 0) + _count_value(row.get("count"))
                 projection[node.uuid] = [
                     Neighbor(node_uuid=uuid, edge_count=count) for uuid, count in combined.items()
                 ]

@@ -17,19 +17,21 @@ from sibyl_core.backends.surreal.connection import (
 )
 from sibyl_core.backends.surreal.driver import SurrealQueryError, _namespace_for_group
 from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES, bootstrap_schema
-from sibyl_core.graph.surreal.ops.community_edge_ops import SurrealCommunityEdgeOperations
-from sibyl_core.graph.surreal.ops.community_node_ops import SurrealCommunityNodeOperations
-from sibyl_core.graph.surreal.ops.entity_edge_ops import SurrealEntityEdgeOperations
-from sibyl_core.graph.surreal.ops.entity_node_ops import SurrealEntityNodeOperations
-from sibyl_core.graph.surreal.ops.episode_node_ops import SurrealEpisodeNodeOperations
-from sibyl_core.graph.surreal.ops.episodic_edge_ops import SurrealEpisodicEdgeOperations
-from sibyl_core.graph.surreal.ops.graph_operations_interface import (
+from sibyl_core.graph.surreal.compat.ops.community_edge_ops import SurrealCommunityEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.community_node_ops import SurrealCommunityNodeOperations
+from sibyl_core.graph.surreal.compat.ops.entity_edge_ops import SurrealEntityEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.entity_node_ops import SurrealEntityNodeOperations
+from sibyl_core.graph.surreal.compat.ops.episode_node_ops import SurrealEpisodeNodeOperations
+from sibyl_core.graph.surreal.compat.ops.episodic_edge_ops import SurrealEpisodicEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.graph_operations_interface import (
     SurrealGraphOperationsInterface,
 )
-from sibyl_core.graph.surreal.ops.graph_ops import SurrealGraphMaintenanceOperations
-from sibyl_core.graph.surreal.ops.has_episode_edge_ops import SurrealHasEpisodeEdgeOperations
-from sibyl_core.graph.surreal.ops.next_episode_edge_ops import SurrealNextEpisodeEdgeOperations
-from sibyl_core.graph.surreal.ops.saga_node_ops import SurrealSagaNodeOperations
+from sibyl_core.graph.surreal.compat.ops.graph_ops import SurrealGraphMaintenanceOperations
+from sibyl_core.graph.surreal.compat.ops.has_episode_edge_ops import SurrealHasEpisodeEdgeOperations
+from sibyl_core.graph.surreal.compat.ops.next_episode_edge_ops import (
+    SurrealNextEpisodeEdgeOperations,
+)
+from sibyl_core.graph.surreal.compat.ops.saga_node_ops import SurrealSagaNodeOperations
 
 
 class TestNamespaceNaming:

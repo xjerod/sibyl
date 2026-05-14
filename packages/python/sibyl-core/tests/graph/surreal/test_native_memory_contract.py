@@ -17,7 +17,7 @@ from sibyl_core.backends.surreal.content_schema import bootstrap_content_schema
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
 from sibyl_core.graph.entities import EntityManager
 from sibyl_core.graph.relationships import RelationshipManager
-from sibyl_core.graph.surreal.ops._common import normalize_records
+from sibyl_core.graph.surreal.compat.ops._common import normalize_records
 from sibyl_core.models.entities import Entity, EntityType
 from sibyl_core.services import native_memory
 from sibyl_core.services.surreal_content import get_raw_memory, save_raw_memory

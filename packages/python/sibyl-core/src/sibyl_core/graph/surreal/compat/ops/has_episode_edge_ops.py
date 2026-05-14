@@ -14,7 +14,7 @@ from graphiti_core.edges import HasEpisodeEdge
 from graphiti_core.errors import EdgeNotFoundError
 from graphiti_core.helpers import parse_db_date
 
-from sibyl_core.graph.surreal.ops._common import (
+from sibyl_core.graph.surreal.compat.ops._common import (
     SurrealRecord,
     build_relation_save_query,
     normalize_records,

@@ -12,8 +12,8 @@ from graphiti_core.driver.record_parsers import (
 from graphiti_core.driver.search_interface.search_interface import SearchInterface
 from graphiti_core.nodes import CommunityNode, EpisodicNode
 
-from sibyl_core.graph.surreal.ops._common import normalize_embedding, normalize_records
-from sibyl_core.graph.surreal.ops.entity_edge_ops import _ENTITY_EDGE_SELECT
+from sibyl_core.graph.surreal.compat.ops._common import normalize_embedding, normalize_records
+from sibyl_core.graph.surreal.compat.ops.entity_edge_ops import _ENTITY_EDGE_SELECT
 
 log = structlog.get_logger()
 

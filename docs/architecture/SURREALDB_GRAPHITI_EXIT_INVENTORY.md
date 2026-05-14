@@ -28,8 +28,8 @@ Recorded on 2026-05-13 at local commit `1de0b408`.
 Every generated Graphiti import path must match the code allowlist in
 `tools/inventory/runtime_surface.py` and appear as a backticked path in this document. A path that
 is only documented here still fails the inventory gate unless the code allowlist classifies it. The
-group `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*` covers the Graphiti operation
-adapter package as one named compatibility surface.
+group `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*` covers the Graphiti
+operation adapter package as one named compatibility surface.
 
 ## Compatibility Allowlist
 
@@ -70,7 +70,7 @@ owner, and deletion or retention criterion.
   - Class: `test`
   - Owner: v0.7 reflection
   - Criteria: Native reflection tests no longer instantiate Graphiti extraction clients.
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
   - Class: `compatibility`
   - Owner: v0.7 Graphiti exit
   - Criteria: No default or fallback memory path constructs Graphiti or calls Graphiti model
@@ -256,7 +256,7 @@ source metadata.
 - Owner: v0.7 reflection.
 - Verify: `moon run core:test -- tests/test_graph_client.py tests/test_reflect.py`.
 
-### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/*`
+### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
 
 - Behavior: Surreal implementations of Graphiti node, edge, saga, community, and graph operation
   contracts.
@@ -268,7 +268,7 @@ source metadata.
 - Owner: v0.7 Graphiti exit.
 - Verify: `moon run core:test -- tests/graph/surreal`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/__init__.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/__init__.py`
 
 - Classification: `compatibility-retain`
 - Behavior: package marker for the Graphiti operation adapter modules.
@@ -277,7 +277,7 @@ source metadata.
   operation factories.
 - Verify: `moon run inventory-check inventory-typecheck inventory-test`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/_common.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/_common.py`
 
 - Classification: `compatibility-retain`
 - Behavior: shared query, RecordID, embedding, and record-normalization helpers for Graphiti-shaped
@@ -287,7 +287,7 @@ source metadata.
   adapter imports it.
 - Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/community_edge_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/community_edge_ops.py`
 
 - Classification: `compatibility-retain`
 - Behavior: Graphiti `CommunityEdgeOperations` over the `has_member` relation.
@@ -296,7 +296,7 @@ source metadata.
   callers without Graphiti `CommunityEdge` models.
 - Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/community_node_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/community_node_ops.py`
 
 - Classification: `compatibility-retain`
 - Behavior: Graphiti `CommunityNodeOperations` over the `community` table.
@@ -305,7 +305,7 @@ source metadata.
   without Graphiti `CommunityNode` parsers.
 - Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_edge_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/entity_edge_ops.py`
 
 - Classification: `migrate-to-native`
 - Behavior: Graphiti `EntityEdgeOperations` over native `relates_to` records.
@@ -314,7 +314,7 @@ source metadata.
   hydration, and temporal reads for all default and admin callers.
 - Verify: `moon run core:test -- tests/test_native_relationship_manager.py`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/entity_node_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/entity_node_ops.py`
 
 - Classification: `migrate-to-native`
 - Behavior: Graphiti `EntityNodeOperations` over native `entity` records.
@@ -323,7 +323,7 @@ source metadata.
   dynamic attribute projection for all default and admin callers.
 - Verify: `moon run core:test -- tests/test_native_entity_manager.py`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/episode_node_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/episode_node_ops.py`
 
 - Classification: `historical migration`
 - Behavior: Graphiti `EpisodeNodeOperations` over legacy `episode` records.
@@ -332,7 +332,7 @@ source metadata.
   entity records without constructing `EpisodicNode`.
 - Verify: `moon run core:test -- tests/test_migrate_archive.py`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/episodic_edge_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/episodic_edge_ops.py`
 
 - Classification: `migrate-to-native`
 - Behavior: Graphiti `EpisodicEdgeOperations` over native `mentions` relations.
@@ -341,7 +341,7 @@ source metadata.
   and lookup for default writes and historical imports.
 - Verify: `moon run core:test -- tests/test_native_relationship_manager.py`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/graph_operations_interface.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/graph_operations_interface.py`
 
 - Classification: `compatibility-retain`
 - Behavior: adapter that maps Graphiti classmethod-style graph operations back onto Surreal driver
@@ -350,7 +350,7 @@ source metadata.
 - Removal condition: no Graphiti node or edge class is constructed against the Surreal driver.
 - Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/graph_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/graph_ops.py`
 
 - Classification: `admin-only`
 - Behavior: Graphiti `GraphMaintenanceOperations` for clear-data, schema bootstrap, index deletion,
@@ -360,7 +360,7 @@ source metadata.
   Graphiti maintenance interfaces.
 - Verify: `moon run core:test -- tests/test_tools_admin.py`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/has_episode_edge_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/has_episode_edge_ops.py`
 
 - Classification: `historical migration`
 - Behavior: Graphiti `HasEpisodeEdgeOperations` over saga-to-episode `has_episode` relations.
@@ -369,7 +369,7 @@ source metadata.
   projected through native archive restore code.
 - Verify: `moon run core:test -- tests/test_migrate_archive.py`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/next_episode_edge_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/next_episode_edge_ops.py`
 
 - Classification: `historical migration`
 - Behavior: Graphiti `NextEpisodeEdgeOperations` over episode-to-episode `next_episode` relations.
@@ -378,7 +378,7 @@ source metadata.
   projected through native archive restore code.
 - Verify: `moon run core:test -- tests/test_migrate_archive.py`.
 
-#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops/saga_node_ops.py`
+#### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/saga_node_ops.py`
 
 - Classification: `historical migration`
 - Behavior: Graphiti `SagaNodeOperations` over legacy `saga` records.

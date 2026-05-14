@@ -11,7 +11,7 @@ from graphiti_core.nodes import CommunityNode
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
-from sibyl_core.graph.surreal.ops.community_node_ops import SurrealCommunityNodeOperations
+from sibyl_core.graph.surreal.compat.ops.community_node_ops import SurrealCommunityNodeOperations
 
 
 def _make_community(

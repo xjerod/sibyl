@@ -58,7 +58,7 @@ API_GRAPHITI_COMPATIBILITY_MARKED_TESTS = (
     "tests/test_settings_api_key_loading.py",
     "tests/test_tools_manage.py",
 )
-GRAPHITI_OPS_ROOT = REPO_ROOT / "packages/python/sibyl-core/src/sibyl_core/graph/surreal/ops"
+GRAPHITI_OPS_ROOT = REPO_ROOT / "packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops"
 GRAPHITI_OPS_CLASSIFICATIONS = (
     "delete",
     "migrate-to-native",
