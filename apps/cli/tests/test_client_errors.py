@@ -126,6 +126,49 @@ async def test_mutating_request_buffers_and_deletes_on_success(
 
 
 @pytest.mark.asyncio
+async def test_mutating_request_survives_connect_drop_and_replays(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pending_writes.Path, "home", lambda: tmp_path)
+
+    def dropped(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("api down", request=request)
+
+    client = _client_with_transport(httpx.MockTransport(dropped))
+
+    with pytest.raises(SibylClientError):
+        await client.post("/entities", json={"name": "Replay me", "content": "Body"})
+
+    await client.close()
+    pending = pending_writes.list_pending_writes()
+    assert len(pending) == 1
+    assert pending[0]["path"] == "/entities"
+
+    seen_headers: list[str] = []
+
+    def restored(request: httpx.Request) -> httpx.Response:
+        seen_headers.append(request.headers["Idempotency-Key"])
+        return httpx.Response(200, json={"ok": True})
+
+    replay_client = _client_with_transport(httpx.MockTransport(restored))
+    result = await replay_client._request(
+        str(pending[0]["method"]),
+        str(pending[0]["path"]),
+        json=pending[0]["json"],
+        params=pending[0]["params"],
+        _buffer_pending=False,
+        _pending_write_id=str(pending[0]["id"]),
+        _idempotency_key=str(pending[0]["idempotency_key"]),
+    )
+
+    await replay_client.close()
+    assert result == {"ok": True}
+    assert seen_headers == [pending[0]["idempotency_key"]]
+    assert pending_writes.list_pending_writes() == []
+
+
+@pytest.mark.asyncio
 async def test_mutating_request_keeps_pending_write_on_auth_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
