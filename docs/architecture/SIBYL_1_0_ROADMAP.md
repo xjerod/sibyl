@@ -294,19 +294,22 @@ Required gates:
 - API-key and delegated-agent deny cases
 - inspect/audit consistency fixtures
 
-### v0.12: Reflection Intelligence
+### v0.12: Reflection OS
 
 Goal: make memory consolidate itself.
 
+- active plan: [`SIBYL_V012_REFLECTION_OS_PLAN.md`](SIBYL_V012_REFLECTION_OS_PLAN.md)
+- first-class claim and reflection-finding lifecycle records
 - contradiction, staleness, and duplicate detection
 - supersession and rollback propagation
 - automatic diary/session learning promotion
 - dream-cycle style consolidation jobs
 - recall quality evaluation against dogfood fixtures
+- minimum CLI/web visibility for automatic decisions and exception routing
 
 Required gates:
 
-- reflection quality fixtures
+- new `reflection-quality-gate`
 - correction and rollback fixtures
 - source-grounding and permission-safety checks
 
