@@ -1,7 +1,7 @@
 # Agent Activity Audit — Worked Example
 
-This is the actual run that produced the skill: a 30-day audit of how Codex and Claude Code
-agents used Sibyl in real coding sessions, executed 2026-05-14. The full output is preserved at
+This is the actual run that produced the skill: a 30-day audit of how Codex and Claude Code agents
+used Sibyl in real coding sessions, executed 2026-05-14. The full output is preserved at
 `/home/bliss/dev/sibyl/contexts/sibyl-analysis-2026-05-14/`.
 
 Reading this file should let you reproduce the audit pattern for any other tool/skill/system.
@@ -10,26 +10,26 @@ Reading this file should let you reproduce the audit pattern for any other tool/
 
 ## Goal of the example run
 
-> "Find how Sibyl was used by the agent, when and how, and if at all Sibyl was helping it or
-> hurting it. Other issues? Successes? What can we learn? We need to be thorough, multiple passes
-> and multiple swarms, going through ALL the data, to figure out how to improve Sibyl even more."
+> "Find how Sibyl was used by the agent, when and how, and if at all Sibyl was helping it or hurting
+> it. Other issues? Successes? What can we learn? We need to be thorough, multiple passes and
+> multiple swarms, going through ALL the data, to figure out how to improve Sibyl even more."
 
 Scope: last 30 days of conversation transcripts from `~/.claude/projects/` (Claude Code) and
 `~/.codex/sessions/` (Codex).
 
 ## Numbers at a glance
 
-| Phase | Count | Notes |
-|---|---|---|
-| Files in window | 529 | 296 Claude · 233 Codex |
-| Total transcript size | ~1 GB | mostly Codex |
-| Files mentioning sibyl | 472 | includes CLAUDE.md/AGENTS.md boilerplate |
-| Files *actually using* sibyl tools | 179 | 7 Claude · 172 Codex |
-| Real Sibyl CLI calls | ~3000 | scanner-validated |
-| Episode markdown files written | 179 | total ~13 MB |
-| Subagents dispatched | 6 (Wave 1) | partitioned by date |
-| Cross-cutting data builds | 5 | error catalog, workflow stats, retry loops, capture stats, source grounding |
-| Final synthesis report | 1 | `SYNTHESIS.md` |
+| Phase                              | Count      | Notes                                                                       |
+| ---------------------------------- | ---------- | --------------------------------------------------------------------------- |
+| Files in window                    | 529        | 296 Claude · 233 Codex                                                      |
+| Total transcript size              | ~1 GB      | mostly Codex                                                                |
+| Files mentioning sibyl             | 472        | includes CLAUDE.md/AGENTS.md boilerplate                                    |
+| Files _actually using_ sibyl tools | 179        | 7 Claude · 172 Codex                                                        |
+| Real Sibyl CLI calls               | ~3000      | scanner-validated                                                           |
+| Episode markdown files written     | 179        | total ~13 MB                                                                |
+| Subagents dispatched               | 6 (Wave 1) | partitioned by date                                                         |
+| Cross-cutting data builds          | 5          | error catalog, workflow stats, retry loops, capture stats, source grounding |
+| Final synthesis report             | 1          | `SYNTHESIS.md`                                                              |
 
 End-to-end wall time, including subagent runs: roughly 25-30 minutes.
 
@@ -127,8 +127,8 @@ out to be one Codex rollout that absorbed multiple consecutive missions). Always
 
 ### 5. Dispatch the swarm in parallel
 
-Send one message with all Agent tool calls, `run_in_background: true`. Each prompt is
-self-contained — agents won't see your conversation history. Example prompt for Group B:
+Send one message with all Agent tool calls, `run_in_background: true`. Each prompt is self-contained
+— agents won't see your conversation history. Example prompt for Group B:
 
 ```
 You're analyzing how agents used Sibyl in real coding sessions over the past month. Sibyl is a
@@ -151,7 +151,7 @@ strong vs weak signal count.
 
 ### 6. Build cross-cutting data while agents run
 
-```bash
+````bash
 # Error catalog
 python3 -c '
 import re
@@ -181,13 +181,12 @@ print(f'learnings: {sum(1 for f in sessions if re.search(r\"--learnings\", f.rea
 "
 
 # Retry loops: same sibyl command run 3+ times in a row in any single session
-```
+````
 
 ### 7. Synthesize from agent reports
 
-After all agents complete, read every `findings/group_*.md`, the error catalog, the workflow
-stats, and the relevant source. Write `SYNTHESIS.md` using the structure documented in `SKILL.md`
-§7.
+After all agents complete, read every `findings/group_*.md`, the error catalog, the workflow stats,
+and the relevant source. Write `SYNTHESIS.md` using the structure documented in `SKILL.md` §7.
 
 For this run the synthesis revealed:
 
@@ -230,14 +229,13 @@ A few non-obvious calls worth flagging for replays:
   emerged from short user messages with reaction words AND target mentions — about 26 unique
   signals. Most weren't even about Sibyl (most were "ugh hypercolor faces are fucked").
 
-- **Skipped a planned Wave 2.** The initial design included a second cross-cutting swarm to
-  re-read Wave 1 findings by theme. After reading 5/6 Wave 1 reports, the convergence on the same
-  themes was so strong that Wave 2 would have been a re-litigation. Saved an estimated 5-10
-  minutes and ~80 KB of context.
+- **Skipped a planned Wave 2.** The initial design included a second cross-cutting swarm to re-read
+  Wave 1 findings by theme. After reading 5/6 Wave 1 reports, the convergence on the same themes was
+  so strong that Wave 2 would have been a re-litigation. Saved an estimated 5-10 minutes and ~80 KB
+  of context.
 
-- **Read current Sibyl source** to ground every recommendation in code paths. The CLAUDE.md
-  rule "Before recommending from memory: verify the file/symbol/flag still exists" applies
-  doubly here.
+- **Read current Sibyl source** to ground every recommendation in code paths. The CLAUDE.md rule
+  "Before recommending from memory: verify the file/symbol/flag still exists" applies doubly here.
 
 ---
 
@@ -245,23 +243,22 @@ A few non-obvious calls worth flagging for replays:
 
 Documented so future runs avoid the mistakes:
 
-1. **Initial regex `\bsibyl\b` triggered on every CLAUDE.md mention.** Had to filter on actual
-   tool invocations (Bash command containing `sibyl `, function_call name matching `mcp__sibyl__`,
-   etc.) before scoping the swarm. The scanner now does this by default.
+1. **Initial regex `\bsibyl\b` triggered on every CLAUDE.md mention.** Had to filter on actual tool
+   invocations (Bash command containing `sibyl `, function_call name matching `mcp__sibyl__`, etc.)
+   before scoping the swarm. The scanner now does this by default.
 
-2. **Codex schema wasn't initially handled.** First scan returned 0 Sibyl uses for Codex even
-   though the visible greps showed 886 sibyl mentions in one file. Codex wraps tool calls in
-   `payload`; the scanner now unwraps that.
+2. **Codex schema wasn't initially handled.** First scan returned 0 Sibyl uses for Codex even though
+   the visible greps showed 886 sibyl mentions in one file. Codex wraps tool calls in `payload`; the
+   scanner now unwraps that.
 
 3. **`exec_command` wasn't in the Bash-equivalent list.** Codex's name for shell calls. Added.
 
-4. **The "OUTPUT (ERROR)" extractor was over-aggressive.** Search results with the word "error"
-   in their content got flagged as errors. The catalog now post-filters on exit-code markers and
-   `✗`.
+4. **The "OUTPUT (ERROR)" extractor was over-aggressive.** Search results with the word "error" in
+   their content got flagged as errors. The catalog now post-filters on exit-code markers and `✗`.
 
-5. **One session had 4409 episodes (8.4 MB)** which would have crushed the partition-by-date
-   agent's context. Pulled it out as its own dedicated subagent and instructed it to sample
-   strategically (start/middle/end + all error blocks) rather than read top-to-bottom.
+5. **One session had 4409 episodes (8.4 MB)** which would have crushed the partition-by-date agent's
+   context. Pulled it out as its own dedicated subagent and instructed it to sample strategically
+   (start/middle/end + all error blocks) rather than read top-to-bottom.
 
 ---
 

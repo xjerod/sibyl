@@ -3,16 +3,16 @@ name: agent-activity-audit
 description:
   Audit recent agent transcripts (Claude Code and Codex) to learn how a tool, system, or skill is
   actually being used in the wild. Surfaces failure modes, friction, success patterns, and concrete
-  improvement candidates from real session data. Use this when you want to improve a developer-facing
-  system that agents interact with regularly.
+  improvement candidates from real session data. Use this when you want to improve a
+  developer-facing system that agents interact with regularly.
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent
 ---
 
 # Agent Activity Audit
 
 This skill executes a structured pass over recent agent transcripts to learn what's working and
-what's hurting. The original audit (May 2026) examined ~30 days of Claude Code and Codex sessions
-to improve Sibyl itself — see `EXAMPLES.md` for the full reproducible run.
+what's hurting. The original audit (May 2026) examined ~30 days of Claude Code and Codex sessions to
+improve Sibyl itself — see `EXAMPLES.md` for the full reproducible run.
 
 The output is a synthesis report grounded in real session evidence, plus per-group findings files
 you can act on directly.
@@ -39,23 +39,23 @@ session transcripts; it doesn't analyze code.
    extracts, and findings in one tree so the analysis is reproducible and the user can replay or
    extend it.
 
-2. **Filter early, filter hard.** Most transcripts are noise. Triage with cheap grep before
-   spinning up parallel subagents — the goal is to give each subagent ~50-100 KB of focused episode
-   data, not raw multi-MB JSONLs.
+2. **Filter early, filter hard.** Most transcripts are noise. Triage with cheap grep before spinning
+   up parallel subagents — the goal is to give each subagent ~50-100 KB of focused episode data, not
+   raw multi-MB JSONLs.
 
-3. **Partition by date for the swarm.** Date-based partitions are mutually exclusive, cover the
-   full window, and make convergence across groups easy to spot (same theme in 4+ date ranges =
-   durable issue).
+3. **Partition by date for the swarm.** Date-based partitions are mutually exclusive, cover the full
+   window, and make convergence across groups easy to spot (same theme in 4+ date ranges = durable
+   issue).
 
-4. **Each subagent writes findings to a file.** Don't let agents return giant prose back to the
-   main thread. Their job: produce `findings/group_<X>.md`, return a ≤250-word summary.
+4. **Each subagent writes findings to a file.** Don't let agents return giant prose back to the main
+   thread. Their job: produce `findings/group_<X>.md`, return a ≤250-word summary.
 
 5. **Convergence-first synthesis.** A pain point in 4+ groups is durable. Single-group findings
    warrant a sanity check before they're elevated. Count evidence; don't trust impressions.
 
 6. **Verify before recommending fixes.** Inspect current source for the surfaces the audit
-   implicates. A finding like "the CLI rejects `--kind gotcha`" should point at the enum's
-   actual location.
+   implicates. A finding like "the CLI rejects `--kind gotcha`" should point at the enum's actual
+   location.
 
 7. **Capture durable learnings to Sibyl after synthesis.** The point is to feed back into the
    product graph; use `sibyl remember --kind pattern` (or `--kind decision`) on the substantive
@@ -101,6 +101,7 @@ cat triage/all_files.txt | xargs -P 12 -n 5 python3 "$SKILL_DIR/scripts/scan.py"
 ```
 
 The scanner detects three shapes of usage:
+
 - **CLI**: Bash/exec_command calls whose command line matches the target's CLI name
 - **MCP**: tool names matching `mcp__<target>__*` or `<target>_*`
 - **Skill**: Skill invocations whose name matches the target
@@ -109,9 +110,9 @@ Look at the output to confirm signal quality before proceeding.
 
 ### Step 3: Extract focused episodes
 
-Each "episode" is a target-tool call plus its preceding user message, assistant text, and
-tool result. Use `scripts/extract_episodes.py` to write per-session markdown files
-(~10-30 KB each, vs the 50-500 KB raw transcripts).
+Each "episode" is a target-tool call plus its preceding user message, assistant text, and tool
+result. Use `scripts/extract_episodes.py` to write per-session markdown files (~10-30 KB each, vs
+the 50-500 KB raw transcripts).
 
 ```bash
 # Filter to files with actual usage
@@ -130,8 +131,8 @@ cat triage/using_files.txt | xargs -P 12 -n 3 python3 \
 
 ### Step 4: Partition for the swarm
 
-Partition episodes by date (or by file count if the window is shorter). Aim for groups of
-20-60 files each, ~500-1500 KB total payload per group. One agent per partition.
+Partition episodes by date (or by file count if the window is shorter). Aim for groups of 20-60
+files each, ~500-1500 KB total payload per group. One agent per partition.
 
 ```bash
 # Date-based partitions (adjust ranges to your window)
@@ -158,6 +159,7 @@ agent's prompt should include:
 # Group <id> — <description>
 
 ## At-a-glance
+
 - Sessions analyzed: N
 - Total target tool calls: N (with CLI / MCP / skill breakdown)
 - Errored calls: N
@@ -166,21 +168,27 @@ agent's prompt should include:
 - Net assessment: Helping / Hurting / Mixed (one sentence)
 
 ## Usage patterns (ranked by frequency)
+
 What did agents reach for the target to do? How often? How well?
 
 ## Top failure modes (with evidence)
+
 Verbatim error message, frequency, blast radius, session refs.
 
 ## What genuinely helped
+
 Concrete wins with citations.
 
 ## UX friction
+
 Confusing CLI/output, subcommand naming, output formatting, etc.
 
 ## User reactions
+
 Direct user messages about the target — corrections, complaints, praise.
 
 ## Improvement ideas (ranked by impact)
+
 1. [Issue] → [Specific fix]
    - Evidence (session refs)
    - Why it matters
@@ -193,13 +201,13 @@ Direct user messages about the target — corrections, complaints, praise.
 
 While agents work, do the prep that needs the full corpus, not partitions:
 
-- **Error catalog**: classify all error outputs by pattern. Most-common categories should match
-  what subagents independently find.
-- **Workflow stats**: did sessions follow the full lifecycle? `sessions_using_target /
-  sessions_capturing_knowledge / sessions_completing_lifecycle`.
+- **Error catalog**: classify all error outputs by pattern. Most-common categories should match what
+  subagents independently find.
+- **Workflow stats**: did sessions follow the full lifecycle?
+  `sessions_using_target / sessions_capturing_knowledge / sessions_completing_lifecycle`.
 - **Retry loops**: same command run 3+ times in a row in any session → signals stuck behavior.
-- **User corrections**: short user messages mentioning the target tool + reaction words
-  ("ugh", "broken", "wrong", "stop") → real feedback.
+- **User corrections**: short user messages mentioning the target tool + reaction words ("ugh",
+  "broken", "wrong", "stop") → real feedback.
 
 ### Step 7: Synthesize
 
@@ -232,8 +240,8 @@ vs main.py remember --help. Audit: contexts/sibyl-analysis-2026-05-14/SYNTHESIS.
   --kind error_pattern --tags audit,cli,enum
 ```
 
-Keep these scoped to the project being audited; future sessions on that project should find them
-via `sibyl recall`.
+Keep these scoped to the project being audited; future sessions on that project should find them via
+`sibyl recall`.
 
 ---
 
@@ -242,11 +250,11 @@ via `sibyl recall`.
 A good audit:
 
 - Has at least 3 convergent findings (same theme in 4+ partitions).
-- Quantifies impact (calls/month, sessions affected, minutes wasted) rather than naming severity
-  in the abstract.
+- Quantifies impact (calls/month, sessions affected, minutes wasted) rather than naming severity in
+  the abstract.
 - Names current code locations for every recommended fix.
 - Distinguishes design issues from operational issues from documentation issues.
-- Identifies what's working so the team knows what *not* to change.
+- Identifies what's working so the team knows what _not_ to change.
 - Captures surprises — the patterns that contradict the team's prior model.
 
 A bad audit:
@@ -264,23 +272,23 @@ A bad audit:
 - **Big sessions**: any single transcript > 5 MB of episodes deserves its own subagent. The May 10
   monster session (8.4 MB, 4409 episodes spanning 4 days) needed strategic sampling — read
   start/middle/end + all error blocks, not top-to-bottom.
-- **Cold sessions**: transcripts where the target tool was barely used are still data. They tell
-  you the agent *didn't reach* for the tool. That's its own finding.
-- **Cross-project bleed**: if the target lives in one repo but is called from many, partition by
-  cwd as well as date.
-- **Multi-client**: Claude and Codex have different transcript schemas. The scanner handles both
-  but findings should note any client-specific patterns (e.g., Codex agents read SKILL.md every
-  session; Claude agents launch the skill differently).
+- **Cold sessions**: transcripts where the target tool was barely used are still data. They tell you
+  the agent _didn't reach_ for the tool. That's its own finding.
+- **Cross-project bleed**: if the target lives in one repo but is called from many, partition by cwd
+  as well as date.
+- **Multi-client**: Claude and Codex have different transcript schemas. The scanner handles both but
+  findings should note any client-specific patterns (e.g., Codex agents read SKILL.md every session;
+  Claude agents launch the skill differently).
 
 ---
 
 ## Caveats
 
-- **Survivorship bias**: agents who got stuck and gave up early produce shorter transcripts.
-  Don't conclude the system is fine from a sample of finished work.
-- **User-message false positives**: filter out boilerplate (`# AGENTS.md`, `<INSTRUCTIONS>`,
-  long task prompts) before flagging "user reactions." Real reactions are short, in lowercase,
-  and often profane.
+- **Survivorship bias**: agents who got stuck and gave up early produce shorter transcripts. Don't
+  conclude the system is fine from a sample of finished work.
+- **User-message false positives**: filter out boilerplate (`# AGENTS.md`, `<INSTRUCTIONS>`, long
+  task prompts) before flagging "user reactions." Real reactions are short, in lowercase, and often
+  profane.
 - **"OUTPUT (ERROR)" over-inclusion**: the episode extractor flags errors heuristically. Filter
   again on `Process exited with code 1` or `✗` markers before counting real failures.
 - **Don't fix surfaces the team is already redesigning.** Check `sibyl recall <topic>` before
