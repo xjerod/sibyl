@@ -209,6 +209,60 @@ async def test_reflect_memory_marks_duplicate_candidates_before_review_persisten
     assert finding["related_source_ids"] == ["older-source-1"]
 
 
+@pytest.mark.asyncio
+async def test_reflect_memory_uses_existing_source_id_without_rewriting_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_calls: list[dict[str, Any]] = []
+
+    async def fail_source_review(**_kwargs: Any) -> AddResponse:
+        raise AssertionError("existing source reflections should not rewrite the source")
+
+    async def fake_candidate_review(**kwargs: Any) -> RawMemory:
+        candidate_calls.append(kwargs)
+        candidate = kwargs["candidate"]
+        return replace_raw_memory(
+            _raw_memory("raw-candidate-1", candidate.content),
+            source_id=kwargs["source_id"],
+            principal_id=kwargs["principal_id"],
+            raw_content=candidate.content,
+            metadata=dict(candidate.metadata),
+            capture_surface="reflection_candidate",
+        )
+
+    monkeypatch.setattr(
+        "sibyl_core.tools.reflect._persist_reflection_source_review",
+        fail_source_review,
+    )
+    monkeypatch.setattr(
+        "sibyl_core.tools.reflect._persist_reflection_candidate_review",
+        fake_candidate_review,
+    )
+    monkeypatch.setattr(
+        "sibyl_core.tools.reflect.list_raw_memories_for_scope",
+        AsyncMock(return_value=[]),
+    )
+
+    pack = await reflect_memory(
+        "Observed reflection dream cycles reuse raw sources.",
+        source_title="Existing raw source",
+        intent="build",
+        domain="sibyl",
+        organization_id="org_123",
+        principal_id="user_123",
+        memory_scope="private",
+        persist=True,
+        persist_source=False,
+        persist_review=True,
+        existing_source_id="raw-existing-source",
+    )
+
+    assert pack.source_id == "raw-existing-source"
+    assert pack.candidates[0].raw_source_ids == ["raw-existing-source"]
+    assert candidate_calls[0]["source_id"] == "raw-existing-source"
+    assert candidate_calls[0]["raw_source_ids"] == ["raw-existing-source"]
+
+
 def test_reflection_lifecycle_decisions_mark_duplicate_candidates() -> None:
     candidate = _grounded_candidate("Sibyl review is enabled.")
 

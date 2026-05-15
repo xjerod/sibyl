@@ -176,6 +176,12 @@ def raw_memory_recallable(memory: RawMemory) -> bool:
     return not memory.metadata.get("duplicate_of_source_id")
 
 
+def _raw_memory_capture_surface(memory: RawMemory) -> str:
+    metadata_surface = memory.metadata.get("capture_surface")
+    value = memory.capture_surface if memory.capture_surface is not None else metadata_surface
+    return str(value or "").strip().lower()
+
+
 def _recallable_memories(memories: list[RawMemory], *, limit: int) -> list[RawMemory]:
     return [memory for memory in memories if raw_memory_recallable(memory)][:limit]
 
@@ -1046,6 +1052,38 @@ async def list_reflection_candidate_reviews(
     return memories[:limit]
 
 
+async def list_reflection_dream_source_memories(
+    *,
+    organization_id: str,
+    limit: int = 50,
+) -> list[RawMemory]:
+    if limit <= 0:
+        return []
+    query_limit = limit * _LIFECYCLE_FILTER_OVERFETCH_FACTOR
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE organization_id = $organization_id "
+            "AND (capture_surface != $candidate_surface OR capture_surface = NONE) "
+            "AND (capture_surface != $source_surface OR capture_surface = NONE) "
+            "ORDER BY captured_at ASC LIMIT $limit;",
+            organization_id=organization_id,
+            candidate_surface="reflection_candidate",
+            source_surface="reflection_source",
+            limit=query_limit,
+        )
+    memories = [_raw_memory_from_record(row) for row in rows]
+    return [
+        memory
+        for memory in memories
+        if raw_memory_recallable(memory)
+        and _raw_memory_capture_surface(memory)
+        not in {"reflection_candidate", "reflection_source"}
+        and not memory.metadata.get("reflection_dream_processed_at")
+    ][:limit]
+
+
 async def get_or_create_source(
     url: str,
     depth: int,
@@ -1434,6 +1472,7 @@ __all__ = [
     "lexical_score_from_tokens",
     "list_raw_memories_for_scope",
     "list_reflection_candidate_reviews",
+    "list_reflection_dream_source_memories",
     "list_source_ids_for_org",
     "list_unlinked_document_chunks",
     "load_search_scope",

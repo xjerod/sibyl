@@ -345,3 +345,29 @@ async def test_enqueue_priority_decay_uses_org_scoped_job_id() -> None:
     assert pool.calls[0][2]["max_archives_per_run"] == 100
     assert pool.delete.await_args_list[-1].args == ("arq:result:priority_decay:org-123",)
     assert_recent_job_indexed(pool, "priority_decay:org-123")
+
+
+@pytest.mark.asyncio
+async def test_enqueue_reflection_dream_cycle_uses_org_scoped_job_id() -> None:
+    pool = RecordingEnqueuePool()
+    broker = make_broker(pool)
+
+    job_id = await broker.enqueue_reflection_dream_cycle(
+        "org-123",
+        dry_run=True,
+        source_limit=3,
+        candidate_limit=7,
+        archive_exceptions=False,
+        confidence_threshold=0.91,
+    )
+
+    assert job_id == "reflection_dream:org-123"
+    assert pool.calls[0][0] == "run_reflection_dream_cycle"
+    assert pool.calls[0][1] == "org-123"
+    assert pool.calls[0][2]["dry_run"] is True
+    assert pool.calls[0][2]["source_limit"] == 3
+    assert pool.calls[0][2]["candidate_limit"] == 7
+    assert pool.calls[0][2]["archive_exceptions"] is False
+    assert pool.calls[0][2]["confidence_threshold"] == 0.91
+    assert pool.delete.await_args_list[-1].args == ("arq:result:reflection_dream:org-123",)
+    assert_recent_job_indexed(pool, "reflection_dream:org-123")

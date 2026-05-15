@@ -30,6 +30,7 @@ from sibyl.jobs.entities import (
     update_entity,
     update_task,
 )
+from sibyl.jobs.reflection import run_reflection_dream_cycle, run_reflection_dream_cycle_all_orgs
 from sibyl.jobs.source_imports import import_source_archive
 
 log = structlog.get_logger()
@@ -163,6 +164,15 @@ def get_schedule_specs() -> list[ScheduleSpec]:
             minute=0,
         )
     )
+    schedule_specs.append(
+        ScheduleSpec(
+            name="run_reflection_dream_cycle_all_orgs",
+            function=run_reflection_dream_cycle_all_orgs,
+            schedule_label="30 3 * * *",
+            hour=3,
+            minute=30,
+        )
+    )
 
     return schedule_specs
 
@@ -200,6 +210,8 @@ class WorkerSettings:
         consolidate_org,
         consolidate_all_orgs,
         priority_decay,
+        run_reflection_dream_cycle,
+        run_reflection_dream_cycle_all_orgs,
     ]
 
     # Cron jobs for scheduled tasks

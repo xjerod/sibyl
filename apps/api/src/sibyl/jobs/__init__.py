@@ -43,12 +43,14 @@ from sibyl.jobs.queue import (
     enqueue_create_learning_episode,
     enqueue_create_learning_procedure,
     enqueue_priority_decay,
+    enqueue_reflection_dream_cycle,
     enqueue_sync,
     enqueue_update_entity,
     enqueue_update_task,
     get_job_status,
     get_redis_settings,
 )
+from sibyl.jobs.reflection import run_reflection_dream_cycle, run_reflection_dream_cycle_all_orgs
 from sibyl.jobs.source_imports import import_source_archive
 from sibyl.jobs.worker import WorkerSettings, run_worker_async
 
@@ -82,6 +84,7 @@ __all__ = [
     "enqueue_backup_cleanup",
     "enqueue_consolidation",
     "enqueue_priority_decay",
+    "enqueue_reflection_dream_cycle",
     # Job functions (for direct testing)
     "crawl_source",
     "sync_source",
@@ -92,6 +95,8 @@ __all__ = [
     "create_learning_procedure",
     "update_entity",
     "update_task",
+    "run_reflection_dream_cycle",
+    "run_reflection_dream_cycle_all_orgs",
     # Backup
     "run_backup",
     "cleanup_old_backups",

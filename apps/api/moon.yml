@@ -170,6 +170,7 @@ tasks:
   reflection-quality-test:
     command:
       uv run pytest tests/test_routes_context.py::TestReflectRoute
+      tests/test_jobs_reflection.py
       tests/test_routes_memory.py::test_preview_reflection_promotion_verifies_project_target
       tests/test_routes_memory.py::test_auto_review_reflection_candidate_promotes_safe_candidate
       tests/test_routes_memory.py::test_auto_review_reflection_candidate_dry_run_does_not_promote
@@ -183,6 +184,7 @@ tasks:
       -v
     inputs:
       - "@group(sources)"
+      - tests/test_jobs_reflection.py
       - tests/test_routes_context.py
       - tests/test_routes_memory.py
     options:
@@ -250,12 +252,15 @@ tasks:
 
   memory-trust-jobs-test:
     command:
-      uv run pytest tests/test_jobs_entities.py tests/test_jobs_queue.py
-      tests/test_routes_tasks.py tests/test_tools_manage.py tests/test_coordination_local.py -v
+      uv run pytest tests/test_jobs_entities.py tests/test_jobs_queue.py tests/test_jobs_reflection.py
+      tests/test_routes_jobs.py tests/test_routes_tasks.py tests/test_tools_manage.py
+      tests/test_coordination_local.py -v
     inputs:
       - "@group(sources)"
       - tests/test_jobs_entities.py
       - tests/test_jobs_queue.py
+      - tests/test_jobs_reflection.py
+      - tests/test_routes_jobs.py
       - tests/test_routes_tasks.py
       - tests/test_tools_manage.py
       - tests/test_coordination_local.py

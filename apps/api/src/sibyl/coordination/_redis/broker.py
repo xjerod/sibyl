@@ -540,6 +540,44 @@ class RedisQueueBroker:
         )
         return result.job_id
 
+    async def enqueue_reflection_dream_cycle(
+        self,
+        group_id: str,
+        *,
+        dry_run: bool = False,
+        source_limit: int = 20,
+        candidate_limit: int = 50,
+        archive_exceptions: bool = True,
+        confidence_threshold: float | None = None,
+    ) -> str:
+        """Enqueue an org-scoped reflection dream-cycle run."""
+        job_id = f"reflection_dream:{group_id}"
+        result = await self._enqueue_unique(
+            "run_reflection_dream_cycle",
+            group_id,
+            job_id=job_id,
+            clear_result=True,
+            dry_run=dry_run,
+            source_limit=source_limit,
+            candidate_limit=candidate_limit,
+            archive_exceptions=archive_exceptions,
+            confidence_threshold=confidence_threshold,
+        )
+
+        if not result.created:
+            log.info("Reflection dream cycle already running", job_id=job_id, group_id=group_id)
+            return result.job_id
+
+        log.info(
+            "Enqueued reflection dream cycle",
+            job_id=result.job_id,
+            group_id=group_id,
+            dry_run=dry_run,
+            source_limit=source_limit,
+            candidate_limit=candidate_limit,
+        )
+        return result.job_id
+
     async def _enqueue_unique(
         self,
         function: str,

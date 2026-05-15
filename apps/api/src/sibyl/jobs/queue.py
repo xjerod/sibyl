@@ -31,6 +31,7 @@ __all__ = [
     "enqueue_create_learning_episode",
     "enqueue_create_learning_procedure",
     "enqueue_priority_decay",
+    "enqueue_reflection_dream_cycle",
     "enqueue_sync",
     "enqueue_update_entity",
     "enqueue_update_task",
@@ -226,4 +227,24 @@ async def enqueue_priority_decay(
         group_id,
         min_age_days=min_age_days,
         max_archives_per_run=max_archives_per_run,
+    )
+
+
+async def enqueue_reflection_dream_cycle(
+    group_id: str,
+    *,
+    dry_run: bool = False,
+    source_limit: int = 20,
+    candidate_limit: int = 50,
+    archive_exceptions: bool = True,
+    confidence_threshold: float | None = None,
+) -> str:
+    """Enqueue an org-scoped reflection dream-cycle run."""
+    return await get_queue().enqueue_reflection_dream_cycle(
+        group_id,
+        dry_run=dry_run,
+        source_limit=source_limit,
+        candidate_limit=candidate_limit,
+        archive_exceptions=archive_exceptions,
+        confidence_threshold=confidence_threshold,
     )

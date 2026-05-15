@@ -158,6 +158,17 @@ class QueueBroker(Protocol):
         max_archives_per_run: int = 100,
     ) -> str: ...
 
+    async def enqueue_reflection_dream_cycle(
+        self,
+        group_id: str,
+        *,
+        dry_run: bool = False,
+        source_limit: int = 20,
+        candidate_limit: int = 50,
+        archive_exceptions: bool = True,
+        confidence_threshold: float | None = None,
+    ) -> str: ...
+
 
 _broker: QueueBroker | None = None
 _broker_backend: QueueBackend | None = None

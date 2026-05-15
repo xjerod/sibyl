@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from sibyl.auth.dependencies import get_current_organization, require_org_admin
 from sibyl.persistence.content_runtime import (
@@ -47,7 +47,7 @@ async def _job_visible_to_org(
         return str(args[2]) == str(org.id)
     if fn == "update_entity" and len(args) >= 4:
         return str(args[3]) == str(org.id)
-    if fn in {"consolidate_org", "priority_decay"} and args:
+    if fn in {"consolidate_org", "priority_decay", "run_reflection_dream_cycle"} and args:
         return str(args[0]) == str(org.id)
 
     if fn in {"crawl_source", "sync_source"} and args:
@@ -235,6 +235,40 @@ async def trigger_priority_decay(
         "function": "priority_decay",
         "status": "queued",
         "message": "Forgetting sweep queued",
+    }
+
+
+@router.post("/reflection-dream")
+async def trigger_reflection_dream_cycle(
+    dry_run: bool = Query(default=False),
+    source_limit: int = Query(default=20, ge=0, le=100),
+    candidate_limit: int = Query(default=50, ge=0, le=200),
+    archive_exceptions: bool = Query(default=True),
+    org: AuthOrganization = Depends(get_current_organization),
+) -> dict[str, Any]:
+    """Trigger an org-scoped reflection dream-cycle run."""
+    from sibyl.jobs.queue import enqueue_reflection_dream_cycle
+
+    try:
+        job_id = await enqueue_reflection_dream_cycle(
+            str(org.id),
+            dry_run=dry_run,
+            source_limit=source_limit,
+            candidate_limit=candidate_limit,
+            archive_exceptions=archive_exceptions,
+        )
+    except Exception as e:
+        log.warning("Failed to enqueue reflection dream cycle", org_id=str(org.id), error=str(e))
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to enqueue reflection dream cycle",
+        ) from e
+
+    return {
+        "job_id": job_id,
+        "function": "run_reflection_dream_cycle",
+        "status": "queued",
+        "message": "Reflection dream cycle queued",
     }
 
 

@@ -16,6 +16,7 @@ from sibyl.api.routes.jobs import (
     list_jobs,
     trigger_consolidation,
     trigger_priority_decay,
+    trigger_reflection_dream_cycle,
 )
 
 
@@ -71,8 +72,13 @@ class TestJobVisibility:
     async def test_maintenance_jobs_use_group_id_argument(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
         session = AsyncMock()
-        visible = SimpleNamespace(
+        visible_consolidation = SimpleNamespace(
             function="consolidate_org",
+            args=(str(org.id),),
+            kwargs=None,
+        )
+        visible_reflection = SimpleNamespace(
+            function="run_reflection_dream_cycle",
             args=(str(org.id),),
             kwargs=None,
         )
@@ -82,7 +88,8 @@ class TestJobVisibility:
             kwargs=None,
         )
 
-        assert await _job_visible_to_org(visible, org=org, session=session) is True
+        assert await _job_visible_to_org(visible_consolidation, org=org, session=session) is True
+        assert await _job_visible_to_org(visible_reflection, org=org, session=session) is True
         assert await _job_visible_to_org(hidden, org=org, session=session) is False
         session.get.assert_not_called()
 
@@ -250,4 +257,34 @@ class TestMaintenanceTriggers:
             "function": "priority_decay",
             "status": "queued",
             "message": "Forgetting sweep queued",
+        }
+
+    @pytest.mark.asyncio
+    async def test_trigger_reflection_dream_enqueues_for_current_org(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+
+        with patch(
+            "sibyl.jobs.queue.enqueue_reflection_dream_cycle",
+            AsyncMock(return_value="reflection_dream:00000000-0000-0000-0000-000000000111"),
+        ) as enqueue:
+            response = await trigger_reflection_dream_cycle(
+                dry_run=True,
+                source_limit=2,
+                candidate_limit=5,
+                archive_exceptions=False,
+                org=org,
+            )
+
+        enqueue.assert_awaited_once_with(
+            "00000000-0000-0000-0000-000000000111",
+            dry_run=True,
+            source_limit=2,
+            candidate_limit=5,
+            archive_exceptions=False,
+        )
+        assert response == {
+            "job_id": "reflection_dream:00000000-0000-0000-0000-000000000111",
+            "function": "run_reflection_dream_cycle",
+            "status": "queued",
+            "message": "Reflection dream cycle queued",
         }

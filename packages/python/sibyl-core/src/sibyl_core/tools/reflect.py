@@ -60,6 +60,7 @@ async def reflect_memory(
     persist: bool = False,
     persist_source: bool = True,
     persist_review: bool = False,
+    existing_source_id: str | None = None,
     limit: int = 12,
     add_fn: AddFn = default_add,
     extractor: ReflectionExtractor | None = None,
@@ -131,9 +132,9 @@ async def reflect_memory(
                 persisted_count=0,
             )
 
-    source_id: str | None = None
+    source_id: str | None = existing_source_id
     use_native_write = persist and _native_reflection_write_enabled()
-    if persist and persist_source:
+    if persist and persist_source and source_id is None:
         if persist_review:
             source = await _persist_reflection_source_review(
                 title=source_title,
