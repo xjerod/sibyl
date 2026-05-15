@@ -11,10 +11,12 @@ from urllib.parse import quote
 import httpx
 
 from sibyl_cli.auth_store import (
+    auth_file_lock,
     get_access_token,
     get_refresh_token,
     is_access_token_expired,
     normalize_api_url,
+    read_server_credentials,
     set_tokens,
 )
 
@@ -137,7 +139,12 @@ class SibylClient:
         self.context_name = context_name
         self.base_url = normalize_api_url(base_url or _get_default_api_url(context_name))
         self.timeout = timeout
-        self.auth_token = auth_token or _load_default_auth_token(self.base_url)
+        self._uses_stored_auth = (
+            auth_token is None and not os.environ.get("SIBYL_AUTH_TOKEN", "").strip()
+        )
+        self.auth_token = (
+            auth_token if auth_token is not None else _load_default_auth_token(self.base_url)
+        )
         self._client: httpx.AsyncClient | None = None
         # Load insecure setting from context
         self.insecure = self._get_insecure_from_context(context_name)
@@ -193,57 +200,83 @@ class SibylClient:
         Returns:
             Tuple of (success, failure_reason)
         """
-        refresh_token = get_refresh_token(self.base_url)
-        if not refresh_token:
-            return False, "No refresh token is available for automatic renewal."
+        if not self._uses_stored_auth:
+            return False, "Automatic renewal is only available for stored CLI login tokens."
 
         try:
-            # Use a fresh client without auth header for the refresh call
-            async with httpx.AsyncClient(
-                base_url=self.base_url,
-                timeout=self.timeout,
-                verify=not self.insecure,
-            ) as client:
-                response = await client.post(
-                    "/auth/refresh",
-                    json={"refresh_token": refresh_token},
-                )
+            with auth_file_lock():
+                creds = read_server_credentials(self.base_url)
+                stored_access_token = str(creds.get("access_token") or "").strip()
+                expires_at = creds.get("access_token_expires_at")
+                if (
+                    stored_access_token
+                    and stored_access_token != self.auth_token
+                    and not is_access_token_expired(self.base_url)
+                ):
+                    self.auth_token = stored_access_token
+                    if self._client and not self._client.is_closed:
+                        await self._client.aclose()
+                    self._client = None
+                    return True, None
 
-                if response.status_code != 200:
-                    try:
-                        detail = response.json().get("detail")
-                    except Exception:
-                        detail = response.text
-                    detail_text = str(detail).strip() if detail is not None else ""
-                    if not detail_text:
-                        detail_text = f"Refresh request returned HTTP {response.status_code}."
-                    return False, detail_text
+                refresh_token = get_refresh_token(self.base_url)
+                if not refresh_token:
+                    return False, "No refresh token is available for automatic renewal."
 
-                data = response.json()
-                new_access_token = data.get("access_token")
-                new_refresh_token = data.get("refresh_token")
-                expires_in = data.get("expires_in")
+                if (
+                    stored_access_token
+                    and expires_at is None
+                    and stored_access_token != self.auth_token
+                ):
+                    self.auth_token = stored_access_token
+                    if self._client and not self._client.is_closed:
+                        await self._client.aclose()
+                    self._client = None
+                    return True, None
 
-                if not new_access_token:
-                    return False, "Refresh response did not include a new access token."
+                async with httpx.AsyncClient(
+                    base_url=self.base_url,
+                    timeout=self.timeout,
+                    verify=not self.insecure,
+                ) as client:
+                    response = await client.post(
+                        "/auth/refresh",
+                        json={"refresh_token": refresh_token},
+                    )
 
-                # Store new tokens for this server
-                set_tokens(
-                    self.base_url,
-                    new_access_token,
-                    refresh_token=new_refresh_token,
-                    expires_in=expires_in,
-                )
+                    if response.status_code != 200:
+                        try:
+                            detail = response.json().get("detail")
+                        except Exception:
+                            detail = response.text
+                        detail_text = str(detail).strip() if detail is not None else ""
+                        if not detail_text:
+                            detail_text = f"Refresh request returned HTTP {response.status_code}."
+                        return False, detail_text
 
-                # Update client state
-                self.auth_token = new_access_token
+                    data = response.json()
+                    new_access_token = data.get("access_token")
+                    new_refresh_token = data.get("refresh_token")
+                    expires_in = data.get("expires_in")
 
-                # Recreate HTTP client with new token
-                if self._client and not self._client.is_closed:
-                    await self._client.aclose()
-                self._client = None
+                    if not new_access_token:
+                        return False, "Refresh response did not include a new access token."
 
-                return True, None
+                    set_tokens(
+                        self.base_url,
+                        new_access_token,
+                        refresh_token=new_refresh_token,
+                        expires_in=expires_in,
+                        lock=False,
+                    )
+
+                    self.auth_token = new_access_token
+
+                    if self._client and not self._client.is_closed:
+                        await self._client.aclose()
+                    self._client = None
+
+                    return True, None
 
         except Exception as exc:
             return False, f"Refresh request failed: {exc}"

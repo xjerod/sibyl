@@ -17,6 +17,7 @@ import os
 import stat
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -24,6 +25,26 @@ from urllib.parse import urlsplit, urlunsplit
 
 def auth_path() -> Path:
     return Path.home() / ".sibyl" / "auth.json"
+
+
+@contextmanager
+def auth_file_lock(path: Path | None = None):
+    p = path or auth_path()
+    _ensure_secure_dir(p.parent)
+    lock_path = p.with_name(p.name + ".lock")
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        if os.name != "nt":
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        if os.name != "nt":
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def _ensure_secure_dir(path: Path) -> None:
@@ -147,6 +168,30 @@ def write_server_credentials(api_url: str, creds: dict[str, Any], path: Path | N
     write_auth_data(data, path)
 
 
+def _replace_server_credentials(
+    api_url: str,
+    creds: dict[str, Any],
+    *,
+    remove_keys: tuple[str, ...] = (),
+    path: Path | None = None,
+) -> None:
+    data = read_auth_data(path)
+    servers = data.get("servers")
+    if not isinstance(servers, dict):
+        servers = {}
+    key = normalize_api_url(api_url)
+    if not key:
+        return
+    existing = servers.get(key)
+    merged = dict(existing if isinstance(existing, dict) else {})
+    for remove_key in remove_keys:
+        merged.pop(remove_key, None)
+    merged.update(creds)
+    servers[key] = merged
+    data["servers"] = servers
+    write_auth_data(data, path)
+
+
 def get_access_token(api_url: str, path: Path | None = None) -> str | None:
     """Get stored access token for a server."""
     creds = read_server_credentials(api_url, path)
@@ -184,34 +229,52 @@ def set_tokens(
     refresh_token: str | None = None,
     expires_in: int | None = None,
     path: Path | None = None,
+    *,
+    lock: bool = True,
 ) -> None:
     """Store tokens for a specific server."""
     creds: dict[str, Any] = {"access_token": access_token}
-    if refresh_token:
+    remove_keys: list[str] = []
+    if refresh_token is not None and refresh_token:
         creds["refresh_token"] = refresh_token
-    if expires_in:
+    else:
+        remove_keys.append("refresh_token")
+    if expires_in is not None:
         creds["access_token_expires_at"] = int(time.time()) + expires_in
-    write_server_credentials(api_url, creds, path)
+    else:
+        remove_keys.append("access_token_expires_at")
+    if lock:
+        with auth_file_lock(path):
+            _replace_server_credentials(
+                api_url,
+                creds,
+                remove_keys=tuple(remove_keys),
+                path=path,
+            )
+        return
+    _replace_server_credentials(api_url, creds, remove_keys=tuple(remove_keys), path=path)
 
 
 def clear_tokens(api_url: str, path: Path | None = None) -> None:
     """Clear all tokens for a specific server."""
-    data = read_auth_data(path)
-    servers = data.get("servers")
-    if not isinstance(servers, dict):
-        return
-    key = normalize_api_url(api_url)
-    if key and key in servers:
-        del servers[key]
-        data["servers"] = servers
-        write_auth_data(data, path)
+    with auth_file_lock(path):
+        data = read_auth_data(path)
+        servers = data.get("servers")
+        if not isinstance(servers, dict):
+            return
+        key = normalize_api_url(api_url)
+        if key and key in servers:
+            del servers[key]
+            data["servers"] = servers
+            write_auth_data(data, path)
 
 
 def clear_all_tokens(path: Path | None = None) -> None:
     """Clear all stored credentials (all servers)."""
     p = path or auth_path()
-    if p.exists():
-        p.unlink()
+    with auth_file_lock(path):
+        if p.exists():
+            p.unlink()
 
 
 def migrate_legacy_tokens(path: Path | None = None) -> None:

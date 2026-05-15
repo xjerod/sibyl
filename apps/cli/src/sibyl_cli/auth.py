@@ -17,6 +17,7 @@ import typer
 from sibyl_cli.auth_store import (
     clear_tokens,
     normalize_api_url,
+    read_server_credentials,
     set_tokens,
 )
 from sibyl_cli.client import SibylClient, SibylClientError, get_client
@@ -357,7 +358,7 @@ def _oauth_pkce_login(
 
 
 def _local_password_login(*, api_url: str, email: str, password: str) -> dict:
-    client = SibylClient(base_url=api_url, auth_token=None)
+    client = SibylClient(base_url=api_url, auth_token="")
 
     @run_async
     async def _run() -> dict:
@@ -537,14 +538,45 @@ def _login_auto(
 @app.command("status")
 def status_cmd() -> None:
     """Show auth status for the current context."""
-    from sibyl_cli.auth_store import get_access_token
-
     api_url = _compute_api_url(None)
-    token = get_access_token(api_url)
-    if token:
-        success(f"Auth token found (server: {api_url})")
-    else:
+    creds = read_server_credentials(api_url)
+    token = str(creds.get("access_token") or "").strip()
+    refresh = str(creds.get("refresh_token") or "").strip()
+    expires_at = creds.get("access_token_expires_at")
+
+    if not token:
         error("No auth token found (set one with: sibyl auth set-token <token>)")
+        return
+
+    if expires_at is not None and time.time() >= int(expires_at):
+        info(f"Stored access token is expired (server: {api_url})")
+    elif expires_at is not None:
+        remaining = max(0, int(int(expires_at) - time.time()))
+        info(f"Stored access token expires in {remaining}s (server: {api_url})")
+    else:
+        info(f"Stored access token has no saved expiry (server: {api_url})")
+
+    if refresh:
+        info("Refresh token found")
+    else:
+        info("No refresh token saved; automatic renewal is unavailable")
+
+    client = SibylClient(base_url=api_url)
+
+    @run_async
+    async def _run() -> dict:
+        try:
+            return await client.get("/auth/me")
+        finally:
+            await client.close()
+
+    try:
+        _run()
+    except SibylClientError as e:
+        error(str(e))
+        return
+
+    success(f"Auth is valid (server: {api_url})")
 
 
 @app.command("set-token")
@@ -560,7 +592,7 @@ def set_token_cmd(
     """Set an auth token for a server."""
     api_url = _compute_api_url(server)
     set_tokens(api_url, token.strip())
-    success(f"Auth token saved for {api_url}")
+    success(f"Auth token saved for {api_url}; refresh credentials cleared")
 
 
 @app.command("clear-token")

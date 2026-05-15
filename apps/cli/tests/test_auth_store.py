@@ -236,6 +236,28 @@ class TestTokenOperations:
         result = auth_store.get_refresh_token("http://localhost:3334", test_file)
         assert result == "refresh123"
 
+    def test_set_tokens_replaces_stale_refresh_credentials(self, tmp_path: Path) -> None:
+        """Access-only token writes do not keep an old refresh token."""
+        test_file = tmp_path / "auth.json"
+        auth_store.set_tokens(
+            "http://localhost:3334",
+            access_token="access",
+            refresh_token="refresh123",
+            expires_in=3600,
+            path=test_file,
+        )
+
+        auth_store.set_tokens(
+            "http://localhost:3334",
+            access_token="manual-token",
+            path=test_file,
+        )
+
+        creds = auth_store.read_server_credentials("http://localhost:3334", test_file)
+        assert creds["access_token"] == "manual-token"
+        assert "refresh_token" not in creds
+        assert "access_token_expires_at" not in creds
+
     def test_get_token_returns_none_when_missing(self, tmp_path: Path) -> None:
         """Returns None when no token stored."""
         test_file = tmp_path / "auth.json"
