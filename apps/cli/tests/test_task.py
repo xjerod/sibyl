@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from typer.testing import CliRunner
 
 from sibyl_cli import task
+from sibyl_cli.main import app as main_app
 
 
 @patch("sibyl_cli.task.get_client")
@@ -59,6 +60,48 @@ def test_validate_task_id_accepts_api_uuid() -> None:
     assert task._validate_task_id(task_id) == task_id
 
 
+@patch("sibyl_cli.task.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.task.get_client")
+def test_top_level_tasks_alias_lists_tasks(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.explore = AsyncMock(return_value={"entities": [], "total": 0})
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(main_app, ["tasks", "--status", "doing"])
+
+    assert result.exit_code == 0
+    mock_client.explore.assert_awaited_once()
+    assert mock_client.explore.await_args.kwargs["status"] == "doing"
+    assert mock_client.explore.await_args.kwargs["project"] == "project_123"
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.task.get_client")
+def test_task_get_alias_resolves_to_show(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.get_entity = AsyncMock(
+        return_value={
+            "id": "task_123456789abc",
+            "name": "Alias target",
+            "description": "Body",
+            "metadata": {"status": "todo", "priority": "medium"},
+        }
+    )
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(task.app, ["get", "task_123456789abc", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["name"] == "Alias target"
+    mock_client.get_entity.assert_awaited_once_with("task_123456789abc")
+
+
 @patch("sibyl_cli.task.get_client")
 def test_task_complete_with_learnings_reports_queued_capture(
     mock_get_client: MagicMock,
@@ -93,6 +136,23 @@ def test_task_complete_with_learnings_reports_queued_capture(
         "task_123456789abc",
         1.5,
         "Reusable policy lesson",
+    )
+
+
+@patch("sibyl_cli.task.get_client")
+def test_task_complete_accepts_note_alias(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.complete_task = AsyncMock(return_value={"success": True})
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(task.app, ["complete", "task_123456789abc", "--note", "Alias lesson"])
+
+    assert result.exit_code == 0
+    mock_client.complete_task.assert_awaited_once_with(
+        "task_123456789abc",
+        None,
+        "Alias lesson",
     )
 
 

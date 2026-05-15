@@ -323,6 +323,28 @@ def test_add_command_waits_for_direct_readiness(mock_get_client: MagicMock) -> N
 
 
 @patch("sibyl_cli.main.get_client")
+def test_add_command_accepts_title_and_content_options(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "episode_123"})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["add", "--title", "Option title", "--content", "Option body"])
+
+    assert result.exit_code == 0
+    mock_client.create_entity.assert_awaited_once_with(
+        name="Option title",
+        content="Option body",
+        entity_type="episode",
+        category=None,
+        languages=None,
+        tags=None,
+        sync=False,
+    )
+    assert "Queued episode" in result.stdout
+
+
+@patch("sibyl_cli.main.get_client")
 def test_capture_command_waits_for_direct_readiness(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()
     mock_client.create_entity = AsyncMock(return_value={"id": "episode_123"})
@@ -441,6 +463,29 @@ def test_remember_command_records_domain_memory_with_links(
     )
     assert "Queued decision" in result.stdout
     assert "Policy: private_principal_bound" in result.stdout
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_accepts_content_option(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.remember_raw_memory = AsyncMock(return_value={"id": "raw_123"})
+    mock_client.create_entity = AsyncMock(return_value={"id": "episode_123"})
+    mock_client.explore = AsyncMock(return_value={"entities": []})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["remember", "Option memory", "--content", "Option body"])
+
+    assert result.exit_code == 0
+    mock_client.remember_raw_memory.assert_awaited_once()
+    assert mock_client.remember_raw_memory.await_args.kwargs["raw_content"] == "Option body"
+    mock_client.create_entity.assert_awaited_once()
+    assert mock_client.create_entity.await_args.kwargs["content"] == "Option body"
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 

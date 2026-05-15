@@ -10,6 +10,7 @@ import asyncio
 import re
 import sys
 from importlib.metadata import version as pkg_version
+from os import environ
 from typing import Annotated, Any, cast
 
 import typer
@@ -45,6 +46,7 @@ from sibyl_cli.project import app as project_app
 from sibyl_cli.session import app as session_app
 from sibyl_cli.state import set_context_override
 from sibyl_cli.task import app as task_app
+from sibyl_cli.task import list_tasks
 from sibyl_cli.update import app as update_app
 
 
@@ -96,10 +98,12 @@ app.add_typer(update_app, name="update")
 app.add_typer(memory_space_app, name="memory-space")
 app.add_typer(memory_review_app, name="memory-review")
 app.add_typer(synthesis_app, name="synthesis")
+app.command("tasks", hidden=True)(list_tasks)
 
 
 SEARCH_PREVIEW_CHARS = 220
 CAPTURE_TITLE_CHARS = 72
+QUIET_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
 def _format_search_preview(content: str, max_chars: int = SEARCH_PREVIEW_CHARS) -> str:
@@ -125,6 +129,21 @@ def _derive_capture_title(content: str) -> str:
     if len(compact) <= CAPTURE_TITLE_CHARS:
         return compact
     return compact[: CAPTURE_TITLE_CHARS - 1].rstrip(" ,;:-") + "…"
+
+
+def _should_emit_command_marker(ctx: typer.Context) -> bool:
+    if environ.get("SIBYL_QUIET", "").lower() in QUIET_ENV_VALUES:
+        return False
+    if ctx.invoked_subcommand in {None, "health"}:
+        return False
+    return not any(arg in {"--json", "-j", "--help"} for arg in sys.argv[1:])
+
+
+def _emit_command_marker(ctx: typer.Context) -> None:
+    if not _should_emit_command_marker(ctx):
+        return
+    sys.stderr.write(f"→ sibyl {ctx.invoked_subcommand}...\n")
+    sys.stderr.flush()
 
 
 def _parse_csv_ids(value: str | None) -> list[str]:
@@ -339,9 +358,7 @@ def _print_synthesis_verification(data: dict[str, object]) -> None:
     for gap in gaps if isinstance(gaps, list) else []:
         if isinstance(gap, dict):
             gap_data = cast("dict[str, object]", gap)
-            console.print(
-                f"  [dim]{gap_data.get('title')}: {gap_data.get('reason')}[/dim]"
-            )
+            console.print(f"  [dim]{gap_data.get('title')}: {gap_data.get('reason')}[/dim]")
 
 
 def _print_synthesis_artifact(data: dict[str, object], *, output_format: str) -> None:
@@ -812,6 +829,8 @@ def main_callback(
     if context:
         set_context_override(context)
 
+    _emit_command_marker(ctx)
+
     # Show help if no command
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
@@ -969,8 +988,10 @@ def search(
 
 @app.command("add")
 def add_knowledge(
-    title: str = typer.Argument(..., help="Title/name of the knowledge"),
-    content: str = typer.Argument(..., help="Content/description"),
+    title: str | None = typer.Argument(None, help="Title/name of the knowledge"),
+    content: str | None = typer.Argument(None, help="Content/description"),
+    title_option: str | None = typer.Option(None, "--title", help="Title/name of the knowledge"),
+    content_option: str | None = typer.Option(None, "--content", help="Content/description"),
     entity_type: str = typer.Option("episode", "--type", "-t", help="Entity type"),
     category: str | None = typer.Option(None, "--category", "-c", help="Category"),
     language: str | None = typer.Option(None, "--language", "-l", help="Language"),
@@ -983,14 +1004,22 @@ def add_knowledge(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
     """Add knowledge to the graph."""
+    resolved_title = (title_option or title or "").strip()
+    resolved_content = (content_option or content or "").strip()
+    if not resolved_title:
+        error("Provide a title as an argument or with --title.")
+        raise typer.Exit(code=1)
+    if not resolved_content:
+        error("Provide content as an argument or with --content.")
+        raise typer.Exit(code=1)
 
     @run_async
     async def run_add() -> None:
         try:
             async with get_client() as client:
                 data = await client.create_entity(
-                    name=title,
-                    content=content,
+                    name=resolved_title,
+                    content=resolved_content,
                     entity_type=entity_type,
                     category=category,
                     languages=[language] if language else None,
@@ -1005,9 +1034,9 @@ def add_knowledge(
                     return
 
                 if wait_searchable:
-                    success(f"Added {entity_type}: {title}")
+                    success(f"Added {entity_type}: {resolved_title}")
                 else:
-                    info(f"Queued {entity_type}: {title}")
+                    info(f"Queued {entity_type}: {resolved_title}")
                 console.print(f"  [dim]ID: {entity_id}[/dim]")
         except SibylClientError as e:
             _handle_client_error(e)
@@ -1090,15 +1119,21 @@ def synthesis_plan_command(
     all_projects: bool = typer.Option(False, "--all-projects", help="Skip cwd project scope"),
     domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
     entity_ids: str | None = typer.Option(None, "--entity", help="Comma-separated entity IDs"),
-    decision_ids: str | None = typer.Option(None, "--decision", help="Comma-separated decision IDs"),
+    decision_ids: str | None = typer.Option(
+        None, "--decision", help="Comma-separated decision IDs"
+    ),
     task_ids: str | None = typer.Option(None, "--task", help="Comma-separated task IDs"),
-    artifact_ids: str | None = typer.Option(None, "--artifact", help="Comma-separated artifact IDs"),
+    artifact_ids: str | None = typer.Option(
+        None, "--artifact", help="Comma-separated artifact IDs"
+    ),
     sections: str | None = typer.Option(
         None,
         "--section",
         help="Pipe-separated Title::Prompt::source-id specs",
     ),
-    constraints: str | None = typer.Option(None, "--constraint", help="Comma-separated constraints"),
+    constraints: str | None = typer.Option(
+        None, "--constraint", help="Comma-separated constraints"
+    ),
     max_sections: int = typer.Option(6, "--max-sections", min=1, max=12),
     include_neighborhoods: bool = typer.Option(
         True,
@@ -1154,15 +1189,21 @@ def synthesis_draft_command(
     all_projects: bool = typer.Option(False, "--all-projects", help="Skip cwd project scope"),
     domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
     entity_ids: str | None = typer.Option(None, "--entity", help="Comma-separated entity IDs"),
-    decision_ids: str | None = typer.Option(None, "--decision", help="Comma-separated decision IDs"),
+    decision_ids: str | None = typer.Option(
+        None, "--decision", help="Comma-separated decision IDs"
+    ),
     task_ids: str | None = typer.Option(None, "--task", help="Comma-separated task IDs"),
-    artifact_ids: str | None = typer.Option(None, "--artifact", help="Comma-separated artifact IDs"),
+    artifact_ids: str | None = typer.Option(
+        None, "--artifact", help="Comma-separated artifact IDs"
+    ),
     sections: str | None = typer.Option(
         None,
         "--section",
         help="Pipe-separated Title::Prompt::source-id specs",
     ),
-    constraints: str | None = typer.Option(None, "--constraint", help="Comma-separated constraints"),
+    constraints: str | None = typer.Option(
+        None, "--constraint", help="Comma-separated constraints"
+    ),
     max_sections: int = typer.Option(6, "--max-sections", min=1, max=12),
     include_neighborhoods: bool = typer.Option(
         True,
@@ -1223,15 +1264,21 @@ def synthesis_verify_command(
     all_projects: bool = typer.Option(False, "--all-projects", help="Skip cwd project scope"),
     domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
     entity_ids: str | None = typer.Option(None, "--entity", help="Comma-separated entity IDs"),
-    decision_ids: str | None = typer.Option(None, "--decision", help="Comma-separated decision IDs"),
+    decision_ids: str | None = typer.Option(
+        None, "--decision", help="Comma-separated decision IDs"
+    ),
     task_ids: str | None = typer.Option(None, "--task", help="Comma-separated task IDs"),
-    artifact_ids: str | None = typer.Option(None, "--artifact", help="Comma-separated artifact IDs"),
+    artifact_ids: str | None = typer.Option(
+        None, "--artifact", help="Comma-separated artifact IDs"
+    ),
     sections: str | None = typer.Option(
         None,
         "--section",
         help="Pipe-separated Title::Prompt::source-id specs",
     ),
-    constraints: str | None = typer.Option(None, "--constraint", help="Comma-separated constraints"),
+    constraints: str | None = typer.Option(
+        None, "--constraint", help="Comma-separated constraints"
+    ),
     max_sections: int = typer.Option(6, "--max-sections", min=1, max=12),
     include_neighborhoods: bool = typer.Option(
         True,
@@ -1287,15 +1334,21 @@ def synthesis_remember_command(
     all_projects: bool = typer.Option(False, "--all-projects", help="Skip cwd project scope"),
     domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
     entity_ids: str | None = typer.Option(None, "--entity", help="Comma-separated entity IDs"),
-    decision_ids: str | None = typer.Option(None, "--decision", help="Comma-separated decision IDs"),
+    decision_ids: str | None = typer.Option(
+        None, "--decision", help="Comma-separated decision IDs"
+    ),
     task_ids: str | None = typer.Option(None, "--task", help="Comma-separated task IDs"),
-    artifact_ids: str | None = typer.Option(None, "--artifact", help="Comma-separated artifact IDs"),
+    artifact_ids: str | None = typer.Option(
+        None, "--artifact", help="Comma-separated artifact IDs"
+    ),
     sections: str | None = typer.Option(
         None,
         "--section",
         help="Pipe-separated Title::Prompt::source-id specs",
     ),
-    constraints: str | None = typer.Option(None, "--constraint", help="Comma-separated constraints"),
+    constraints: str | None = typer.Option(
+        None, "--constraint", help="Comma-separated constraints"
+    ),
     max_sections: int = typer.Option(6, "--max-sections", min=1, max=12),
     include_neighborhoods: bool = typer.Option(
         True,
@@ -1870,6 +1923,7 @@ def remember_memory(
         None,
         help="Memory body. Reads stdin if omitted.",
     ),
+    content_option: str | None = typer.Option(None, "--content", help="Memory body"),
     kind: str = typer.Option(
         "episode",
         "--kind",
@@ -1915,7 +1969,7 @@ def remember_memory(
 ) -> None:
     """Remember a decision, plan, idea, claim, artifact, session, or learning."""
 
-    resolved_content = content
+    resolved_content = content_option if content_option is not None else content
     if resolved_content is None and not sys.stdin.isatty():
         resolved_content = sys.stdin.read()
 

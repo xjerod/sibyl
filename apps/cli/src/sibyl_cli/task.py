@@ -486,6 +486,7 @@ def _display_task_panel(entity: dict) -> None:
     console.print(panel)
 
 
+@app.command("get", hidden=True)
 @app.command("show")
 def show_task(
     task_id: Annotated[str, typer.Argument(help="Task ID (full ID required)")],
@@ -673,7 +674,8 @@ def complete_task(
     task_id: Annotated[str, typer.Argument(help="Task ID to complete (full ID required)")],
     hours: Annotated[float | None, typer.Option("--hours", "-h", help="Actual hours spent")] = None,
     learnings: Annotated[
-        str | None, typer.Option("--learnings", "-l", help="Key learnings (creates episode)")
+        str | None,
+        typer.Option("--learnings", "-l", "--note", help="Key learnings (creates episode)"),
     ] = None,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
