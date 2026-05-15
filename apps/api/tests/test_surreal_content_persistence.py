@@ -38,6 +38,7 @@ from sibyl.persistence.surreal.content import (
     save_crawl_source_record,
     save_crawled_document_record,
     save_raw_capture_record,
+    update_raw_capture_review_state,
 )
 from sibyl.persistence.surreal.system_settings import (
     delete_system_setting,
@@ -644,6 +645,12 @@ async def test_surreal_content_write_helpers_round_trip(
                 metadata={"review_state": "pending"},
             ),
         )
+        updated_capture = await update_raw_capture_review_state(
+            None,
+            organization_id=org_id,
+            capture_id=capture.id,
+            review_state="promoted",
+        )
 
         status = await get_link_graph_status_payload(None, organization_id=org_id)
         deleted_document = await delete_crawled_document_record(
@@ -677,7 +684,12 @@ async def test_surreal_content_write_helpers_round_trip(
     )
 
     assert source.current_job_id == "job-123"
-    assert capture_rows[0]["metadata"] == {"review_state": "pending"}
+    assert updated_capture is not None
+    assert updated_capture.metadata["promoted_at"]
+    assert capture_rows[0]["captured_at"] is not None
+    assert capture_rows[0]["review_state"] == "promoted"
+    assert capture_rows[0]["metadata"]["review_state"] == "promoted"
+    assert capture_rows[0]["metadata"]["promoted_at"]
     assert status.total_chunks == 1
     assert status.chunks_with_entities == 0
     assert [(item.source_id, item.pending) for item in status.sources] == [(str(source.id), 1)]

@@ -4,7 +4,6 @@ Full create, read, update, delete operations for all entity types.
 Transparently handles both graph entities and document chunks.
 """
 
-from dataclasses import replace
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Any
@@ -706,29 +705,14 @@ async def update_raw_capture_review_state(
 ) -> RawCaptureResponse:
     """Update review-state metadata for a raw capture."""
     try:
-        capture = await content_runtime.get_raw_capture(
+        capture = await content_runtime.update_raw_capture_review_state(
             session,
             organization_id=org.id,
             capture_id=capture_id,
+            review_state=update.review_state,
         )
         if not capture:
             raise HTTPException(status_code=404, detail=f"Raw capture not found: {capture_id}")
-
-        metadata = dict(capture.metadata or {})
-        metadata["review_state"] = update.review_state
-        metadata["reviewed_at"] = datetime.now(UTC).isoformat()
-        if update.review_state == "pending":
-            metadata.pop("deferred_at", None)
-            metadata.pop("archived_at", None)
-        elif update.review_state == "deferred":
-            metadata["deferred_at"] = metadata["reviewed_at"]
-            metadata.pop("archived_at", None)
-        else:
-            metadata["archived_at"] = metadata["reviewed_at"]
-            metadata.pop("deferred_at", None)
-
-        capture = replace(capture, metadata=metadata)
-        capture = await save_raw_capture_record(session, capture=capture)
         return _serialize_raw_capture(capture)
     except HTTPException:
         raise

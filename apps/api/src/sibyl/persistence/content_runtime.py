@@ -223,6 +223,16 @@ if TYPE_CHECKING:
             self, session: ContentSession, *, capture: RawCaptureRecord
         ) -> Awaitable[RawCaptureRecord]: ...
 
+    class UpdateRawCaptureReviewState(Protocol):
+        def __call__(
+            self,
+            session: ContentSession,
+            *,
+            organization_id: UUID,
+            capture_id: UUID,
+            review_state: str,
+        ) -> Awaitable[RawCaptureRecord | None]: ...
+
     class ResolveDocumentEntity(Protocol):
         def __call__(
             self, session: ContentSession, *, organization_id: UUID, entity_id: str
@@ -309,6 +319,7 @@ if TYPE_CHECKING:
     save_raw_capture_record: SaveRawCaptureRecord
     search_code_example_chunks: SearchCodeExampleChunks
     search_rag_chunks: SearchRAGChunks
+    update_raw_capture_review_state: UpdateRawCaptureReviewState
 
 _BACKEND_MODULE = "sibyl.persistence.surreal.content"
 
@@ -346,6 +357,7 @@ _BACKEND_EXPORTS = [
     "save_raw_capture_record",
     "search_code_example_chunks",
     "search_rag_chunks",
+    "update_raw_capture_review_state",
 ]
 
 __all__ = [
@@ -384,6 +396,7 @@ __all__ = [
     "save_raw_capture_record",
     "search_code_example_chunks",
     "search_rag_chunks",
+    "update_raw_capture_review_state",
 ]
 
 

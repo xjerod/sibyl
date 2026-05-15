@@ -496,19 +496,28 @@ def _raw_capture_from_record(record: Mapping[str, object]) -> RawCaptureRecord:
 
 
 def _raw_capture_record(capture: RawCaptureRecord) -> SurrealRecord:
+    metadata = dict(capture.metadata or {})
+    created_by_user_id = str(capture.created_by_user_id) if capture.created_by_user_id else ""
     return {
         "uuid": str(capture.id),
         "organization_id": str(capture.organization_id),
+        "source_id": str(metadata.get("raw_source_id") or metadata.get("source_id") or ""),
+        "principal_id": str(metadata.get("principal_id") or created_by_user_id),
+        "memory_scope": str(metadata.get("memory_scope") or "private"),
+        "scope_key": metadata.get("scope_key"),
+        "agent_id": metadata.get("agent_id"),
+        "project_id": metadata.get("project_id"),
+        "review_state": str(metadata.get("review_state") or "pending"),
         "entity_id": capture.entity_id,
         "title": capture.title,
         "raw_content": capture.raw_content,
         "entity_type": capture.entity_type,
         "tags": list(capture.tags or []),
-        "metadata": dict(capture.metadata or {}),
+        "metadata": metadata,
+        "provenance": dict(cast("Mapping[str, object]", metadata.get("provenance") or {})),
         "capture_surface": capture.capture_surface,
-        "created_by_user_id": str(capture.created_by_user_id)
-        if capture.created_by_user_id
-        else None,
+        "created_by_user_id": created_by_user_id or None,
+        "captured_at": capture.created_at,
         "created_at": capture.created_at,
     }
 
@@ -1297,6 +1306,57 @@ async def save_raw_capture_record(
             record=_raw_capture_record(capture),
         )
     return _raw_capture_from_record(record)
+
+
+async def update_raw_capture_review_state(
+    _session: object,
+    *,
+    organization_id: UUID,
+    capture_id: UUID,
+    review_state: str,
+) -> RawCaptureRecord | None:
+    async with surreal_content_client() as client:
+        record = await _select_one(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE uuid = $capture_id AND organization_id = $organization_id LIMIT 1;",
+            capture_id=str(capture_id),
+            organization_id=str(organization_id),
+        )
+        if record is None:
+            return None
+
+        metadata = _coerce_dict(record.get("metadata") or record.get("metadata_"))
+        reviewed_at = datetime.now(UTC).isoformat()
+        metadata["review_state"] = review_state
+        metadata["reviewed_at"] = reviewed_at
+        if review_state == "pending":
+            metadata.pop("archived_at", None)
+            metadata.pop("deferred_at", None)
+            metadata.pop("promoted_at", None)
+        elif review_state == "deferred":
+            metadata["deferred_at"] = reviewed_at
+            metadata.pop("archived_at", None)
+            metadata.pop("promoted_at", None)
+        elif review_state == "archived":
+            metadata["archived_at"] = reviewed_at
+            metadata.pop("deferred_at", None)
+            metadata.pop("promoted_at", None)
+        else:
+            metadata["promoted_at"] = reviewed_at
+            metadata.pop("archived_at", None)
+            metadata.pop("deferred_at", None)
+
+        rows = await _select_many(
+            client,
+            "UPDATE raw_captures SET metadata = $metadata, review_state = $review_state "
+            "WHERE uuid = $capture_id AND organization_id = $organization_id;",
+            capture_id=str(capture_id),
+            organization_id=str(organization_id),
+            metadata=metadata,
+            review_state=review_state,
+        )
+    return _raw_capture_from_record(rows[0]) if rows else None
 
 
 async def resolve_document_entity(
