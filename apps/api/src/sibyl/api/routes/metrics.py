@@ -434,9 +434,7 @@ async def _list_surreal_metric_task_rows(group_id: str) -> list[dict[str, Any]] 
 
     tasks = [_normalize_metric_task_row(row) for row in rows]
     return [
-        task
-        for task in tasks
-        if str(task["metadata"].get("status") or "").lower() != "archived"
+        task for task in tasks if str(task["metadata"].get("status") or "").lower() != "archived"
     ]
 
 
@@ -471,7 +469,13 @@ async def get_project_metrics(
         # Get project
         project = await service.get_entity(project_id)
         if not project:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Project not found: {project_id}. Run 'sibyl project relink' or use "
+                    "--all-projects for an unscoped write."
+                ),
+            )
 
         project_tasks = await _list_entities_by_type_paginated(
             entity_runtime.entity_manager,

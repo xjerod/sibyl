@@ -24,6 +24,7 @@ from sibyl_cli.common import (
     print_json,
     run_async,
     success,
+    warn,
 )
 from sibyl_cli.config_store import (
     Context,
@@ -40,6 +41,7 @@ from sibyl_cli.config_store import (
     update_context,
 )
 from sibyl_cli.context_quick import quick_context_payload, render_quick_context
+from sibyl_cli.project_refs import PROJECT_RELINK_HINT
 
 CONTEXT_PACK_PREVIEW_CHARS = 320
 
@@ -104,7 +106,9 @@ def callback(
             try:
                 client = get_client()
                 return await client.get_entity(effective_project, related_limit=0)
-            except SibylClientError:
+            except SibylClientError as exc:
+                if exc.status_code == 404:
+                    _warn_missing_linked_project(effective_project)
                 return None
 
         project_data = _fetch_project()
@@ -235,6 +239,11 @@ def _context_to_dict(ctx: Context) -> dict:
     }
 
 
+def _warn_missing_linked_project(project_id: str) -> None:
+    warn(f"Linked project {project_id} is missing server-side.")
+    console.print(f"  [{ELECTRIC_YELLOW}]{PROJECT_RELINK_HINT}[/{ELECTRIC_YELLOW}]")
+
+
 def _project_actionable_items(project_data: dict) -> list[dict[str, object]]:
     related = project_data.get("related")
     if isinstance(related, list) and related:
@@ -279,7 +288,9 @@ def _show_path_context(project_id: str, json_out: bool) -> None:
         try:
             client = get_client()
             return dict(await client.get_entity(project_id, related_limit=0))
-        except SibylClientError:
+        except SibylClientError as exc:
+            if exc.status_code == 404:
+                _warn_missing_linked_project(project_id)
             return None
 
     project_data = _fetch_project()

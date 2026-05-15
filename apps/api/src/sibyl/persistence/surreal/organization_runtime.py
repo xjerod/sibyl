@@ -38,6 +38,13 @@ type SurrealRecord = dict[str, object]
 _OWNER_ROLE_DETAIL = "Only organization owners can manage owner roles"
 
 
+def _project_not_found_detail(project_id: str) -> str:
+    return (
+        f"Project not found: {project_id}. Run 'sibyl project relink' or use "
+        "--all-projects for an unscoped write."
+    )
+
+
 async def ensure_graph_indexes(group_id: str) -> None:
     from sibyl.persistence.graph_runtime import ensure_graph_indexes as service
 
@@ -1391,12 +1398,15 @@ async def accept_org_invitation(
     request: Request,
 ) -> InvitationAcceptance:
     async with _auth_client_scope() as client:
-        invite, organization, membership, creator_membership = (
-            await _load_invitation_accept_records(
-                client,
-                token=token,
-                user_id=user.id,
-            )
+        (
+            invite,
+            organization,
+            membership,
+            creator_membership,
+        ) = await _load_invitation_accept_records(
+            client,
+            token=token,
+            user_id=user.id,
         )
         if invite is None:
             raise HTTPException(
@@ -1430,10 +1440,7 @@ async def accept_org_invitation(
         role = OrganizationRole(str(invite.get("invited_role") or OrganizationRole.MEMBER.value))
         if role is OrganizationRole.OWNER:
             creator_role = OrganizationRole(
-                str(
-                    (creator_membership or {}).get("role")
-                    or OrganizationRole.MEMBER.value
-                )
+                str((creator_membership or {}).get("role") or OrganizationRole.MEMBER.value)
             )
             _enforce_owner_role_boundary(
                 actor_role=creator_role,
@@ -1526,7 +1533,8 @@ async def _resolve_project_record(
             uuid_id = UUID(project_id)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_project_not_found_detail(project_id),
             ) from exc
         records = _normalize_records(
             await client.execute_query(
@@ -1537,7 +1545,10 @@ async def _resolve_project_record(
             )
         )
     if not records:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_project_not_found_detail(project_id),
+        )
     return records[0]
 
 
@@ -1585,7 +1596,8 @@ async def _get_project_and_user_role(
             uuid_id = UUID(project_id)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_project_not_found_detail(project_id),
             ) from exc
         params["uuid"] = str(uuid_id)
         query = """
@@ -1616,7 +1628,10 @@ async def _get_project_and_user_role(
     payload = _record_payload(payload)
     project_record = _normalize_record(payload.get("project"))
     if project_record is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_project_not_found_detail(project_id),
+        )
     if _normalize_record(payload.get("org_membership")) is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member")
     project = SimpleNamespace(**project_record)

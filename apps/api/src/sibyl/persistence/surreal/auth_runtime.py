@@ -69,6 +69,15 @@ _PROJECT_ROLE_LEVELS: dict[ProjectRole, int] = {
 }
 _USER_UUID_FIELDS = {"id", "github_id", "created_by_user_id", "accepted_by_user_id"}
 _USER_DATETIME_FIELDS = {"created_at", "updated_at", "email_verified_at", "last_login_at"}
+
+
+def _project_not_found_detail(project_id: object) -> str:
+    return (
+        f"Project not found: {project_id}. Run 'sibyl project relink' or use "
+        "--all-projects for an unscoped write."
+    )
+
+
 _ORG_DATETIME_FIELDS = {"created_at", "updated_at"}
 _SESSION_DATETIME_FIELDS = {
     "created_at",
@@ -115,9 +124,7 @@ _UPSERT_QUERY_BY_TABLE = {
     ),
     "password_reset_tokens": "UPSERT password_reset_tokens CONTENT $record WHERE uuid = $uuid;",
     "memory_spaces": "UPSERT memory_spaces CONTENT $record WHERE uuid = $uuid;",
-    "memory_space_members": (
-        "UPSERT memory_space_members CONTENT $record WHERE uuid = $uuid;"
-    ),
+    "memory_space_members": ("UPSERT memory_space_members CONTENT $record WHERE uuid = $uuid;"),
     "projects": "UPSERT projects CONTENT $record WHERE uuid = $uuid;",
     "user_sessions": "UPSERT user_sessions CONTENT $record WHERE uuid = $uuid;",
     "users": "UPSERT users CONTENT $record WHERE uuid = $uuid;",
@@ -2513,7 +2520,10 @@ async def get_project_record_by_graph_id(
             graph_project_id=graph_project_id,
         )
         if record is None:
-            raise HTTPException(status_code=404, detail=f"Project not found: {graph_project_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=_project_not_found_detail(graph_project_id),
+            )
         return _project_record_namespace(record)
 
 
@@ -2532,7 +2542,10 @@ async def get_project_record_by_id(
             project_id=str(project_id),
         )
         if record is None:
-            raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+            raise HTTPException(
+                status_code=404,
+                detail=_project_not_found_detail(project_id),
+            )
         return _project_record_namespace(record)
 
 
@@ -2728,9 +2741,7 @@ async def add_memory_space_member(
                 "role": role,
                 "permissions": list(permissions or []),
                 "expires_at": expires_at,
-                "created_by_user_id": str(
-                    record.get("created_by_user_id") or created_by_user_id
-                ),
+                "created_by_user_id": str(record.get("created_by_user_id") or created_by_user_id),
                 "updated_at": now,
             }
         )
@@ -3682,7 +3693,8 @@ async def verify_entity_project_access(
         if record is None:
             if require_existing_project:
                 raise HTTPException(
-                    status_code=404, detail=f"Project not found: {entity_project_id}"
+                    status_code=404,
+                    detail=_project_not_found_detail(entity_project_id),
                 )
             if _role_value(ctx.org_role) in _ORG_ADMIN_ROLE_VALUES:
                 return ProjectRole.OWNER

@@ -26,12 +26,20 @@ from sibyl_cli.common import (
     run_async,
     success,
     truncate,
+    warn,
 )
 from sibyl_cli.config_store import (
     get_current_context,
     get_path_mappings,
     remove_path_mapping,
     set_path_mapping,
+)
+from sibyl_cli.project_refs import (
+    PROJECT_RELINK_HINT,
+    list_accessible_projects,
+    matching_project_refs,
+    project_matches_path_hint,
+    resolve_project_reference,
 )
 
 app = typer.Typer(
@@ -358,7 +366,7 @@ def link_project(
             project = await client.get_entity(project_id)
             project_name = project.get("name", "Unknown")
         except SibylClientError:
-            error(f"Project not found: {project_id}")
+            error(f"Project not found: {project_id}. {PROJECT_RELINK_HINT}.")
             return
 
         # Set the mapping (project_id is guaranteed non-None after verification above)
@@ -370,6 +378,67 @@ def link_project(
         info("Task commands in this directory will now auto-scope to this project")
 
     _link()
+
+
+@app.command("relink")
+def relink_project(
+    project_id: Annotated[
+        str | None,
+        typer.Option("--id", help="Project ID, UUID, name, or slug to relink to"),
+    ] = None,
+    path: Annotated[
+        str | None, typer.Option("--path", "-p", help="Directory path (defaults to cwd)")
+    ] = None,
+) -> None:
+    """Repair the project link for the current directory."""
+    target_path = path or os.getcwd()
+
+    @run_async
+    async def _relink() -> None:
+        client = get_client()
+        try:
+            projects = await list_accessible_projects(client)
+            selected_id = None
+            selected_name = None
+
+            if project_id:
+                selected_id = await resolve_project_reference(client, project_id)
+                matches = matching_project_refs(projects, selected_id)
+                if not matches:
+                    raise ValueError(f"Project not found: {project_id}. {PROJECT_RELINK_HINT}.")
+                selected_name = str(matches[0].get("name") or selected_id)
+            else:
+                matches = [
+                    project
+                    for project in projects
+                    if project_matches_path_hint(project, target_path)
+                ]
+                if len(matches) == 1:
+                    selected_id = str(matches[0]["id"])
+                    selected_name = str(matches[0].get("name") or selected_id)
+                elif not matches:
+                    warn("No accessible project matched this directory.")
+                else:
+                    warn("Multiple accessible projects matched this directory.")
+
+                if selected_id is None:
+                    if projects:
+                        console.print("  Candidates:")
+                        for project in projects[:10]:
+                            console.print(f"  - {project.get('id')}  {project.get('name', '')}")
+                    info("Run: sibyl project relink --id <project>")
+                    return
+
+            set_path_mapping(target_path, selected_id)
+            success(f"Relinked [{NEON_CYAN}]{target_path}[/{NEON_CYAN}]")
+            console.print(
+                f"  → [{ELECTRIC_PURPLE}]{selected_name}[/{ELECTRIC_PURPLE}] ({selected_id})"
+            )
+        except (SibylClientError, ValueError) as exc:
+            error(str(exc))
+            info(PROJECT_RELINK_HINT)
+
+    _relink()
 
 
 @app.command("unlink")

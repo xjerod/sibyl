@@ -1918,6 +1918,8 @@ async def test_verify_entity_project_access_can_require_existing_project(
         )
 
     assert getattr(exc.value, "status_code", None) == 404
+    assert "sibyl project relink" in str(exc.value.detail)
+    assert "--all-projects" in str(exc.value.detail)
     assert len(client.calls) == 1
 
 

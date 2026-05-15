@@ -43,6 +43,7 @@ from sibyl_cli.local import app as local_app
 from sibyl_cli.logs import app as logs_app
 from sibyl_cli.org import app as org_app
 from sibyl_cli.project import app as project_app
+from sibyl_cli.project_refs import resolve_project_reference
 from sibyl_cli.session import app as session_app
 from sibyl_cli.state import set_context_override
 from sibyl_cli.task import app as task_app
@@ -1990,13 +1991,18 @@ def remember_memory(
         metadata["domain"] = domain
 
     effective_project = project or (None if all_projects else resolve_project_from_cwd())
-    if effective_project:
-        metadata["project_id"] = effective_project
 
     @run_async
     async def run_remember() -> None:
         try:
             async with get_client() as client:
+                resolved_project = (
+                    await resolve_project_reference(client, effective_project)
+                    if effective_project
+                    else None
+                )
+                if resolved_project:
+                    metadata["project_id"] = resolved_project
                 if diary and not agent:
                     error("Provide --agent when using --diary.")
                     raise typer.Exit(code=1)
@@ -2009,7 +2015,7 @@ def remember_memory(
                         scope_key=scope_key,
                         diary=diary,
                         agent_id=agent,
-                        project_id=effective_project if diary else None,
+                        project_id=resolved_project if diary else None,
                         tags=parsed_tags,
                         metadata=metadata,
                         provenance={"remember_kind": kind},
@@ -2030,14 +2036,14 @@ def remember_memory(
 
                 resolved_links = await _resolve_capture_links(
                     client=client,
-                    project=effective_project,
+                    project=resolved_project,
                     related_ids=related_ids,
                     task_ids=task_ids,
                     active_task=active_task,
                 )
                 raw_scope_key = scope_key
                 if memory_scope == "project" and raw_scope_key is None:
-                    raw_scope_key = effective_project
+                    raw_scope_key = resolved_project
                 raw_memory = await client.remember_raw_memory(
                     title=title,
                     raw_content=resolved_content,
@@ -2096,6 +2102,9 @@ def remember_memory(
                     console.print(f"  [dim]Policy: {raw_policy_reason}[/dim]")
         except SibylClientError as e:
             _handle_client_error(e)
+        except ValueError as e:
+            error(str(e))
+            raise typer.Exit(code=1) from e
 
     run_remember()
 

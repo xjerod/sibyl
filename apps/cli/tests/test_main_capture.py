@@ -737,6 +737,42 @@ def test_remember_command_project_option_overrides_path_context(
     mock_resolve_project_from_cwd.assert_not_called()
 
 
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value=None)
+@patch("sibyl_cli.main.get_client")
+def test_remember_command_project_slug_resolves_to_accessible_project(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.explore = AsyncMock(
+        return_value={"entities": [{"id": "project_123", "name": "Hypercolor"}]}
+    )
+    mock_client.remember_raw_memory = AsyncMock(
+        return_value={"id": "raw_123", "source_id": "cli:manual"}
+    )
+    mock_client.create_entity = AsyncMock(return_value={"id": "plan_123"})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "remember",
+            "Build reusable memory",
+            "Scope memory to project.",
+            "--project",
+            "hypercolor",
+            "--no-active-task",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = mock_client.create_entity.await_args.kwargs
+    assert payload["metadata"]["project_id"] == "project_123"
+    mock_client.explore.assert_awaited_once_with(mode="list", types=["project"], limit=100)
+    mock_resolve_project_from_cwd.assert_not_called()
+
+
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
 @patch("sibyl_cli.main.get_client")
 def test_remember_command_auto_links_single_active_project_task(
