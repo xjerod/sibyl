@@ -1,7 +1,7 @@
 # Sibyl v0.9 Release Notes Draft
 
-Status: HOLD. CI is green on the CI-only PR for the current candidate, but this draft is not
-publishable until docs deploy and nightly regression are green on the final v0.9 candidate head.
+Status: HOLD. The candidate has been rebased on the v0.8.1 release bump and is not publishable until
+CI, docs deploy, and nightly regression are green on the final v0.9 candidate head.
 
 ## Highlights
 
@@ -45,12 +45,13 @@ publishable until docs deploy and nightly regression are green on the final v0.9
 
 ## GitHub Evidence
 
-- CI-only PR #7 (`codex/v09-ci`) succeeded on candidate head
-  `e944a1d3a81dc0f1c840a053394d59c9c61bce30` in run `25898456003`.
-- Passing checks: Detect Changes, Static Checks, Build, Package Tests, E2E, Storybook, and
-  CodeRabbit.
+- CI-only PR #7 (`codex/v09-ci`) succeeded before the v0.8.1 rebase on candidate heads
+  `e944a1d3a81dc0f1c840a053394d59c9c61bce30` and `bc5bf7c33e5459c60819a7fa00880cf39e1cca0e`.
+- Nightly Regression run `25898704879` succeeded before the v0.8.1 rebase on
+  `bc5bf7c33e5459c60819a7fa00880cf39e1cca0e`.
 
 ## Release Hold
 
-The local branch is ahead of `origin/main`; no docs deploy or nightly regression receipt covers the
-local v0.9 candidate yet. Ship only after those receipts are green on the exact candidate head.
+The local branch is ahead of `origin/main`; no CI, docs deploy, or nightly regression receipt covers
+the rebased local v0.9 candidate yet. Ship only after those receipts are green on the exact
+candidate head.

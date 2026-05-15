@@ -1275,7 +1275,7 @@ Exit criteria:
 
 Receipt, 2026-05-15:
 
-- Local release-audit candidate: current local `main`, ahead of `origin/main` by 22 commits. The
+- Local release-audit candidate: current local `main`, ahead of `origin/main` by 23 commits. The
   tracked worktree was clean after the gate repairs; local untracked scratch files were left
   untouched.
 - Product surface delivered:
@@ -1317,20 +1317,25 @@ Receipt, 2026-05-15:
     router and the three MCP synthesis tools.
   - `tools/tests/test_dev_scripts.py` now uses non-login bash for the legacy detector test so the
     docker stub remains on `PATH` and `moon run :check` does not hang on real local Docker.
-- GitHub receipts:
-  - Latest pushed `origin/main` is `f8d23e6450ec86dfd8251f0c94e6804cdbcc4f76`.
+- GitHub receipts before the v0.8.1 rebase:
+  - Latest pushed `origin/main` was `f8d23e6450ec86dfd8251f0c94e6804cdbcc4f76`.
   - CI run `25879991056` succeeded on `f8d23e6450ec86dfd8251f0c94e6804cdbcc4f76`.
   - Docs deploy run `25879991026` succeeded on `f8d23e6450ec86dfd8251f0c94e6804cdbcc4f76`.
   - Release run `25891107401` succeeded on `f8d23e6450ec86dfd8251f0c94e6804cdbcc4f76`.
   - Latest nightly regression receipt is run `25877971585`, successful on
     `4855ba8ad8be6be958ba720e81b3459e727a973b`.
-  - CI-only PR #7 (`codex/v09-ci`) succeeded on candidate head
-    `e944a1d3a81dc0f1c840a053394d59c9c61bce30` in run `25898456003`. Checks passed: Detect Changes,
-    Static Checks, Build, Package Tests, E2E, Storybook, and CodeRabbit.
-  - No docs deploy or nightly regression receipt covers the current release-audit candidate.
+  - CI-only PR #7 (`codex/v09-ci`) succeeded on candidate heads
+    `e944a1d3a81dc0f1c840a053394d59c9c61bce30` in run `25898456003` and
+    `bc5bf7c33e5459c60819a7fa00880cf39e1cca0e` in run `25898597780`.
+  - Nightly Regression run `25898704879` succeeded on `bc5bf7c33e5459c60819a7fa00880cf39e1cca0e`.
+  - `origin/main` later advanced to the v0.8.1 release bump
+    `f11bfede36b4a02df2b4a514bd2ffb2be555ebb2`; the v0.9 candidate was rebased on top of that
+    commit. CI, docs deploy, and nightly regression must rerun on the rebased candidate before
+    release.
 - Binary recommendation: HOLD for tag or public release until the local 0.9 candidate reaches the
   final branch and docs deploy plus nightly regression are green on the exact candidate head. The
-  product, local verification, and CI-only PR are green; release is not yet publishable.
+  product and local verification are ready for exact-head external verification; release is not yet
+  publishable.
 
 ## 13. Verification Matrix
 
