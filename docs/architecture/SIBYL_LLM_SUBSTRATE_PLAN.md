@@ -833,6 +833,43 @@ pass: the remaining surface is implementation choices, not architecture.
 - OpenAI: API pricing docs list `gpt-5.4-mini` and `gpt-5.4-nano` standard rates at $0.75/$4.50 and
   $0.20/$1.25 per MTok: <https://developers.openai.com/api/docs/pricing>.
 
+## Appendix A. Smoke and Registry Receipts
+
+Implementation adds two live verification scripts:
+
+```bash
+uv run python scripts/llm/verify_registry.py --require-keys --json
+uv run python scripts/llm/smoke.py --require-keys --json
+```
+
+`verify_registry.py` probes every first-class LLM registry entry with
+`check_model_availability(entry.provider, entry.provider_model_id, key)`. Missing keys are skipped
+by default for local docs work and become failures with `--require-keys`.
+
+`smoke.py` runs a fixed 20-chunk crawler extraction fixture through `Extractor` for every selected
+registry model. Gates are schema success >=95%, required-field coverage >=98%, type-distribution
+drift <=25%, entity-count delta <=15%, and name-quality >=98%. It records p50/p95 latency and
+estimated per-chunk cost from registry prices.
+
+Current implementation note: cost is estimated from prompt/output character counts because
+`Extractor.extract()` intentionally returns only the parsed schema. Token usage remains available on
+validation probes and can be promoted into extractor telemetry when the observability layer lands.
+
+Latest local receipt on 2026-05-15 with Anthropic, Gemini, and OpenAI keys present:
+
+| Model alias             | Schema | Fields | Drift | Count delta | Names | p50 / p95 latency | Estimated cost |
+| ----------------------- | ------ | ------ | ----- | ----------- | ----- | ----------------- | -------------- |
+| `claude-haiku-4-5`      | 100%   | 100%   | 15.0% | 0.0%        | 100%  | 1961 / 2904 ms    | $0.019475      |
+| `claude-sonnet-4-6`     | 100%   | 100%   | 11.7% | 0.0%        | 100%  | 3733 / 4351 ms    | $0.061020      |
+| `gemini-3-flash`        | 100%   | 100%   | 11.7% | 0.0%        | 100%  | 4993 / 13708 ms   | $0.009904      |
+| `gemini-3-1-flash-lite` | 100%   | 100%   | 10.0% | 0.0%        | 100%  | 1163 / 1443 ms    | $0.004535      |
+| `gpt-5.4-mini`          | 100%   | 100%   | 13.3% | 0.0%        | 100%  | 1466 / 1948 ms    | $0.014437      |
+| `gpt-5.4-nano`          | 100%   | 100%   | 9.8%  | 3.3%        | 100%  | 1690 / 2506 ms    | $0.003926      |
+
+`verify_registry.py --require-keys --json` also passed for all six entries. The Gemini crawler path
+uses prompted structured output to avoid the Google native response-schema rejection on nested
+Pydantic `$defs` schemas.
+
 ## 12. Changelog
 
 Driven by Codex cross-model review at xhigh effort over two passes, then a Bliss-prompted

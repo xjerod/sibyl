@@ -154,7 +154,7 @@ uv sync && pnpm install
 
 # Configure
 cp .env.example .env
-# Add SIBYL_JWT_SECRET, SIBYL_ANTHROPIC_API_KEY, and one embedding key
+# Add SIBYL_JWT_SECRET and at least one LLM provider key
 # Embeddings can use SIBYL_OPENAI_API_KEY or SIBYL_GEMINI_API_KEY
 
 # Install CLIs globally (editable, source changes reflect immediately)
@@ -516,8 +516,14 @@ knowledge, tasks, and docs connected in one graph instead of scattering them acr
 
 ### What LLM APIs do I need?
 
-- **Anthropic** (required): For entity extraction and graph memory workflows
+- **Anthropic, OpenAI, or Gemini** (required): For language-model surfaces such as crawler
+  extraction and synthesis
 - **OpenAI or Gemini** (required): For embeddings and semantic search
+
+The language-model provider and model can be configured globally or per surface with
+`SIBYL_LLM_PROVIDER`, `SIBYL_LLM_MODEL`, `SIBYL_LLM_CRAWLER_MODEL`, and
+`SIBYL_LLM_SYNTHESIS_MODEL`. The web admin settings page can also save instance-wide database
+settings when no environment override is active.
 
 OpenAI defaults to `text-embedding-3-small`; Gemini defaults to `gemini-embedding-2`. Changing
 embedding provider, model, or dimensions requires re-embedding existing graph and document vectors

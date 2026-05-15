@@ -21,6 +21,7 @@ moon run core:test        # Pytest
 - **graph/:** SurrealDB graph managers plus Graphiti compatibility adapters
 - **backends/surreal/:** SurrealDB driver, schema, and per-table ops
 - **retrieval/:** Native context retrieval, compatibility search, fusion, deduplication
+- **ai/:** Native provider substrate for LLM calls, model registry, validation, and surfaces
 - **tools/:** MCP tool implementations (search, explore, add, manage)
 - **tasks/:** Workflow engine, dependency resolution
 - **auth/:** JWT primitives, password hashing
@@ -42,6 +43,10 @@ src/sibyl_core/
 │   ├── native.py         # Surreal-native context-pack retrieval
 │   ├── hybrid.py         # Compatibility hybrid search orchestration
 │   └── fusion.py         # Score fusion (RRF)
+├── ai/
+│   ├── registry.py       # Curated LLM/embedding model registry
+│   ├── providers.py      # PydanticAI provider model factory
+│   └── llm/              # Extractor, Generator, config sources
 ├── tools/
 │   ├── search.py         # Semantic search
 │   ├── explore.py        # Graph navigation
@@ -108,6 +113,31 @@ await manager.find_similar_tasks(task)
 await manager.estimate_task_effort(task)
 ```
 
+### AI Substrate
+
+```python
+from pydantic import BaseModel
+
+from sibyl_core.ai import Extractor, Generator, LLMSurface
+
+
+class ExtractedFact(BaseModel):
+    name: str
+    summary: str
+
+
+extractor = Extractor(ExtractedFact, surface=LLMSurface.CRAWLER)
+fact = await extractor.extract("Extract one fact from this document chunk.")
+
+generator = Generator(surface=LLMSurface.SYNTHESIS)
+draft = await generator.generate("Summarize this context pack.", max_tokens=512)
+```
+
+The substrate uses PydanticAI under `sibyl_core.ai`, with provider API keys passed through provider
+objects rather than mutating `os.environ`. `Extractor[T]` handles structured output and classified
+LLM errors. `Generator` handles text generation and streaming. Surface-specific config is resolved
+through an `LLMConfigSource` so the API can provide database-backed settings while core stays pure.
+
 ## Entity Types
 
 | Type | Description |
@@ -136,11 +166,23 @@ RelationshipType.BELONGS_TO, DEPENDS_ON, BLOCKS, REFERENCES
 ## Configuration
 
 ```bash
-SIBYL_EMBEDDING_PROVIDER=openai     # openai | gemini
-SIBYL_OPENAI_API_KEY=sk-...         # Required when provider=openai
-SIBYL_GEMINI_API_KEY=...            # Required when provider=gemini
-SIBYL_ANTHROPIC_API_KEY=...         # Entity extraction
+SIBYL_LLM_PROVIDER=anthropic          # anthropic | gemini | openai
+SIBYL_LLM_MODEL=claude-haiku-4-5
+SIBYL_LLM_TEMPERATURE=0
+SIBYL_LLM_MAX_TOKENS=2048
+SIBYL_LLM_TIMEOUT_SECONDS=60
 
+# Surface-specific values override shared LLM values.
+SIBYL_LLM_CRAWLER_PROVIDER=gemini
+SIBYL_LLM_CRAWLER_MODEL=gemini-3-1-flash-lite
+SIBYL_LLM_SYNTHESIS_PROVIDER=anthropic
+SIBYL_LLM_SYNTHESIS_MODEL=claude-sonnet-4-6
+
+SIBYL_ANTHROPIC_API_KEY=...           # LLM provider key
+SIBYL_OPENAI_API_KEY=sk-...           # LLM or embedding provider key
+SIBYL_GEMINI_API_KEY=...              # LLM or embedding provider key
+
+SIBYL_EMBEDDING_PROVIDER=openai     # openai | gemini
 SIBYL_EMBEDDING_MODEL=text-embedding-3-small
 SIBYL_EMBEDDING_DIMENSIONS=1536
 SIBYL_GRAPH_EMBEDDING_PROVIDER=openai
@@ -148,9 +190,16 @@ SIBYL_GRAPH_EMBEDDING_MODEL=text-embedding-3-small
 SIBYL_GRAPH_EMBEDDING_DIMENSIONS=1024
 ```
 
+LLM settings are instance-wide in v0.10. Environment variables win over database settings and mark
+individual fields as locked. Per-organization LLM overrides are reserved for v0.11+.
+
 Gemini embeddings default to `gemini-embedding-2`; Gemini keys can also come from `GEMINI_API_KEY`
 or `GOOGLE_API_KEY`. Changing embedding provider, model, or dimensions requires re-embedding
 existing graph and document vectors before comparing old and new search results.
+
+To add a first-class LLM provider, add a provider factory branch in `sibyl_core.ai.providers`, add
+registry entries in `sibyl_core.ai.registry`, extend `LLMProviderName` and API DTOs, and add a live
+probe to `scripts/llm/verify_registry.py`.
 
 ## Key Patterns
 
