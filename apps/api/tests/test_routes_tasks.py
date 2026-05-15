@@ -14,8 +14,10 @@ from fastapi import HTTPException
 from sibyl.api.idempotency import idempotency_request_hash
 from sibyl.api.routes.tasks import (
     CompleteTaskRequest,
+    CreateNoteRequest,
     CreateTaskRequest,
     complete_task,
+    create_note,
     create_task,
     list_notes,
 )
@@ -404,7 +406,110 @@ class TestCompleteTaskRoute:
         runtime.assert_not_awaited()
 
 
-class TestListNotesRoute:
+class TestNotesRoute:
+    @pytest.mark.asyncio
+    async def test_create_note_replays_saved_idempotent_response(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222"))
+        auth = SimpleNamespace()
+        request = CreateNoteRequest(content="Already saved")
+        payload = {"body": request.model_dump(mode="json")}
+        record = ApiIdempotencyRecord(
+            organization_id=org.id,
+            principal_id=str(user.id),
+            idempotency_key="idem-note",
+            method="POST",
+            path="/tasks/task-123/notes",
+            request_hash=idempotency_request_hash(payload),
+            response_status_code=200,
+            response_body={
+                "id": "note_saved",
+                "task_id": "task-123",
+                "content": "Already saved",
+                "author_type": "user",
+                "author_name": "",
+                "created_at": "2026-05-15T00:00:00+00:00",
+                "status": None,
+            },
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.tasks._verify_task_access",
+                AsyncMock(return_value=SimpleNamespace(metadata={}, project_id="proj-1")),
+            ),
+            patch(
+                "sibyl.api.idempotency.content_runtime.get_api_idempotency_record",
+                AsyncMock(return_value=record),
+            ),
+            patch("sibyl.api.routes.tasks.get_task_graph_runtime", AsyncMock()) as runtime,
+        ):
+            response = await create_note(
+                "task-123",
+                http_request=_request(idempotency_key="idem-note"),
+                request=request,
+                org=org,
+                user=user,
+                auth=auth,
+            )
+
+        assert response.id == "note_saved"
+        assert response.content == "Already saved"
+        runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_note_saves_idempotent_response_after_success(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        user = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222"))
+        auth = SimpleNamespace()
+        manager = SimpleNamespace(
+            get=AsyncMock(return_value=SimpleNamespace(id="task-123")),
+            create_direct=AsyncMock(return_value="note-123"),
+        )
+        runtime = SimpleNamespace(
+            entity_manager=manager,
+            relationship_manager=SimpleNamespace(create=AsyncMock(return_value="rel-123")),
+        )
+        save_record = AsyncMock(side_effect=lambda _session, *, record: record)
+
+        with (
+            patch(
+                "sibyl.api.routes.tasks._verify_task_access",
+                AsyncMock(return_value=SimpleNamespace(metadata={}, project_id="proj-1")),
+            ),
+            patch("sibyl.jobs.pending.is_pending", AsyncMock(return_value=False)),
+            patch("sibyl.api.routes.tasks.get_task_graph_runtime", AsyncMock(return_value=runtime)),
+            patch(
+                "sibyl.api.idempotency.content_runtime.get_api_idempotency_record",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "sibyl.api.idempotency.content_runtime.save_api_idempotency_record",
+                save_record,
+            ),
+            patch("sibyl.api.routes.tasks.broadcast_event", AsyncMock()),
+        ):
+            response = await create_note(
+                "task-123",
+                http_request=_request(idempotency_key="idem-note"),
+                request=CreateNoteRequest(content="Save me"),
+                org=org,
+                user=user,
+                auth=auth,
+            )
+
+        assert response.task_id == "task-123"
+        assert response.content == "Save me"
+        manager.create_direct.assert_awaited_once()
+        runtime.relationship_manager.create.assert_awaited_once()
+        save_record.assert_awaited_once()
+        saved = save_record.await_args.kwargs["record"]
+        assert saved.organization_id == org.id
+        assert saved.principal_id == str(user.id)
+        assert saved.idempotency_key == "idem-note"
+        assert saved.path == "/tasks/task-123/notes"
+        assert saved.response_body["content"] == "Save me"
+
     @pytest.mark.asyncio
     async def test_list_notes_reuses_access_guard_instead_of_reloading_task(self) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
