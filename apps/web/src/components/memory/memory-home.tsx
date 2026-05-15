@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { EntityBadge } from '@/components/ui/badge';
 import {
   ArrowRight,
   Database,
+  Eye,
   FileText,
   type IconComponent,
   Key,
@@ -15,6 +16,7 @@ import {
   Upload,
   Users,
   WarningCircle,
+  Xmark,
 } from '@/components/ui/icons';
 import { LoadingState } from '@/components/ui/spinner';
 import type { MemoryAuditEvent, MemoryScope, MemorySpace, RawCaptureSummary } from '@/lib/api';
@@ -146,42 +148,40 @@ function MemoryHero({
   scopeChip,
 }: HeroProps) {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-sc-purple/25 bg-gradient-to-br from-sc-bg-base via-sc-bg-elevated to-sc-purple/8 p-5 sm:p-6 shadow-xl shadow-black/10">
-      <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full bg-sc-purple/20 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-sc-cyan/12 blur-3xl" />
-      <div className="pointer-events-none absolute top-1/2 right-1/3 h-32 w-32 rounded-full bg-sc-coral/8 blur-3xl" />
+    <div className="relative overflow-hidden rounded-lg border border-sc-purple/20 bg-gradient-to-r from-sc-purple/10 via-sc-bg-base to-sc-cyan/5 px-4 py-3 shadow-card">
+      <div className="pointer-events-none absolute -top-12 -right-12 h-32 w-32 rounded-full bg-sc-purple/15 blur-2xl" />
+      <div className="pointer-events-none absolute -bottom-8 -left-8 h-24 w-24 rounded-full bg-sc-cyan/10 blur-2xl" />
 
-      <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3 sm:gap-4 min-w-0">
-          <div className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral shadow-lg shadow-sc-purple/30">
-            <Database width={22} height={22} className="text-white" />
+      <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral shadow-md shadow-sc-purple/30">
+            <Database width={16} height={16} className="text-white" />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold text-sc-fg-primary">Memory Workspace</h1>
+              <h1 className="text-base font-semibold text-sc-fg-primary">Memory Workspace</h1>
               {scopeChip && (
-                <span className="rounded-full border border-sc-purple/30 bg-sc-purple/10 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider text-sc-purple">
+                <span className="rounded-full border border-sc-purple/30 bg-sc-purple/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-sc-purple">
                   {scopeChip}
                 </span>
               )}
             </div>
-            <p className="mt-1.5 max-w-2xl text-sm text-sc-fg-muted">
-              Operate the trust pipeline behind your second brain. Raw captures, imports, reviews,
-              recalls, and source-grounded synthesis all live here.
+            <p className="text-[11px] text-sc-fg-muted">
+              Raw memory, imports, review, recall, and source-grounded synthesis.
             </p>
-            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs sm:text-sm">
-              <HeroStat icon={Database} tone="cyan" value={captureCount} label="captures in view" />
-              <HeroStat
-                icon={WarningCircle}
-                tone="yellow"
-                value={pendingCount}
-                label="pending review"
-                pulse={pendingCount > 0}
-              />
-              <HeroStat icon={Search} tone="coral" value={recallCount} label="recent recalls" />
-              <HeroStat icon={Key} tone="purple" value={agentReaders} label="agent readers" />
-            </div>
           </div>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 pl-10 text-[11px] sm:pl-0">
+          <HeroStat icon={Database} tone="cyan" value={captureCount} label="captures" />
+          <HeroStat
+            icon={WarningCircle}
+            tone="yellow"
+            value={pendingCount}
+            label="to review"
+            pulse={pendingCount > 0}
+          />
+          <HeroStat icon={Search} tone="coral" value={recallCount} label="recalls" />
+          <HeroStat icon={Key} tone="purple" value={agentReaders} label="readers" />
         </div>
       </div>
     </div>
@@ -221,6 +221,78 @@ function HeroStat({
         </span>{' '}
         {label}
       </span>
+    </div>
+  );
+}
+
+const EXPLAINER_DISMISSED_KEY = 'sibyl:memory-explainer-dismissed';
+
+function MemoryExplainer({ onDismiss }: { onDismiss: () => void }) {
+  const concepts: Array<{
+    icon: IconComponent;
+    tone: 'cyan' | 'yellow' | 'coral' | 'purple';
+    title: string;
+    body: string;
+  }> = [
+    {
+      icon: Database,
+      tone: 'cyan',
+      title: 'Captures',
+      body: 'Raw memory written from CLI, MCP, the web, or imports. Source of truth.',
+    },
+    {
+      icon: WarningCircle,
+      tone: 'yellow',
+      title: 'Review',
+      body: 'Captures or reflections waiting for you to confirm, link, or correct.',
+    },
+    {
+      icon: Search,
+      tone: 'coral',
+      title: 'Recalls',
+      body: 'Times an agent or person pulled memory back to use it in a prompt.',
+    },
+    {
+      icon: Eye,
+      tone: 'purple',
+      title: 'Inspections',
+      body: 'When someone opened a source to see what it is, who wrote it, and why.',
+    },
+  ];
+
+  return (
+    <div className="relative rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 p-3 shadow-card">
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="absolute top-2 right-2 rounded p-1 text-sc-fg-subtle transition-colors hover:bg-sc-bg-highlight hover:text-sc-fg-primary"
+        aria-label="Dismiss memory explainer"
+      >
+        <Xmark width={12} height={12} />
+      </button>
+      <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-sc-fg-subtle">
+        What you're looking at
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {concepts.map(concept => {
+          const toneClass = {
+            cyan: 'text-sc-cyan',
+            yellow: 'text-sc-yellow',
+            coral: 'text-sc-coral',
+            purple: 'text-sc-purple',
+          }[concept.tone];
+          const Icon = concept.icon;
+          return (
+            <div key={concept.title} className="flex items-start gap-2">
+              <Icon width={14} height={14} className={`${toneClass} mt-0.5 shrink-0`} />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-sc-fg-primary">{concept.title}</p>
+                <p className="text-[11px] leading-snug text-sc-fg-muted">{concept.body}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -518,6 +590,20 @@ function AgentAccessPanel({
 
 export function MemoryHome() {
   const [scope, setScope] = useState<MemoryScopeFilter>('all');
+  const [explainerDismissed, setExplainerDismissed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setExplainerDismissed(window.localStorage.getItem(EXPLAINER_DISMISSED_KEY) === 'true');
+    }
+  }, []);
+
+  function dismissExplainer() {
+    setExplainerDismissed(true);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(EXPLAINER_DISMISSED_KEY, 'true');
+    }
+  }
 
   const capturesQuery = useRawCaptures({ limit: 24 });
   const pendingQuery = useRawCaptures({ review_state: 'pending', limit: 24 });
@@ -594,6 +680,8 @@ export function MemoryHome() {
         agentReaders={agentReaders}
         scopeChip={scopeChip}
       />
+
+      {!explainerDismissed && <MemoryExplainer onDismiss={dismissExplainer} />}
 
       {panelErrors.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-sc-yellow/30 bg-sc-yellow/10 px-4 py-3 text-sm text-sc-yellow">
@@ -722,7 +810,7 @@ export function MemoryHome() {
         />
         <MemoryActivityFeed
           events={events.filter(event => event.action.includes('inspect')).slice(0, 5)}
-          title="Source Inspect"
+          title="Inspections"
           emptyLabel="No source inspections yet"
         />
         <MemoryActivityFeed

@@ -225,6 +225,6 @@ describe('MemoryContent', () => {
 
     expect(screen.getByText('Project runbook note')).toBeInTheDocument();
     expect(screen.queryByText('Terminal capture')).not.toBeInTheDocument();
-    expect(screen.getAllByText('same_scope_read_allowed').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Same scope').length).toBeGreaterThan(0);
   });
 });
