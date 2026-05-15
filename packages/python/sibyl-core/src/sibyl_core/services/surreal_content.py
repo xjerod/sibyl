@@ -15,7 +15,12 @@ from uuid import uuid4
 from sibyl_core.backends.surreal import SurrealContentClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.config import settings
-from sibyl_core.models.reflection import ReflectionCandidate
+from sibyl_core.models.reflection import (
+    MemoryLifecycle,
+    MemoryLifecycleState,
+    ReflectionCandidate,
+    with_memory_lifecycle_metadata,
+)
 from sibyl_core.utils.resilience import with_timeout
 
 _DEFAULT_BATCH_SIZE = 128
@@ -814,6 +819,7 @@ async def remember_reflection_candidate_review(
         else normalized_scope
     )
     source_ids = list(dict.fromkeys(raw_source_ids))
+    resolved_source_id = source_id or (source_ids[0] if source_ids else "reflection:manual")
     metadata: dict[str, object] = {
         **candidate.metadata,
         "capture_mode": "reflect",
@@ -828,10 +834,19 @@ async def remember_reflection_candidate_review(
         "suggested_scope_key": suggested_scope_key,
         "review_state": "pending",
     }
+    metadata = with_memory_lifecycle_metadata(
+        metadata,
+        MemoryLifecycle(
+            state=MemoryLifecycleState.PENDING,
+            source_id=resolved_source_id,
+            action="capture",
+            reason="reflection_candidate_pending",
+        ),
+    )
     return await remember_raw_memory(
         organization_id=organization_id,
         principal_id=principal_id,
-        source_id=source_id or (source_ids[0] if source_ids else "reflection:manual"),
+        source_id=resolved_source_id,
         raw_content=candidate.content,
         title=candidate.title,
         memory_scope=normalized_scope,

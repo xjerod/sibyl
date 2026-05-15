@@ -18,7 +18,16 @@ from sibyl_core.auth.memory_policy import (
     authorize_memory_write,
 )
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
-from sibyl_core.models.reflection import ReflectionCandidate
+from sibyl_core.models.reflection import (
+    MemoryLifecycle,
+    MemoryLifecycleState,
+    ReflectionCandidate,
+    ReflectionFinding,
+    ReflectionFindingKind,
+    correction_finding_kind,
+    with_memory_lifecycle_metadata,
+    with_reflection_finding_metadata,
+)
 from sibyl_core.services.memory_autonomy import reflection_autonomy_candidate_metadata
 from sibyl_core.services.native_graph import get_native_graph_runtime
 from sibyl_core.services.surreal_content import (
@@ -269,6 +278,7 @@ async def persist_reflection_candidate_native(
         )
 
     runtime = await get_native_graph_runtime(organization_id)
+    source_ids = _candidate_source_ids(candidate, source_id)
     entity = _entity_from_candidate(
         candidate,
         organization_id=organization_id,
@@ -280,8 +290,19 @@ async def persist_reflection_candidate_native(
         scope_key=resolved_scope_key,
         policy_metadata=policy_metadata,
     )
+    entity = entity.model_copy(
+        update={
+            "metadata": _promotion_lifecycle_metadata(
+                metadata=entity.metadata,
+                promoted_entity_id=entity.id,
+                source_ids=source_ids,
+                source_id=source_ids[0] if source_ids else None,
+                reason=candidate.reason,
+                policy_metadata=policy_metadata,
+            )
+        }
+    )
     created_id = await runtime.entity_manager.create_direct(entity)
-    source_ids = _candidate_source_ids(candidate, source_id)
     relationships = _relationships_for_promotion(
         created_id,
         project=project,
@@ -373,6 +394,14 @@ async def promote_reflection_candidate_review(
         "raw_source_ids": plan.raw_source_ids,
         "source_ids": plan.raw_source_ids,
     }
+    metadata = _promotion_lifecycle_metadata(
+        metadata=metadata,
+        promoted_entity_id=str(native_result.response.id),
+        source_ids=plan.raw_source_ids,
+        source_id=plan.candidate_memory.id,
+        reason="accepted_reflection_candidate",
+        policy_metadata=native_result.metadata,
+    )
     updated = replace(
         plan.candidate_memory,
         review_state=_PROMOTED_REVIEW_STATE,
@@ -1005,6 +1034,7 @@ def _correction_metadata(
     metadata = dict(memory.metadata)
     history = list(_metadata_dict_values(metadata, "correction_history"))
     now = datetime.now(UTC).isoformat()
+    prior_state = str(memory.review_state or "pending")
     if preview.action == "restore":
         for key in (
             "deleted_at",
@@ -1024,9 +1054,17 @@ def _correction_metadata(
         ):
             metadata.pop(key, None)
         metadata["restored_at"] = now
+        lifecycle = MemoryLifecycle(
+            state=preview.target_review_state,
+            source_id=memory.id,
+            action=preview.action,
+            reason=reason or preview.reason,
+            prior_state=prior_state,
+            reversible=True,
+        )
     else:
         if not _metadata_str(metadata, "prior_review_state"):
-            metadata["prior_review_state"] = memory.review_state or "pending"
+            metadata["prior_review_state"] = prior_state
         metadata["lifecycle_action"] = preview.action
         metadata["lifecycle_state"] = preview.target_review_state
         metadata["lifecycle_reason"] = reason or preview.reason
@@ -1035,6 +1073,17 @@ def _correction_metadata(
             metadata["superseded_by_source_id"] = replacement_source_id
         if duplicate_of_source_id:
             metadata["duplicate_of_source_id"] = duplicate_of_source_id
+        lifecycle = MemoryLifecycle(
+            state=preview.target_review_state,
+            source_id=memory.id,
+            action=preview.action,
+            reason=reason or preview.reason,
+            prior_state=prior_state,
+            replacement_source_id=replacement_source_id,
+            duplicate_of_source_id=duplicate_of_source_id,
+            derived_ids=preview.affected_derived_ids,
+            reversible=preview.reversible,
+        )
     history.append(
         {
             "action": preview.action,
@@ -1048,7 +1097,29 @@ def _correction_metadata(
     )
     metadata["correction_history"] = history
     metadata["review_state"] = preview.target_review_state
-    return metadata
+    metadata = with_memory_lifecycle_metadata(metadata, lifecycle)
+    return with_reflection_finding_metadata(
+        metadata,
+        ReflectionFinding(
+            kind=correction_finding_kind(preview.action),
+            target_source_id=memory.id,
+            reason=reason or preview.reason,
+            action=preview.action,
+            lifecycle_state=lifecycle.state,
+            source_ids=[memory.id],
+            related_source_ids=[
+                item
+                for item in (replacement_source_id, duplicate_of_source_id)
+                if item is not None
+            ],
+            policy_reasons=_metadata_str_values(preview.metadata or {}, "policy_reasons"),
+            reversible=preview.reversible,
+            metadata={
+                "audit_action": preview.audit_action,
+                "target_review_state": preview.target_review_state,
+            },
+        ),
+    )
 
 
 async def apply_memory_correction(
@@ -1291,6 +1362,46 @@ def _policy_metadata(decisions: Sequence[MemoryPolicyDecision]) -> dict[str, Any
         "policy_reasons": [decision.reason for decision in decisions],
         "policy_actions": [decision.action.value for decision in decisions],
     }
+
+
+def _promotion_lifecycle_metadata(
+    *,
+    metadata: Mapping[str, Any],
+    promoted_entity_id: str,
+    source_ids: Sequence[str],
+    source_id: str | None,
+    reason: str,
+    policy_metadata: Mapping[str, Any] | None,
+) -> dict[str, object]:
+    target_source_id = source_id or (source_ids[0] if source_ids else promoted_entity_id)
+    next_metadata: dict[str, object] = dict(metadata)
+    next_metadata = with_memory_lifecycle_metadata(
+        next_metadata,
+        MemoryLifecycle(
+            state=MemoryLifecycleState.PROMOTED,
+            source_id=target_source_id,
+            action="promote",
+            reason=reason or "reflection_promotion",
+            prior_state=_metadata_str(next_metadata, "review_state"),
+            derived_ids=[promoted_entity_id],
+            reversible=True,
+            metadata={"promoted_entity_id": promoted_entity_id},
+        ),
+    )
+    return with_reflection_finding_metadata(
+        next_metadata,
+        ReflectionFinding(
+            kind=ReflectionFindingKind.PROMOTION,
+            target_source_id=target_source_id,
+            reason=reason or "reflection_promotion",
+            action="promote",
+            lifecycle_state=MemoryLifecycleState.PROMOTED,
+            source_ids=list(source_ids),
+            related_source_ids=[promoted_entity_id],
+            policy_reasons=_metadata_str_values(policy_metadata or {}, "policy_reasons"),
+            metadata={"promoted_entity_id": promoted_entity_id},
+        ),
+    )
 
 
 def _policy_denied_message(decisions: Sequence[MemoryPolicyDecision]) -> str:

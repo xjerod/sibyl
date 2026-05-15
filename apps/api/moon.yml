@@ -176,6 +176,8 @@ tasks:
       tests/test_routes_memory.py::test_auto_review_reflection_candidate_routes_exceptions
       tests/test_routes_memory.py::test_drain_reflection_review_dry_run_summarizes_pending_candidates
       tests/test_routes_memory.py::test_drain_reflection_review_archives_terminal_exceptions
+      tests/test_routes_memory.py::test_inspect_memory_source_returns_metadata_and_visible_content
+      tests/test_routes_memory.py::test_apply_memory_correction_returns_updated_review_state
       tests/test_routes_memory.py::test_promote_reflection_candidate_verifies_project_target
       tests/test_routes_memory.py::test_promote_reflection_candidate_returns_policy_denial
       -v

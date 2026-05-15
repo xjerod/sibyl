@@ -5,6 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from sibyl_core.models.reflection import (
+    memory_lifecycle_from_metadata,
+    reflection_findings_from_metadata,
+)
 from sibyl_core.services import native_memory
 from sibyl_core.services.native_memory import (
     NativeReflectionWriteResult,
@@ -448,6 +452,16 @@ async def test_apply_memory_correction_marks_hidden_and_preserves_history(
     assert result.updated_memory.review_state == "hidden"
     assert result.updated_memory.metadata["lifecycle_state"] == "hidden"
     assert result.updated_memory.metadata["lifecycle_reason"] == "No longer useful"
+    lifecycle = memory_lifecycle_from_metadata(
+        result.updated_memory.metadata,
+        source_id="source-1",
+        review_state=result.updated_memory.review_state,
+    )
+    findings = reflection_findings_from_metadata(result.updated_memory.metadata)
+    assert lifecycle.state == "hidden"
+    assert lifecycle.action == "hide"
+    assert findings[-1].kind == "correction"
+    assert findings[-1].target_source_id == "source-1"
     assert result.updated_memory.metadata["correction_history"][0] == {
         "action": "mark_stale"
     }
@@ -540,9 +554,17 @@ async def test_apply_memory_correction_restore_preserves_prior_review_state(
     assert result.updated_memory is not None
     assert result.updated_memory.review_state == "promoted"
     assert result.updated_memory.metadata["correction_history"][1]["action"] == "restore"
-    assert "lifecycle_state" not in result.updated_memory.metadata
     assert "prior_review_state" not in result.updated_memory.metadata
     assert "hidden_at" not in result.updated_memory.metadata
+    lifecycle = memory_lifecycle_from_metadata(
+        result.updated_memory.metadata,
+        source_id="source-1",
+        review_state=result.updated_memory.review_state,
+    )
+    findings = reflection_findings_from_metadata(result.updated_memory.metadata)
+    assert lifecycle.state == "promoted"
+    assert lifecycle.action == "restore"
+    assert findings[-1].action == "restore"
 
 
 @pytest.mark.asyncio
@@ -802,3 +824,13 @@ async def test_promote_review_candidate_persists_native_record_and_marks_promote
     assert result.reason == "promoted"
     assert saved[0].review_state == "promoted"
     assert saved[0].metadata["promoted_entity_id"] == "decision_123"
+    lifecycle = memory_lifecycle_from_metadata(
+        saved[0].metadata,
+        source_id="candidate-1",
+        review_state=saved[0].review_state,
+    )
+    findings = reflection_findings_from_metadata(saved[0].metadata)
+    assert lifecycle.state == "promoted"
+    assert lifecycle.derived_ids == ["decision_123"]
+    assert findings[-1].kind == "promotion"
+    assert findings[-1].related_source_ids == ["decision_123"]

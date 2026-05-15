@@ -367,6 +367,18 @@ class MemorySourceInspectResponse(BaseModel):
         default_factory=dict,
         description="Visibility summary for the requesting actor",
     )
+    lifecycle: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured lifecycle state for this memory",
+    )
+    reflection_findings: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Structured reflection findings that affected this memory",
+    )
+    claim_records: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Source-grounded claim records derived from this memory",
+    )
     correction_history: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Correction and lifecycle events known for this source",
@@ -444,6 +456,8 @@ class MemoryCorrectionResponse(BaseModel):
     reason: str
     target_review_state: str
     updated_review_state: str | None = None
+    lifecycle: dict[str, Any] = Field(default_factory=dict)
+    reflection_finding: dict[str, Any] | None = None
     affected_source_ids: list[str] = Field(default_factory=list)
     affected_derived_ids: list[str] = Field(default_factory=list)
     reversible: bool

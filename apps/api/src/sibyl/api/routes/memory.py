@@ -67,6 +67,11 @@ from sibyl_core.auth.memory_policy import (
     authorize_memory_read,
     authorize_memory_write,
 )
+from sibyl_core.models.reflection import (
+    claim_records_from_metadata,
+    memory_lifecycle_from_metadata,
+    reflection_findings_from_metadata,
+)
 from sibyl_core.services.memory_autonomy import (
     ReflectionAutonomyDecision,
     ReflectionAutonomyOutcome,
@@ -732,6 +737,19 @@ def _correction_response(
     updated_memory: RawMemory | None = None,
 ) -> MemoryCorrectionResponse:
     metadata = dict(preview.metadata or {})
+    lifecycle: dict[str, Any] = {}
+    reflection_finding: dict[str, Any] | None = None
+    if updated_memory is not None:
+        lifecycle = memory_lifecycle_from_metadata(
+            updated_memory.metadata,
+            source_id=updated_memory.id,
+            review_state=updated_memory.review_state,
+        ).to_dict()
+        findings = [
+            finding.to_dict()
+            for finding in reflection_findings_from_metadata(updated_memory.metadata)
+        ]
+        reflection_finding = findings[-1] if findings else None
     return MemoryCorrectionResponse(
         allowed=preview.allowed,
         applied=applied,
@@ -740,6 +758,8 @@ def _correction_response(
         reason=preview.reason,
         target_review_state=preview.target_review_state,
         updated_review_state=updated_memory.review_state if updated_memory else None,
+        lifecycle=lifecycle,
+        reflection_finding=reflection_finding,
         affected_source_ids=list(preview.affected_source_ids),
         affected_derived_ids=list(preview.affected_derived_ids),
         reversible=preview.reversible,
@@ -1099,6 +1119,15 @@ def _memory_source_inspect_response(
     derived_ids = [record.id for record in derived_records]
     derived_types = list(dict.fromkeys(record.record_type for record in derived_records))
     project_id = _memory_project_id(memory)
+    lifecycle = memory_lifecycle_from_metadata(
+        memory.metadata,
+        source_id=memory.id,
+        review_state=memory.review_state,
+    ).to_dict()
+    reflection_findings = [
+        finding.to_dict() for finding in reflection_findings_from_metadata(memory.metadata)
+    ]
+    claim_records = [claim.to_dict() for claim in claim_records_from_metadata(memory.metadata)]
     return MemorySourceInspectResponse(
         id=memory.id,
         organization_id=memory.organization_id,
@@ -1120,6 +1149,9 @@ def _memory_source_inspect_response(
             "project_id": project_id,
             "policy_reason": policy_decision.reason,
         },
+        lifecycle=lifecycle,
+        reflection_findings=reflection_findings,
+        claim_records=claim_records,
         correction_history=_correction_history(
             memory=memory,
             audit_events=visible_audit_events,

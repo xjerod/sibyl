@@ -1101,6 +1101,28 @@ async def test_inspect_memory_source_returns_metadata_and_visible_content() -> N
             "promoted_entity_id": "entity-1",
             "promoted_at": "2026-05-13T12:02:00+00:00",
             "transform_version": "native-v1",
+            "memory_lifecycle": {
+                "state": "promoted",
+                "source_id": "memory-1",
+                "action": "promote",
+                "reason": "accepted",
+                "derived_ids": ["entity-1"],
+            },
+            "reflection_findings": [
+                {
+                    "kind": "promotion",
+                    "target_source_id": "memory-1",
+                    "reason": "accepted",
+                    "related_source_ids": ["entity-1"],
+                }
+            ],
+            "claim_records": [
+                {
+                    "content": "Sibyl stores raw memory before reflection.",
+                    "confidence": 0.91,
+                    "source_ids": ["memory-1"],
+                }
+            ],
         },
     )
     remember_event = {
@@ -1172,6 +1194,11 @@ async def test_inspect_memory_source_returns_metadata_and_visible_content() -> N
     assert response.policy_reason == "private_principal_bound"
     assert response.visibility["content_visible"] is True
     assert response.visibility["project_id"] == "project_123"
+    assert response.lifecycle["state"] == "promoted"
+    assert response.lifecycle["derived_ids"] == ["entity-1"]
+    assert response.reflection_findings[0]["kind"] == "promotion"
+    assert response.reflection_findings[0]["related_source_ids"] == ["entity-1"]
+    assert response.claim_records[0]["content"] == "Sibyl stores raw memory before reflection."
     assert response.correction_history == [{"action": "mark_stale", "reason": "outdated"}]
     assert response.promotion_state["state"] == "promoted"
     assert response.promotion_state["promoted_id"] == "entity-1"
@@ -1407,6 +1434,23 @@ async def test_apply_memory_correction_returns_updated_review_state() -> None:
         organization_id=str(org.id),
         source_id="source-1",
         review_state="hidden",
+        metadata={
+            "memory_lifecycle": {
+                "state": "hidden",
+                "source_id": "memory-1",
+                "action": "hide",
+                "reason": "outdated",
+            },
+            "reflection_findings": [
+                {
+                    "kind": "correction",
+                    "target_source_id": "memory-1",
+                    "reason": "outdated",
+                    "action": "hide",
+                    "lifecycle_state": "hidden",
+                }
+            ],
+        },
     )
     preview = NativeMemoryCorrectionPreview(
         allowed=True,
@@ -1442,6 +1486,10 @@ async def test_apply_memory_correction_returns_updated_review_state() -> None:
 
     assert response.applied is True
     assert response.updated_review_state == "hidden"
+    assert response.lifecycle["state"] == "hidden"
+    assert response.lifecycle["action"] == "hide"
+    assert response.reflection_finding is not None
+    assert response.reflection_finding["kind"] == "correction"
     apply_call.assert_awaited_once_with(
         organization_id=str(org.id),
         source_id="memory-1",
