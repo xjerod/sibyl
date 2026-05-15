@@ -63,18 +63,23 @@ function BreadcrumbInner({ items, className = '' }: BreadcrumbProps) {
     return crumbs;
   }, [pathname, items]);
 
-  // Don't render if only home
-  if (breadcrumbs.length <= 1) return null;
+  // On the home route the auto-generated crumbs collapse to just Home.
+  // Render it as the active item (no link) so every page reserves the
+  // same vertical space and the breadcrumb row never jumps in or out.
+  const renderable: BreadcrumbItem[] =
+    breadcrumbs.length <= 1
+      ? [{ label: ROUTE_CONFIG[''].label, icon: ROUTE_CONFIG[''].icon }]
+      : breadcrumbs;
 
   return (
     <nav
       aria-label="Breadcrumb"
-      className={`flex items-center gap-1.5 text-sm text-sc-fg-muted h-6 overflow-hidden ${className}`}
+      className={`flex h-6 items-center gap-1.5 overflow-hidden text-sm text-sc-fg-muted ${className}`}
       style={{ viewTransitionName: 'breadcrumb' }}
     >
-      {breadcrumbs.map((crumb, index) => {
+      {renderable.map((crumb, index) => {
         const Icon = crumb.icon;
-        const isLast = index === breadcrumbs.length - 1;
+        const isLast = index === renderable.length - 1;
         return (
           <Fragment key={crumb.href ?? crumb.label}>
             {index > 0 && (

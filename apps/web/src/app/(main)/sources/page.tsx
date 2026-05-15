@@ -352,7 +352,7 @@ export default function SourcesPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       <Breadcrumb />
 
       <PageHeader

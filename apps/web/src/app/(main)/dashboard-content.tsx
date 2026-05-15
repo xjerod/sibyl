@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { WelcomeBanner } from '@/components/dashboard';
+import { Breadcrumb } from '@/components/layout/breadcrumb';
 import { useCaptureMemory } from '@/components/layout/capture-memory-context';
 import { VelocityLineChart } from '@/components/metrics/charts';
 import {
@@ -18,7 +19,6 @@ import {
   FileText,
   FolderKanban,
   Layers,
-  LayoutDashboard,
   ListTodo,
   Network,
   Play,
@@ -171,17 +171,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-fade-in">
-      {/* Dashboard breadcrumb */}
-      <nav
-        aria-label="Breadcrumb"
-        className="flex items-center gap-1.5 text-sm text-sc-fg-muted min-h-[24px]"
-        style={{ viewTransitionName: 'breadcrumb' }}
-      >
-        <span className="flex items-center gap-1.5 text-sc-fg-primary font-medium">
-          <LayoutDashboard width={14} height={14} />
-          <span>Dashboard</span>
-        </span>
-      </nav>
+      <Breadcrumb />
 
       {/* Welcome Banner - Shows for new users with few entities */}
       <WelcomeBanner totalEntities={stats?.total_entities ?? 0} />
