@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import httpx
@@ -7,6 +8,7 @@ import pytest
 import typer
 
 import sibyl_cli.client as client_module
+from sibyl_cli import pending_writes
 from sibyl_cli.client import SibylClient, SibylClientError
 from sibyl_cli.common import handle_client_error
 
@@ -98,3 +100,71 @@ async def test_client_circuit_breaker_sleeps_after_repeated_failures(
     await client.close()
     sleep.assert_awaited_once()
     client_module._FAILURE_WINDOWS.clear()
+
+
+@pytest.mark.asyncio
+async def test_mutating_request_buffers_and_deletes_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pending_writes.Path, "home", lambda: tmp_path)
+    seen_headers: list[str] = []
+    transport = httpx.MockTransport(
+        lambda request: (
+            seen_headers.append(request.headers["Idempotency-Key"])
+            or httpx.Response(200, json={"ok": True})
+        )
+    )
+    client = _client_with_transport(transport)
+
+    data = await client.post("/entities", json={"name": "Buffered", "content": "Body"})
+
+    await client.close()
+    assert data == {"ok": True}
+    assert seen_headers
+    assert pending_writes.list_pending_writes() == []
+
+
+@pytest.mark.asyncio
+async def test_mutating_request_keeps_pending_write_on_auth_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pending_writes.Path, "home", lambda: tmp_path)
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(
+            401,
+            json={"error": "unauthorized", "message": "Session not found or revoked"},
+        )
+    )
+    client = _client_with_transport(transport)
+
+    with pytest.raises(SibylClientError) as exc:
+        await client.post("/memory/raw", json={"title": "Keep me", "raw_content": "Body"})
+
+    await client.close()
+    pending = pending_writes.list_pending_writes()
+    assert len(pending) == 1
+    assert pending[0]["path"] == "/memory/raw"
+    assert exc.value.remediation == client_module.PENDING_WRITE_REMEDIATION
+
+
+@pytest.mark.asyncio
+async def test_mutating_request_deletes_pending_write_on_validation_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pending_writes.Path, "home", lambda: tmp_path)
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(
+            400,
+            json={"error": "validation_error", "message": "Bad payload"},
+        )
+    )
+    client = _client_with_transport(transport)
+
+    with pytest.raises(SibylClientError):
+        await client.post("/entities", json={"name": "Invalid"})
+
+    await client.close()
+    assert pending_writes.list_pending_writes() == []

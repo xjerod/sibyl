@@ -24,12 +24,15 @@ from sibyl_cli.auth_store import (
     read_server_credentials,
     set_tokens,
 )
+from sibyl_cli.pending_writes import create_pending_write, delete_pending_write
 
 # Default server port (matches sibyl-server default)
 DEFAULT_SERVER_PORT = 3334
 FAILURE_WINDOW_SECONDS = 10.0
 FAILURE_THRESHOLD = 3
 _FAILURE_WINDOWS: dict[tuple[str, str], deque[float]] = {}
+BUFFERED_WRITE_METHODS = {"POST", "PATCH", "DELETE"}
+PENDING_WRITE_REMEDIATION = "Run 'sibyl auth login' then 'sibyl pending-writes flush'."
 
 
 @dataclass
@@ -203,6 +206,23 @@ def _record_success(key: tuple[str, str]) -> None:
     _FAILURE_WINDOWS.pop(key, None)
 
 
+def _is_refresh_revoked(message: str | None) -> bool:
+    if not message:
+        return False
+    normalized = message.lower()
+    return "session not found" in normalized or "revoked" in normalized
+
+
+def _should_buffer_request(method: str, path: str) -> bool:
+    if method.upper() not in BUFFERED_WRITE_METHODS:
+        return False
+    return not path.startswith("/auth/")
+
+
+def _should_keep_pending_write(status_code: int) -> bool:
+    return status_code in {401, 408, 429} or status_code >= 500
+
+
 async def anyio_sleep(delay: float) -> None:
     import asyncio
 
@@ -263,6 +283,45 @@ class SibylClient:
         if self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         return headers
+
+    async def _silent_local_relogin(self, creds: dict[str, Any]) -> tuple[bool, str | None]:
+        email = str(creds.get("local_login_email") or "").strip()
+        password = str(creds.get("local_login_password") or "").strip()
+        if not email or not password:
+            return False, "No stored local login credentials are available."
+
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout,
+                verify=not self.insecure,
+            ) as client:
+                response = await client.post(
+                    "/auth/local/login",
+                    json={"email": email, "password": password},
+                )
+                if response.status_code != 200:
+                    return False, f"Local login returned HTTP {response.status_code}."
+                data = response.json()
+        except Exception as exc:
+            return False, f"Local login failed: {exc}"
+
+        new_access_token = str(data.get("access_token") or "").strip()
+        if not new_access_token:
+            return False, "Local login response did not include an access token."
+
+        set_tokens(
+            self.base_url,
+            new_access_token,
+            refresh_token=str(data.get("refresh_token") or "").strip() or None,
+            expires_in=int(data["expires_in"]) if data.get("expires_in") else None,
+            lock=False,
+        )
+        self.auth_token = new_access_token
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
+        return True, None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create async HTTP client."""
@@ -347,6 +406,14 @@ class SibylClient:
                         detail_text = str(detail).strip() if detail is not None else ""
                         if not detail_text:
                             detail_text = f"Refresh request returned HTTP {response.status_code}."
+                        if _is_refresh_revoked(detail_text):
+                            relogged, relogin_failure = await self._silent_local_relogin(creds)
+                            if relogged:
+                                return True, None
+                            if relogin_failure:
+                                detail_text = (
+                                    f"{detail_text} Silent re-login failed: {relogin_failure}"
+                                )
                         return False, detail_text
 
                     data = response.json()
@@ -384,6 +451,9 @@ class SibylClient:
         params: dict[str, Any] | None = None,
         *,
         _retry_on_401: bool = True,
+        _buffer_pending: bool = True,
+        _pending_write_id: str | None = None,
+        _idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Make an HTTP request to the API.
 
@@ -406,16 +476,32 @@ class SibylClient:
         if self.auth_token and is_access_token_expired(self.base_url):
             _, refresh_failure = await self._refresh_token()
 
+        method = method.upper()
+        pending_write_id = _pending_write_id
+        idempotency_key = _idempotency_key
+        if _buffer_pending and pending_write_id is None and _should_buffer_request(method, path):
+            pending = create_pending_write(
+                method=method,
+                path=path,
+                base_url=self.base_url,
+                json_payload=json,
+                params=params,
+            )
+            pending_write_id = str(pending["id"])
+            idempotency_key = str(pending["idempotency_key"])
+
         client = await self._get_client()
         breaker_key = _failure_key(self.base_url)
         await _maybe_wait_for_circuit_breaker(breaker_key)
 
         try:
+            headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
             response = await client.request(
                 method=method,
                 url=path,
                 json=json,
                 params=params,
+                headers=headers,
             )
 
             # Handle 401 - try to refresh token and retry once
@@ -423,11 +509,20 @@ class SibylClient:
                 refreshed, refresh_failure = await self._refresh_token()
                 if refreshed:
                     return await self._request(
-                        method, path, json=json, params=params, _retry_on_401=False
+                        method,
+                        path,
+                        json=json,
+                        params=params,
+                        _retry_on_401=False,
+                        _buffer_pending=False,
+                        _pending_write_id=pending_write_id,
+                        _idempotency_key=idempotency_key,
                     )
 
             # Handle error responses
             if response.status_code >= 400:
+                if pending_write_id and not _should_keep_pending_write(response.status_code):
+                    delete_pending_write(pending_write_id)
                 try:
                     payload = _parse_error_payload(response.json())
                 except Exception:
@@ -440,7 +535,9 @@ class SibylClient:
                         detail = f"{detail}\n\nAutomatic token refresh failed: {refresh_failure}"
                     if not payload.remediation:
                         payload.remediation = (
-                            "Auth required. Run 'sibyl auth login' or set SIBYL_AUTH_TOKEN."
+                            PENDING_WRITE_REMEDIATION
+                            if pending_write_id
+                            else ("Auth required. Run 'sibyl auth login' or set SIBYL_AUTH_TOKEN.")
                         )
                 elif response.status_code == 403:
                     if not payload.remediation:
@@ -459,10 +556,14 @@ class SibylClient:
 
             # Return empty dict for 204 No Content
             if response.status_code == 204:
+                if pending_write_id:
+                    delete_pending_write(pending_write_id)
                 _record_success(breaker_key)
                 return {}
 
             data = response.json()
+            if pending_write_id:
+                delete_pending_write(pending_write_id)
             _record_success(breaker_key)
             return data
 
