@@ -552,6 +552,7 @@ class SibylClient:
         *,
         entity_type: str | None = None,
         capture_surface: str | None = None,
+        review_state: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -561,6 +562,8 @@ class SibylClient:
             params["entity_type"] = entity_type
         if capture_surface:
             params["capture_surface"] = capture_surface
+        if review_state:
+            params["review_state"] = review_state
         return await self._request("GET", "/entities/captures", params=params)
 
     async def get_raw_capture(self, capture_id: str) -> dict[str, Any]:
@@ -975,6 +978,41 @@ class SibylClient:
         if confidence_threshold is not None:
             data["confidence_threshold"] = confidence_threshold
         return await self._request("POST", "/memory/reflection/review/auto", json=data)
+
+    async def drain_reflection_review(
+        self,
+        *,
+        dry_run: bool = True,
+        limit: int = 50,
+        promote_to_scope: str | None = None,
+        promote_to_scope_key: str | None = None,
+        domain: str | None = None,
+        project: str | None = None,
+        related_to: list[str] | None = None,
+        confidence_threshold: float | None = None,
+        archive_exceptions: bool = False,
+        archive_exception_reasons: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Drain pending reflection candidates through automatic review."""
+        data: dict[str, Any] = {
+            "dry_run": dry_run,
+            "limit": limit,
+            "related_to": related_to or [],
+            "archive_exceptions": archive_exceptions,
+            "archive_exception_reasons": archive_exception_reasons
+            or ["duplicate_candidate", "stale_candidate"],
+        }
+        if promote_to_scope:
+            data["promote_to_scope"] = promote_to_scope
+        if promote_to_scope_key:
+            data["promote_to_scope_key"] = promote_to_scope_key
+        if domain:
+            data["domain"] = domain
+        if project:
+            data["project"] = project
+        if confidence_threshold is not None:
+            data["confidence_threshold"] = confidence_threshold
+        return await self._request("POST", "/memory/reflection/review/drain", json=data)
 
     async def preview_memory_share(
         self,

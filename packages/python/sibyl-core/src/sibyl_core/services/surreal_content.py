@@ -994,6 +994,43 @@ async def list_raw_memories_for_scope(
     return _recallable_memories(memories, limit=limit)
 
 
+async def list_reflection_candidate_reviews(
+    *,
+    organization_id: str,
+    review_state: str = "pending",
+    limit: int = 50,
+) -> list[RawMemory]:
+    if limit <= 0:
+        return []
+    target_review_state = review_state.strip().lower()
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE organization_id = $organization_id "
+            "AND capture_surface = $capture_surface "
+            "AND review_state = $review_state "
+            "ORDER BY captured_at ASC LIMIT $limit;",
+            organization_id=organization_id,
+            capture_surface="reflection_candidate",
+            review_state=target_review_state,
+            limit=limit,
+        )
+    memories = [_raw_memory_from_record(row) for row in rows]
+    memories = [
+        memory
+        for memory in memories
+        if str(memory.review_state or "pending").strip().lower() == target_review_state
+    ]
+    memories = sorted(
+        memories,
+        key=lambda memory: memory.captured_at
+        or memory.created_at
+        or datetime.min.replace(tzinfo=UTC),
+    )
+    return memories[:limit]
+
+
 async def get_or_create_source(
     url: str,
     depth: int,
@@ -1381,6 +1418,7 @@ __all__ = [
     "lexical_score",
     "lexical_score_from_tokens",
     "list_raw_memories_for_scope",
+    "list_reflection_candidate_reviews",
     "list_source_ids_for_org",
     "list_unlinked_document_chunks",
     "load_search_scope",

@@ -70,6 +70,7 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 memory_space_app = typer.Typer(help="Memory-space inspection and preview commands")
+memory_review_app = typer.Typer(help="Memory review queue automation commands")
 synthesis_app = typer.Typer(help="Source-grounded synthesis commands")
 
 
@@ -92,6 +93,7 @@ app.add_typer(local_app, name="local")
 app.add_typer(logs_app, name="logs")
 app.add_typer(update_app, name="update")
 app.add_typer(memory_space_app, name="memory-space")
+app.add_typer(memory_review_app, name="memory-review")
 app.add_typer(synthesis_app, name="synthesis")
 
 
@@ -572,6 +574,50 @@ def _print_promotion_autonomy(data: dict[str, object]) -> None:
     if audit_id := _preview_audit_id(data):
         table.add_row("Audit", audit_id)
     console.print(table)
+
+
+def _print_memory_review_drain(data: dict[str, object]) -> None:
+    console.print("\n[bold]Memory review drain[/bold]\n")
+    table = create_table(None, "Field", "Value", expand=False)
+    table.add_row("Mode", "dry-run" if data.get("dry_run") is True else "apply")
+    table.add_row("Scanned", _preview_count(data.get("scanned_count")))
+    table.add_row("Auto-promote", _preview_count(data.get("auto_promote_count")))
+    table.add_row("Applied", _preview_count(data.get("applied_count")))
+    table.add_row("Exceptions", _preview_count(data.get("exception_count")))
+    table.add_row("Archived", _preview_count(data.get("archived_count")))
+    table.add_row("Skipped", _preview_count(data.get("skip_count")))
+    table.add_row("Failed", _preview_count(data.get("failed_count")))
+    console.print(table)
+
+    results = data.get("results")
+    if not isinstance(results, list) or not results:
+        return
+
+    result_table = create_table(
+        "Drain Results",
+        "Candidate",
+        "Outcome",
+        "Action",
+        "State",
+        "Reason",
+        "Promoted",
+        "Archived",
+        expand=False,
+    )
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        row = cast("dict[str, object]", item)
+        result_table.add_row(
+            str(row.get("candidate_id") or ""),
+            str(row.get("outcome") or ""),
+            str(row.get("recommended_action") or ""),
+            str(row.get("review_state") or ""),
+            str(row.get("reason") or row.get("error") or ""),
+            str(row.get("promoted_id") or "-"),
+            "yes" if row.get("archived") is True else "no",
+        )
+    console.print(result_table)
 
 
 def _print_share_preview(data: dict[str, object]) -> None:
@@ -1443,6 +1489,86 @@ def memory_promote(
             _handle_client_error(e)
 
     run_memory_promote()
+
+
+@memory_review_app.command("drain")
+def memory_review_drain(
+    apply_changes: bool = typer.Option(
+        False,
+        "--apply",
+        help="Apply safe promotions instead of only previewing the drain",
+    ),
+    limit: int = typer.Option(50, "--limit", min=1, max=200, help="Candidates to process"),
+    confidence_threshold: float | None = typer.Option(
+        None,
+        "--confidence-threshold",
+        min=0.0,
+        max=1.0,
+        help="Override the auto-review confidence threshold",
+    ),
+    promote_to_scope: str | None = typer.Option(None, "--scope", help="Target memory scope"),
+    promote_to_scope_key: str | None = typer.Option(None, "--scope-key", help="Target scope key"),
+    domain: str | None = typer.Option(None, "--domain", "-d", help="Domain/category"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Project ID"),
+    all_projects: bool = typer.Option(
+        False,
+        "--all-projects",
+        help="Do not auto-scope to the linked project",
+    ),
+    related_to: str | None = typer.Option(
+        None,
+        "--related-to",
+        help="Comma-separated graph IDs to relate after promotion",
+    ),
+    task: str | None = typer.Option(
+        None,
+        "--task",
+        help="Comma-separated task IDs to relate after promotion",
+    ),
+    archive_exceptions: bool = typer.Option(
+        False,
+        "--archive-exceptions",
+        help="Archive terminal duplicate/stale exceptions when applying",
+    ),
+    archive_reasons: str = typer.Option(
+        "duplicate_candidate,stale_candidate",
+        "--archive-reasons",
+        help="Comma-separated exception reasons eligible for archive",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Drain pending reflection candidates through automatic review."""
+    effective_project = project or (None if all_projects else resolve_project_from_cwd())
+    target_scope_key = promote_to_scope_key
+    if promote_to_scope == "project" and target_scope_key is None:
+        target_scope_key = effective_project
+    related_ids = _append_unique_ids(_parse_csv_ids(related_to), _parse_csv_ids(task))
+    archive_reason_ids = _parse_csv_ids(archive_reasons)
+
+    @run_async
+    async def run_memory_review_drain() -> None:
+        try:
+            async with get_client() as client:
+                data = await client.drain_reflection_review(
+                    dry_run=not apply_changes,
+                    limit=limit,
+                    promote_to_scope=promote_to_scope,
+                    promote_to_scope_key=target_scope_key,
+                    domain=domain,
+                    project=effective_project,
+                    related_to=related_ids,
+                    confidence_threshold=confidence_threshold,
+                    archive_exceptions=archive_exceptions,
+                    archive_exception_reasons=archive_reason_ids,
+                )
+            if json_output:
+                print_json(data)
+                return
+            _print_memory_review_drain(cast("dict[str, object]", data))
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_memory_review_drain()
 
 
 @app.command("memory-share")

@@ -551,6 +551,79 @@ class ReflectionAutonomyResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ReflectionReviewDrainRequest(BaseModel):
+    """Bulk automatic review drain for pending reflection candidates."""
+
+    dry_run: bool = Field(
+        default=True,
+        description="Evaluate the pending queue without applying promotions or archives",
+    )
+    limit: int = Field(default=50, ge=1, le=200, description="Maximum candidates to process")
+    promote_to_scope: MemoryScopeLiteral | None = Field(
+        default=None,
+        description="Explicit target memory scope for promotion",
+    )
+    promote_to_scope_key: str | None = Field(
+        default=None,
+        description="Project/delegation key for scoped promotion targets",
+    )
+    domain: str | None = Field(default=None, description="Optional category/domain override")
+    project: str | None = Field(default=None, description="Project relation for promoted memory")
+    related_to: list[str] = Field(
+        default_factory=list,
+        description="Additional graph entity IDs to relate to promoted memories",
+    )
+    confidence_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Optional confidence threshold override for rollout gates",
+    )
+    archive_exceptions: bool = Field(
+        default=False,
+        description="Archive terminal exception candidates when their reasons are allowlisted",
+    )
+    archive_exception_reasons: list[str] = Field(
+        default_factory=lambda: ["duplicate_candidate", "stale_candidate"],
+        description="Exception reasons eligible for automatic archive when applying",
+    )
+
+
+class ReflectionReviewDrainItem(BaseModel):
+    """Per-candidate result from a bulk reflection review drain."""
+
+    candidate_id: str
+    outcome: Literal["auto_promote", "exception", "skip", "error"]
+    recommended_action: Literal["promote", "route_to_review", "skip", "error"]
+    applied: bool = False
+    archived: bool = False
+    dry_run: bool = True
+    reason: str
+    review_state: str
+    promoted_id: str | None = None
+    raw_source_ids: list[str] = Field(default_factory=list)
+    policy_reasons: list[str] = Field(default_factory=list)
+    exception_reasons: list[str] = Field(default_factory=list)
+    confidence: float | None = None
+    error: str | None = None
+
+
+class ReflectionReviewDrainResponse(BaseModel):
+    """Bulk reflection review drain summary."""
+
+    dry_run: bool
+    limit: int
+    scanned_count: int
+    auto_promote_count: int = 0
+    applied_count: int = 0
+    archived_count: int = 0
+    exception_count: int = 0
+    skip_count: int = 0
+    failed_count: int = 0
+    results: list[ReflectionReviewDrainItem] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class MemorySharePreviewRequest(BaseModel):
     """Request to preview memory sharing without enabling a write."""
 

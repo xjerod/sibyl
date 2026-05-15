@@ -77,6 +77,43 @@ async def test_memory_space_access_client_url_encodes_space_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_review_drain_client_posts_contract() -> None:
+    client = SibylClient(base_url="http://example.test/api", auth_token="token")
+    client._request = AsyncMock(return_value={"scanned_count": 1})  # type: ignore[method-assign]
+
+    data = await client.drain_reflection_review(
+        dry_run=False,
+        limit=25,
+        promote_to_scope="project",
+        promote_to_scope_key="project_123",
+        domain="sibyl",
+        project="project_123",
+        related_to=["task_123"],
+        confidence_threshold=0.85,
+        archive_exceptions=True,
+        archive_exception_reasons=["duplicate_candidate"],
+    )
+
+    assert data == {"scanned_count": 1}
+    client._request.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/memory/reflection/review/drain",
+        json={
+            "dry_run": False,
+            "limit": 25,
+            "related_to": ["task_123"],
+            "archive_exceptions": True,
+            "archive_exception_reasons": ["duplicate_candidate"],
+            "promote_to_scope": "project",
+            "promote_to_scope_key": "project_123",
+            "domain": "sibyl",
+            "project": "project_123",
+            "confidence_threshold": 0.85,
+        },
+    )
+
+
+@pytest.mark.asyncio
 async def test_synthesis_plan_client_posts_contract() -> None:
     client = SibylClient(base_url="http://example.test/api", auth_token="token")
     client._request = AsyncMock(return_value={"run_id": "synthesis:1"})  # type: ignore[method-assign]
@@ -1145,6 +1182,87 @@ def test_memory_promote_without_preview_is_denied(mock_get_client: MagicMock) ->
     assert result.exit_code == 1
     assert "supports --preview or --auto" in result.stdout
     mock_get_client.assert_not_called()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_memory_review_drain_command_renders_summary(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.drain_reflection_review = AsyncMock(
+        return_value={
+            "dry_run": True,
+            "limit": 2,
+            "scanned_count": 2,
+            "auto_promote_count": 1,
+            "applied_count": 0,
+            "archived_count": 0,
+            "exception_count": 1,
+            "skip_count": 0,
+            "failed_count": 0,
+            "results": [
+                {
+                    "candidate_id": "safe",
+                    "outcome": "auto_promote",
+                    "recommended_action": "promote",
+                    "applied": False,
+                    "archived": False,
+                    "dry_run": True,
+                    "reason": "auto_promote_candidate",
+                    "review_state": "pending",
+                    "promoted_id": None,
+                },
+                {
+                    "candidate_id": "except",
+                    "outcome": "exception",
+                    "recommended_action": "route_to_review",
+                    "applied": False,
+                    "archived": False,
+                    "dry_run": True,
+                    "reason": "denied",
+                    "review_state": "pending",
+                    "promoted_id": None,
+                },
+            ],
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "memory-review",
+            "drain",
+            "--limit",
+            "2",
+            "--scope",
+            "project",
+            "--domain",
+            "sibyl",
+            "--archive-exceptions",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Memory review drain" in result.stdout
+    assert "safe" in result.stdout
+    assert "denied" in result.stdout
+    mock_client.drain_reflection_review.assert_awaited_once_with(
+        dry_run=True,
+        limit=2,
+        promote_to_scope="project",
+        promote_to_scope_key="project_123",
+        domain="sibyl",
+        project="project_123",
+        related_to=[],
+        confidence_threshold=None,
+        archive_exceptions=True,
+        archive_exception_reasons=["duplicate_candidate", "stale_candidate"],
+    )
+    mock_resolve_project_from_cwd.assert_called_once_with()
 
 
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")

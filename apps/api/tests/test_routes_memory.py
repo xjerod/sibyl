@@ -14,6 +14,7 @@ from sibyl.api.routes.memory import (
     apply_memory_correction_route,
     auto_review_reflection_candidate,
     create_memory_space_record,
+    drain_reflection_review,
     get_memory_source_import_status,
     get_memory_space_record,
     inspect_memory_source,
@@ -39,6 +40,7 @@ from sibyl.api.schemas import (
     RawMemoryRememberRequest,
     ReflectionAutonomyRequest,
     ReflectionPromotionRequest,
+    ReflectionReviewDrainRequest,
 )
 from sibyl.jobs import source_imports
 from sibyl_core.auth import OrganizationRole, ProjectRole
@@ -1841,6 +1843,165 @@ async def test_auto_review_reflection_candidate_routes_exceptions() -> None:
     assert response.reason == "policy_denied"
     assert response.exception_reasons == ["policy_denied"]
     audit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_drain_reflection_review_dry_run_summarizes_pending_candidates() -> None:
+    safe_preview = NativeReflectionPromotionPreview(
+        allowed=True,
+        candidate_id="candidate-safe",
+        reason="promotion_preview_allowed",
+        review_state="pending",
+        memory_scope=MemoryScope.PRIVATE,
+        scope_key=None,
+        raw_source_ids=["source-safe"],
+        metadata={"reflection_confidence": 0.92},
+    )
+    exception_preview = NativeReflectionPromotionPreview(
+        allowed=False,
+        candidate_id="candidate-exception",
+        reason="unverified_membership",
+        review_state="pending",
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="project_123",
+        raw_source_ids=["source-exception"],
+        metadata={
+            "policy_reasons": ["unverified_membership"],
+            "reflection_confidence": 0.91,
+        },
+    )
+    candidates = [
+        RawMemory(
+            id="candidate-safe",
+            organization_id="org-1",
+            source_id="source-safe",
+            principal_id="user-123",
+            capture_surface="reflection_candidate",
+        ),
+        RawMemory(
+            id="candidate-exception",
+            organization_id="org-1",
+            source_id="source-exception",
+            principal_id="user-123",
+            capture_surface="reflection_candidate",
+        ),
+    ]
+    org = _org()
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_reflection_candidate_reviews",
+            AsyncMock(return_value=candidates),
+        ) as list_candidates,
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value=set()),
+        ) as access,
+        patch(
+            "sibyl.api.routes.memory.preview_reflection_candidate_promotion",
+            AsyncMock(side_effect=[safe_preview, exception_preview]),
+        ),
+        patch(
+            "sibyl.api.routes.memory.promote_reflection_candidate_review",
+            AsyncMock(),
+        ) as promote,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()),
+    ):
+        response = await drain_reflection_review(
+            ReflectionReviewDrainRequest(
+                dry_run=True,
+                limit=2,
+                promote_to_scope="private",
+            ),
+            org=org,
+            ctx=_ctx(),
+        )
+
+    list_candidates.assert_awaited_once_with(
+        organization_id=str(org.id),
+        review_state="pending",
+        limit=2,
+    )
+    access.assert_awaited_once()
+    promote.assert_not_awaited()
+    assert response.scanned_count == 2
+    assert response.auto_promote_count == 1
+    assert response.exception_count == 1
+    assert response.applied_count == 0
+    assert response.results[0].candidate_id == "candidate-safe"
+    assert response.results[0].outcome == "auto_promote"
+    assert response.results[1].candidate_id == "candidate-exception"
+    assert response.results[1].reason == "policy_denied"
+
+
+@pytest.mark.asyncio
+async def test_drain_reflection_review_archives_terminal_exceptions() -> None:
+    preview = NativeReflectionPromotionPreview(
+        allowed=True,
+        candidate_id="candidate-duplicate",
+        reason="promotion_preview_allowed",
+        review_state="pending",
+        memory_scope=MemoryScope.PRIVATE,
+        scope_key=None,
+        raw_source_ids=["source-1"],
+        metadata={
+            "candidate_duplicate_of_source_id": "source-0",
+            "reflection_confidence": 0.94,
+        },
+    )
+    candidate = RawMemory(
+        id="candidate-duplicate",
+        organization_id="org-1",
+        source_id="source-1",
+        principal_id="user-123",
+        capture_surface="reflection_candidate",
+    )
+    archived = RawMemory(
+        id="candidate-duplicate",
+        organization_id="org-1",
+        source_id="source-1",
+        principal_id="user-123",
+        review_state="archived",
+        capture_surface="reflection_candidate",
+    )
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_reflection_candidate_reviews",
+            AsyncMock(return_value=[candidate]),
+        ),
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "sibyl.api.routes.memory.preview_reflection_candidate_promotion",
+            AsyncMock(return_value=preview),
+        ),
+        patch(
+            "sibyl.api.routes.memory.promote_reflection_candidate_review",
+            AsyncMock(),
+        ) as promote,
+        patch("sibyl.api.routes.memory.get_raw_memory", AsyncMock(return_value=candidate)),
+        patch("sibyl.api.routes.memory.save_raw_memory", AsyncMock(return_value=archived)) as save,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+    ):
+        response = await drain_reflection_review(
+            ReflectionReviewDrainRequest(
+                dry_run=False,
+                limit=1,
+                promote_to_scope="private",
+                archive_exceptions=True,
+            ),
+            org=_org(),
+            ctx=_ctx(),
+        )
+
+    promote.assert_not_awaited()
+    save.assert_awaited_once()
+    assert audit.await_count == 2
+    assert response.archived_count == 1
+    assert response.results[0].archived is True
+    assert response.results[0].review_state == "archived"
+    assert response.results[0].exception_reasons == ["duplicate_candidate"]
 
 
 @pytest.mark.asyncio
