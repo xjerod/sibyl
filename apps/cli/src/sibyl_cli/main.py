@@ -39,6 +39,7 @@ from sibyl_cli.dev import app as dev_app
 from sibyl_cli.entity import app as entity_app
 from sibyl_cli.epic import app as epic_app
 from sibyl_cli.explore import app as explore_app
+from sibyl_cli.id_resolution import resolve_raw_memory_id_prefix
 from sibyl_cli.local import app as local_app
 from sibyl_cli.logs import app as logs_app
 from sibyl_cli.org import app as org_app
@@ -1535,7 +1536,8 @@ def memory_inspect(
     async def run_memory_inspect() -> None:
         try:
             async with get_client() as client:
-                data = await client.memory_inspect(source_id)
+                resolved_source_id = await resolve_raw_memory_id_prefix(client, source_id)
+                data = await client.memory_inspect(resolved_source_id)
             if json_output:
                 print_json(data)
                 return
@@ -1604,9 +1606,10 @@ def memory_promote(
     async def run_memory_promote() -> None:
         try:
             async with get_client() as client:
+                resolved_candidate_id = await resolve_raw_memory_id_prefix(client, candidate_id)
                 if auto:
                     data = await client.auto_review_reflection_promotion(
-                        candidate_id=candidate_id,
+                        candidate_id=resolved_candidate_id,
                         promote_to_scope=promote_to_scope,
                         promote_to_scope_key=target_scope_key,
                         domain=domain,
@@ -1617,7 +1620,7 @@ def memory_promote(
                     )
                 else:
                     data = await client.preview_reflection_promotion(
-                        candidate_id=candidate_id,
+                        candidate_id=resolved_candidate_id,
                         promote_to_scope=promote_to_scope,
                         promote_to_scope_key=target_scope_key,
                         domain=domain,
@@ -1866,8 +1869,12 @@ def memory_share(
     async def run_memory_share() -> None:
         try:
             async with get_client() as client:
+                resolved_source_ids = [
+                    await resolve_raw_memory_id_prefix(client, source_id)
+                    for source_id in parsed_source_ids
+                ]
                 data = await client.preview_memory_share(
-                    source_ids=parsed_source_ids,
+                    source_ids=resolved_source_ids,
                     target_scope=target_scope,
                     target_scope_key=resolved_target_key,
                     recipient_organization_id=recipient_organization_id,

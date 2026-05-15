@@ -9,7 +9,7 @@ All commands output table format by default. Use --json for JSON output.
 
 import shutil
 import sys
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import typer
@@ -33,6 +33,7 @@ from sibyl_cli.common import (
     success,
 )
 from sibyl_cli.config_store import resolve_project_from_cwd
+from sibyl_cli.id_resolution import resolve_id_prefix
 
 app = typer.Typer(
     name="task",
@@ -103,10 +104,7 @@ def _normalize_created_task_response(
 
 
 def _validate_task_id(task_id: str) -> str:
-    """Validate that a task ID has the expected format.
-
-    Full task IDs are required - no prefix matching or guessing.
-    Accepts legacy task_<hex> IDs and canonical UUIDs returned by the API.
+    """Validate that a task ID is already a full API ID.
 
     Args:
         task_id: The task ID to validate.
@@ -136,6 +134,10 @@ def _validate_task_id(task_id: str) -> str:
         ) from exc
 
     return task_id
+
+
+async def _resolve_task_id(client: Any, task_id: str) -> str:
+    return await resolve_id_prefix(client, task_id, entity_type="task")
 
 
 def _archive_error_detail(result: dict) -> str:
@@ -503,7 +505,7 @@ def _display_task_panel(entity: dict) -> None:
 @app.command("get", hidden=True)
 @app.command("show")
 def show_task(
-    task_id: Annotated[str, typer.Argument(help="Task ID (full ID required)")],
+    task_id: Annotated[str, typer.Argument(help="Task ID or unambiguous prefix")],
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
@@ -515,8 +517,7 @@ def show_task(
         client = get_client()
 
         try:
-            # Validate full task ID (no prefix matching)
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
 
             entity = await client.get_entity(resolved_id)
 
@@ -535,7 +536,7 @@ def show_task(
 
 @app.command("start")
 def start_task(
-    task_id: Annotated[str, typer.Argument(help="Task ID to start (full ID required)")],
+    task_id: Annotated[str, typer.Argument(help="Task ID or unambiguous prefix to start")],
     assignee: Annotated[str | None, typer.Option("--assignee", "-a", help="Assignee name")] = None,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
@@ -548,8 +549,7 @@ def start_task(
         client = get_client()
 
         try:
-            # Validate full task ID (no prefix matching)
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
 
             response = await client.start_task(resolved_id, assignee)
 
@@ -577,7 +577,7 @@ def start_task(
 
 @app.command("block")
 def block_task(
-    task_id: Annotated[str, typer.Argument(help="Task ID to block (full ID required)")],
+    task_id: Annotated[str, typer.Argument(help="Task ID or unambiguous prefix to block")],
     reason: Annotated[str, typer.Option("--reason", "-r", help="Blocker reason (required)")],
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
@@ -590,8 +590,7 @@ def block_task(
         client = get_client()
 
         try:
-            # Validate full task ID (no prefix matching)
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
 
             response = await client.block_task(resolved_id, reason)
 
@@ -612,7 +611,7 @@ def block_task(
 
 @app.command("unblock")
 def unblock_task(
-    task_id: Annotated[str, typer.Argument(help="Task ID to unblock (full ID required)")],
+    task_id: Annotated[str, typer.Argument(help="Task ID or unambiguous prefix to unblock")],
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
@@ -624,8 +623,7 @@ def unblock_task(
         client = get_client()
 
         try:
-            # Validate full task ID (no prefix matching)
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
 
             response = await client.unblock_task(resolved_id)
 
@@ -646,7 +644,10 @@ def unblock_task(
 
 @app.command("review")
 def submit_review(
-    task_id: Annotated[str, typer.Argument(help="Task ID to submit for review (full ID required)")],
+    task_id: Annotated[
+        str,
+        typer.Argument(help="Task ID or unambiguous prefix to submit for review"),
+    ],
     pr_url: Annotated[str | None, typer.Option("--pr", help="Pull request URL")] = None,
     commits: Annotated[
         str | None, typer.Option("--commits", "-c", help="Comma-separated commit SHAs")
@@ -662,8 +663,7 @@ def submit_review(
         client = get_client()
 
         try:
-            # Validate full task ID (no prefix matching)
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
             commit_list = [c.strip() for c in commits.split(",")] if commits else None
 
             response = await client.submit_review(resolved_id, pr_url, commit_list)
@@ -685,7 +685,7 @@ def submit_review(
 
 @app.command("complete")
 def complete_task(
-    task_id: Annotated[str, typer.Argument(help="Task ID to complete (full ID required)")],
+    task_id: Annotated[str, typer.Argument(help="Task ID or unambiguous prefix to complete")],
     hours: Annotated[float | None, typer.Option("--hours", "-h", help="Actual hours spent")] = None,
     learnings: Annotated[
         str | None,
@@ -702,8 +702,7 @@ def complete_task(
         client = get_client()
 
         try:
-            # Validate full task ID (no prefix matching)
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
 
             response = await client.complete_task(resolved_id, hours, learnings)
 
@@ -776,7 +775,7 @@ def archive_task(
 
         for tid in task_ids:
             try:
-                resolved_id = _validate_task_id(tid)
+                resolved_id = await _resolve_task_id(client, tid)
                 response = await client.archive_task(resolved_id, reason)
                 results.append({"id": resolved_id, **response})
                 if response.get("success"):
@@ -994,7 +993,7 @@ def update_task(
                 )
                 return
 
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
             assignees = [assignee] if assignee else None
             tag_list = [t.strip() for t in tags.split(",")] if tags else None
             tech_list = [t.strip() for t in technologies.split(",")] if technologies else None
@@ -1040,7 +1039,7 @@ def update_task(
 
 @app.command("note")
 def add_note(
-    task_id: Annotated[str, typer.Argument(help="Task ID (full ID required)")],
+    task_id: Annotated[str, typer.Argument(help="Task ID or unambiguous prefix")],
     content: Annotated[str, typer.Argument(help="Note content")],
     assistant: Annotated[
         bool,
@@ -1069,7 +1068,7 @@ def add_note(
         client = get_client()
 
         try:
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
             author_type = "agent" if assistant else "user"
             author_name = author or ""
 
@@ -1092,7 +1091,7 @@ def add_note(
 
 @app.command("notes")
 def list_notes(
-    task_id: Annotated[str, typer.Argument(help="Task ID (full ID required)")],
+    task_id: Annotated[str, typer.Argument(help="Task ID or unambiguous prefix")],
     limit: Annotated[int, typer.Option("-n", "--limit", help="Max results")] = 20,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
@@ -1109,7 +1108,7 @@ def list_notes(
         client = get_client()
 
         try:
-            resolved_id = _validate_task_id(task_id)
+            resolved_id = await _resolve_task_id(client, task_id)
 
             response = await client.list_notes(resolved_id, limit)
             notes = response.get("notes", [])

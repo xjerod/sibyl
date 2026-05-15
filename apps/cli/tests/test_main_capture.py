@@ -1143,6 +1143,7 @@ def test_memory_audit_command_lists_events(mock_get_client: MagicMock) -> None:
 @patch("sibyl_cli.main.get_client")
 def test_memory_inspect_command_renders_source_summary(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()
+    mock_client.resolve_id_prefix = AsyncMock(return_value={"matches": [{"id": "memory-1"}]})
     mock_client.memory_inspect = AsyncMock(
         return_value={
             "id": "memory-1",
@@ -1176,12 +1177,17 @@ def test_memory_inspect_command_renders_source_summary(mock_get_client: MagicMoc
     assert "Corrections" in result.stdout
     assert "inspect" in result.stdout
     assert "+1" in result.stdout
+    mock_client.resolve_id_prefix.assert_awaited_once_with(
+        "memory-1",
+        entity_type="raw_memory",
+    )
     mock_client.memory_inspect.assert_awaited_once_with("memory-1")
 
 
 @patch("sibyl_cli.main.get_client")
 def test_memory_inspect_command_outputs_json(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()
+    mock_client.resolve_id_prefix = AsyncMock(return_value={"matches": [{"id": "memory-1"}]})
     mock_client.memory_inspect = AsyncMock(
         return_value={
             "id": "memory-1",
@@ -1200,6 +1206,10 @@ def test_memory_inspect_command_outputs_json(mock_get_client: MagicMock) -> None
     assert result.exit_code == 0
     assert '"id": "memory-1"' in result.stdout
     assert '"raw_content": "visible content"' in result.stdout
+    mock_client.resolve_id_prefix.assert_awaited_once_with(
+        "memory-1",
+        entity_type="raw_memory",
+    )
     mock_client.memory_inspect.assert_awaited_once_with("memory-1")
 
 
@@ -1210,6 +1220,7 @@ def test_memory_promote_preview_command_renders_decision(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.resolve_id_prefix = AsyncMock(return_value={"matches": [{"id": "candidate-1"}]})
     mock_client.preview_reflection_promotion = AsyncMock(
         return_value={
             "allowed": False,
@@ -1247,6 +1258,10 @@ def test_memory_promote_preview_command_renders_decision(
     assert "denied" in result.stdout
     assert "candidate-1" in result.stdout
     assert "project:project_123" in result.stdout
+    mock_client.resolve_id_prefix.assert_awaited_once_with(
+        "candidate-1",
+        entity_type="raw_memory",
+    )
     mock_client.preview_reflection_promotion.assert_awaited_once_with(
         candidate_id="candidate-1",
         promote_to_scope="project",
@@ -1559,6 +1574,12 @@ def test_memory_share_preview_command_renders_redactions(
     mock_resolve_project_from_cwd: MagicMock,
 ) -> None:
     mock_client = MagicMock()
+    mock_client.resolve_id_prefix = AsyncMock(
+        side_effect=[
+            {"matches": [{"id": "raw-1"}]},
+            {"matches": [{"id": "raw-2"}]},
+        ]
+    )
     mock_client.preview_memory_share = AsyncMock(
         return_value={
             "allowed": False,
@@ -1594,6 +1615,8 @@ def test_memory_share_preview_command_renders_redactions(
     assert "raw-1" in result.stdout
     assert "raw-2" in result.stdout
     assert "source_not_found" in result.stdout
+    assert mock_client.resolve_id_prefix.await_args_list[0].kwargs == {"entity_type": "raw_memory"}
+    assert mock_client.resolve_id_prefix.await_args_list[1].kwargs == {"entity_type": "raw_memory"}
     mock_client.preview_memory_share.assert_awaited_once_with(
         source_ids=["raw-1", "raw-2"],
         target_scope="project",

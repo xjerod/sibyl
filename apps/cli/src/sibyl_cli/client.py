@@ -641,6 +641,19 @@ class SibylClient:
         """Delete an entity."""
         return await self._request("DELETE", f"/entities/{entity_id}")
 
+    async def resolve_id_prefix(
+        self,
+        prefix: str,
+        *,
+        entity_type: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Resolve a short graph ID prefix to matching full IDs."""
+        params: dict[str, Any] = {"limit": limit}
+        if entity_type:
+            params["entity_type"] = entity_type
+        return await self._request("GET", f"/resolve/{quote(prefix, safe='')}", params=params)
+
     # =========================================================================
     # Task Workflow Operations
     # =========================================================================

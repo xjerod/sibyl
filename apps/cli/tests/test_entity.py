@@ -13,7 +13,7 @@ def test_entity_show_renders_full_content(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()
     mock_client.get_entity = AsyncMock(
         return_value={
-            "id": "episode_123",
+            "id": "episode_123456789abc",
             "name": "Long memory",
             "entity_type": "episode",
             "description": "Short summary",
@@ -23,9 +23,9 @@ def test_entity_show_renders_full_content(mock_get_client: MagicMock) -> None:
     )
     mock_get_client.return_value = mock_client
 
-    result = CliRunner().invoke(app, ["show", "episode_123"])
+    result = CliRunner().invoke(app, ["show", "episode_123456789abc"])
 
     assert result.exit_code == 0
     assert "TAIL_SENTINEL" in result.stdout
     assert "..." not in result.stdout
-    mock_client.get_entity.assert_awaited_once_with("episode_123")
+    mock_client.get_entity.assert_awaited_once_with("episode_123456789abc")

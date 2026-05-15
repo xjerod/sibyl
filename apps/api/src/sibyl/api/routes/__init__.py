@@ -18,6 +18,7 @@ from sibyl.api.routes.org_members import router as org_members_router
 from sibyl.api.routes.orgs import router as orgs_router
 from sibyl.api.routes.project_members import router as project_members_router
 from sibyl.api.routes.rag import router as rag_router
+from sibyl.api.routes.resolve import router as resolve_router
 from sibyl.api.routes.search import router as search_router
 from sibyl.api.routes.session import router as session_router
 from sibyl.api.routes.settings import router as settings_router
@@ -46,6 +47,7 @@ __all__ = [
     "orgs_router",
     "project_members_router",
     "rag_router",
+    "resolve_router",
     "search_router",
     "session_router",
     "settings_router",

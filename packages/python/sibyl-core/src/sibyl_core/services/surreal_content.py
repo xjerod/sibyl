@@ -898,6 +898,31 @@ async def get_raw_memory_by_source_id(
     return _raw_memory_from_record(record) if record is not None else None
 
 
+async def resolve_raw_memory_prefix(
+    *,
+    organization_id: str,
+    prefix: str,
+    limit: int = 20,
+) -> list[RawMemory]:
+    normalized = prefix.strip()
+    if not normalized or limit <= 0:
+        return []
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE organization_id = $organization_id "
+            "AND ((uuid >= $prefix AND uuid < $prefix_upper) "
+            "OR (source_id >= $prefix AND source_id < $prefix_upper)) "
+            "ORDER BY captured_at DESC LIMIT $limit;",
+            organization_id=organization_id,
+            prefix=normalized,
+            prefix_upper=f"{normalized}\uffff",
+            limit=limit,
+        )
+    return [_raw_memory_from_record(row) for row in rows]
+
+
 async def save_raw_memory(memory: RawMemory) -> RawMemory:
     async with surreal_content_client() as client:
         record = await _replace_record(
@@ -988,11 +1013,7 @@ async def list_raw_memories_for_scope(
     if limit <= 0:
         return []
     normalized_scope = _coerce_memory_scope(memory_scope)
-    query_limit = (
-        limit
-        if include_lifecycle_hidden
-        else limit * _LIFECYCLE_FILTER_OVERFETCH_FACTOR
-    )
+    query_limit = limit if include_lifecycle_hidden else limit * _LIFECYCLE_FILTER_OVERFETCH_FACTOR
     where_clause, params = _memory_scope_where(
         organization_id=organization_id,
         principal_id=principal_id,
@@ -1480,6 +1501,7 @@ __all__ = [
     "recall_raw_memory",
     "remember_raw_memory",
     "remember_reflection_candidate_review",
+    "resolve_raw_memory_prefix",
     "save_raw_memory",
     "search_document_chunks",
     "set_source_job_state",

@@ -6,7 +6,7 @@ Epics group related tasks within a project. They have a simpler lifecycle
 than tasks: planning -> in_progress -> completed/archived.
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -26,6 +26,7 @@ from sibyl_cli.common import (
     success,
 )
 from sibyl_cli.config_store import resolve_project_from_cwd
+from sibyl_cli.id_resolution import resolve_id_prefix
 
 app = typer.Typer(
     name="epic",
@@ -52,10 +53,7 @@ def format_epic_status(status: str) -> str:
 
 
 def _validate_epic_id(epic_id: str) -> str:
-    """Validate that an epic ID has the expected format.
-
-    Full epic IDs are required - no prefix matching or guessing.
-    Format: epic_<12 hex chars> (17 chars total)
+    """Validate that an epic ID is already a full API ID.
 
     Args:
         epic_id: The epic ID to validate.
@@ -79,6 +77,10 @@ def _validate_epic_id(epic_id: str) -> str:
             detail=f"Full epic ID required, got: {epic_id}",
         )
     return epic_id
+
+
+async def _resolve_epic_id(client: Any, epic_id: str) -> str:
+    return await resolve_id_prefix(client, epic_id, entity_type="epic")
 
 
 @app.command("list")
@@ -189,7 +191,7 @@ def _format_task_line(task: dict, include_id: bool = True) -> str:
 
 @app.command("show")
 def show_epic(
-    epic_id: Annotated[str, typer.Argument(help="Full epic ID")],
+    epic_id: Annotated[str, typer.Argument(help="Epic ID or unambiguous prefix")],
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
@@ -201,7 +203,7 @@ def show_epic(
         client = get_client()
 
         try:
-            resolved_id = _validate_epic_id(epic_id)
+            resolved_id = await _resolve_epic_id(client, epic_id)
             entity = await client.get_entity(resolved_id)
 
             if json_out:
@@ -492,7 +494,7 @@ def create_epic(
 
 @app.command("start")
 def start_epic(
-    epic_id: Annotated[str, typer.Argument(help="Full epic ID to start")],
+    epic_id: Annotated[str, typer.Argument(help="Epic ID or unambiguous prefix to start")],
     assignee: Annotated[str | None, typer.Option("--assignee", "-a", help="Epic lead")] = None,
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
@@ -505,7 +507,7 @@ def start_epic(
         client = get_client()
 
         try:
-            resolved_id = _validate_epic_id(epic_id)
+            resolved_id = await _resolve_epic_id(client, epic_id)
 
             # Build update data - status/assignees go in metadata
             metadata: dict = {"status": "in_progress"}
@@ -531,7 +533,7 @@ def start_epic(
 
 @app.command("complete")
 def complete_epic(
-    epic_id: Annotated[str, typer.Argument(help="Full epic ID to complete")],
+    epic_id: Annotated[str, typer.Argument(help="Epic ID or unambiguous prefix to complete")],
     learnings: Annotated[
         str | None, typer.Option("--learnings", "-l", help="Key learnings from the epic")
     ] = None,
@@ -546,7 +548,7 @@ def complete_epic(
         client = get_client()
 
         try:
-            resolved_id = _validate_epic_id(epic_id)
+            resolved_id = await _resolve_epic_id(client, epic_id)
 
             # Build update data - status/learnings go in metadata
             metadata: dict = {"status": "completed"}
@@ -588,7 +590,7 @@ def archive_epic(
         client = get_client()
 
         try:
-            resolved_id = _validate_epic_id(epic_id)
+            resolved_id = await _resolve_epic_id(client, epic_id)
 
             # Build update data - status/learnings go in metadata
             metadata: dict = {"status": "archived"}
@@ -644,7 +646,7 @@ def update_epic(
                 )
                 return
 
-            resolved_id = _validate_epic_id(epic_id)
+            resolved_id = await _resolve_epic_id(client, epic_id)
 
             # Build update data - status/priority/assignees go in metadata
             updates: dict = {}
@@ -969,7 +971,7 @@ def list_epic_tasks(
         client = get_client()
 
         try:
-            resolved_id = _validate_epic_id(epic_id)
+            resolved_id = await _resolve_epic_id(client, epic_id)
 
             # Use epic filter to get tasks with full metadata
             response = await client.explore(

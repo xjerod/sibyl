@@ -24,6 +24,7 @@ from sibyl_cli.common import (
     success,
     truncate,
 )
+from sibyl_cli.id_resolution import resolve_id_prefix
 from sibyl_core.models.entities import EntityType
 
 app = typer.Typer(
@@ -132,7 +133,8 @@ def show_entity(
         client = get_client()
 
         try:
-            entity = await client.get_entity(entity_id)
+            resolved_id = await resolve_id_prefix(client, entity_id)
+            entity = await client.get_entity(resolved_id)
 
             # JSON output (default)
             if json_out:

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from typer.testing import CliRunner
 
 from sibyl_cli import task
+from sibyl_cli.client import SibylClientError
 from sibyl_cli.main import app as main_app
 
 
@@ -193,6 +194,23 @@ def test_task_complete_accepts_note_alias(mock_get_client: MagicMock) -> None:
 
 
 @patch("sibyl_cli.task.get_client")
+def test_task_start_accepts_short_prefix(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.resolve_id_prefix = AsyncMock(
+        return_value={"matches": [{"id": "task_123456789abc"}]}
+    )
+    mock_client.start_task = AsyncMock(return_value={"success": True})
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(task.app, ["start", "123456", "--json"])
+
+    assert result.exit_code == 0
+    mock_client.resolve_id_prefix.assert_awaited_once_with("123456", entity_type="task")
+    mock_client.start_task.assert_awaited_once_with("task_123456789abc", None)
+
+
+@patch("sibyl_cli.task.get_client")
 def test_task_complete_json_preserves_api_policy_metadata(
     mock_get_client: MagicMock,
 ) -> None:
@@ -226,6 +244,13 @@ def test_task_complete_json_preserves_api_policy_metadata(
 @patch("sibyl_cli.task.get_client")
 def test_task_archive_stdin_json_reports_failed_ids(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()
+    mock_client.resolve_id_prefix = AsyncMock(
+        side_effect=SibylClientError(
+            "No task ID matches prefix: not-a-task",
+            status_code=404,
+            detail="No task ID matches prefix: not-a-task",
+        )
+    )
     mock_client.archive_task = AsyncMock(
         side_effect=[
             {"success": True},

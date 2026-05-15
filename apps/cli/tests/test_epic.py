@@ -89,6 +89,25 @@ class TestEpicUpdateMetadata:
         assert call_kwargs.kwargs["metadata"]["status"] == "in_progress"
 
     @patch("sibyl_cli.epic.get_client")
+    def test_start_accepts_short_prefix(self, mock_get_client: MagicMock) -> None:
+        """Epic start should resolve unambiguous short prefixes."""
+        mock_client = MagicMock()
+        mock_client.resolve_id_prefix = AsyncMock(
+            return_value={"matches": [{"id": "epic_123456789abc"}]}
+        )
+        mock_client.update_entity = AsyncMock(return_value={"id": "epic_123456789abc"})
+        mock_get_client.return_value = mock_client
+
+        from typer.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(epic.app, ["start", "123456", "--json"])
+
+        assert result.exit_code == 0
+        mock_client.resolve_id_prefix.assert_awaited_once_with("123456", entity_type="epic")
+        mock_client.update_entity.assert_awaited_once()
+
+    @patch("sibyl_cli.epic.get_client")
     def test_complete_wraps_status_in_metadata(self, mock_get_client: MagicMock) -> None:
         """Epic complete should wrap status and learnings in metadata."""
         mock_client = MagicMock()
