@@ -187,10 +187,10 @@ _DEFAULT_ENTRIES = [
     ),
     ModelEntry(
         alias="gemini-3-1-flash-lite",
-        snapshot="gemini-3.1-flash-lite",
+        snapshot="gemini-3.1-flash-lite-preview",
         kind=ModelKind.LLM,
         provider="gemini",
-        provider_model_id="gemini-3.1-flash-lite",
+        provider_model_id="gemini-3.1-flash-lite-preview",
         pydantic_ai_model_class="GoogleModel",
         use_cases=("bulk", "bulk-crawling"),
         capabilities=frozenset(

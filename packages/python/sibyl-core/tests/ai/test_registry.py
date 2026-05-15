@@ -28,6 +28,9 @@ def test_registry_lookup_by_alias_and_snapshot() -> None:
     assert alias_entry.provider_model_id == "claude-haiku-4-5-20251001"
     assert ModelCapability.STRUCTURED_OUTPUT in alias_entry.capabilities
 
+    gemini_entry = model_registry.require("gemini-3-1-flash-lite", kind=ModelKind.LLM)
+    assert gemini_entry.provider_model_id == "gemini-3.1-flash-lite-preview"
+
 
 def test_registry_filters_kind() -> None:
     assert model_registry.get("claude-haiku-4-5", kind=ModelKind.EMBEDDING) is None

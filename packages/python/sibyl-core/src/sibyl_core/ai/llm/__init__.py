@@ -12,10 +12,14 @@ from sibyl_core.ai.llm.config import (
     resolve_llm_config,
     set_config_source,
 )
+from sibyl_core.ai.llm.extractor import Extractor
+from sibyl_core.ai.llm.generator import Generator
 
 __all__ = [
     "ConfigField",
     "EnvConfigSource",
+    "Extractor",
+    "Generator",
     "LLMConfig",
     "LLMConfigSource",
     "LLMSurface",

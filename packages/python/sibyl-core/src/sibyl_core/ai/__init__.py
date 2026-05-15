@@ -8,10 +8,13 @@ from sibyl_core.ai.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
     LLMValidationError,
+    classify_llm_exception,
 )
 from sibyl_core.ai.llm import (
     ConfigField,
     EnvConfigSource,
+    Extractor,
+    Generator,
     LLMConfig,
     LLMConfigSource,
     LLMSurface,
@@ -21,6 +24,7 @@ from sibyl_core.ai.llm import (
     resolve_llm_config,
     set_config_source,
 )
+from sibyl_core.ai.providers import build_model, resolve_provider_model_id
 from sibyl_core.ai.registry import (
     ModelCapability,
     ModelEntry,
@@ -31,11 +35,22 @@ from sibyl_core.ai.registry import (
     model_registry,
     recommended_for,
 )
+from sibyl_core.ai.validation import (
+    KeyValidationResult,
+    ModelValidationResult,
+    SurfaceTestResult,
+    check_model_availability,
+    check_provider_key,
+    test_surface_config,
+)
 
 __all__ = [
     "AIError",
     "ConfigField",
     "EnvConfigSource",
+    "Extractor",
+    "Generator",
+    "KeyValidationResult",
     "LLMConfig",
     "LLMConfigError",
     "LLMConfigSource",
@@ -49,7 +64,13 @@ __all__ = [
     "ModelEntry",
     "ModelKind",
     "ModelRegistry",
+    "ModelValidationResult",
     "ResolvedLLMConfig",
+    "SurfaceTestResult",
+    "build_model",
+    "check_model_availability",
+    "check_provider_key",
+    "classify_llm_exception",
     "embedding_entries",
     "get_config_source",
     "invalidate_llm_config",
@@ -57,5 +78,7 @@ __all__ = [
     "model_registry",
     "recommended_for",
     "resolve_llm_config",
+    "resolve_provider_model_id",
     "set_config_source",
+    "test_surface_config",
 ]
