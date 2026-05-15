@@ -152,6 +152,8 @@ DEFINE FIELD IF NOT EXISTS name ON relates_to TYPE string;
 DEFINE FIELD IF NOT EXISTS fact ON relates_to TYPE string;
 DEFINE FIELD IF NOT EXISTS fact_embedding ON relates_to TYPE option<array<float, {EMBEDDING_DIM}>>;
 DEFINE FIELD IF NOT EXISTS group_id ON relates_to TYPE string;
+DEFINE FIELD IF NOT EXISTS source_id ON relates_to TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS target_id ON relates_to TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS episodes ON relates_to TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS attributes ON relates_to TYPE object FLEXIBLE DEFAULT {{}};
 DEFINE FIELD IF NOT EXISTS created_at ON relates_to TYPE datetime DEFAULT time::now();
@@ -161,11 +163,11 @@ DEFINE FIELD IF NOT EXISTS invalid_at ON relates_to TYPE option<datetime>;
 
 DEFINE INDEX IF NOT EXISTS idx_relates_uuid ON relates_to FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_relates_group ON relates_to FIELDS group_id;
-DEFINE INDEX IF NOT EXISTS idx_relates_group_in ON relates_to FIELDS group_id, in;
-DEFINE INDEX IF NOT EXISTS idx_relates_group_out ON relates_to FIELDS group_id, out;
-DEFINE INDEX IF NOT EXISTS idx_relates_group_name_in ON relates_to FIELDS group_id, name, in;
-DEFINE INDEX IF NOT EXISTS idx_relates_group_name_out ON relates_to FIELDS group_id, name, out;
-DEFINE INDEX IF NOT EXISTS idx_relates_group_in_out_name ON relates_to FIELDS group_id, in, out, name;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_source ON relates_to FIELDS group_id, source_id;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_target ON relates_to FIELDS group_id, target_id;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_name_source ON relates_to FIELDS group_id, name, source_id;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_name_target ON relates_to FIELDS group_id, name, target_id;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_source_target_name ON relates_to FIELDS group_id, source_id, target_id, name;
 DEFINE INDEX IF NOT EXISTS idx_relates_fact_ft ON relates_to FIELDS fact FULLTEXT ANALYZER content_analyzer BM25;
 DEFINE INDEX IF NOT EXISTS idx_relates_fact_embedding ON relates_to FIELDS fact_embedding
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32 EFC 150 M 12;
@@ -178,8 +180,6 @@ DEFINE FIELD IF NOT EXISTS created_at ON mentions TYPE datetime DEFAULT time::no
 
 DEFINE INDEX IF NOT EXISTS idx_mentions_uuid ON mentions FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_mentions_group ON mentions FIELDS group_id;
-DEFINE INDEX IF NOT EXISTS idx_mentions_group_in ON mentions FIELDS group_id, in;
-DEFINE INDEX IF NOT EXISTS idx_mentions_group_out ON mentions FIELDS group_id, out;
 
 DEFINE TABLE IF NOT EXISTS has_episode TYPE RELATION IN saga OUT episode SCHEMAFULL;
 ALTER TABLE IF EXISTS has_episode SCHEMAFULL;

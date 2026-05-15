@@ -849,8 +849,8 @@ class NativeRelationshipManager:
                    expired_at,
                    valid_at,
                    invalid_at,
-                   in.uuid AS source_uuid,
-                   out.uuid AS target_uuid
+                   source_id ?? in.uuid AS source_uuid,
+                   target_id ?? out.uuid AS target_uuid
             FROM relates_to
             WHERE group_id = $group_id AND uuid = $uuid
             LIMIT 1;
@@ -871,11 +871,24 @@ class NativeRelationshipManager:
         type_values = [rel_type.value for rel_type in relationship_types or ()]
         type_clause = " AND name IN $relationship_types" if type_values else ""
         if direction == "outgoing":
-            direction_clause = " AND in.uuid = $entity_id"
+            direction_clause = (
+                " AND (source_id = $entity_id OR (source_id IS NONE AND in.uuid = $entity_id))"
+            )
         elif direction == "incoming":
-            direction_clause = " AND out.uuid = $entity_id"
+            direction_clause = (
+                " AND (target_id = $entity_id OR (target_id IS NONE AND out.uuid = $entity_id))"
+            )
         else:
-            direction_clause = " AND (in.uuid = $entity_id OR out.uuid = $entity_id)"
+            direction_clause = """
+                AND (
+                    source_id = $entity_id
+                    OR target_id = $entity_id
+                    OR (
+                        (source_id IS NONE OR target_id IS NONE)
+                        AND (in.uuid = $entity_id OR out.uuid = $entity_id)
+                    )
+                )
+            """
 
         rows = normalize_records(
             await self._client.execute_query(
@@ -891,8 +904,8 @@ class NativeRelationshipManager:
                        expired_at,
                        valid_at,
                        invalid_at,
-                       in.uuid AS source_uuid,
-                       out.uuid AS target_uuid
+                       source_id ?? in.uuid AS source_uuid,
+                       target_id ?? out.uuid AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
                 """
@@ -938,10 +951,6 @@ class NativeRelationshipManager:
         if not seed_ids:
             return {}
 
-        seed_record_ids = await _record_ids(self._client, seed_ids)
-        if not seed_record_ids:
-            return {seed_id: [] for seed_id in seed_ids}
-
         type_values = [rel_type.value for rel_type in relationship_types or ()]
         type_clause = "AND name IN $relationship_types" if type_values else ""
         per_seed_limit = max(int(limit_per_entity), 1)
@@ -960,11 +969,18 @@ class NativeRelationshipManager:
                        expired_at,
                        valid_at,
                        invalid_at,
-                       in.uuid AS source_uuid,
-                       out.uuid AS target_uuid
+                       source_id ?? in.uuid AS source_uuid,
+                       target_id ?? out.uuid AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
-                  AND (in IN $record_ids OR out IN $record_ids)
+                  AND (
+                    source_id IN $entity_ids
+                    OR target_id IN $entity_ids
+                    OR (
+                        (source_id IS NONE OR target_id IS NONE)
+                        AND (in.uuid IN $entity_ids OR out.uuid IN $entity_ids)
+                    )
+                  )
                 """
                 + type_clause
                 + """
@@ -972,13 +988,13 @@ class NativeRelationshipManager:
                 LIMIT $limit;
                 """,
                 group_id=self._group_id,
-                record_ids=list(seed_record_ids.values()),
+                entity_ids=seed_ids,
                 relationship_types=type_values,
                 limit=query_limit,
             )
         )
 
-        seed_id_set = set(seed_record_ids)
+        seed_id_set = set(seed_ids)
         edge_pairs_by_seed: dict[str, list[tuple[SurrealRecord, str]]] = {
             seed_id: [] for seed_id in seed_ids
         }
@@ -1048,8 +1064,8 @@ class NativeRelationshipManager:
                        expired_at,
                        valid_at,
                        invalid_at,
-                       in.uuid AS source_uuid,
-                       out.uuid AS target_uuid
+                       source_id ?? in.uuid AS source_uuid,
+                       target_id ?? out.uuid AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
                 """
@@ -1088,13 +1104,20 @@ class NativeRelationshipManager:
                        expired_at,
                        valid_at,
                        invalid_at,
-                       in.uuid AS source_uuid,
-                       out.uuid AS target_uuid
+                       source_id ?? in.uuid AS source_uuid,
+                       target_id ?? out.uuid AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
                   AND (
-                    (in.uuid = $source_id AND out.uuid = $target_id)
-                    OR (in.uuid = $target_id AND out.uuid = $source_id)
+                    (source_id = $source_id AND target_id = $target_id)
+                    OR (source_id = $target_id AND target_id = $source_id)
+                    OR (
+                        (source_id IS NONE OR target_id IS NONE)
+                        AND (
+                            (in.uuid = $source_id AND out.uuid = $target_id)
+                            OR (in.uuid = $target_id AND out.uuid = $source_id)
+                        )
+                    )
                   )
                 """
                 + type_clause
@@ -1120,8 +1143,14 @@ class NativeRelationshipManager:
                 """
                 DELETE FROM relates_to
                 WHERE group_id = $group_id
-                  AND in.uuid = $source_id
-                  AND out.uuid = $target_id
+                  AND (
+                    (source_id = $source_id AND target_id = $target_id)
+                    OR (
+                        (source_id IS NONE OR target_id IS NONE)
+                        AND in.uuid = $source_id
+                        AND out.uuid = $target_id
+                    )
+                  )
                   AND name = $relationship_type
                 RETURN BEFORE;
                 """,
@@ -2028,6 +2057,8 @@ async def _replace_relationship(
             fact = $fact,
             fact_embedding = $fact_embedding,
             group_id = $group_id,
+            source_id = $source_id,
+            target_id = $target_id,
             episodes = $episodes,
             attributes = $attributes,
             created_at = $created_at,
@@ -2042,6 +2073,8 @@ async def _replace_relationship(
                 fact = $fact,
                 fact_embedding = $fact_embedding,
                 group_id = $group_id,
+                source_id = $source_id,
+                target_id = $target_id,
                 episodes = $episodes,
                 attributes = $attributes,
                 created_at = $created_at,
@@ -2066,30 +2099,6 @@ async def _record_id(client: NativeSurrealGraphClient, uuid: str) -> object | No
     return row.get("record_id") if row else None
 
 
-async def _record_ids(
-    client: NativeSurrealGraphClient,
-    uuids: Sequence[str],
-) -> dict[str, object]:
-    uuid_list = list(dict.fromkeys(str(uuid) for uuid in uuids if uuid))
-    if not uuid_list:
-        return {}
-    rows = normalize_records(
-        await client.execute_query(
-            """
-            SELECT uuid, id AS record_id
-            FROM entity
-            WHERE uuid IN $uuids;
-            """,
-            uuids=uuid_list,
-        )
-    )
-    return {
-        str(row["uuid"]): row["record_id"]
-        for row in rows
-        if row.get("uuid") and row.get("record_id") is not None
-    }
-
-
 def _relationship_record(relationship: Relationship, *, group_id: str) -> SurrealRecord:
     metadata = dict(relationship.metadata or {})
     fact = _metadata_str(metadata, "fact") or _relationship_fact(relationship)
@@ -2105,6 +2114,8 @@ def _relationship_record(relationship: Relationship, *, group_id: str) -> Surrea
         "fact": fact,
         "fact_embedding": fact_embedding,
         "group_id": group_id,
+        "source_id": relationship.source_id,
+        "target_id": relationship.target_id,
         "episodes": _metadata_str_list(metadata.get("episodes")),
         "attributes": attributes,
         "created_at": relationship.created_at,
