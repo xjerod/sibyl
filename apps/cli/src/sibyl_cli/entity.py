@@ -155,7 +155,7 @@ def show_entity(
                     [
                         "",
                         f"[{NEON_CYAN}]Content:[/{NEON_CYAN}]",
-                        content[:500] + "..." if len(content) > 500 else content,
+                        content,
                     ]
                 )
 

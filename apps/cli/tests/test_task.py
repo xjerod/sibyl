@@ -80,6 +80,42 @@ def test_top_level_tasks_alias_lists_tasks(
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
+@patch("sibyl_cli.task.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.task.get_client")
+def test_task_list_accepts_wide_table_mode(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    title = "Audit render pipeline end-to-end without title fragmentation"
+    mock_client = MagicMock()
+    mock_client.explore = AsyncMock(
+        return_value={
+            "entities": [
+                {
+                    "id": "task_123456789abc",
+                    "name": title,
+                    "metadata": {
+                        "status": "todo",
+                        "priority": "high",
+                        "assignees": [],
+                        "project_id": "project_123",
+                    },
+                }
+            ],
+            "total": 1,
+        }
+    )
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(task.app, ["list", "--wide", "--status", "todo"])
+
+    assert result.exit_code == 0
+    assert title in result.stdout
+    mock_client.explore.assert_awaited_once()
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
 @patch("sibyl_cli.task.get_client")
 def test_task_get_alias_resolves_to_show(mock_get_client: MagicMock) -> None:
     mock_client = MagicMock()

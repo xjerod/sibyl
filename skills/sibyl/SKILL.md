@@ -104,6 +104,8 @@ sibyl task complete task_a1b2c3d4e5f6 --learnings "OAuth tokens expire..."
 
 - **Link your project first** — then task commands just work without `--project`
 - **Table output is default** — use `--json` only for scripting
+- **Entity show is full fidelity** — use `sibyl entity show <id>` for complete content; don't use
+  `--json` only to escape search-preview truncation
 - Use `--all` flag to bypass context and see all projects
 
 ---

@@ -6,6 +6,7 @@ Sibyl Design Language for consistent terminal output.
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import TYPE_CHECKING
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
     from sibyl_cli.client import SibylClientError
 
 # Shared console instance (for styled output only, NOT for JSON)
-console = Console()
+console = Console(width=160) if not sys.stdout.isatty() else Console()
 
 
 def _strip_embeddings(obj: object) -> object:

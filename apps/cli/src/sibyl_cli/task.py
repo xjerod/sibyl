@@ -7,6 +7,8 @@ All commands communicate with the REST API to ensure proper event broadcasting.
 All commands output table format by default. Use --json for JSON output.
 """
 
+import shutil
+import sys
 from typing import Annotated
 from uuid import UUID
 
@@ -250,6 +252,7 @@ def _output_tasks_table(
     effective_limit: int,
     has_more: bool,
     total: int,
+    wide: bool = False,
 ) -> None:
     """Output tasks as a formatted table."""
     if not entities:
@@ -257,12 +260,18 @@ def _output_tasks_table(
         return
 
     table = create_table("Tasks", "ID", "Title", "Status", "Priority", "Assignees")
+    use_wide = (
+        wide
+        or not sys.stdout.isatty()
+        or shutil.get_terminal_size(fallback=(console.width, 24)).columns > 120
+    )
     # ID, Status, Priority, Assignees are fixed-width; Title gets the rest
     table.columns[0].no_wrap = True  # ID
+    table.columns[1].no_wrap = use_wide  # Title
+    table.columns[1].overflow = "ignore" if use_wide else "fold"
     table.columns[2].no_wrap = True  # Status
     table.columns[3].no_wrap = True  # Priority
     table.columns[4].no_wrap = True  # Assignees
-    # Title column auto-sizes and can wrap if needed
 
     for e in entities:
         meta = e.get("metadata", {})
@@ -338,6 +347,9 @@ def list_tasks(
     csv_out: Annotated[bool, typer.Option("--csv", help="CSV output")] = False,
     all_projects: Annotated[
         bool, typer.Option("--all", "-A", help="Ignore context, list from all projects")
+    ] = False,
+    wide: Annotated[
+        bool, typer.Option("--wide", help="Render a wide task table without title wrapping")
     ] = False,
 ) -> None:
     """List tasks with optional filters. Use -q for semantic search. Default: table output.
@@ -429,7 +441,9 @@ def list_tasks(
             elif fmt == "csv":
                 _output_tasks_csv(entities)
             else:
-                _output_tasks_table(entities, effective_offset, effective_limit, has_more, total)
+                _output_tasks_table(
+                    entities, effective_offset, effective_limit, has_more, total, wide=wide
+                )
 
         except SibylClientError as e:
             _handle_client_error(e)
