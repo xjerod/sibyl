@@ -8,16 +8,20 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import type {
+  AIModelKind,
   CodeExampleParams,
   CodeExampleResponse,
   CreateNoteRequest,
   EntityCreate,
   EntityUpdate,
   EpicStatus,
+  LLMProviderName,
+  LLMSurface,
   RAGSearchParams,
   RAGSearchResponse,
   TaskPriority,
   TaskStatus,
+  UpdateLLMSurfaceRequest,
   UpdateSettingsRequest,
 } from './api';
 import { api } from './api';
@@ -106,6 +110,8 @@ export const queryKeys = {
   },
   settings: {
     all: ['settings'] as const,
+    llm: ['settings', 'ai', 'llm'] as const,
+    registry: (kind?: AIModelKind) => ['settings', 'ai', 'registry', kind ?? 'all'] as const,
   },
   tasks: {
     all: ['tasks'] as const,
@@ -1772,6 +1778,55 @@ export function useDeleteSetting() {
       queryClient.invalidateQueries({ queryKey: queryKeys.setup.status });
       queryClient.invalidateQueries({ queryKey: queryKeys.setup.validation });
     },
+  });
+}
+
+export function useLLMSettings(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.settings.llm,
+    queryFn: () => api.settings.ai.getLLMSettings(),
+    enabled: options?.enabled ?? true,
+    staleTime: 30000,
+  });
+}
+
+export function useLLMRegistry(kind: AIModelKind = 'llm', options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.settings.registry(kind),
+    queryFn: () => api.settings.ai.getRegistry(kind),
+    enabled: options?.enabled ?? true,
+    staleTime: 300000,
+  });
+}
+
+export function useUpdateLLMSurface() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ surface, request }: { surface: LLMSurface; request: UpdateLLMSurfaceRequest }) =>
+      api.settings.ai.updateLLMSurface(surface, request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings.llm });
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings.all });
+    },
+  });
+}
+
+export function useTestLLMSurface() {
+  return useMutation({
+    mutationFn: (surface: LLMSurface) => api.settings.ai.testLLMSurface(surface),
+  });
+}
+
+export function useTestProviderKey() {
+  return useMutation({
+    mutationFn: (provider: LLMProviderName) => api.settings.ai.testProviderKey(provider),
+  });
+}
+
+export function useTestAIModel() {
+  return useMutation({
+    mutationFn: (modelAlias: string) => api.settings.ai.testModel(modelAlias),
   });
 }
 

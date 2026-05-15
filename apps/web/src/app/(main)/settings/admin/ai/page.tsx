@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { LLMConfigCard } from '@/components/settings/llm-config-card';
 import {
   Check,
   Database,
@@ -619,10 +620,12 @@ export default function AIServicesPage() {
           </button>
         </div>
         <p className="text-sc-fg-muted">
-          Sibyl uses Anthropic for entity extraction and either OpenAI or Gemini for embeddings. API
+          Sibyl routes language models and embeddings through configurable provider surfaces. API
           keys can be configured here or via environment variables.
         </p>
       </div>
+
+      <LLMConfigCard />
 
       {/* API Key Cards */}
       <div className="grid gap-4">
@@ -746,27 +749,26 @@ export default function AIServicesPage() {
       <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
         <h3 className="font-semibold text-sc-fg-primary mb-3">Configuration Priority</h3>
         <div className="space-y-3 text-sm text-sc-fg-muted">
-          <p>API keys are loaded in this order of priority:</p>
+          <p>API keys and model settings show their active source beside each field.</p>
           <ol className="list-decimal list-inside space-y-2 pl-2">
             <li>
               <span className="inline-flex items-center gap-1.5">
-                <Database width={14} height={14} className="text-sc-cyan" />
-                <strong className="text-sc-fg-secondary">Database</strong> - Keys saved via this UI
-                (encrypted)
+                <Globe width={14} height={14} className="text-sc-purple" />
+                <strong className="text-sc-fg-secondary">Environment</strong> - Deployment overrides
+                for language model fields and provider keys.
               </span>
             </li>
             <li>
               <span className="inline-flex items-center gap-1.5">
-                <Globe width={14} height={14} className="text-sc-purple" />
-                <strong className="text-sc-fg-secondary">Environment</strong> -
-                SIBYL_OPENAI_API_KEY, SIBYL_ANTHROPIC_API_KEY, SIBYL_GEMINI_API_KEY
+                <Database width={14} height={14} className="text-sc-cyan" />
+                <strong className="text-sc-fg-secondary">Database</strong> - Values saved via this
+                UI when no environment override is active.
               </span>
             </li>
           </ol>
           <p className="mt-4 text-xs">
-            Database values take precedence. Gemini also checks GEMINI_API_KEY and GOOGLE_API_KEY.
-            Provider settings can be supplied with SIBYL_EMBEDDING_PROVIDER and
-            SIBYL_GRAPH_EMBEDDING_PROVIDER.
+            Gemini also checks GEMINI_API_KEY and GOOGLE_API_KEY. Embedding provider settings can be
+            supplied with SIBYL_EMBEDDING_PROVIDER and SIBYL_GRAPH_EMBEDDING_PROVIDER.
           </p>
         </div>
       </div>

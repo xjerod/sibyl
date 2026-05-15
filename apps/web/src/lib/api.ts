@@ -813,6 +813,123 @@ export interface DeleteSettingResponse {
   key: string;
 }
 
+export type LLMProviderName = 'anthropic' | 'gemini' | 'openai';
+export type LLMSurface = 'default' | 'crawler' | 'synthesis';
+export type AIModelKind = 'llm' | 'embedding';
+export type LLMConfigSource = 'env' | 'db' | 'default';
+export type LLMValidationStatus =
+  | 'valid'
+  | 'invalid_key'
+  | 'network'
+  | 'rate_limited'
+  | 'model_not_found'
+  | 'permission_denied';
+
+export interface LLMConfigValueField {
+  value: string | number | null;
+  source: LLMConfigSource;
+  locked_by_env: boolean;
+  env_var: string | null;
+}
+
+export interface LLMSecretConfigField {
+  configured: boolean;
+  source: LLMConfigSource;
+  locked_by_env: boolean;
+  env_var: string | null;
+  masked: string | null;
+}
+
+export interface LLMSurfaceSettings {
+  surface: LLMSurface;
+  provider: LLMConfigValueField;
+  model: LLMConfigValueField;
+  temperature: LLMConfigValueField;
+  max_tokens: LLMConfigValueField;
+  timeout_seconds: LLMConfigValueField;
+  api_key: LLMSecretConfigField;
+  cached_at: string | null;
+}
+
+export interface LLMSettingsResponse {
+  scope: 'instance_wide';
+  surfaces: Record<LLMSurface, LLMSurfaceSettings>;
+}
+
+export interface UpdateLLMSurfaceRequest {
+  provider?: LLMProviderName;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  timeout_seconds?: number;
+}
+
+export interface UpdateLLMSurfaceResponse {
+  scope: 'instance_wide';
+  surface: LLMSurfaceSettings;
+  warning: string | null;
+}
+
+export interface AIModelEntry {
+  alias: string;
+  snapshot: string;
+  kind: AIModelKind;
+  provider: string;
+  provider_model_id: string;
+  pydantic_ai_model_class: string;
+  use_cases: string[];
+  capabilities: string[];
+  max_output_tokens: number | null;
+  embedding_dimensions: number | null;
+  default_temperature: number | null;
+  input_cost_per_mtok_usd: number;
+  output_cost_per_mtok_usd: number | null;
+  cost_source_url: string;
+  last_verified_at: string;
+  deprecated_after: string | null;
+  warning: string | null;
+}
+
+export interface AIRegistryResponse {
+  entries: AIModelEntry[];
+}
+
+export interface LLMTestResult {
+  surface: LLMSurface;
+  provider: LLMProviderName;
+  model: string;
+  status: LLMValidationStatus;
+  valid: boolean;
+  latency_ms: number;
+  parsed_output: Record<string, unknown> | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  error: string | null;
+}
+
+export interface ProviderKeyTestResult {
+  provider: LLMProviderName;
+  model: string;
+  status: LLMValidationStatus;
+  valid: boolean;
+  latency_ms: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  error: string | null;
+}
+
+export interface ModelAvailabilityTestResult {
+  provider: LLMProviderName;
+  requested_model: string;
+  resolved_model: string | null;
+  status: LLMValidationStatus;
+  valid: boolean;
+  latency_ms: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  error: string | null;
+}
+
 // =============================================================================
 // Metrics Types
 // =============================================================================
@@ -2607,5 +2724,35 @@ export const api = {
       fetchApi<DeleteSettingResponse>(`/settings/${key}`, {
         method: 'DELETE',
       }),
+
+    ai: {
+      getLLMSettings: () => fetchApi<LLMSettingsResponse>('/settings/ai/llm'),
+
+      updateLLMSurface: (surface: LLMSurface, request: UpdateLLMSurfaceRequest) =>
+        fetchApi<UpdateLLMSurfaceResponse>(`/settings/ai/llm/${surface}`, {
+          method: 'PUT',
+          body: JSON.stringify(request),
+        }),
+
+      testLLMSurface: (surface: LLMSurface) =>
+        fetchApi<LLMTestResult>(`/settings/ai/llm/${surface}/test`, {
+          method: 'POST',
+        }),
+
+      testProviderKey: (provider: LLMProviderName) =>
+        fetchApi<ProviderKeyTestResult>(`/settings/ai/keys/${provider}/test`, {
+          method: 'POST',
+        }),
+
+      testModel: (modelAlias: string) =>
+        fetchApi<ModelAvailabilityTestResult>(`/settings/ai/models/${modelAlias}/test`, {
+          method: 'POST',
+        }),
+
+      getRegistry: (kind?: AIModelKind) => {
+        const query = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+        return fetchApi<AIRegistryResponse>(`/settings/ai/registry${query}`);
+      },
+    },
   },
 };
