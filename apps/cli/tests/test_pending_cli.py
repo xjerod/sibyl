@@ -82,5 +82,6 @@ def test_pending_writes_flush_replays_and_deletes(
     assert calls[0]["method"] == "POST"
     assert calls[0]["path"] == "/memory/raw"
     assert calls[0]["_buffer_pending"] is False
+    assert calls[0]["_idempotency_key"] == item["idempotency_key"]
     assert pending_writes.list_pending_writes() == []
     assert pending_writes.read_pending_metrics()["replayed"] == 1
