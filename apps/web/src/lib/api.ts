@@ -289,6 +289,9 @@ export interface MemorySourceInspectResponse {
   scope_key: string | null;
   review_state: string;
   visibility: Record<string, unknown>;
+  lifecycle: Record<string, unknown>;
+  reflection_findings: Record<string, unknown>[];
+  claim_records: Record<string, unknown>[];
   correction_history: Record<string, unknown>[];
   promotion_state: Record<string, unknown>;
   share_state: Record<string, unknown>;
@@ -1731,7 +1734,7 @@ export interface BackgroundJobListResponse {
 
 export interface MaintenanceJobResponse {
   job_id: string;
-  function: 'consolidate_org' | 'priority_decay';
+  function: 'consolidate_org' | 'priority_decay' | 'run_reflection_dream_cycle';
   status: 'queued';
   message: string;
 }
@@ -2241,6 +2244,30 @@ export const api = {
       fetchApi<MaintenanceJobResponse>('/jobs/forgetting', {
         method: 'POST',
       }),
+    runReflectionDream: (params?: {
+      dry_run?: boolean;
+      source_limit?: number;
+      candidate_limit?: number;
+      archive_exceptions?: boolean;
+    }) => {
+      const search = new URLSearchParams();
+      if (params?.dry_run !== undefined) search.set('dry_run', String(params.dry_run));
+      if (params?.source_limit !== undefined)
+        search.set('source_limit', String(params.source_limit));
+      if (params?.candidate_limit !== undefined) {
+        search.set('candidate_limit', String(params.candidate_limit));
+      }
+      if (params?.archive_exceptions !== undefined) {
+        search.set('archive_exceptions', String(params.archive_exceptions));
+      }
+      const suffix = search.toString();
+      return fetchApi<MaintenanceJobResponse>(
+        `/jobs/reflection-dream${suffix ? `?${suffix}` : ''}`,
+        {
+          method: 'POST',
+        }
+      );
+    },
   },
 
   // Backup Management (per-org backup settings and archives)

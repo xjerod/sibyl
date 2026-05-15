@@ -69,6 +69,11 @@ tasks:
       tests/test_main_capture.py::test_memory_promote_preview_command_renders_decision
       tests/test_main_capture.py::test_memory_promote_auto_command_renders_decision
       tests/test_main_capture.py::test_memory_review_drain_command_renders_summary
+      tests/test_main_capture.py::test_reflection_dream_client_posts_query_contract
+      tests/test_main_capture.py::test_jobs_client_lists_function_filter
+      tests/test_main_capture.py::test_memory_review_dream_command_queues_dry_run
+      tests/test_main_capture.py::test_memory_review_dream_command_apply_queues_mutating_run
+      tests/test_main_capture.py::test_memory_review_status_renders_runs_and_receipts
       tests/test_main_capture.py::test_reflect_command_outputs_markdown_candidates
       tests/test_main_capture.py::test_reflect_command_can_persist_review_queue
       -v

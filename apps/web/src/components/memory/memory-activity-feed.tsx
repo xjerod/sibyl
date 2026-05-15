@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Database,
   Eye,
@@ -32,6 +33,8 @@ const ACTION_LABELS: Record<string, string> = {
   'memory.reflect.deny': 'Reflection denied',
   'memory.reflect.promote': 'Reflection promoted',
   'memory.reflect.promote.preview': 'Promotion preview',
+  'memory.reflect.dream_promote': 'Automatic promotion',
+  'memory.reflect.dream_review': 'Exception routed',
   'memory.inspect': 'Source inspected',
   'memory.access.preview': 'Access preview',
   'memory.share.preview': 'Share preview',
@@ -78,6 +81,11 @@ const POLICY_REASON_LABELS: Record<string, string> = {
   candidate_not_found: 'Candidate not found',
   candidate_archived: 'Candidate archived',
   candidate_already_promoted: 'Already promoted',
+  auto_promote_candidate: 'Auto-promote candidate',
+  duplicate_candidate: 'Duplicate candidate',
+  stale_candidate: 'Stale candidate',
+  contradiction_candidate: 'Contradiction candidate',
+  sensitive_candidate: 'Sensitive candidate',
   not_reflection_candidate: 'Not a reflection',
   invalid_correction_action: 'Invalid correction',
   scope_crossing_requires_promotion: 'Needs promotion to cross scopes',
@@ -108,7 +116,32 @@ const SURFACE_LABELS: Record<string, string> = {
   mcp_context: 'MCP context',
   memory_access_preview: 'Access preview',
   raw_recall: 'Raw recall',
+  reflection_dream_cycle: 'Dream cycle',
+  reflection_promote: 'Reflection promotion',
 };
+
+function shortId(value: string): string {
+  if (value.length <= 28) return value;
+  return `${value.slice(0, 12)}...${value.slice(-8)}`;
+}
+
+function receiptLinks(
+  ids: string[],
+  kind: 'source' | 'derived'
+): Array<{ href: string; id: string; label: string }> {
+  return ids.slice(0, 2).map(id => ({
+    href:
+      kind === 'source'
+        ? `/memory/sources/${encodeURIComponent(id)}`
+        : `/entities/${encodeURIComponent(id)}`,
+    id,
+    label: shortId(id),
+  }));
+}
+
+function truncatedCount(ids: string[], truncated: number | null): number {
+  return Math.max(ids.length - 2, 0) + (truncated ?? 0);
+}
 
 function actionLabel(action: string): string {
   if (ACTION_LABELS[action]) return ACTION_LABELS[action];
@@ -215,6 +248,40 @@ export function MemoryActivityFeed({
                     {surface && <span>{surface}</span>}
                     {event.created_at && <span>{formatDistanceToNow(event.created_at)}</span>}
                   </div>
+                  {(event.source_ids.length > 0 || event.derived_ids.length > 0) && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                      {receiptLinks(event.source_ids, 'source').map(link => (
+                        <Link
+                          key={`source-${link.id}`}
+                          href={link.href}
+                          className="rounded border border-sc-cyan/20 bg-sc-cyan/10 px-1.5 py-0.5 text-sc-cyan transition-colors hover:border-sc-cyan/40 hover:bg-sc-cyan/15"
+                          title={link.id}
+                        >
+                          source:{link.label}
+                        </Link>
+                      ))}
+                      {truncatedCount(event.source_ids, event.source_ids_truncated) > 0 && (
+                        <span className="rounded border border-sc-fg-subtle/15 px-1.5 py-0.5 text-sc-fg-subtle">
+                          +{truncatedCount(event.source_ids, event.source_ids_truncated)} sources
+                        </span>
+                      )}
+                      {receiptLinks(event.derived_ids, 'derived').map(link => (
+                        <Link
+                          key={`derived-${link.id}`}
+                          href={link.href}
+                          className="rounded border border-sc-purple/20 bg-sc-purple/10 px-1.5 py-0.5 text-sc-purple transition-colors hover:border-sc-purple/40 hover:bg-sc-purple/15"
+                          title={link.id}
+                        >
+                          entity:{link.label}
+                        </Link>
+                      ))}
+                      {truncatedCount(event.derived_ids, event.derived_ids_truncated) > 0 && (
+                        <span className="rounded border border-sc-fg-subtle/15 px-1.5 py-0.5 text-sc-fg-subtle">
+                          +{truncatedCount(event.derived_ids, event.derived_ids_truncated)} entities
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </article>
             );

@@ -645,6 +645,7 @@ tasks:
       - moon.yml
       - apps/api/moon.yml
       - apps/cli/moon.yml
+      - apps/web/moon.yml
       - packages/python/sibyl-core/moon.yml
 
   reflection-quality-gate:
@@ -662,6 +663,7 @@ tasks:
       - moon.yml
       - apps/api/moon.yml
       - apps/cli/moon.yml
+      - apps/web/moon.yml
       - packages/python/sibyl-core/moon.yml
 
   auth-session-gate:

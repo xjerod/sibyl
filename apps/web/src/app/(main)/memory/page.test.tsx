@@ -146,6 +146,24 @@ const audit = {
       details: {},
       created_at: '2026-05-14T12:07:00Z',
     },
+    {
+      id: 'audit-dream',
+      organization_id: 'org-1',
+      user_id: 'user-1',
+      action: 'memory.reflect.dream_promote',
+      memory_scope: 'project',
+      scope_key: 'project-a',
+      project_id: 'project-a',
+      source_surface: 'reflection_dream_cycle',
+      source_ids: ['reflection-project'],
+      source_ids_truncated: null,
+      derived_ids: ['entity-project'],
+      derived_ids_truncated: null,
+      policy_allowed: true,
+      policy_reason: 'auto_promote_candidate',
+      details: { run_id: 'reflection_dream:org-1:run-1' },
+      created_at: '2026-05-14T12:08:00Z',
+    },
   ],
   limit: 50,
 };
@@ -215,6 +233,7 @@ describe('MemoryContent', () => {
     expect(screen.getByText('Terminal capture')).toBeInTheDocument();
     expect(screen.getByText('Mailbox import')).toBeInTheDocument();
     expect(screen.getByText('Decision candidate')).toBeInTheDocument();
+    expect(screen.getByText('Automatic promotion')).toBeInTheDocument();
     expect(screen.getByText('agent:codex')).toBeInTheDocument();
   });
 

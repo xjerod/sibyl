@@ -3,6 +3,7 @@
 - Status: active planning baseline
 - Created: 2026-05-15
 - Current release floor: v0.9.0
+- Current implementation focus: v0.12 Reflection OS
 - Tracking task: `b4061098-bf23-44e3-a164-006501345863`
 
 ## 1. Thesis
@@ -312,6 +313,13 @@ Required gates:
 - new `reflection-quality-gate`
 - correction and rollback fixtures
 - source-grounding and permission-safety checks
+
+First implementation slice landed:
+
+- claim/finding/lifecycle records, structured extractor fixtures, and lifecycle decisions
+- org-scoped reflection dream-cycle job with scheduled all-org maintenance
+- queue, API, CLI, and web receipts for automatic promotion and exception routing
+- `reflection-quality-gate` now runs core, API, CLI, and web reflection-quality slices
 
 ### v0.13: Source And Synthesis Scale
 

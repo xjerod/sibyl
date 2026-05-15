@@ -66,8 +66,17 @@ describe('SystemStatusPage', () => {
             finish_time: null,
             error: null,
           },
+          {
+            job_id: 'reflection_dream:org-123',
+            function: 'run_reflection_dream_cycle',
+            status: 'complete',
+            enqueue_time: '2026-04-14T15:45:00Z',
+            start_time: '2026-04-14T15:45:01Z',
+            finish_time: '2026-04-14T15:45:06Z',
+            error: null,
+          },
         ],
-        total: 2,
+        total: 3,
       },
       isLoading: false,
     });
@@ -87,9 +96,13 @@ describe('SystemStatusPage', () => {
 
     expect(screen.getByText('Memory Maintenance')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /run consolidation/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /queue reflection dream \(dry-run\)/i })
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /run forgetting sweep/i })).toBeInTheDocument();
     expect(screen.getByText('Recent Activity')).toBeInTheDocument();
     expect(screen.getAllByText('Consolidation').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Reflection Dream').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Forgetting Sweep').length).toBeGreaterThan(0);
   });
 
@@ -111,5 +124,25 @@ describe('SystemStatusPage', () => {
 
     expect(mutateAsync).toHaveBeenCalledWith({ action: 'consolidate' });
     expect(toast.success).toHaveBeenCalledWith('Consolidation run queued');
+  });
+
+  it('queues a reflection dream dry-run from the admin panel', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({
+      job_id: 'reflection_dream:org-123',
+      function: 'run_reflection_dream_cycle',
+      status: 'queued',
+      message: 'Reflection dream cycle queued',
+    });
+    hooks.useRunMaintenanceJob.mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    });
+
+    const { user } = render(<SystemStatusPage />);
+
+    await user.click(screen.getByRole('button', { name: /queue reflection dream \(dry-run\)/i }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({ action: 'reflect' });
+    expect(toast.success).toHaveBeenCalledWith('Reflection dream cycle queued');
   });
 });

@@ -74,6 +74,19 @@ tasks:
       - src/app/(main)/memory/page.test.tsx
       - src/components/memory/source-inspect-panel.test.tsx
 
+  reflection-quality-test:
+    command:
+      pnpm vitest run 'src/app/(main)/memory/page.test.tsx'
+      'src/app/(main)/settings/admin/system/page.test.tsx'
+      src/components/memory/memory-activity-feed.test.tsx
+      src/components/memory/source-inspect-panel.test.tsx
+    inputs:
+      - "@group(sources)"
+      - src/app/(main)/memory/page.test.tsx
+      - src/app/(main)/settings/admin/system/page.test.tsx
+      - src/components/memory/memory-activity-feed.test.tsx
+      - src/components/memory/source-inspect-panel.test.tsx
+
   test-watch:
     command: pnpm vitest
     preset: server

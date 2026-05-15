@@ -1020,6 +1020,38 @@ class SibylClient:
             data["confidence_threshold"] = confidence_threshold
         return await self._request("POST", "/memory/reflection/review/drain", json=data)
 
+    async def list_jobs(
+        self,
+        *,
+        function: str | None = None,
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """List background jobs visible to the active organization."""
+        params: dict[str, Any] = {"limit": limit}
+        if function:
+            params["function"] = function
+        return await self._request("GET", "/jobs", params=params)
+
+    async def enqueue_reflection_dream_cycle(
+        self,
+        *,
+        dry_run: bool = True,
+        source_limit: int = 20,
+        candidate_limit: int = 50,
+        archive_exceptions: bool = True,
+    ) -> dict[str, Any]:
+        """Queue an org-scoped automatic reflection maintenance run."""
+        return await self._request(
+            "POST",
+            "/jobs/reflection-dream",
+            params={
+                "dry_run": dry_run,
+                "source_limit": source_limit,
+                "candidate_limit": candidate_limit,
+                "archive_exceptions": archive_exceptions,
+            },
+        )
+
     async def preview_memory_share(
         self,
         *,

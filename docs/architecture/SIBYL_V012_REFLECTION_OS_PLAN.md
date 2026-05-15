@@ -2,6 +2,7 @@
 
 - Status: active implementation plan
 - Created: 2026-05-15
+- Last implementation checkpoint: 2026-05-15
 - Tracking task: `9c8b0033-fc26-4342-bce5-9f104fc69e06`
 - Parent roadmap: [`SIBYL_1_0_ROADMAP.md`](SIBYL_1_0_ROADMAP.md)
 
@@ -46,14 +47,21 @@ Already available:
 - Existing gates cover memory trust, trust control, auth sessions, autonomy, overview performance,
   source ingest, and synthesis.
 
-Missing for 1.0:
+Landed in the first implementation slice:
 
-- first-class claims and reflection findings
-- deterministic duplicate, stale, contradiction, and supersession decisions
-- scheduled dream-cycle consolidation jobs
+- first-class claim, finding, and lifecycle records with serialization coverage
+- structured reflection extraction with deterministic fixtures and source-grounding checks
+- duplicate, stale, contradiction, and supersession decisions routed through findings
+- org-scoped reflection dream-cycle maintenance job with budgets, dry-run support, receipts, and
+  nightly all-org scheduling
+- queue, owner API, CLI, and web visibility for automatic promotions and exception routing
+- `reflection-quality-gate` wired to core, API, CLI, and web reflection-quality tests
+
+Still required before v0.12 release-candidate:
+
 - dogfood fixtures that prove recall improves after reflection
-- a named `reflection-quality-gate`
-- source-linked receipts that make automatic decisions inspectable and reversible
+- final release-matrix pass across autonomy, memory trust, auth/session, synthesis, source ingest,
+  overview performance, and trust-control gates
 
 ## 4. Scope
 

@@ -1910,8 +1910,11 @@ export function useRunMaintenanceJob() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ action }: { action: 'consolidate' | 'forget' }) =>
-      action === 'consolidate' ? api.jobs.runConsolidation() : api.jobs.runPriorityDecay(),
+    mutationFn: ({ action }: { action: 'consolidate' | 'forget' | 'reflect' }) => {
+      if (action === 'consolidate') return api.jobs.runConsolidation();
+      if (action === 'reflect') return api.jobs.runReflectionDream({ dry_run: true });
+      return api.jobs.runPriorityDecay();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
     },

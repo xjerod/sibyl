@@ -31,6 +31,18 @@ const source = {
     content_redacted: false,
     policy_reason: 'same_scope_read_allowed',
   },
+  lifecycle: {},
+  reflection_findings: [
+    {
+      id: 'finding-1',
+      kind: 'duplicate',
+      status: 'active',
+      reason: 'matches an existing project decision',
+      source_ids: ['raw-1'],
+      related_source_ids: ['raw-older'],
+    },
+  ],
+  claim_records: [],
   correction_history: [
     {
       audit_event_id: 'audit-correction',
@@ -132,6 +144,13 @@ describe('SourceInspectPanel', () => {
     expect(screen.getByText('Source Metadata')).toBeInTheDocument();
     expect(screen.getByText('Derived Records')).toBeInTheDocument();
     expect(screen.getByText('episode-1')).toBeInTheDocument();
+    expect(screen.getByText('Reflection Findings')).toBeInTheDocument();
+    expect(screen.getByText('duplicate')).toBeInTheDocument();
+    expect(screen.getByText('matches an existing project decision')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'source:raw-1' })).toHaveAttribute(
+      'href',
+      '/memory/sources/raw-1'
+    );
     expect(screen.getByText('Audit Summary')).toBeInTheDocument();
     expect(screen.getAllByText('same_scope_read_allowed').length).toBeGreaterThan(0);
   });

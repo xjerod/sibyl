@@ -23,6 +23,23 @@ function valueLabel(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function metadataRecords(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is Record<string, unknown> => typeof item === 'object' && item !== null
+  );
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+function shortId(value: string): string {
+  if (value.length <= 28) return value;
+  return `${value.slice(0, 12)}...${value.slice(-8)}`;
+}
+
 function DetailGrid({ source }: { source: MemorySourceInspectResponse }) {
   const details = [
     ['Raw ID', source.id],
@@ -48,6 +65,66 @@ function DetailGrid({ source }: { source: MemorySourceInspectResponse }) {
           </div>
         ))}
       </dl>
+    </section>
+  );
+}
+
+function ReflectionFindings({ source }: { source: MemorySourceInspectResponse }) {
+  const findings = metadataRecords(source.reflection_findings);
+
+  return (
+    <section className="rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base shadow-card">
+      <div className="flex items-center justify-between border-b border-sc-fg-subtle/10 px-4 py-3">
+        <h2 className="text-sm font-semibold text-sc-fg-primary">Reflection Findings</h2>
+        <span className="text-xs text-sc-fg-subtle">{findings.length}</span>
+      </div>
+      {findings.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-sc-fg-muted">No reflection findings recorded</p>
+      ) : (
+        <div className="divide-y divide-sc-fg-subtle/10">
+          {findings.map((finding, index) => {
+            const sourceIds = stringList(finding.source_ids);
+            const relatedIds = stringList(finding.related_source_ids);
+            return (
+              <article key={String(finding.id ?? index)} className="px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-sc-fg-primary">
+                    {valueLabel(finding.kind)}
+                  </p>
+                  <span className="rounded border border-sc-coral/20 bg-sc-coral/10 px-1.5 py-0.5 text-[10px] text-sc-coral">
+                    {valueLabel(finding.status)}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-sc-fg-muted">{valueLabel(finding.reason)}</p>
+                {(sourceIds.length > 0 || relatedIds.length > 0) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                    {sourceIds.slice(0, 3).map(id => (
+                      <Link
+                        key={`source-${id}`}
+                        href={`/memory/sources/${encodeURIComponent(id)}`}
+                        className="rounded border border-sc-cyan/20 bg-sc-cyan/10 px-1.5 py-0.5 text-sc-cyan"
+                        title={id}
+                      >
+                        source:{shortId(id)}
+                      </Link>
+                    ))}
+                    {relatedIds.slice(0, 3).map(id => (
+                      <Link
+                        key={`related-${id}`}
+                        href={`/memory/sources/${encodeURIComponent(id)}`}
+                        className="rounded border border-sc-purple/20 bg-sc-purple/10 px-1.5 py-0.5 text-sc-purple"
+                        title={id}
+                      >
+                        related:{shortId(id)}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -267,6 +344,7 @@ export function SourceInspectPanel({ sourceId, initialData }: SourceInspectPanel
         <div className="space-y-4">
           <DetailGrid source={source} />
           <MetadataPanel source={source} />
+          <ReflectionFindings source={source} />
           <CorrectionHistory source={source} />
           <AvailableActions source={source} />
         </div>

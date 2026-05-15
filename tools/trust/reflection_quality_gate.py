@@ -74,6 +74,18 @@ GATE_CHECKS: tuple[GateCheck, ...] = (
         surfaces=("exception routing", "CLI/API visibility", "source grounding"),
         command=("moon", "run", "cli:reflection-quality-test"),
     ),
+    GateCheck(
+        name="web-reflection-quality",
+        description="web memory workspace reflection receipts and inspect visibility",
+        surfaces=(
+            "source grounding",
+            "exception routing",
+            "correction and rollback",
+            "CLI/API visibility",
+            "product visibility",
+        ),
+        command=("moon", "run", "web:reflection-quality-test"),
+    ),
 )
 
 REQUIRED_SURFACES: tuple[str, ...] = (

@@ -141,6 +141,46 @@ async def test_memory_review_drain_client_posts_contract() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reflection_dream_client_posts_query_contract() -> None:
+    client = SibylClient(base_url="http://example.test/api", auth_token="token")
+    client._request = AsyncMock(return_value={"job_id": "reflection_dream:org-1"})  # type: ignore[method-assign]
+
+    data = await client.enqueue_reflection_dream_cycle(
+        dry_run=False,
+        source_limit=12,
+        candidate_limit=34,
+        archive_exceptions=False,
+    )
+
+    assert data == {"job_id": "reflection_dream:org-1"}
+    client._request.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/jobs/reflection-dream",
+        params={
+            "dry_run": False,
+            "source_limit": 12,
+            "candidate_limit": 34,
+            "archive_exceptions": False,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_jobs_client_lists_function_filter() -> None:
+    client = SibylClient(base_url="http://example.test/api", auth_token="token")
+    client._request = AsyncMock(return_value={"jobs": []})  # type: ignore[method-assign]
+
+    data = await client.list_jobs(function="run_reflection_dream_cycle", limit=7)
+
+    assert data == {"jobs": []}
+    client._request.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "GET",
+        "/jobs",
+        params={"limit": 7, "function": "run_reflection_dream_cycle"},
+    )
+
+
+@pytest.mark.asyncio
 async def test_synthesis_plan_client_posts_contract() -> None:
     client = SibylClient(base_url="http://example.test/api", auth_token="token")
     client._request = AsyncMock(return_value={"run_id": "synthesis:1"})  # type: ignore[method-assign]
@@ -1290,6 +1330,145 @@ def test_memory_review_drain_command_renders_summary(
         archive_exception_reasons=["duplicate_candidate", "stale_candidate"],
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.get_client")
+def test_memory_review_dream_command_queues_dry_run(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.enqueue_reflection_dream_cycle = AsyncMock(
+        return_value={
+            "job_id": "reflection_dream:org-123",
+            "function": "run_reflection_dream_cycle",
+            "status": "queued",
+            "message": "Reflection dream cycle queued",
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "memory-review",
+            "dream",
+            "--source-limit",
+            "3",
+            "--candidate-limit",
+            "5",
+            "--keep-exceptions",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Reflection dream cycle" in result.stdout
+    assert "dry-run" in result.stdout
+    assert "reflection_dream:org-123" in result.stdout
+    mock_client.enqueue_reflection_dream_cycle.assert_awaited_once_with(
+        dry_run=True,
+        source_limit=3,
+        candidate_limit=5,
+        archive_exceptions=False,
+    )
+
+
+@patch("sibyl_cli.main.get_client")
+def test_memory_review_dream_command_apply_queues_mutating_run(
+    mock_get_client: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.enqueue_reflection_dream_cycle = AsyncMock(
+        return_value={
+            "job_id": "reflection_dream:org-123",
+            "function": "run_reflection_dream_cycle",
+            "status": "queued",
+            "message": "Reflection dream cycle queued",
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["memory-review", "dream", "--apply"])
+
+    assert result.exit_code == 0
+    assert "apply" in result.stdout
+    mock_client.enqueue_reflection_dream_cycle.assert_awaited_once_with(
+        dry_run=False,
+        source_limit=20,
+        candidate_limit=50,
+        archive_exceptions=True,
+    )
+
+
+@patch("sibyl_cli.main.get_client")
+def test_memory_review_status_renders_runs_and_receipts(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.list_jobs = AsyncMock(
+        return_value={
+            "jobs": [
+                {
+                    "job_id": "reflection_dream:org-123",
+                    "function": "run_reflection_dream_cycle",
+                    "status": "complete",
+                    "enqueue_time": "2026-05-15T12:00:00Z",
+                    "start_time": "2026-05-15T12:00:01Z",
+                    "finish_time": "2026-05-15T12:00:04Z",
+                    "error": None,
+                }
+            ],
+            "total": 1,
+        }
+    )
+    mock_client.memory_audit = AsyncMock(
+        side_effect=[
+            {
+                "events": [
+                    {
+                        "id": "audit-promote",
+                        "action": "memory.reflect.dream_promote",
+                        "memory_scope": "project",
+                        "scope_key": "project_123",
+                        "source_ids": ["candidate-1", "raw-1"],
+                        "source_ids_truncated": None,
+                        "derived_ids": ["entity-1"],
+                        "derived_ids_truncated": None,
+                        "policy_allowed": True,
+                        "created_at": "2026-05-15T12:00:05Z",
+                    }
+                ]
+            },
+            {
+                "events": [
+                    {
+                        "id": "audit-review",
+                        "action": "memory.reflect.dream_review",
+                        "memory_scope": "project",
+                        "scope_key": "project_123",
+                        "source_ids": ["candidate-2"],
+                        "source_ids_truncated": None,
+                        "derived_ids": [],
+                        "derived_ids_truncated": None,
+                        "policy_allowed": False,
+                        "created_at": "2026-05-15T12:00:03Z",
+                    }
+                ]
+            },
+        ]
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["memory-review", "status", "--limit", "2"])
+
+    assert result.exit_code == 0
+    assert "Reflection Dream Runs" in result.stdout
+    assert "Reflection Dream Receipts" in result.stdout
+    assert "promote" in result.stdout
+    assert "review" in result.stdout
+    mock_client.list_jobs.assert_awaited_once_with(
+        function="run_reflection_dream_cycle",
+        limit=2,
+    )
+    assert mock_client.memory_audit.await_count == 2
 
 
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")

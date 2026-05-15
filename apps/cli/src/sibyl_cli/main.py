@@ -6,6 +6,7 @@ All commands communicate with the REST API.
 Server commands (serve, dev, db, generate, etc.) are in sibyl-server.
 """
 
+import asyncio
 import re
 import sys
 from importlib.metadata import version as pkg_version
@@ -618,6 +619,96 @@ def _print_memory_review_drain(data: dict[str, object]) -> None:
             "yes" if row.get("archived") is True else "no",
         )
     console.print(result_table)
+
+
+def _print_reflection_dream_enqueue(data: dict[str, object], *, dry_run: bool) -> None:
+    console.print("\n[bold]Reflection dream cycle[/bold]\n")
+    table = create_table(None, "Field", "Value", expand=False)
+    table.add_row("Mode", "dry-run" if dry_run else "apply")
+    table.add_row("Job", str(data.get("job_id") or ""))
+    table.add_row("Function", str(data.get("function") or ""))
+    table.add_row("Status", str(data.get("status") or ""))
+    table.add_row("Message", str(data.get("message") or ""))
+    console.print(table)
+
+
+def _job_time(job: dict[str, object]) -> str:
+    for key in ("finish_time", "start_time", "enqueue_time"):
+        if value := job.get(key):
+            return str(value).replace("T", " ")[:19]
+    return ""
+
+
+def _event_time(event: dict[str, object]) -> str:
+    return str(event.get("created_at") or "").replace("T", " ")[:19]
+
+
+def _dream_action_label(value: object) -> str:
+    action = str(value or "").removeprefix("memory.reflect.")
+    if action == "dream_promote":
+        return "promote"
+    if action == "dream_review":
+        return "review"
+    return action
+
+
+def _print_reflection_dream_status(data: dict[str, object]) -> None:
+    jobs = data.get("jobs")
+    events = data.get("events")
+    job_items = jobs if isinstance(jobs, list) else []
+    event_items = events if isinstance(events, list) else []
+
+    if not job_items and not event_items:
+        info("No reflection dream-cycle receipts found")
+        return
+
+    if job_items:
+        table = create_table(
+            "Reflection Dream Runs",
+            "Time",
+            "Status",
+            "Job",
+            expand=False,
+        )
+        for item in job_items:
+            if not isinstance(item, dict):
+                continue
+            job = cast("dict[str, object]", item)
+            table.add_row(
+                _job_time(job),
+                str(job.get("status") or ""),
+                str(job.get("job_id") or ""),
+            )
+        console.print(table)
+
+    if event_items:
+        table = create_table(
+            "Reflection Dream Receipts",
+            "Time",
+            "Action",
+            "Policy",
+            "Scope",
+            "Source",
+            "Derived",
+            expand=False,
+        )
+        for item in event_items:
+            if not isinstance(item, dict):
+                continue
+            event = cast("dict[str, object]", item)
+            scope = str(event.get("memory_scope") or "")
+            scope_key = str(event.get("scope_key") or "")
+            if scope_key:
+                scope = f"{scope}:{scope_key}" if scope else scope_key
+            table.add_row(
+                _event_time(event),
+                _dream_action_label(event.get("action")),
+                _format_policy_state(event.get("policy_allowed")),
+                scope,
+                _audit_id_summary(event.get("source_ids"), event.get("source_ids_truncated")),
+                _audit_id_summary(event.get("derived_ids"), event.get("derived_ids_truncated")),
+            )
+        console.print(table)
 
 
 def _print_share_preview(data: dict[str, object]) -> None:
@@ -1569,6 +1660,107 @@ def memory_review_drain(
             _handle_client_error(e)
 
     run_memory_review_drain()
+
+
+@memory_review_app.command("dream")
+def memory_review_dream(
+    apply_changes: bool = typer.Option(
+        False,
+        "--apply",
+        help="Apply safe automatic promotions instead of queueing a dry run",
+    ),
+    source_limit: int = typer.Option(20, "--source-limit", min=0, max=100, help="Raw sources"),
+    candidate_limit: int = typer.Option(
+        50,
+        "--candidate-limit",
+        min=0,
+        max=200,
+        help="Pending reflection candidates",
+    ),
+    archive_exceptions: bool = typer.Option(
+        True,
+        "--archive-exceptions/--keep-exceptions",
+        help="Archive terminal duplicate/stale exceptions when applying",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Queue the automatic reflection dream-cycle maintenance job."""
+    dry_run = not apply_changes
+
+    @run_async
+    async def run_memory_review_dream() -> None:
+        try:
+            async with get_client() as client:
+                data = await client.enqueue_reflection_dream_cycle(
+                    dry_run=dry_run,
+                    source_limit=source_limit,
+                    candidate_limit=candidate_limit,
+                    archive_exceptions=archive_exceptions,
+                )
+            if json_output:
+                print_json(data)
+                return
+            _print_reflection_dream_enqueue(cast("dict[str, object]", data), dry_run=dry_run)
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_memory_review_dream()
+
+
+@memory_review_app.command("status")
+def memory_review_status(
+    limit: int = typer.Option(10, "--limit", "-l", min=1, max=50, help="Maximum runs/events"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Show reflection dream-cycle runs and automatic decision receipts."""
+
+    @run_async
+    async def run_memory_review_status() -> None:
+        try:
+            async with get_client() as client:
+                jobs, promoted, reviewed = await asyncio.gather(
+                    client.list_jobs(
+                        function="run_reflection_dream_cycle",
+                        limit=limit,
+                    ),
+                    client.memory_audit(
+                        action="memory.reflect.dream_promote",
+                        limit=limit,
+                    ),
+                    client.memory_audit(
+                        action="memory.reflect.dream_review",
+                        limit=limit,
+                    ),
+                )
+            events = [
+                *(
+                    promoted.get("events", [])
+                    if isinstance(promoted.get("events"), list)
+                    else []
+                ),
+                *(
+                    reviewed.get("events", [])
+                    if isinstance(reviewed.get("events"), list)
+                    else []
+                ),
+            ]
+            events = sorted(
+                (event for event in events if isinstance(event, dict)),
+                key=lambda event: str(cast("dict[str, object]", event).get("created_at") or ""),
+                reverse=True,
+            )[:limit]
+            payload = {
+                "jobs": jobs.get("jobs", []) if isinstance(jobs.get("jobs"), list) else [],
+                "events": events,
+            }
+            if json_output:
+                print_json(payload)
+                return
+            _print_reflection_dream_status(payload)
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_memory_review_status()
 
 
 @app.command("memory-share")

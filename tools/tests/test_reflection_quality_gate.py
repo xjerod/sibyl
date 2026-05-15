@@ -53,6 +53,7 @@ def test_gate_checks_use_moon_package_slices() -> None:
         ("moon", "run", "core:reflection-quality-test"),
         ("moon", "run", "api:reflection-quality-test"),
         ("moon", "run", "cli:reflection-quality-test"),
+        ("moon", "run", "web:reflection-quality-test"),
     ]
 
 
@@ -74,6 +75,7 @@ def test_run_gate_prints_release_receipt(capsys: pytest.CaptureFixture[str]) -> 
     assert "contradiction detection" in captured.out
     assert "stale/supersession lifecycle" in captured.out
     assert "CLI/API visibility" in captured.out
+    assert "product visibility" in captured.out
 
 
 def test_run_gate_executes_all_checks_before_failure(
@@ -139,6 +141,7 @@ def test_main_lists_gate_checks(capsys: pytest.CaptureFixture[str]) -> None:
     assert "core-reflection-quality: moon run core:reflection-quality-test" in captured.out
     assert "api-reflection-quality: moon run api:reflection-quality-test" in captured.out
     assert "cli-reflection-quality: moon run cli:reflection-quality-test" in captured.out
+    assert "web-reflection-quality: moon run web:reflection-quality-test" in captured.out
 
 
 def test_root_moon_tasks_expose_reflection_quality_gate() -> None:

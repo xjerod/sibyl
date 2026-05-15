@@ -10,6 +10,7 @@ import {
   Clock,
   Database,
   Layers,
+  LightBulb,
   Network,
   RefreshDouble,
 } from '@/components/ui/icons';
@@ -63,6 +64,7 @@ function maintenanceStatus(
 
 function maintenanceLabel(fn: BackgroundJobSummary['function']): string {
   if (fn === 'priority_decay') return 'Forgetting Sweep';
+  if (fn === 'run_reflection_dream_cycle') return 'Reflection Dream';
   return 'Consolidation';
 }
 
@@ -82,14 +84,20 @@ export default function SystemStatusPage() {
   const runMaintenance = useRunMaintenanceJob();
 
   const maintenanceJobs = (jobsData?.jobs ?? []).filter(
-    job => job.function === 'consolidate_org' || job.function === 'priority_decay'
+    job =>
+      job.function === 'consolidate_org' ||
+      job.function === 'priority_decay' ||
+      job.function === 'run_reflection_dream_cycle'
   );
   const latestConsolidation = maintenanceJobs.find(job => job.function === 'consolidate_org');
   const latestForgetting = maintenanceJobs.find(job => job.function === 'priority_decay');
+  const latestReflection = maintenanceJobs.find(
+    job => job.function === 'run_reflection_dream_cycle'
+  );
 
   const isLoading = healthLoading || statsLoading;
 
-  async function handleRun(action: 'consolidate' | 'forget') {
+  async function handleRun(action: 'consolidate' | 'forget' | 'reflect') {
     try {
       const response = await runMaintenance.mutateAsync({ action });
       toast.success(response.message);
@@ -97,7 +105,9 @@ export default function SystemStatusPage() {
       toast.error(
         action === 'consolidate'
           ? 'Failed to queue consolidation'
-          : 'Failed to queue forgetting sweep'
+          : action === 'reflect'
+            ? 'Failed to queue reflection dream cycle'
+            : 'Failed to queue forgetting sweep'
       );
     }
   }
@@ -220,8 +230,8 @@ export default function SystemStatusPage() {
               <h3 className="font-semibold text-sc-fg-primary">Memory Maintenance</h3>
             </div>
             <p className="text-sm text-sc-fg-muted max-w-2xl">
-              Trigger consolidation and forgetting sweeps for the current organization, then review
-              the most recent maintenance activity below.
+              Trigger consolidation, forgetting, and automatic reflection dry-runs for the current
+              organization, then review the most recent maintenance activity below.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -236,6 +246,14 @@ export default function SystemStatusPage() {
             <Button
               variant="secondary"
               loading={runMaintenance.isPending}
+              icon={<LightBulb width={16} height={16} />}
+              onClick={() => handleRun('reflect')}
+            >
+              Queue Reflection Dream (dry-run)
+            </Button>
+            <Button
+              variant="secondary"
+              loading={runMaintenance.isPending}
               icon={<Archive width={16} height={16} />}
               onClick={() => handleRun('forget')}
             >
@@ -244,13 +262,19 @@ export default function SystemStatusPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 mt-6 md:grid-cols-2">
+        <div className="grid gap-4 mt-6 md:grid-cols-3">
           {[
             {
               title: 'Latest Consolidation',
               icon: <Layers width={16} height={16} className="text-sc-cyan" />,
               job: latestConsolidation,
               empty: 'No consolidation run recorded yet.',
+            },
+            {
+              title: 'Latest Reflection Dream',
+              icon: <LightBulb width={16} height={16} className="text-sc-purple" />,
+              job: latestReflection,
+              empty: 'No reflection dream run recorded yet.',
             },
             {
               title: 'Latest Forgetting Sweep',

@@ -235,6 +235,8 @@ These pieces are part of the foundation and must not get lost while we push towa
 - Raw memory capture and scoped raw recall exist through the API and CLI, including private/project
   scope checks and agent diary metadata.
 - `reflect` exists across CLI, API, and MCP as the consolidation review/persist surface.
+- The v0.12 Reflection OS slice adds structured claim/finding lifecycle records, automatic
+  dream-cycle maintenance, and CLI/web receipts for automatic promotion and exception routing.
 - Context packs already include direct matches and one-hop related graph context.
 - Wake, recall, and deep-search layers exist on context packs and session wake bundles.
 - The Sibyl skill defines the agent memory contract: recall, act, remember, reflect.
