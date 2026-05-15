@@ -58,7 +58,7 @@ dev = [
 ]
 
 [project.scripts]
-sibyl = "sibyl_cli:main"
+sibyl = "sibyl_cli.entrypoint:main"
 
 [project.urls]
 Homepage = "https://github.com/hyperb1iss/sibyl"
