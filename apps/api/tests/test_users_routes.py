@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from sibyl.api.routes import users as user_routes
+from sibyl_core.auth import AuthUser
 
 
 def _auth() -> SimpleNamespace:
@@ -108,6 +109,25 @@ async def test_get_profile_uses_auth_context_user() -> None:
     assert response.id == auth.user.id
     assert response.email == "nova@example.com"
     assert response.created_at is auth.user.created_at
+
+
+@pytest.mark.asyncio
+async def test_get_profile_accepts_normalized_auth_user() -> None:
+    created_at = datetime.now(UTC).replace(tzinfo=None)
+    auth = SimpleNamespace(
+        user=AuthUser(
+            id=uuid4(),
+            email="nova@example.com",
+            name="Nova",
+            created_at=created_at,
+        ),
+        organization=None,
+    )
+
+    response = await user_routes.get_profile(auth=auth)
+
+    assert response.email_verified_at is None
+    assert response.created_at is created_at
 
 
 @pytest.mark.asyncio

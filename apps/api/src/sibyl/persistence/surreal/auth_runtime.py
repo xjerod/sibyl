@@ -383,6 +383,10 @@ def _auth_user_model(record: SurrealRecord | None) -> AuthUser | None:
         bio=getattr(user, "bio", None),
         timezone=getattr(user, "timezone", None),
         preferences=dict(getattr(user, "preferences", None) or {}),
+        email_verified_at=getattr(user, "email_verified_at", None),
+        last_login_at=getattr(user, "last_login_at", None),
+        created_at=getattr(user, "created_at", None) or _utcnow(),
+        updated_at=getattr(user, "updated_at", None),
     )
 
 

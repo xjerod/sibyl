@@ -276,8 +276,17 @@ class FakeSessionRepository:
 def test_auth_context_coerces_legacy_objects() -> None:
     user_id = uuid4()
     org_id = uuid4()
+    created_at = datetime.now(UTC)
+    verified_at = datetime.now(UTC)
     ctx = AuthContext(
-        user=SimpleNamespace(id=user_id, email="nova@example.com", name="Nova", is_admin=True),
+        user=SimpleNamespace(
+            id=user_id,
+            email="nova@example.com",
+            name="Nova",
+            is_admin=True,
+            created_at=created_at,
+            email_verified_at=verified_at,
+        ),
         organization=SimpleNamespace(id=org_id, name="Sibyl", slug="sibyl"),
         org_role="owner",
         scopes=["api:read", "api:write", "api:read"],
@@ -289,6 +298,8 @@ def test_auth_context_coerces_legacy_objects() -> None:
     assert ctx.user_id == str(user_id)
     assert ctx.organization_id == str(org_id)
     assert ctx.scopes == frozenset({"api:read", "api:write"})
+    assert ctx.user.created_at is created_at
+    assert ctx.user.email_verified_at is verified_at
 
 
 def test_auth_context_builds_memory_policy_context() -> None:

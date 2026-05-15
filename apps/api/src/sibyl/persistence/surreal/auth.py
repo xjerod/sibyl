@@ -189,6 +189,10 @@ def _user_from_record(record: Mapping[str, object]) -> AuthUser:
         bio=_coerce_optional_str(record.get("bio")),
         timezone=str(record.get("timezone") or "UTC"),
         preferences=_coerce_dict(record.get("preferences")),
+        email_verified_at=_coerce_datetime(record.get("email_verified_at")),
+        last_login_at=_coerce_datetime(record.get("last_login_at")),
+        created_at=_coerce_datetime(record.get("created_at")) or _utcnow(),
+        updated_at=_coerce_datetime(record.get("updated_at")),
     )
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import cast
 from uuid import UUID
@@ -53,6 +53,10 @@ class AuthUser(BaseModel):
     bio: str | None = None
     timezone: str | None = None
     preferences: JSONObject = Field(default_factory=dict)
+    email_verified_at: datetime | None = None
+    last_login_at: datetime | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime | None = None
 
 
 class AuthOrganization(BaseModel):
@@ -182,6 +186,10 @@ def coerce_auth_user(value: object) -> AuthUser:
         bio=_optional_str(_attr(value, "bio")),
         timezone=_str_or_default(_attr(value, "timezone"), "UTC"),
         preferences=_dict_or_default(_attr(value, "preferences")),
+        email_verified_at=_optional_datetime(_attr(value, "email_verified_at")),
+        last_login_at=_optional_datetime(_attr(value, "last_login_at")),
+        created_at=_optional_datetime(_attr(value, "created_at")) or datetime.now(UTC),
+        updated_at=_optional_datetime(_attr(value, "updated_at")),
     )
 
 
