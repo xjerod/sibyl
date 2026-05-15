@@ -402,6 +402,71 @@ async def test_native_entity_lists_can_omit_heavy_content_fields() -> None:
 
 
 @pytest.mark.asyncio
+async def test_hierarchical_graph_uses_native_managers_without_graphiti(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sibyl_core.graph import communities
+
+    _block_graphiti_imports(monkeypatch)
+    client = NativeSurrealGraphClient(group_id="org-native-hierarchy", url="memory://")
+    try:
+        await prepare_native_graph_schema(client)
+        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+        relationship_manager = NativeRelationshipManager(client, group_id=client.group_id)
+
+        await entity_manager.create_direct(
+            Entity(
+                id="task_hierarchy",
+                entity_type=EntityType.TASK,
+                name="Hierarchy task",
+                description="Task node",
+                content="x" * 10000,
+                organization_id=client.group_id,
+                created_at=datetime(2026, 5, 14, tzinfo=UTC),
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="topic_hierarchy",
+                entity_type=EntityType.TOPIC,
+                name="Hierarchy topic",
+                description="Topic node",
+                organization_id=client.group_id,
+                created_at=datetime(2026, 5, 14, tzinfo=UTC),
+            )
+        )
+        await relationship_manager.create(
+            Relationship(
+                id="rel_hierarchy",
+                source_id="task_hierarchy",
+                target_id="topic_hierarchy",
+                relationship_type=RelationshipType.RELATED_TO,
+            )
+        )
+
+        communities.GRAPH_SNAPSHOT_CACHE.clear()
+        communities.HIERARCHICAL_CACHE.clear()
+        communities.GRAPH_LOD_CACHE.clear()
+
+        data = await communities.get_hierarchical_graph(
+            client,
+            client.group_id,
+            max_nodes=10,
+            max_edges=10,
+        )
+
+        assert {node["id"] for node in data.nodes} == {
+            "task_hierarchy",
+            "topic_hierarchy",
+        }
+        assert data.displayed_edges == 1
+        assert data.total_nodes == 2
+        assert data.total_edges == 1
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_native_graph_filters_recheck_metadata_only_denormalized_fields() -> None:
     client = NativeSurrealGraphClient(group_id="org-native-legacy-filters", url="memory://")
     try:

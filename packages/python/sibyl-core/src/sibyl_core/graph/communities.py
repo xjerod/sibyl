@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from sibyl_core.graph.entities import EntityManager
-from sibyl_core.graph.relationships import RelationshipManager
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 if TYPE_CHECKING:
@@ -95,18 +93,20 @@ def _build_community_entity(community: DetectedCommunity, *, created_at: datetim
 
 
 async def _list_community_entities(
-    entity_manager: EntityManager,
+    entity_manager: Any,
 ) -> list[Entity]:
     communities: list[Entity] = []
     offset = 0
 
     while True:
-        batch = await entity_manager.list_by_type(
-            EntityType.COMMUNITY,
-            limit=_COMMUNITY_PAGE_SIZE,
-            offset=offset,
-            include_archived=True,
-        )
+        kwargs: dict[str, Any] = {
+            "limit": _COMMUNITY_PAGE_SIZE,
+            "offset": offset,
+            "include_archived": True,
+        }
+        if getattr(entity_manager, "supports_lightweight_entity_list", False):
+            kwargs["include_content"] = False
+        batch = await entity_manager.list_by_type(EntityType.COMMUNITY, **kwargs)
         if not batch:
             break
         communities.extend(batch)
@@ -117,22 +117,47 @@ async def _list_community_entities(
     return communities
 
 
+def _entity_manager_for_client(client: GraphClient, organization_id: str) -> Any:
+    from sibyl_core.services.native_graph import NativeEntityManager, NativeSurrealGraphClient
+
+    if isinstance(client, NativeSurrealGraphClient):
+        return NativeEntityManager(client, group_id=organization_id)
+
+    from sibyl_core.graph.entities import EntityManager
+
+    return EntityManager(client, group_id=organization_id)
+
+
+def _relationship_manager_for_client(client: GraphClient, organization_id: str) -> Any:
+    from sibyl_core.services.native_graph import NativeRelationshipManager, NativeSurrealGraphClient
+
+    if isinstance(client, NativeSurrealGraphClient):
+        return NativeRelationshipManager(client, group_id=organization_id)
+
+    from sibyl_core.graph.relationships import RelationshipManager
+
+    return RelationshipManager(client, group_id=organization_id)
+
+
 async def _list_all_entities(
     client: GraphClient,
     organization_id: str,
     *,
     batch_size: int = 1000,
 ) -> list[Entity]:
-    manager = EntityManager(client, group_id=organization_id)
+    manager = _entity_manager_for_client(client, organization_id)
     entities: list[Entity] = []
     offset = 0
 
     while True:
-        batch = await manager.list_all(
-            limit=batch_size,
-            offset=offset,
-            include_archived=True,
-        )
+        kwargs: dict[str, Any] = {
+            "limit": batch_size,
+            "offset": offset,
+            "include_archived": True,
+        }
+        if getattr(manager, "supports_lightweight_entity_list", False):
+            kwargs["include_content"] = False
+        batch = await manager.list_all(**kwargs)
         if not batch:
             break
         entities.extend(batch)
@@ -150,7 +175,7 @@ async def _list_all_relationships(
     batch_size: int = 1000,
     relationship_types: list[RelationshipType] | None = None,
 ) -> list[Relationship]:
-    manager = RelationshipManager(client, group_id=organization_id)
+    manager = _relationship_manager_for_client(client, organization_id)
     relationships: list[Relationship] = []
     offset = 0
 
@@ -1837,8 +1862,8 @@ async def store_communities(
         return 0
 
     log.info("store_communities_start", count=len(communities), clear_existing=clear_existing)
-    entity_manager = EntityManager(client, group_id=organization_id)
-    relationship_manager = RelationshipManager(client, group_id=organization_id)
+    entity_manager = _entity_manager_for_client(client, organization_id)
+    relationship_manager = _relationship_manager_for_client(client, organization_id)
 
     # Clear existing communities if requested
     if clear_existing:
@@ -1892,8 +1917,8 @@ async def get_entity_communities(
         List of community info dicts.
     """
     communities: list[dict[str, Any]] = []
-    entity_manager = EntityManager(client, group_id=organization_id)
-    relationship_manager = RelationshipManager(client, group_id=organization_id)
+    entity_manager = _entity_manager_for_client(client, organization_id)
+    relationship_manager = _relationship_manager_for_client(client, organization_id)
 
     try:
         relationships = await relationship_manager.get_for_entity(
@@ -1941,8 +1966,8 @@ async def get_community_members(
         List of member entity info.
     """
     members: list[dict[str, Any]] = []
-    entity_manager = EntityManager(client, group_id=organization_id)
-    relationship_manager = RelationshipManager(client, group_id=organization_id)
+    entity_manager = _entity_manager_for_client(client, organization_id)
+    relationship_manager = _relationship_manager_for_client(client, organization_id)
 
     try:
         relationships = await relationship_manager.get_for_entity(
