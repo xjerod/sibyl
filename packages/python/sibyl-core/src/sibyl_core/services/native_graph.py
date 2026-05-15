@@ -513,20 +513,57 @@ class NativeEntityManager:
         entities: list[Entity] = []
         seen_entity_ids: set[str] = set()
         seen_pages: set[tuple[str | None, ...]] = set()
+        where_clauses = [
+            "group_id = $group_id",
+            "entity_type = $entity_type",
+        ]
+        query_params: dict[str, object] = {
+            "group_id": self._group_id,
+            "entity_type": entity_type.value,
+        }
+
+        if project_id is not None:
+            where_clauses.append(_surreal_field_equals_or_missing("project_id", "project_id"))
+            query_params["project_id"] = project_id
+        if epic_id is not None:
+            where_clauses.append(_surreal_field_equals_or_missing("epic_id", "epic_id"))
+            query_params["epic_id"] = epic_id
+        if no_epic:
+            where_clauses.append(_surreal_field_missing("epic_id"))
+        if status_values:
+            where_clauses.append(
+                _surreal_lower_field_in_or_missing("status", "status_values")
+            )
+            query_params["status_values"] = status_values
+        if priority_values:
+            where_clauses.append(
+                _surreal_lower_field_in_or_missing("priority", "priority_values")
+            )
+            query_params["priority_values"] = priority_values
+        if complexity_values:
+            where_clauses.append(
+                _surreal_lower_field_in_or_missing("complexity", "complexity_values")
+            )
+            query_params["complexity_values"] = complexity_values
+        if feature:
+            where_clauses.append(_surreal_lower_field_equals_or_missing("feature", "feature"))
+            query_params["feature"] = feature.lower()
+        if not include_archived:
+            where_clauses.append(
+                "string::lowercase(status ?? attributes.status ?? '') != 'archived'"
+            )
 
         while len(entities) < target_count:
             rows = normalize_records(
                 await self._client.execute_query(
-                    """
+                    f"""
                     SELECT *
                     FROM entity
-                    WHERE group_id = $group_id
-                      AND entity_type = $entity_type
+                    WHERE {" AND ".join(where_clauses)}
                     ORDER BY updated_at DESC, created_at DESC, uuid DESC
                     LIMIT $limit START $offset;
                     """,
-                    group_id=self._group_id,
-                    entity_type=entity_type.value,
+                    **query_params,
                     limit=page_size,
                     offset=query_offset,
                 )
@@ -593,14 +630,19 @@ class NativeEntityManager:
         entities: list[Entity] = []
         seen_entity_ids: set[str] = set()
         seen_pages: set[tuple[str | None, ...]] = set()
+        where_clauses = ["group_id = $group_id"]
+        if not include_archived:
+            where_clauses.append(
+                "string::lowercase(status ?? attributes.status ?? '') != 'archived'"
+            )
 
         while len(entities) < target_count:
             rows = normalize_records(
                 await self._client.execute_query(
-                    """
+                    f"""
                     SELECT *
                     FROM entity
-                    WHERE group_id = $group_id
+                    WHERE {" AND ".join(where_clauses)}
                     ORDER BY updated_at DESC, created_at DESC, uuid DESC
                     LIMIT $limit START $offset;
                     """,
@@ -1446,6 +1488,38 @@ def _row_score(row: SurrealRecord) -> float:
     if isinstance(score, int | float):
         return float(score)
     return 1.0
+
+
+def _surreal_field_value(field: str) -> str:
+    return f"{field} ?? attributes.{field} ?? ''"
+
+
+def _surreal_field_missing(field: str) -> str:
+    return (
+        f"(({field} IS NONE OR {field} = '') "
+        f"AND (attributes.{field} IS NONE OR attributes.{field} = ''))"
+    )
+
+
+def _surreal_field_equals_or_missing(field: str, param: str) -> str:
+    return (
+        f"(({field} = ${param} OR attributes.{field} = ${param}) "
+        f"OR {_surreal_field_missing(field)})"
+    )
+
+
+def _surreal_lower_field_in_or_missing(field: str, param: str) -> str:
+    return (
+        f"(string::lowercase({_surreal_field_value(field)}) IN ${param} "
+        f"OR {_surreal_field_missing(field)})"
+    )
+
+
+def _surreal_lower_field_equals_or_missing(field: str, param: str) -> str:
+    return (
+        f"(string::lowercase({_surreal_field_value(field)}) = ${param} "
+        f"OR {_surreal_field_missing(field)})"
+    )
 
 
 def _entity_matches_list_filters(

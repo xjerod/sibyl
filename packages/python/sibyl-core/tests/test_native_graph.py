@@ -369,6 +369,84 @@ async def test_native_entity_lists_order_by_updated_at_before_created_at() -> No
 
 
 @pytest.mark.asyncio
+async def test_native_graph_filters_recheck_metadata_only_denormalized_fields() -> None:
+    client = NativeSurrealGraphClient(group_id="org-native-legacy-filters", url="memory://")
+    try:
+        await prepare_native_graph_schema(client)
+        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+
+        await entity_manager.create_direct(
+            Entity(
+                id="task_legacy_metadata_only",
+                entity_type=EntityType.TASK,
+                name="Legacy metadata-only task",
+                organization_id=client.group_id,
+                metadata={
+                    "project_id": "project_legacy",
+                    "status": "doing",
+                    "priority": "high",
+                    "complexity": "simple",
+                    "feature": "legacy",
+                },
+            )
+        )
+        await entity_manager.create_direct(
+            Entity(
+                id="task_legacy_archived_metadata_only",
+                entity_type=EntityType.TASK,
+                name="Legacy archived metadata-only task",
+                organization_id=client.group_id,
+                metadata={
+                    "project_id": "project_legacy",
+                    "status": "archived",
+                    "priority": "high",
+                    "complexity": "simple",
+                    "feature": "legacy",
+                },
+            )
+        )
+
+        for entity_id in (
+            "task_legacy_metadata_only",
+            "task_legacy_archived_metadata_only",
+        ):
+            await client.execute_query(
+                """
+                UPDATE entity SET
+                    project_id = NONE,
+                    status = NONE,
+                    priority = NONE,
+                    complexity = NONE,
+                    feature = NONE,
+                    attributes.project_id = NONE,
+                    attributes.status = NONE,
+                    attributes.priority = NONE,
+                    attributes.complexity = NONE,
+                    attributes.feature = NONE
+                WHERE uuid = $uuid;
+                """,
+                uuid=entity_id,
+            )
+
+        filtered = await entity_manager.list_by_type(
+            EntityType.TASK,
+            project_id="project_legacy",
+            status="doing",
+            priority="high",
+            complexity="simple",
+            feature="legacy",
+        )
+        visible_ids = {
+            entity.id for entity in await entity_manager.list_all(include_archived=False)
+        }
+
+        assert [entity.id for entity in filtered] == ["task_legacy_metadata_only"]
+        assert "task_legacy_archived_metadata_only" not in visible_ids
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_native_graph_writes_entities_and_relationships_without_graphiti(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

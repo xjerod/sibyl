@@ -710,6 +710,10 @@ class TestGetOrgMetrics:
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
             ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
+            ),
         ):
             result = await get_org_metrics(org=mock_org)
 
@@ -740,6 +744,74 @@ class TestGetOrgMetrics:
             assert result.projects_summary[0].high == 1
 
     @pytest.mark.asyncio
+    async def test_org_metrics_uses_surreal_metric_task_fast_path(self) -> None:
+        """Organization metrics reuse lean Surreal task rows when available."""
+        from sibyl.api.routes.metrics import get_org_metrics
+
+        mock_org = create_mock_org()
+        mock_service = AsyncMock()
+        recent = datetime.now(UTC).isoformat()
+        mock_projects = [
+            create_mock_entity(entity_type="project", name="Project A", entity_id="proj_a"),
+            create_mock_entity(entity_type="project", name="Project B", entity_id="proj_b"),
+        ]
+        mock_tasks = [
+            _normalize_metric_task_row(
+                create_metric_task_row(
+                    project_id="proj_a",
+                    status="done",
+                    priority="critical",
+                    assignees=["alice"],
+                    created_at=recent,
+                    completed_at=recent,
+                )
+            ),
+            _normalize_metric_task_row(
+                create_metric_task_row(
+                    project_id="proj_b",
+                    status="doing",
+                    priority="high",
+                    assignees=["bob"],
+                    created_at=recent,
+                )
+            ),
+        ]
+        metric_task_rows = AsyncMock(return_value=mock_tasks)
+
+        mock_service.list_entities = AsyncMock(
+            return_value=Page(items=mock_projects, next_cursor=None)
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.metrics.get_knowledge_read_adapter",
+                AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                metric_task_rows,
+            ),
+        ):
+            result = await get_org_metrics(org=mock_org)
+
+        assert mock_service.list_entities.await_args_list == [
+            call(
+                EntityType.PROJECT,
+                limit=500,
+                cursor=None,
+            ),
+        ]
+        metric_task_rows.assert_awaited_once_with(str(mock_org.id))
+        assert result.total_projects == 2
+        assert result.total_tasks == 2
+        assert result.status_distribution.done == 1
+        assert result.status_distribution.doing == 1
+        assert result.priority_distribution.critical == 1
+        assert result.priority_distribution.high == 1
+        assert result.top_assignees[0].name == "alice"
+        assert result.projects_summary[0].id in {"proj_a", "proj_b"}
+
+    @pytest.mark.asyncio
     async def test_org_metrics_empty(self) -> None:
         """Returns metrics with no projects or tasks."""
         from sibyl.api.routes.metrics import get_org_metrics
@@ -758,6 +830,10 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -824,6 +900,10 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -912,6 +992,10 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -1007,6 +1091,10 @@ class TestGetOrgMetrics:
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
             ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
+            ),
         ):
             result = await get_org_metrics(org=mock_org)
 
@@ -1058,6 +1146,10 @@ class TestGetOrgMetrics:
             patch(
                 "sibyl.api.routes.metrics.get_knowledge_read_adapter",
                 AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "sibyl.api.routes.metrics._list_surreal_metric_task_rows",
+                AsyncMock(return_value=None),
             ),
         ):
             result = await get_org_metrics(org=mock_org)
@@ -1227,6 +1319,10 @@ class TestGetProjectSummaries:
         assert execute_surreal_query.await_count == 1
         assert execute_surreal_query.await_args.args[0] == str(mock_org.id)
         assert "FROM entity" in execute_surreal_query.await_args.args[1]
+        assert (
+            "string::lowercase(status ?? attributes.status ?? '') != 'archived'"
+            in execute_surreal_query.await_args.args[1]
+        )
         assert execute_surreal_query.await_args.kwargs == {
             "task_type": EntityType.TASK.value,
         }

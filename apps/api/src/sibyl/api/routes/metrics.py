@@ -416,7 +416,8 @@ async def _list_surreal_metric_task_rows(group_id: str) -> list[dict[str, Any]] 
                 updated_at ?? attributes.updated_at AS updated_at
             FROM entity
             WHERE group_id = $group_id
-                AND entity_type = $task_type;
+                AND entity_type = $task_type
+                AND string::lowercase(status ?? attributes.status ?? '') != 'archived';
             """,
             task_type=EntityType.TASK.value,
         )
@@ -431,7 +432,12 @@ async def _list_surreal_metric_task_rows(group_id: str) -> list[dict[str, Any]] 
     if rows is None:
         return None
 
-    return [_normalize_metric_task_row(row) for row in rows]
+    tasks = [_normalize_metric_task_row(row) for row in rows]
+    return [
+        task
+        for task in tasks
+        if str(task["metadata"].get("status") or "").lower() != "archived"
+    ]
 
 
 async def _list_summary_metric_tasks(
@@ -563,14 +569,7 @@ async def get_org_metrics(
             EntityType.PROJECT,
             batch_size=500,
         )
-        tasks = [
-            task.model_dump()
-            for task in await _list_entities_by_type_paginated_via_service(
-                service,
-                EntityType.TASK,
-                batch_size=1000,
-            )
-        ]
+        tasks = await _list_summary_metric_tasks(group_id, service)
 
         status_dist = _compute_status_distribution(tasks)
         priority_dist = _compute_priority_distribution(tasks)
