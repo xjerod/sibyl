@@ -447,6 +447,75 @@ async def test_native_graph_filters_recheck_metadata_only_denormalized_fields() 
 
 
 @pytest.mark.asyncio
+async def test_native_relationship_manager_batches_related_entity_lookup() -> None:
+    client = NativeSurrealGraphClient(group_id="org-native-batch-related", url="memory://")
+    try:
+        await prepare_native_graph_schema(client)
+        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+        relationship_manager = NativeRelationshipManager(client, group_id=client.group_id)
+
+        for entity_id, entity_type in (
+            ("task_seed_a", EntityType.TASK),
+            ("task_seed_b", EntityType.TASK),
+            ("topic_target", EntityType.TOPIC),
+            ("pattern_target", EntityType.PATTERN),
+        ):
+            await entity_manager.create_direct(
+                Entity(
+                    id=entity_id,
+                    entity_type=entity_type,
+                    name=entity_id.replace("_", " ").title(),
+                    organization_id=client.group_id,
+                    metadata={"status": "todo"},
+                )
+            )
+
+        created, failed = await relationship_manager.create_bulk(
+            [
+                Relationship(
+                    id="rel_seed_a_topic",
+                    source_id="task_seed_a",
+                    target_id="topic_target",
+                    relationship_type=RelationshipType.RELATED_TO,
+                ),
+                Relationship(
+                    id="rel_pattern_seed_a",
+                    source_id="pattern_target",
+                    target_id="task_seed_a",
+                    relationship_type=RelationshipType.RELATED_TO,
+                ),
+                Relationship(
+                    id="rel_seed_b_topic",
+                    source_id="task_seed_b",
+                    target_id="topic_target",
+                    relationship_type=RelationshipType.RELATED_TO,
+                ),
+            ]
+        )
+
+        assert (created, failed) == (3, 0)
+
+        related = await relationship_manager.get_related_entities_batch(
+            ["task_seed_a", "task_seed_b"],
+            limit_per_entity=10,
+        )
+
+        seed_a = related["task_seed_a"]
+        seed_b = related["task_seed_b"]
+        assert {entity.id for entity, _ in seed_a} == {"topic_target", "pattern_target"}
+        assert {entity.id for entity, _ in seed_b} == {"topic_target"}
+        directions_by_id = {
+            relationship.id: relationship.metadata["direction"] for _, relationship in seed_a
+        }
+        assert directions_by_id == {
+            "rel_seed_a_topic": "outgoing",
+            "rel_pattern_seed_a": "incoming",
+        }
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_native_graph_writes_entities_and_relationships_without_graphiti(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

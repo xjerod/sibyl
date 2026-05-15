@@ -921,8 +921,31 @@ class NativeRelationshipManager:
         limit: int = 50,
     ) -> list[tuple[Entity, Relationship]]:
         del max_depth
+        related_by_seed = await self.get_related_entities_batch(
+            [entity_id],
+            relationship_types=relationship_types,
+            limit_per_entity=limit,
+        )
+        return related_by_seed.get(entity_id, [])
+
+    async def get_related_entities_batch(
+        self,
+        entity_ids: Sequence[str],
+        relationship_types: Sequence[RelationshipType] | None = None,
+        limit_per_entity: int = 50,
+    ) -> dict[str, list[tuple[Entity, Relationship]]]:
+        seed_ids = list(dict.fromkeys(str(entity_id) for entity_id in entity_ids if entity_id))
+        if not seed_ids:
+            return {}
+
+        seed_record_ids = await _record_ids(self._client, seed_ids)
+        if not seed_record_ids:
+            return {seed_id: [] for seed_id in seed_ids}
+
         type_values = [rel_type.value for rel_type in relationship_types or ()]
         type_clause = "AND name IN $relationship_types" if type_values else ""
+        per_seed_limit = max(int(limit_per_entity), 1)
+        query_limit = min(per_seed_limit * len(seed_ids), 5000)
         edge_rows = normalize_records(
             await self._client.execute_query(
                 """
@@ -941,7 +964,7 @@ class NativeRelationshipManager:
                        out.uuid AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
-                  AND (in.uuid = $entity_id OR out.uuid = $entity_id)
+                  AND (in IN $record_ids OR out IN $record_ids)
                 """
                 + type_clause
                 + """
@@ -949,27 +972,32 @@ class NativeRelationshipManager:
                 LIMIT $limit;
                 """,
                 group_id=self._group_id,
-                entity_id=entity_id,
+                record_ids=list(seed_record_ids.values()),
                 relationship_types=type_values,
-                limit=max(int(limit), 1),
+                limit=query_limit,
             )
         )
-        edge_pairs: list[tuple[SurrealRecord, str]] = []
+
+        seed_id_set = set(seed_record_ids)
+        edge_pairs_by_seed: dict[str, list[tuple[SurrealRecord, str]]] = {
+            seed_id: [] for seed_id in seed_ids
+        }
+        other_ids: list[str] = []
         for row in edge_rows:
-            if row.get("source_uuid") == entity_id:
-                row["direction"] = "outgoing"
-            elif row.get("target_uuid") == entity_id:
-                row["direction"] = "incoming"
-            other_id = (
-                row.get("target_uuid")
-                if row.get("source_uuid") == entity_id
-                else row.get("source_uuid")
-            )
-            if isinstance(other_id, str) and other_id:
-                edge_pairs.append((row, other_id))
-        other_ids = [other_id for _, other_id in edge_pairs]
+            source_id = row.get("source_uuid")
+            target_id = row.get("target_uuid")
+            if isinstance(source_id, str) and isinstance(target_id, str):
+                if source_id in seed_id_set:
+                    outgoing_row = {**row, "direction": "outgoing"}
+                    edge_pairs_by_seed[source_id].append((outgoing_row, target_id))
+                    other_ids.append(target_id)
+                if target_id in seed_id_set:
+                    incoming_row = {**row, "direction": "incoming"}
+                    edge_pairs_by_seed[target_id].append((incoming_row, source_id))
+                    other_ids.append(source_id)
+
         if not other_ids:
-            return []
+            return {seed_id: [] for seed_id in seed_ids}
 
         entity_rows = normalize_records(
             await self._client.execute_query(
@@ -979,16 +1007,21 @@ class NativeRelationshipManager:
                 WHERE group_id = $group_id AND uuid IN $entity_ids;
                 """,
                 group_id=self._group_id,
-                entity_ids=other_ids,
+                entity_ids=list(dict.fromkeys(other_ids)),
             )
         )
         entities_by_id = {str(row.get("uuid")): _entity_from_row(row) for row in entity_rows}
-        results: list[tuple[Entity, Relationship]] = []
-        for row, other_id in edge_pairs:
-            entity = entities_by_id.get(other_id)
-            if entity is None:
-                continue
-            results.append((entity, _relationship_from_row(row)))
+        results: dict[str, list[tuple[Entity, Relationship]]] = {}
+        for seed_id, edge_pairs in edge_pairs_by_seed.items():
+            seed_results: list[tuple[Entity, Relationship]] = []
+            for row, other_id in edge_pairs:
+                if len(seed_results) >= per_seed_limit:
+                    break
+                entity = entities_by_id.get(other_id)
+                if entity is None:
+                    continue
+                seed_results.append((entity, _relationship_from_row(row)))
+            results[seed_id] = seed_results
         return results
 
     async def list_all(
@@ -2031,6 +2064,30 @@ async def _record_id(client: NativeSurrealGraphClient, uuid: str) -> object | No
         uuid=uuid,
     )
     return row.get("record_id") if row else None
+
+
+async def _record_ids(
+    client: NativeSurrealGraphClient,
+    uuids: Sequence[str],
+) -> dict[str, object]:
+    uuid_list = list(dict.fromkeys(str(uuid) for uuid in uuids if uuid))
+    if not uuid_list:
+        return {}
+    rows = normalize_records(
+        await client.execute_query(
+            """
+            SELECT uuid, id AS record_id
+            FROM entity
+            WHERE uuid IN $uuids;
+            """,
+            uuids=uuid_list,
+        )
+    )
+    return {
+        str(row["uuid"]): row["record_id"]
+        for row in rows
+        if row.get("uuid") and row.get("record_id") is not None
+    }
 
 
 def _relationship_record(relationship: Relationship, *, group_id: str) -> SurrealRecord:
