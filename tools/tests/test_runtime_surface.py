@@ -27,7 +27,7 @@ from tools.inventory.runtime_surface import (
     unclassified_legacy_term_records,
 )
 
-EXPECTED_ROUTER_COUNT = 25
+EXPECTED_ROUTER_COUNT = 26
 EXPECTED_HTTP_ROUTE_COUNT = 2
 EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
 EXPECTED_MCP_TOOL_COUNT = 11
@@ -402,6 +402,7 @@ def test_runtime_surface_finds_known_contracts() -> None:
 
     assert "search_router" in surface.rest_routers
     assert "synthesis_router" in surface.rest_routers
+    assert "ai_settings_router" in surface.rest_routers
     assert surface.websocket_routes[0].path == "/ws"
     assert {record.name for record in surface.mcp_tools} >= {
         "search",
