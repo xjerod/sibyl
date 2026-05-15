@@ -627,6 +627,22 @@ tasks:
       - apps/cli/moon.yml
       - packages/python/sibyl-core/moon.yml
 
+  auth-session-gate:
+    command: uv run python -m tools.trust.auth_session_gate
+    options:
+      cache: false
+
+  auth-session-gate-test:
+    command: uv run pytest tools/tests/test_auth_session_gate.py -v
+    inputs:
+      - tools/trust/**/*.py
+      - tools/tests/conftest.py
+      - tools/tests/test_auth_session_gate.py
+      - pyproject.toml
+      - moon.yml
+      - apps/api/moon.yml
+      - apps/cli/moon.yml
+
   synthesis-gate:
     command: uv run python -m tools.trust.synthesis_gate
     options:

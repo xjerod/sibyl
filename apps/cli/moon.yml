@@ -53,6 +53,12 @@ tasks:
     inputs:
     - '@group(sources)'
     - tests/test_main_capture.py
+  auth-session-test:
+    command: uv run pytest tests/test_client_auth_refresh.py tests/test_auth_store.py -v
+    inputs:
+    - '@group(sources)'
+    - tests/test_client_auth_refresh.py
+    - tests/test_auth_store.py
   test-cov:
     command: uv run pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml:coverage.xml
     inputs:
