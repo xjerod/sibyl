@@ -37,7 +37,7 @@ class TestBackupIds:
         assert first != second
 
     def test_jobs_package_imports_without_backup_cycle(self) -> None:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [sys.executable, "-c", "from sibyl.jobs import WorkerSettings"],
             cwd=Path(__file__).resolve().parents[1],
             capture_output=True,

@@ -1101,7 +1101,7 @@ async def authenticate_api_key(raw_key: str):
                     candidate.get("organization_id"), field_name="api_key.organization_id"
                 ),
                 scopes=_scopes_list(candidate.get("scopes")),
-                project_ids=project_ids if project_ids else None,
+                project_ids=project_ids or None,
             )
     return None
 

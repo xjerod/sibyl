@@ -158,8 +158,13 @@ class SurrealGraphOperationsInterface(GraphOperationsInterface):
         return await driver.entity_node_ops.get_by_uuid(driver, uuid)
 
     async def node_get_by_uuids(
-        self, _cls: object, driver: SurrealDriver, uuids: list[str]
+        self,
+        _cls: object,
+        driver: SurrealDriver,
+        uuids: list[str],
+        group_id: str | None = None,
     ) -> list[EntityNode]:
+        del group_id
         return await driver.entity_node_ops.get_by_uuids(driver, uuids)
 
     async def node_get_by_group_ids(

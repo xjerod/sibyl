@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 def _default_jwt_secret() -> SecretStr:
-    return SecretStr("test-jwt-secret-key-for-testing")
+    return SecretStr("test-jwt-secret-key-for-testing-32-bytes")
 
 
 def _default_password_pepper() -> SecretStr:
@@ -258,7 +258,7 @@ class TestJwt:
         token = jwt_module.create_access_token(user_id=user_id)
 
         # Change secret for verification
-        mock_sibyl_modules.settings.jwt_secret = SecretStr("different-secret")
+        mock_sibyl_modules.settings.jwt_secret = SecretStr("different-jwt-secret-key-for-tests")
 
         with pytest.raises(jwt_module.JwtError):
             jwt_module.verify_access_token(token)
@@ -455,7 +455,7 @@ class TestJwt:
         token = jwt_module.create_access_token(user_id=user_id)
 
         # Change secret so signature verification would fail
-        mock_sibyl_modules.settings.jwt_secret = SecretStr("different-secret")
+        mock_sibyl_modules.settings.jwt_secret = SecretStr("different-jwt-secret-key-for-tests")
 
         # Should still decode successfully
         claims = jwt_module.decode_token_unverified(token)

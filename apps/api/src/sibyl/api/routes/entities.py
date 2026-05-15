@@ -5,7 +5,7 @@ Transparently handles both graph entities and document chunks.
 """
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -60,7 +60,7 @@ async def get_entity_graph_runtime(group_id: str):
     return await service(group_id)
 
 
-class SortField(str, Enum):
+class SortField(StrEnum):
     """Fields available for sorting entities."""
 
     NAME = "name"
@@ -69,7 +69,7 @@ class SortField(str, Enum):
     ENTITY_TYPE = "entity_type"
 
 
-class SortOrder(str, Enum):
+class SortOrder(StrEnum):
     """Sort order direction."""
 
     ASC = "asc"

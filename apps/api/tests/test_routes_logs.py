@@ -22,7 +22,7 @@ class TestValidateOwnerToken:
 
     @pytest.mark.asyncio
     async def test_returns_true_for_owner_membership(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
 
         from sibyl import config as config_module
@@ -50,7 +50,7 @@ class TestValidateOwnerToken:
 
     @pytest.mark.asyncio
     async def test_rejects_non_owner_membership(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
 
         from sibyl import config as config_module
@@ -78,7 +78,7 @@ class TestValidateOwnerToken:
 
     @pytest.mark.asyncio
     async def test_rejects_revoked_access_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
 
         from sibyl import config as config_module
@@ -104,7 +104,7 @@ class TestValidateOwnerToken:
 
     @pytest.mark.asyncio
     async def test_rejects_auth_store_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
 
         from sibyl import config as config_module
@@ -130,7 +130,7 @@ class TestValidateOwnerToken:
 
     @pytest.mark.asyncio
     async def test_rejects_missing_org_context(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
 
         from sibyl import config as config_module

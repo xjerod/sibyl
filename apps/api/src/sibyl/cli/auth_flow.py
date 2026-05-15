@@ -772,7 +772,7 @@ def _invitation_token(accept_url: str) -> str:
 def _outbox_offset(email_outbox_path: Path | None) -> int:
     if email_outbox_path is None:
         raise AuthFlowError("password reset consume requires --email-outbox-path")
-    path = email_outbox_path.expanduser()
+    path = _expand_path(email_outbox_path)
     if not path.exists():
         return 0
     return path.stat().st_size
@@ -786,13 +786,17 @@ async def _read_reset_token(
 ) -> str:
     if email_outbox_path is None:
         raise AuthFlowError("password reset consume requires --email-outbox-path")
-    path = email_outbox_path.expanduser()
+    path = _expand_path(email_outbox_path)
     for _ in range(50):
         token = _find_reset_token(email=email, path=path, offset=offset)
         if token is not None:
             return token
         await asyncio.sleep(0.1)
     raise AuthFlowError(f"password reset token was not written to {path}")
+
+
+def _expand_path(path: Path) -> Path:
+    return path.expanduser()
 
 
 def _find_reset_token(*, email: str, path: Path, offset: int) -> str | None:

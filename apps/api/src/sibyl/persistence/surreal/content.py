@@ -212,7 +212,7 @@ def _coerce_optional_str(value: object | None) -> str | None:
     if value is None:
         return None
     text = str(value)
-    return text if text else None
+    return text or None
 
 
 def _coerce_int(value: object | None, *, default: int = 0) -> int:

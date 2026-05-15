@@ -4,7 +4,7 @@ from sibyl.config import Settings
 
 
 def test_settings_auth_fallbacks(monkeypatch) -> None:
-    monkeypatch.setenv("JWT_SECRET", "secret")
+    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-key-for-api-tests")
     monkeypatch.setenv("GITHUB_CLIENT_ID", "cid")
     monkeypatch.setenv("GITHUB_CLIENT_SECRET", "csecret")
 
@@ -14,7 +14,7 @@ def test_settings_auth_fallbacks(monkeypatch) -> None:
     monkeypatch.delenv("SIBYL_GITHUB_CLIENT_SECRET", raising=False)
 
     s = Settings(_env_file=None)
-    assert s.jwt_secret.get_secret_value() == "secret"
+    assert s.jwt_secret.get_secret_value() == "test-jwt-secret-key-for-api-tests"
     assert s.github_client_id.get_secret_value() == "cid"
     assert s.github_client_secret.get_secret_value() == "csecret"
 

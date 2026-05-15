@@ -97,7 +97,7 @@ async def test_github_callback_uses_runtime_helper(monkeypatch: pytest.MonkeyPat
     issued = _issued_session()
     login = AsyncMock(return_value=issued)
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "verify_state", lambda **_: None)
     monkeypatch.setattr(auth_routes, "_github_exchange_code", AsyncMock(return_value="gh-token"))
     monkeypatch.setattr(auth_routes, "_github_fetch_identity", AsyncMock(return_value=identity))
@@ -122,7 +122,7 @@ async def test_local_signup_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch)
     issued = _issued_session()
     signup = AsyncMock(return_value=issued)
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "signup_local_user", signup)
 
     response = await auth_routes.local_signup(request=request)
@@ -148,7 +148,7 @@ async def test_local_login_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) 
     issued = _issued_session()
     login = AsyncMock(return_value=issued)
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "login_local_user", login)
 
     response = await _call_route(auth_routes.local_login, request=request)
@@ -171,7 +171,7 @@ async def test_local_login_rejects_invalid_credentials(monkeypatch: pytest.Monke
     )
     login = AsyncMock(return_value=None)
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "login_local_user", login)
 
     with pytest.raises(HTTPException, match="Invalid credentials") as exc_info:
@@ -193,7 +193,7 @@ async def test_device_start_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch)
     )
     start = AsyncMock(return_value=(SimpleNamespace(user_code="ABCD-EFGH"), "device-code"))
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "start_device_authorization", start)
 
     response = await _call_route(auth_routes.device_start, request=request)
@@ -213,7 +213,7 @@ async def test_device_token_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch)
     request = FakeRequest(json_data={"device_code": "device-code"})
     exchange = AsyncMock(return_value={"access_token": "access-token"})
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "exchange_device_code", exchange)
 
     response = await _call_route(auth_routes.device_token, request=request)
@@ -236,7 +236,7 @@ async def test_device_verify_get_uses_runtime_helpers(monkeypatch: pytest.Monkey
         )
     )
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "resolve_request_user", resolve_user)
     monkeypatch.setattr(auth_routes, "get_device_request_by_user_code", get_request)
 
@@ -262,7 +262,7 @@ async def test_device_verify_post_login_uses_runtime_helper(
     )
     login = AsyncMock(return_value=SimpleNamespace(access_token="access-token"))
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "login_device_browser_user", login)
 
     response = await _call_route(auth_routes.device_verify_post, request=request)
@@ -291,7 +291,7 @@ async def test_device_verify_post_approve_uses_runtime_helpers(
     get_user = AsyncMock(return_value=SimpleNamespace(id=user_id))
     approve = AsyncMock(return_value=(SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4())))
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "resolve_request_claims", claims)
     monkeypatch.setattr(auth_routes, "get_user_by_id", get_user)
     monkeypatch.setattr(auth_routes, "approve_device_authorization", approve)
@@ -321,7 +321,7 @@ async def test_refresh_tokens_uses_runtime_rotation(monkeypatch: pytest.MonkeyPa
     )
     rotate = AsyncMock(return_value=rotation)
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(
         auth_routes,
         "verify_refresh_token",
@@ -349,7 +349,7 @@ async def test_refresh_tokens_returns_503_when_auth_storage_times_out(
     request = FakeRequest(json_data={"refresh_token": "refresh-token"})
     rotate = AsyncMock(side_effect=TimeoutError("timed out during opening handshake"))
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(
         auth_routes,
         "verify_refresh_token",
@@ -371,7 +371,7 @@ async def test_refresh_tokens_rejects_invalid_org_claim(
     request = FakeRequest(json_data={"refresh_token": "refresh-token"})
     rotate = AsyncMock()
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(
         auth_routes,
         "verify_refresh_token",
@@ -393,7 +393,7 @@ async def test_refresh_tokens_clears_cookies_for_invalid_cookie_claims(
     user_id = uuid4()
     request = FakeRequest(cookies={auth_routes.REFRESH_TOKEN_COOKIE: "refresh-token"})
 
-    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(
         auth_routes,
         "verify_refresh_token",

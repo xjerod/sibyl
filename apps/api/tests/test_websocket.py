@@ -220,7 +220,7 @@ class TestExtractOrgFromToken:
     @pytest.mark.asyncio
     async def test_valid_jwt_with_org(self, monkeypatch) -> None:
         """Valid signed JWT with org claim should extract org_id."""
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
         validate_access_session = AsyncMock(return_value=True)
         monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)
@@ -252,7 +252,7 @@ class TestExtractOrgFromToken:
     @pytest.mark.asyncio
     async def test_jwt_without_org_claim(self, monkeypatch) -> None:
         """JWT without org claim should return None (org-scoped WS required)."""
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
         validate_access_session = AsyncMock(return_value=True)
         monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)
@@ -274,7 +274,7 @@ class TestExtractOrgFromToken:
     @pytest.mark.asyncio
     async def test_revoked_jwt_returns_none(self, monkeypatch) -> None:
         """Revoked JWT sessions should not connect to org-scoped WS."""
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
         validate_access_session = AsyncMock(return_value=False)
         monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)
@@ -295,7 +295,7 @@ class TestExtractOrgFromToken:
 
     @pytest.mark.asyncio
     async def test_auth_store_timeout_returns_none(self, monkeypatch) -> None:
-        monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+        monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
         monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
         validate_access_session = AsyncMock(side_effect=TimeoutError)
         monkeypatch.setattr(websocket_module, "validate_access_session", validate_access_session)

@@ -10,6 +10,7 @@ Provides REST API for:
 from typing import Any
 
 import structlog
+from anyio import Path as AsyncPath
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -383,10 +384,8 @@ async def download_backup(
     if file_info is None:
         raise HTTPException(status_code=404, detail="Backup file not found on disk")
 
-    from pathlib import Path
-
-    archive_path = Path(file_info["path"])
-    if not archive_path.exists():
+    archive_path = AsyncPath(file_info["path"])
+    if not await archive_path.exists():
         raise HTTPException(status_code=404, detail="Backup file not found on disk")
 
     return FileResponse(

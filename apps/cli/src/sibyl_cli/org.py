@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 import typer
@@ -20,7 +20,7 @@ app.add_typer(members_app, name="members")
 console = Console()
 
 
-class OrgRole(str, Enum):
+class OrgRole(StrEnum):
     """Organization member roles."""
 
     OWNER = "owner"

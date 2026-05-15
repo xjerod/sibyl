@@ -4,7 +4,7 @@ import pytest
 
 from sibyl.auth.oauth_state import OAuthStateError, issue_state, verify_state
 
-TEST_SECRET = "secret"
+TEST_SECRET = "test-jwt-secret-key-for-api-tests"
 
 
 def test_oauth_state_roundtrip() -> None:

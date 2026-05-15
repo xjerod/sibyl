@@ -6,7 +6,7 @@ import json
 import shutil
 import subprocess
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlsplit, urlunsplit
@@ -65,17 +65,17 @@ async def verify_graph_archive(*args: Any, **kwargs: Any) -> Any:
     return await _verify_graph_archive(*args, **kwargs)
 
 
-class AuthReadOnlyMode(str, Enum):
+class AuthReadOnlyMode(StrEnum):
     freeze = "freeze"
     unfreeze = "unfreeze"
 
 
-class ArchiveSourceType(str, Enum):
+class ArchiveSourceType(StrEnum):
     surreal_archive = "surreal-archive"
     legacy_archive = "legacy-archive"
 
 
-class ArchiveTargetMode(str, Enum):
+class ArchiveTargetMode(StrEnum):
     surreal = "surreal"
     postgres_rehearsal = "postgres-rehearsal"
 

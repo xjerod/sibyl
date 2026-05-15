@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -18,9 +18,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 log = structlog.get_logger()
-
-T = TypeVar("T")
-
 
 @dataclass
 class FusionConfig:
@@ -62,7 +59,7 @@ def rrf_score(rank: int, k: float = 60.0) -> float:
     return 1.0 / (k + rank)
 
 
-def rrf_merge(
+def rrf_merge[T](
     result_lists: list[list[tuple[T, float]]],
     k: float = 60.0,
     weights: list[float] | None = None,
@@ -155,7 +152,7 @@ def rrf_merge(
     return results
 
 
-def rrf_merge_with_metadata(
+def rrf_merge_with_metadata[T](
     result_lists: list[list[tuple[T, float]]],
     list_names: list[str] | None = None,
     k: float = 60.0,
@@ -233,7 +230,7 @@ def rrf_merge_with_metadata(
     return results
 
 
-def weighted_score_merge(
+def weighted_score_merge[T](
     result_lists: list[list[tuple[T, float]]],
     weights: list[float] | None = None,
     dedup_key: Callable[[T], str] | None = None,

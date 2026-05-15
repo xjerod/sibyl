@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID
 
@@ -17,7 +17,7 @@ RECENT_JOB_INDEX_LIMIT = 1000
 QueueBackend = Literal["local", "redis"]
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Job status enum matching arq statuses."""
 
     QUEUED = "queued"

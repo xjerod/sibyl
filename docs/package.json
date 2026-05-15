@@ -13,6 +13,6 @@
     },
     "devDependencies": {
         "vitepress": "2.0.0-alpha.17",
-        "vitepress-plugin-llms": "^1.12.1"
+        "vitepress-plugin-llms": "^1.12.2"
     }
 }

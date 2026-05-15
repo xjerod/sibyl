@@ -12,7 +12,7 @@ Inheritance rules:
 """
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Protocol, TypeVar
+from typing import Protocol
 from uuid import UUID
 
 import structlog
@@ -29,7 +29,6 @@ from sibyl.persistence.auth_runtime import (
 from sibyl_core.auth import ProjectRole
 
 log = structlog.get_logger()
-EntityT = TypeVar("EntityT")
 
 
 class ProjectRecord(Protocol):
@@ -42,7 +41,7 @@ def _request_project_id(request: Request, project_id_param: str) -> str | None:
         return path_value
 
     query_value = request.query_params.get(project_id_param)
-    return query_value if query_value else None
+    return query_value or None
 
 
 def _entity_project_id(entity: object) -> str | None:
@@ -277,7 +276,7 @@ async def verify_entity_project_access(
     )
 
 
-async def filter_accessible_entities(
+async def filter_accessible_entities[EntityT](
     session: object,
     ctx: AuthContext,
     entities: Sequence[EntityT],

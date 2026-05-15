@@ -15,7 +15,7 @@ async def test_settings_service_get_uses_runtime_helper_and_cache() -> None:
     async def mock_session():
         yield None
 
-    service = SettingsService(lambda: mock_session())
+    service = SettingsService(mock_session)
     setting = SystemSettingRecord(key="openai_api_key", value="ciphertext", is_secret=True)
 
     with (
@@ -39,7 +39,7 @@ async def test_settings_service_set_uses_runtime_save_and_invalidates_cache() ->
     async def mock_session():
         yield None
 
-    service = SettingsService(lambda: mock_session())
+    service = SettingsService(mock_session)
     service._cache["openai_api_key"] = object()  # type: ignore[assignment]
 
     with (
@@ -76,7 +76,7 @@ async def test_settings_service_get_all_uses_runtime_listing() -> None:
     async def mock_session():
         yield None
 
-    service = SettingsService(lambda: mock_session())
+    service = SettingsService(mock_session)
     settings = [
         SystemSettingRecord(key="openai_api_key", value="ciphertext", is_secret=True),
         SystemSettingRecord(key="feature_flag", value="enabled", is_secret=False),
@@ -117,7 +117,7 @@ async def test_settings_service_llm_settings_use_persisted_keys() -> None:
     async def mock_session():
         yield None
 
-    service = SettingsService(lambda: mock_session())
+    service = SettingsService(mock_session)
 
     with (
         patch(
@@ -145,7 +145,7 @@ async def test_settings_service_get_database_value_skips_env_fallback(
     async def mock_session():
         yield None
 
-    service = SettingsService(lambda: mock_session())
+    service = SettingsService(mock_session)
     monkeypatch.setenv("SIBYL_LLM_CRAWLER_MODEL", "env-model")
 
     with patch(

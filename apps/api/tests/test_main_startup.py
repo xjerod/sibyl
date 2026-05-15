@@ -44,7 +44,7 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
 
     monkeypatch.setattr(main_module.settings, "store", "surreal")
     monkeypatch.setattr(main_module.settings, "auth_store", "surreal")
-    monkeypatch.setattr("sibyl.api.app.create_api_app", lambda: Starlette())
+    monkeypatch.setattr("sibyl.api.app.create_api_app", Starlette)
     monkeypatch.setattr("sibyl.server.create_mcp_server", lambda **_: _FakeMCPServer())
     monkeypatch.setattr(
         main_module,

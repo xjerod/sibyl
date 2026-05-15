@@ -51,7 +51,7 @@ class MockGraphClient:
             return []
         if isinstance(result, tuple):
             records = result[0] if len(result) > 0 else []
-            return records if records else []
+            return records or []
         if isinstance(result, list):
             return result
         return []

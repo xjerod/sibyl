@@ -1,11 +1,11 @@
 """Generator configuration and types."""
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class ModelType(str, Enum):
+class ModelType(StrEnum):
     """Supported LLM models for content generation."""
 
     SONNET = "sonnet"  # Claude Sonnet 4.5 - balanced quality/cost

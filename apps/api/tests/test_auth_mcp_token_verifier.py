@@ -11,7 +11,7 @@ from sibyl.config import Settings
 
 @pytest.mark.asyncio
 async def test_mcp_token_verifier_accepts_jwt(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
 
     from sibyl import config as config_module
 
@@ -31,7 +31,7 @@ async def test_mcp_token_verifier_accepts_jwt(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_token_verifier_rejects_revoked_jwt(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
 
     from sibyl import config as config_module
 
@@ -49,7 +49,7 @@ async def test_mcp_token_verifier_rejects_revoked_jwt(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_token_verifier_rejects_auth_store_timeout(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
 
     from sibyl import config as config_module
 
@@ -67,7 +67,7 @@ async def test_mcp_token_verifier_rejects_auth_store_timeout(monkeypatch) -> Non
 
 @pytest.mark.asyncio
 async def test_mcp_token_verifier_rejects_invalid_jwt(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
 
     from sibyl import config as config_module
 

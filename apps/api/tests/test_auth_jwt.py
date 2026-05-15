@@ -14,7 +14,7 @@ from sibyl.config import Settings
 
 
 def test_jwt_roundtrip(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
     monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
     monkeypatch.setenv("SIBYL_JWT_EXPIRY_HOURS", "24")
 
@@ -32,7 +32,7 @@ def test_jwt_roundtrip(monkeypatch) -> None:
 
 
 def test_access_token_can_include_session_id(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
     monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
 
     from sibyl import config as config_module
@@ -48,14 +48,14 @@ def test_access_token_can_include_session_id(monkeypatch) -> None:
 
 
 def test_jwt_rejects_wrong_secret(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret1")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests-1")
     from sibyl import config as config_module
 
     config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
 
     token = create_access_token(user_id=uuid4())
 
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret2")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests-2")
     config_module.settings = Settings(_env_file=None)  # type: ignore[assignment]
 
     with pytest.raises(JwtError):
@@ -63,7 +63,7 @@ def test_jwt_rejects_wrong_secret(monkeypatch) -> None:
 
 
 def test_jwt_compatibility_surface_includes_refresh_helpers(monkeypatch) -> None:
-    monkeypatch.setenv("SIBYL_JWT_SECRET", "secret")
+    monkeypatch.setenv("SIBYL_JWT_SECRET", "test-jwt-secret-key-for-api-tests")
     monkeypatch.setenv("SIBYL_JWT_ALGORITHM", "HS256")
 
     from sibyl import config as config_module
