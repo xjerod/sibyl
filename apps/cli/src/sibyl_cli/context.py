@@ -103,7 +103,7 @@ def callback(
         async def _fetch_project() -> dict | None:
             try:
                 client = get_client()
-                return await client.get_entity(effective_project)
+                return await client.get_entity(effective_project, related_limit=0)
             except SibylClientError:
                 return None
 
@@ -207,11 +207,11 @@ def callback(
                 )
 
         # Actionable tasks
-        actionable = project_data.get("related", [])
+        actionable = _project_actionable_items(project_data)
         if actionable:
             console.print()
             for task in actionable[:3]:  # Show top 3
-                status = task.get("relationship", "")
+                status = str(task.get("relationship") or "")
                 status_color = {
                     "doing": SUCCESS_GREEN,
                     "blocked": "red",
@@ -235,6 +235,37 @@ def _context_to_dict(ctx: Context) -> dict:
     }
 
 
+def _project_actionable_items(project_data: dict) -> list[dict[str, object]]:
+    related = project_data.get("related")
+    if isinstance(related, list) and related:
+        return [item for item in related if isinstance(item, dict)]
+
+    metadata = project_data.get("metadata")
+    if not isinstance(metadata, dict):
+        return []
+
+    actionable = metadata.get("actionable_tasks")
+    if not isinstance(actionable, list):
+        return []
+
+    items: list[dict[str, object]] = []
+    for task in actionable:
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get("id")
+        name = task.get("name")
+        if not task_id or not name:
+            continue
+        items.append(
+            {
+                "id": task_id,
+                "name": name,
+                "relationship": task.get("status") or "",
+            }
+        )
+    return items
+
+
 def _show_path_context(project_id: str, json_out: bool) -> None:
     """Show context when only path mapping is available (no named context)."""
     _, matched_path = get_current_context()
@@ -247,7 +278,7 @@ def _show_path_context(project_id: str, json_out: bool) -> None:
     async def _fetch_project() -> dict[str, object] | None:
         try:
             client = get_client()
-            return dict(await client.get_entity(project_id))
+            return dict(await client.get_entity(project_id, related_limit=0))
         except SibylClientError:
             return None
 

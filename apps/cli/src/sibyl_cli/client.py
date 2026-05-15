@@ -549,9 +549,22 @@ class SibylClient:
         """Remove a member from an organization."""
         return await self._request("DELETE", f"/orgs/{slug}/members/{user_id}")
 
-    async def get_entity(self, entity_id: str) -> dict[str, Any]:
+    async def get_entity(
+        self,
+        entity_id: str,
+        *,
+        include_summary: bool = True,
+        related_limit: int = 5,
+    ) -> dict[str, Any]:
         """Get a single entity by ID with related context."""
-        return await self._request("GET", f"/entities/{entity_id}")
+        return await self._request(
+            "GET",
+            f"/entities/{entity_id}",
+            params={
+                "include_summary": include_summary,
+                "related_limit": related_limit,
+            },
+        )
 
     async def list_raw_captures(
         self,

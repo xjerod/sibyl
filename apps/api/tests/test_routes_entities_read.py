@@ -177,6 +177,65 @@ async def test_get_entity_keeps_project_summary_enrichment() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_entity_summary_without_related_skips_bundle_loading() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    project = Entity(
+        id="project-1",
+        entity_type=EntityType.PROJECT,
+        name="Sibyl Native",
+        metadata={"status": "active"},
+    )
+    service = AsyncMock()
+    service.get_entity.return_value = project
+    manager = MagicMock()
+    manager.get_project_summary = AsyncMock(
+        return_value={
+            "total_tasks": 1,
+            "status_counts": {"doing": 1},
+            "progress_pct": 0,
+            "critical_tasks": [],
+            "epics": [],
+            "actionable_tasks": [
+                {
+                    "id": "task-1",
+                    "name": "Ship graph seam",
+                    "status": "doing",
+                }
+            ],
+        }
+    )
+    runtime = SimpleNamespace(entity_manager=manager, relationship_manager=MagicMock())
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(return_value=runtime),
+        ),
+        patch(
+            "sibyl.api.routes.entities.verify_entity_project_access",
+            AsyncMock(),
+        ),
+        patch(
+            "sibyl.api.routes.entities.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project-1"}),
+        ),
+    ):
+        response = await get_entity(
+            "project-1",
+            org=org,
+            ctx=_ctx(),
+            service=service,
+            related_limit=0,
+        )
+
+    assert response.metadata["total_tasks"] == 1
+    assert response.metadata["actionable_tasks"][0]["id"] == "task-1"
+    assert response.related is None
+    service.get_entity.assert_awaited_once_with("project-1")
+    service.get_entity_bundle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_get_entity_graph_mode_skips_bundle_loading() -> None:
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
     task = Entity(

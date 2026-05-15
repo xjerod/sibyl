@@ -121,6 +121,54 @@ def test_context_quick_without_context_reports_missing_auth(
     mock_read_server_credentials.assert_called_once_with("http://localhost:3334/api")
 
 
+@patch("sibyl_cli.context.get_client")
+@patch("sibyl_cli.context.resolve_project_from_cwd", return_value="project_123")
+@patch(
+    "sibyl_cli.context.get_active_context",
+    return_value=Context(
+        name="local",
+        server_url="http://localhost:3334",
+        org_slug=None,
+        default_project=None,
+    ),
+)
+def test_context_uses_summary_only_project_fetch(
+    mock_get_active_context: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+    mock_get_client: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.get_entity = AsyncMock(
+        return_value={
+            "id": "project_123",
+            "name": "Sibyl",
+            "metadata": {
+                "total_tasks": 1,
+                "status_counts": {"doing": 1},
+                "progress_pct": 0,
+                "actionable_tasks": [
+                    {
+                        "id": "task_123",
+                        "name": "Ship full-fidelity context",
+                        "status": "doing",
+                    }
+                ],
+            },
+            "related": None,
+        }
+    )
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["context"])
+
+    assert result.exit_code == 0
+    assert "Ship full-fidelity context" in result.stdout
+    mock_client.get_entity.assert_awaited_once_with("project_123", related_limit=0)
+    mock_get_active_context.assert_called_once_with()
+    assert mock_resolve_project_from_cwd.call_count == 2
+
+
 @patch("sibyl_cli.context.resolve_project_from_cwd", return_value="project_123")
 @patch("sibyl_cli.context.get_client")
 def test_context_pack_json_uses_detected_project(

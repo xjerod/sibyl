@@ -932,6 +932,41 @@ async def get_entity(
                     related=related,
                 )
 
+        if include_summary and related_limit == 0:
+            entity = await service.get_entity(entity_id)
+            if entity is not None:
+                accessible_projects = await _require_entity_read_access(ctx, entity)
+                metadata = dict(getattr(entity, "metadata", {}) or {})
+                if entity.entity_type in {EntityType.PROJECT, EntityType.EPIC}:
+                    runtime = await get_entity_graph_runtime(str(org.id))
+                    metadata, _ = await _enrich_entity_with_related(
+                        entity,
+                        entity_id,
+                        runtime.entity_manager,
+                        runtime.relationship_manager,
+                        preloaded_related=None,
+                        accessible_projects=accessible_projects,
+                        related_limit=0,
+                    )
+
+                return EntityResponse(
+                    id=entity.id,
+                    entity_type=entity.entity_type,
+                    name=entity.name,
+                    description=entity.description or "",
+                    content=(entity.content or "")[:50000],
+                    category=getattr(entity, "category", None) or entity.metadata.get("category"),
+                    languages=getattr(entity, "languages", None)
+                    or entity.metadata.get("languages", [])
+                    or [],
+                    tags=getattr(entity, "tags", None) or entity.metadata.get("tags", []) or [],
+                    metadata=metadata,
+                    source_file=getattr(entity, "source_file", None),
+                    created_at=getattr(entity, "created_at", None),
+                    updated_at=getattr(entity, "updated_at", None),
+                    related=None,
+                )
+
         graph_bundle = await service.get_entity_bundle(entity_id)
         if graph_bundle is not None:
             entity = graph_bundle.entity
