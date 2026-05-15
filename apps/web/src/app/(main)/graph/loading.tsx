@@ -1,5 +1,5 @@
-import { LoadingState } from '@/components/ui/spinner';
+import { GraphSkeleton } from '@/components/suspense-boundary';
 
 export default function Loading() {
-  return <LoadingState message="Loading graph..." />;
+  return <GraphSkeleton />;
 }

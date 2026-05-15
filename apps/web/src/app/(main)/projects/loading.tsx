@@ -1,5 +1,5 @@
-import { LoadingState } from '@/components/ui/spinner';
+import { ProjectsSkeleton } from '@/components/suspense-boundary';
 
 export default function Loading() {
-  return <LoadingState message="Loading projects..." />;
+  return <ProjectsSkeleton />;
 }

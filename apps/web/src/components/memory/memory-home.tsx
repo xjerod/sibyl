@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { MemoryHomeSkeleton } from '@/components/suspense-boundary';
 import { EntityBadge } from '@/components/ui/badge';
 import {
   ArrowRight,
@@ -18,7 +19,6 @@ import {
   WarningCircle,
   Xmark,
 } from '@/components/ui/icons';
-import { LoadingState } from '@/components/ui/spinner';
 import type { MemoryAuditEvent, MemoryScope, MemorySpace, RawCaptureSummary } from '@/lib/api';
 import { formatDistanceToNow } from '@/lib/constants';
 import { useMemoryAudit, useMemorySpaces, useRawCaptures } from '@/lib/hooks';
@@ -665,7 +665,7 @@ export function MemoryHome() {
   ].filter(Boolean);
 
   if (isLoading) {
-    return <LoadingState message="Loading memory workspace..." />;
+    return <MemoryHomeSkeleton />;
   }
 
   const agentReaders = spaces.reduce((acc, space) => acc + space.members.length, 0);

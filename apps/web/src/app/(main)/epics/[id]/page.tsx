@@ -4,8 +4,9 @@ import { useRouter } from 'next/navigation';
 import { use, useMemo } from 'react';
 import { RelatedEntitiesSection } from '@/components/entities/related-entities-section';
 import { EntityBreadcrumb } from '@/components/layout/breadcrumb';
+import { EpicDetailSkeleton } from '@/components/suspense-boundary';
 import { CheckCircle, Clock, Layers, Pause, Target, Zap } from '@/components/ui/icons';
-import { LoadingState } from '@/components/ui/spinner';
+import { Skeleton } from '@/components/ui/spinner';
 import { ErrorState } from '@/components/ui/tooltip';
 import type { EpicStatus, TaskPriority } from '@/lib/api';
 import { EPIC_STATUS_CONFIG, TASK_PRIORITY_CONFIG, TASK_STATUS_CONFIG } from '@/lib/constants';
@@ -79,12 +80,7 @@ export default function EpicDetailPage({ params }: EpicDetailPageProps) {
   }
 
   if (isLoading || !epic) {
-    return (
-      <div className="space-y-4 animate-fade-in">
-        <EntityBreadcrumb entityType="epic" entityName="Loading..." />
-        <LoadingState />
-      </div>
-    );
+    return <EpicDetailSkeleton />;
   }
 
   const isBlocked = derivedStatus === 'blocked';
@@ -220,8 +216,17 @@ export default function EpicDetailPage({ params }: EpicDetailPageProps) {
         </h2>
 
         {tasksLoading ? (
-          <div className="bg-sc-bg-base border border-sc-fg-subtle/10 rounded-lg p-8 text-center">
-            <LoadingState />
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base p-3"
+              >
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <Skeleton className="h-4 flex-1 max-w-md" />
+                <Skeleton className="h-4 w-16 rounded-full" />
+              </div>
+            ))}
           </div>
         ) : tasks.length === 0 ? (
           <div className="bg-sc-bg-base border border-sc-fg-subtle/10 rounded-lg p-8 text-center">

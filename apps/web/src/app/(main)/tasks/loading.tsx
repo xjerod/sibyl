@@ -1,5 +1,5 @@
-import { LoadingState } from '@/components/ui/spinner';
+import { TasksSkeleton } from '@/components/suspense-boundary';
 
 export default function Loading() {
-  return <LoadingState message="Loading tasks..." />;
+  return <TasksSkeleton />;
 }
