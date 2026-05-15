@@ -523,35 +523,31 @@ class NativeEntityManager:
         }
 
         if project_id is not None:
-            where_clauses.append(_surreal_field_equals_or_missing("project_id", "project_id"))
+            where_clauses.append(_surreal_indexed_field_equals_or_missing("project_id"))
             query_params["project_id"] = project_id
         if epic_id is not None:
-            where_clauses.append(_surreal_field_equals_or_missing("epic_id", "epic_id"))
+            where_clauses.append(_surreal_indexed_field_equals_or_missing("epic_id"))
             query_params["epic_id"] = epic_id
         if no_epic:
-            where_clauses.append(_surreal_field_missing("epic_id"))
+            where_clauses.append(_surreal_indexed_field_missing("epic_id"))
         if status_values:
-            where_clauses.append(
-                _surreal_lower_field_in_or_missing("status", "status_values")
-            )
+            where_clauses.append(_surreal_indexed_field_in_or_missing("status", "status_values"))
             query_params["status_values"] = status_values
         if priority_values:
             where_clauses.append(
-                _surreal_lower_field_in_or_missing("priority", "priority_values")
+                _surreal_indexed_field_in_or_missing("priority", "priority_values")
             )
             query_params["priority_values"] = priority_values
         if complexity_values:
             where_clauses.append(
-                _surreal_lower_field_in_or_missing("complexity", "complexity_values")
+                _surreal_indexed_field_in_or_missing("complexity", "complexity_values")
             )
             query_params["complexity_values"] = complexity_values
         if feature:
-            where_clauses.append(_surreal_lower_field_equals_or_missing("feature", "feature"))
+            where_clauses.append(_surreal_indexed_field_equals_or_missing("feature"))
             query_params["feature"] = feature.lower()
         if not include_archived:
-            where_clauses.append(
-                "string::lowercase(status ?? attributes.status ?? '') != 'archived'"
-            )
+            where_clauses.append("(status IS NONE OR status = '' OR status != 'archived')")
 
         while len(entities) < target_count:
             rows = normalize_records(
@@ -725,54 +721,65 @@ class NativeEntityManager:
         where_clauses = [
             "group_id = $group_id",
             "entity_type = 'task'",
-            "(epic_id IN $epic_ids OR attributes.epic_id IN $epic_ids)",
+            "epic_id IN $epic_ids",
         ]
         params: dict[str, Any] = {
             "group_id": self._group_id,
             "epic_ids": epic_id_list,
         }
         if project_id is not None:
-            where_clauses.append(
-                "(project_id = $project_id OR attributes.project_id = $project_id)"
-            )
+            where_clauses.append("project_id = $project_id")
             params["project_id"] = project_id
 
-        offset = 0
-        page_size = 1000
-        while True:
-            page = [
-                _entity_from_row(row)
-                for row in normalize_records(
-                    await self._client.execute_query(
-                        """
-                        SELECT *
-                        FROM entity
-                        WHERE """
-                        + " AND ".join(where_clauses)
-                        + """
-                        ORDER BY created_at DESC, uuid DESC
-                        LIMIT $limit START $offset;
-                        """,
-                        **params,
-                        limit=page_size,
-                        offset=offset,
-                    )
+        rows = normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT epic_id, status, count() AS task_count
+                FROM entity
+                WHERE """
+                + " AND ".join(where_clauses)
+                + """
+                GROUP BY epic_id, status;
+                """,
+                **params,
+            )
+        )
+        legacy_where_clauses = [
+            "group_id = $group_id",
+            "entity_type = 'task'",
+            _surreal_indexed_field_missing("epic_id"),
+            "attributes.epic_id IN $epic_ids",
+        ]
+        if project_id is not None:
+            legacy_where_clauses.append(
+                "(project_id = $project_id OR attributes.project_id = $project_id)"
+            )
+        rows.extend(
+            normalize_records(
+                await self._client.execute_query(
+                    """
+                    SELECT attributes.epic_id AS epic_id,
+                           attributes.status AS status,
+                           count() AS task_count
+                    FROM entity
+                    WHERE """
+                    + " AND ".join(legacy_where_clauses)
+                    + """
+                    GROUP BY attributes.epic_id, attributes.status;
+                    """,
+                    **params,
                 )
-            ]
-            if not page:
-                break
+            )
+        )
 
-            for task in page:
-                epic_ref = _metadata_scalar(task, "epic_id")
-                if not epic_ref:
-                    continue
-                counters = progress.get(str(epic_ref))
-                if counters is not None:
-                    _count_task_progress(counters, task)
-
-            if len(page) < page_size:
-                break
-            offset += len(page)
+        for row in rows:
+            epic_ref = row.get("epic_id")
+            if epic_ref is None:
+                continue
+            counters = progress.get(str(epic_ref))
+            if counters is None:
+                continue
+            _count_task_status(counters, row.get("status"), count=_int_value(row.get("task_count")))
 
         return {
             epic_id: _finalize_task_progress(counters) for epic_id, counters in progress.items()
@@ -1490,36 +1497,16 @@ def _row_score(row: SurrealRecord) -> float:
     return 1.0
 
 
-def _surreal_field_value(field: str) -> str:
-    return f"{field} ?? attributes.{field} ?? ''"
+def _surreal_indexed_field_missing(field: str) -> str:
+    return f"({field} IS NONE OR {field} = '')"
 
 
-def _surreal_field_missing(field: str) -> str:
-    return (
-        f"(({field} IS NONE OR {field} = '') "
-        f"AND (attributes.{field} IS NONE OR attributes.{field} = ''))"
-    )
+def _surreal_indexed_field_equals_or_missing(field: str) -> str:
+    return f"({field} = ${field} OR {_surreal_indexed_field_missing(field)})"
 
 
-def _surreal_field_equals_or_missing(field: str, param: str) -> str:
-    return (
-        f"(({field} = ${param} OR attributes.{field} = ${param}) "
-        f"OR {_surreal_field_missing(field)})"
-    )
-
-
-def _surreal_lower_field_in_or_missing(field: str, param: str) -> str:
-    return (
-        f"(string::lowercase({_surreal_field_value(field)}) IN ${param} "
-        f"OR {_surreal_field_missing(field)})"
-    )
-
-
-def _surreal_lower_field_equals_or_missing(field: str, param: str) -> str:
-    return (
-        f"(string::lowercase({_surreal_field_value(field)}) = ${param} "
-        f"OR {_surreal_field_missing(field)})"
-    )
+def _surreal_indexed_field_in_or_missing(field: str, param: str) -> str:
+    return f"({field} IN ${param} OR {_surreal_indexed_field_missing(field)})"
 
 
 def _entity_matches_list_filters(
@@ -1596,16 +1583,27 @@ def _new_task_progress() -> dict[str, int]:
 
 
 def _count_task_progress(counters: dict[str, int], task: Entity) -> None:
-    counters["total_tasks"] += 1
-    status_value = str(_metadata_scalar(task, "status") or "").lower()
+    _count_task_status(counters, _metadata_scalar(task, "status"))
+
+
+def _count_task_status(
+    counters: dict[str, int],
+    status: object | None,
+    *,
+    count: int = 1,
+) -> None:
+    if count <= 0:
+        return
+    counters["total_tasks"] += count
+    status_value = str(status or "").lower()
     if status_value == "done":
-        counters["completed_tasks"] += 1
+        counters["completed_tasks"] += count
     elif status_value == "doing":
-        counters["in_progress_tasks"] += 1
+        counters["in_progress_tasks"] += count
     elif status_value == "blocked":
-        counters["blocked_tasks"] += 1
+        counters["blocked_tasks"] += count
     elif status_value == "review":
-        counters["in_review_tasks"] += 1
+        counters["in_review_tasks"] += count
 
 
 def _finalize_task_progress(counters: dict[str, int]) -> dict[str, Any]:
