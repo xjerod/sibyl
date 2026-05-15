@@ -710,6 +710,7 @@ class SibylClient:
         related_to: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         sync: bool = False,
+        skip_conflicts: bool = False,
     ) -> dict[str, Any]:
         """Create a new entity.
 
@@ -734,6 +735,8 @@ class SibylClient:
             data["related_to"] = related_to
         if metadata:
             data["metadata"] = metadata
+        if skip_conflicts:
+            data["skip_conflicts"] = True
 
         params = {"sync": "true"} if sync else None
         return await self._request("POST", "/entities", json=data, params=params)

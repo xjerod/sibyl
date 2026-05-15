@@ -318,9 +318,26 @@ def test_add_command_waits_for_direct_readiness(mock_get_client: MagicMock) -> N
         languages=None,
         tags=None,
         sync=True,
+        skip_conflicts=False,
     )
     mock_client.search.assert_not_called()
     assert "Added pattern" in result.stdout
+
+
+@patch("sibyl_cli.main.get_client")
+def test_add_command_can_skip_conflict_detection(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.create_entity = AsyncMock(return_value={"id": "pattern_123"})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["add", "Fast Pattern", "Pattern body", "--type", "pattern", "--skip-conflicts"],
+    )
+
+    assert result.exit_code == 0
+    assert mock_client.create_entity.await_args.kwargs["skip_conflicts"] is True
 
 
 @patch("sibyl_cli.main.get_client")
@@ -341,6 +358,7 @@ def test_add_command_accepts_title_and_content_options(mock_get_client: MagicMoc
         languages=None,
         tags=None,
         sync=False,
+        skip_conflicts=False,
     )
     assert "Queued episode" in result.stdout
 

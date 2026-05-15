@@ -1142,6 +1142,7 @@ async def create_entity(
             depends_on=depends_on,
             # Sync for projects, async for everything else
             sync=is_sync,
+            skip_conflicts=entity.skip_conflicts,
         )
 
         if not result.success or not result.id:

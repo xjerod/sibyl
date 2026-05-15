@@ -1020,6 +1020,12 @@ def add_knowledge(
         "--wait-searchable",
         help="Wait until the new entity is persisted and ready for direct retrieval",
     ),
+    skip_conflicts: bool = typer.Option(
+        False,
+        "--skip-conflicts",
+        "--no-conflict-check",
+        help="Skip semantic duplicate/conflict detection",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
     """Add knowledge to the graph."""
@@ -1056,6 +1062,7 @@ def add_knowledge(
                     languages=[language] if language else None,
                     tags=[t.strip() for t in tags.split(",")] if tags else None,
                     sync=wait_searchable,
+                    skip_conflicts=skip_conflicts,
                 )
 
                 entity_id = data.get("id", "unknown")

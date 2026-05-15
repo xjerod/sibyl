@@ -39,6 +39,10 @@ class EntityCreate(EntityBase):
     """Schema for creating a new entity."""
 
     entity_type: EntityType = Field(default=EntityType.EPISODE, description="Type of entity")
+    skip_conflicts: bool = Field(
+        default=False,
+        description="Skip semantic duplicate/conflict detection for latency-sensitive captures",
+    )
     related_to: list[str] | None = Field(
         default=None,
         description="Entity IDs to explicitly connect with RELATED_TO edges",

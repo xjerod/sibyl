@@ -104,3 +104,35 @@ async def test_create_entity_duplicate_uses_constraint_envelope() -> None:
         "field": "name",
         "entity_type": "episode",
     }
+
+
+@pytest.mark.asyncio
+async def test_create_entity_forwards_skip_conflicts() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    ctx = SimpleNamespace(user=SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000222")))
+    request = MagicMock()
+    request.headers = {}
+    request.cookies = {}
+    entity = EntityCreate(
+        name="Fast",
+        content="latency-sensitive capture",
+        entity_type=EntityType.PATTERN,
+        skip_conflicts=True,
+    )
+    add = AsyncMock(return_value=SimpleNamespace(success=True, id="pattern_123"))
+
+    with (
+        patch("sibyl_core.tools.core.add", add),
+        patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
+    ):
+        response = await create_entity(
+            request=request,
+            entity=entity,
+            org=org,
+            ctx=ctx,
+            content_session=None,
+            sync=False,
+        )
+
+    assert response.id == "pattern_123"
+    assert add.await_args.kwargs["skip_conflicts"] is True
