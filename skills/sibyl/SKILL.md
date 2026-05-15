@@ -19,8 +19,10 @@ These rules exist because real agent sessions consistently fail without them.
 1. **NEVER redirect stderr.** Do not append `2>/dev/null` to sibyl commands. Error messages contain
    diagnostic information you need. Suppressing them causes silent failures and blind retry spirals.
 
-2. **Link your project BEFORE doing anything else.** Run `sibyl context` first. If it shows
-   `Project: none`, you MUST run `sibyl project link <id>` before searching or listing tasks.
+2. **Link your project BEFORE doing anything else.** Run `sibyl context` first. Use
+   `sibyl context --quick` only as a local link/auth status check later in the same session, not as
+   a replacement for full context or recall. If context shows `Project: none` or
+   `Project: not linked`, you MUST run `sibyl project link <id>` before searching or listing tasks.
    Without a link, searches return results from unrelated projects and task lists show global noise.
 
 3. **Always complete the retrieval pattern.** Search returns truncated previews. When you need

@@ -39,6 +39,7 @@ from sibyl_cli.config_store import (
     set_active_context,
     update_context,
 )
+from sibyl_cli.context_quick import quick_context_payload, render_quick_context
 
 CONTEXT_PACK_PREVIEW_CHARS = 320
 
@@ -55,9 +56,21 @@ def callback(
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
+    quick: Annotated[
+        bool,
+        typer.Option(
+            "--quick",
+            "--validate",
+            help="Show local server/org/project/auth status only; use full context for project detail",
+        ),
+    ] = False,
 ) -> None:
     """Show current context when invoked without subcommand."""
     if ctx.invoked_subcommand is not None:
+        return
+
+    if quick:
+        render_quick_context(quick_context_payload(), json_out=json_out)
         return
 
     # No subcommand - show active context or path-detected project

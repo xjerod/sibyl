@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
+from sibyl_cli.config_store import Context
 from sibyl_cli.main import app
 
 
@@ -58,6 +59,66 @@ def _context_pack() -> dict:
         "usage_hint": "Capture new memory back into Sibyl.",
         "markdown": "# Sibyl Context Pack: ship faster\n\n## Decisions\n- **Use context packs**",
     }
+
+
+@patch("sibyl_cli.context_quick.read_server_credentials")
+@patch("sibyl_cli.context_quick.resolve_project_from_cwd", return_value="project_linked")
+@patch(
+    "sibyl_cli.context_quick.get_active_context",
+    return_value=Context(
+        name="local",
+        server_url="http://localhost:3334",
+        org_slug=None,
+        default_project="project_default",
+    ),
+)
+def test_context_quick_json_returns_flat_local_status(
+    mock_get_active_context: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+    mock_read_server_credentials: MagicMock,
+) -> None:
+    mock_read_server_credentials.return_value = {
+        "access_token": "token",
+        "access_token_expires_at": 4_102_444_800,
+    }
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["context", "--quick", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["server"] == "http://localhost:3334"
+    assert payload["org"] == "auto"
+    assert payload["project"] == "project_linked"
+    assert payload["project_source"] == "linked"
+    assert payload["auth"] == "valid"
+    assert payload["auth_expires_in"] > 0
+    mock_get_active_context.assert_called_once_with()
+    mock_resolve_project_from_cwd.assert_called_once_with()
+    mock_read_server_credentials.assert_called_once_with("http://localhost:3334/api")
+
+
+@patch("sibyl_cli.context_quick.read_server_credentials", return_value={})
+@patch("sibyl_cli.context_quick.resolve_project_from_cwd", return_value=None)
+@patch("sibyl_cli.context_quick.get_effective_server_url", return_value="http://localhost:3334")
+@patch("sibyl_cli.context_quick.get_active_context", return_value=None)
+def test_context_quick_without_context_reports_missing_auth(
+    mock_get_active_context: MagicMock,
+    mock_get_effective_server_url: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+    mock_read_server_credentials: MagicMock,
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["context", "--quick"])
+
+    assert result.exit_code == 0
+    assert "Project:" in result.stdout
+    assert "not linked" in result.stdout
+    assert "missing" in result.stdout
+    mock_get_active_context.assert_called_once_with()
+    mock_get_effective_server_url.assert_called_once_with()
+    mock_resolve_project_from_cwd.assert_called_once_with()
+    mock_read_server_credentials.assert_called_once_with("http://localhost:3334/api")
 
 
 @patch("sibyl_cli.context.resolve_project_from_cwd", return_value="project_123")
