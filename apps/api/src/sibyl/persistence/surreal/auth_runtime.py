@@ -109,6 +109,9 @@ _UPSERT_QUERY_BY_TABLE = {
         "UPSERT device_authorization_requests CONTENT $record WHERE uuid = $uuid;"
     ),
     "oauth_connections": "UPSERT oauth_connections CONTENT $record WHERE uuid = $uuid;",
+    "oauth_client_registrations": (
+        "UPSERT oauth_client_registrations CONTENT $record WHERE uuid = $uuid;"
+    ),
     "password_reset_tokens": "UPSERT password_reset_tokens CONTENT $record WHERE uuid = $uuid;",
     "memory_spaces": "UPSERT memory_spaces CONTENT $record WHERE uuid = $uuid;",
     "memory_space_members": (
@@ -1311,6 +1314,58 @@ async def revoke_refresh_session_record(refresh_token: str) -> None:
         if existing is None:
             return
         await sessions.revoke_loaded_session(existing)
+
+
+async def load_oauth_client_registration(client_id: str) -> SurrealRecord | None:
+    normalized = client_id.strip()
+    if not normalized:
+        return None
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        record = await repo.select_one(
+            "SELECT * FROM oauth_client_registrations WHERE client_id = $client_id LIMIT 1;",
+            client_id=normalized,
+        )
+        if record is None:
+            return None
+        client_info = record.get("client_info")
+        if not isinstance(client_info, dict):
+            return None
+        return {str(key): value for key, value in client_info.items()}
+
+
+async def save_oauth_client_registration(
+    *,
+    client_id: str,
+    client_info: Mapping[str, object],
+) -> None:
+    normalized = client_id.strip()
+    if not normalized:
+        return
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        existing = await repo.select_one(
+            "SELECT * FROM oauth_client_registrations WHERE client_id = $client_id LIMIT 1;",
+            client_id=normalized,
+        )
+        now = _utcnow()
+        registration_id = (
+            _coerce_uuid(existing.get("uuid"), field_name="oauth_client_registrations.uuid")
+            if existing is not None
+            else uuid4()
+        )
+        record: SurrealRecord = {
+            "uuid": str(registration_id),
+            "client_id": normalized,
+            "client_info": dict(client_info),
+            "created_at": existing.get("created_at") if existing is not None else now,
+            "updated_at": now,
+        }
+        await repo.replace_record(
+            "oauth_client_registrations",
+            uuid=registration_id,
+            record=record,
+        )
 
 
 async def login_github_identity(*, identity, request) -> IssuedAuthSession:
@@ -3477,6 +3532,7 @@ __all__ = [
     "list_oauth_connections",
     "list_user_organizations",
     "list_user_sessions",
+    "load_oauth_client_registration",
     "load_refresh_session_record",
     "log_audit_event",
     "log_memory_audit_event",
@@ -3498,6 +3554,7 @@ __all__ = [
     "rotate_refresh_exchange",
     "rotate_refresh_session_record",
     "signup_local_user",
+    "save_oauth_client_registration",
     "start_device_authorization",
     "update_auth_user",
     "update_memory_space",

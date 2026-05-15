@@ -117,6 +117,8 @@ def test_surreal_auth_runtime_exports_neutral_surface() -> None:
     assert "list_memory_space_members" in surreal_auth_runtime.__all__
     assert "resolve_auth_context" in surreal_auth_runtime.__all__
     assert "validate_access_session" in surreal_auth_runtime.__all__
+    assert "load_oauth_client_registration" in surreal_auth_runtime.__all__
+    assert "save_oauth_client_registration" in surreal_auth_runtime.__all__
 
 
 def test_coerce_datetime_normalizes_aware_datetime_instances() -> None:
@@ -218,6 +220,45 @@ async def test_token_revoke_helpers_revoke_loaded_session_without_reload(
     assert sessions.revoke_loaded_session.await_count == 2
     sessions.revoke_loaded_session.assert_any_await(session)
     select_one.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_oauth_client_registration_helpers_round_trip_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registration_id = uuid4()
+    created_at = datetime.now(UTC)
+    payload = {
+        "client_id": "client1",
+        "redirect_uris": ["http://127.0.0.1:9911/callback"],
+        "scope": "mcp",
+    }
+    saved = {
+        "uuid": str(registration_id),
+        "client_id": "client1",
+        "client_info": payload,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    client = _SequenceAuthClient([[], [saved], [saved]])
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    await surreal_auth_runtime.save_oauth_client_registration(
+        client_id="client1",
+        client_info=payload,
+    )
+    loaded = await surreal_auth_runtime.load_oauth_client_registration("client1")
+
+    assert loaded == payload
+    assert len(client.calls) == 3
+    assert "SELECT * FROM oauth_client_registrations" in client.calls[0][0]
+    assert "UPSERT oauth_client_registrations" in client.calls[1][0]
+    assert client.calls[1][1]["record"]["client_info"] == payload
+    assert client.calls[2][1] == {"client_id": "client1"}
 
 
 @pytest.mark.asyncio

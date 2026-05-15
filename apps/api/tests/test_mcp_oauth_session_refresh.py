@@ -7,8 +7,55 @@ from uuid import uuid4
 
 import pytest
 from mcp.server.auth.provider import RefreshToken, TokenError
+from mcp.shared.auth import OAuthClientInformationFull
 
 from sibyl.auth.mcp_oauth import SibylMcpOAuthProvider
+
+
+@pytest.mark.asyncio
+async def test_mcp_oauth_register_client_persists_registration(monkeypatch) -> None:
+    provider = SibylMcpOAuthProvider()
+    save = AsyncMock()
+    monkeypatch.setattr(provider, "_save_oauth_client_registration", save)
+    client = OAuthClientInformationFull(
+        client_id="client1",
+        client_secret="secret1",
+        redirect_uris=["http://127.0.0.1:9911/callback"],
+        token_endpoint_auth_method="client_secret_post",
+        scope="mcp",
+        client_name="Codex",
+    )
+
+    await provider.register_client(client)
+
+    assert await provider.get_client("client1") == client
+    save.assert_awaited_once_with(
+        client_id="client1",
+        client_info=client.model_dump(mode="json", exclude_none=True),
+    )
+
+
+@pytest.mark.asyncio
+async def test_mcp_oauth_get_client_loads_persisted_registration(monkeypatch) -> None:
+    provider = SibylMcpOAuthProvider()
+    stored = {
+        "client_id": "client1",
+        "client_secret": "secret1",
+        "redirect_uris": ["http://127.0.0.1:9911/callback"],
+        "token_endpoint_auth_method": "client_secret_post",
+        "scope": "mcp",
+    }
+    load = AsyncMock(return_value=stored)
+    monkeypatch.setattr(provider, "_load_oauth_client_registration", load)
+
+    client = await provider.get_client("client1")
+    cached = await provider.get_client("client1")
+
+    assert client is not None
+    assert client.client_id == "client1"
+    assert client.client_secret == "secret1"
+    assert cached is client
+    load.assert_awaited_once_with("client1")
 
 
 @pytest.mark.asyncio

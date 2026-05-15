@@ -8,7 +8,7 @@ served by FastMCP when `auth_server_provider` is configured:
 - `/register` (dynamic client registration)
 
 Implementation notes:
-- Clients are stored in-memory (re-registration is fine).
+- Dynamic clients are cached in-memory and persisted in auth storage.
 - Authorization codes are short-lived, in-memory, single-use.
 - Access tokens are Sibyl JWT access tokens (Bearer).
 - Refresh tokens are JWT refresh tokens tracked through the active auth runtime.
@@ -47,9 +47,11 @@ from sibyl.persistence.auth_runtime import (
     ensure_personal_organization,
     get_user_by_id,
     list_user_organizations,
+    load_oauth_client_registration,
     load_refresh_session_record,
     revoke_refresh_session_record,
     rotate_refresh_session_record,
+    save_oauth_client_registration,
     validate_access_session,
 )
 
@@ -172,12 +174,30 @@ class SibylMcpOAuthProvider(
         self._codes: dict[str, SibylAuthorizationCode] = {}
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        return self._clients.get(client_id)
+        cached = self._clients.get(client_id)
+        if cached is not None:
+            return cached
+        stored = await self._load_oauth_client_registration(client_id)
+        if stored is None:
+            return None
+        try:
+            client = OAuthClientInformationFull.model_validate(stored)
+        except Exception:
+            return None
+        if not client.client_id:
+            return None
+        self._clients[str(client.client_id)] = client
+        return client
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         if not client_info.client_id:
             return
-        self._clients[str(client_info.client_id)] = client_info
+        client_id = str(client_info.client_id)
+        self._clients[client_id] = client_info
+        await self._save_oauth_client_registration(
+            client_id=client_id,
+            client_info=client_info.model_dump(mode="json", exclude_none=True),
+        )
 
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
@@ -428,6 +448,22 @@ class SibylMcpOAuthProvider(
 
     async def _create_session_record(self, **kwargs: object) -> object:
         return await create_session_record(**kwargs)
+
+    async def _load_oauth_client_registration(
+        self, client_id: str
+    ) -> dict[str, object] | None:
+        return cast(
+            "dict[str, object] | None",
+            await load_oauth_client_registration(client_id),
+        )
+
+    async def _save_oauth_client_registration(
+        self,
+        *,
+        client_id: str,
+        client_info: dict[str, object],
+    ) -> None:
+        await save_oauth_client_registration(client_id=client_id, client_info=client_info)
 
     async def _load_refresh_session_record(
         self, refresh_token: str

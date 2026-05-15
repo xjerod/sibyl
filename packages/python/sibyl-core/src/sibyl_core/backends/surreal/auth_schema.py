@@ -19,6 +19,7 @@ EXTENDED_AUTH_TABLES = (
     "api_keys",
     "api_key_project_scopes",
     "oauth_connections",
+    "oauth_client_registrations",
     "device_authorization_requests",
     "audit_logs",
     "teams",
@@ -243,6 +244,21 @@ DEFINE INDEX IF NOT EXISTS idx_oauth_connections_uuid ON oauth_connections FIELD
 DEFINE INDEX IF NOT EXISTS idx_oauth_connections_user ON oauth_connections FIELDS user_id;
 DEFINE INDEX IF NOT EXISTS idx_oauth_connections_provider_user
     ON oauth_connections FIELDS provider, provider_user_id UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS oauth_client_registrations SCHEMAFULL;
+ALTER TABLE IF EXISTS oauth_client_registrations SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS uuid ON oauth_client_registrations TYPE string;
+DEFINE FIELD IF NOT EXISTS client_id ON oauth_client_registrations TYPE string;
+DEFINE FIELD IF NOT EXISTS client_info ON oauth_client_registrations TYPE object FLEXIBLE;
+DEFINE FIELD IF NOT EXISTS created_at
+    ON oauth_client_registrations TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at
+    ON oauth_client_registrations TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_oauth_client_registrations_uuid
+    ON oauth_client_registrations FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_oauth_client_registrations_client
+    ON oauth_client_registrations FIELDS client_id UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS device_authorization_requests SCHEMAFULL;
 ALTER TABLE IF EXISTS device_authorization_requests SCHEMAFULL;

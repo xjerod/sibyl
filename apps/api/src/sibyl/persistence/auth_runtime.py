@@ -67,6 +67,7 @@ __all__ += [
     "list_oauth_connections",
     "list_user_organizations",
     "list_user_sessions",
+    "load_oauth_client_registration",
     "load_refresh_session_record",
     "log_audit_event",
     "log_memory_audit_event",
@@ -87,6 +88,7 @@ __all__ += [
     "revoke_user_session",
     "rotate_refresh_exchange",
     "rotate_refresh_session_record",
+    "save_oauth_client_registration",
     "signup_local_user",
     "start_device_authorization",
     "update_auth_user",
@@ -284,6 +286,14 @@ async def revoke_api_key_for_user(**kwargs: object):
 
 async def create_session_record(**kwargs: object):
     return await _call_backend_export("create_session_record", **kwargs)
+
+
+async def load_oauth_client_registration(client_id: str):
+    return await _call_backend_export("load_oauth_client_registration", client_id)
+
+
+async def save_oauth_client_registration(**kwargs: object) -> None:
+    await _call_backend_export("save_oauth_client_registration", **kwargs)
 
 
 async def load_refresh_session_record(refresh_token: str):
