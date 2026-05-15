@@ -469,11 +469,14 @@ async def test_list_api_keys_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch
 async def test_create_api_key_uses_runtime_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx()
     request = SimpleNamespace()
+    memory_space_id = uuid4()
     record = SimpleNamespace(
         id=uuid4(),
         name="CLI",
         key_prefix="sk_live_abcd",
         scopes=["mcp"],
+        project_ids=["project-alpha"],
+        memory_space_ids=[str(memory_space_id)],
         expires_at=None,
     )
     create_key = AsyncMock(return_value=(record, "raw-secret"))
@@ -481,13 +484,29 @@ async def test_create_api_key_uses_runtime_helper(monkeypatch: pytest.MonkeyPatc
 
     response = await auth_routes.create_api_key(
         request=request,
-        body=auth_routes.ApiKeyCreateRequest(name="CLI"),
+        body=auth_routes.ApiKeyCreateRequest(
+            name="CLI",
+            project_ids=["project-alpha"],
+            memory_space_ids=[memory_space_id],
+        ),
         ctx=ctx,
         _admin=None,
     )
 
     assert response["api_key"] == "raw-secret"
-    create_key.assert_awaited_once()
+    assert response["project_ids"] == ["project-alpha"]
+    assert response["memory_space_ids"] == [str(memory_space_id)]
+    create_key.assert_awaited_once_with(
+        organization_id=ctx.organization.id,
+        user_id=ctx.user.id,
+        name="CLI",
+        live=True,
+        scopes=["mcp"],
+        project_ids=["project-alpha"],
+        memory_space_ids=[memory_space_id],
+        expires_at=None,
+        request=request,
+    )
 
 
 @pytest.mark.asyncio

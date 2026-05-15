@@ -512,6 +512,7 @@ def _row_identity(table_name: str, row: dict[str, Any]) -> tuple[str, ...]:
         "project_members": ("project_id", "user_id"),
         "team_projects": ("team_id", "project_id"),
         "api_key_project_scopes": ("api_key_id", "project_id"),
+        "api_key_memory_space_scopes": ("api_key_id", "memory_space_id"),
         "system_settings": ("key",),
         "backup_settings": ("key",),
         "teams": ("organization_id", "slug"),

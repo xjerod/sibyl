@@ -67,6 +67,12 @@ _AUTH_ARCHIVE_SQL = {
         "delete_by_uuid": "DELETE FROM api_key_project_scopes WHERE uuid = $uuid;",
         "create": "CREATE api_key_project_scopes CONTENT $record;",
     },
+    "api_key_memory_space_scopes": {
+        "select": "SELECT * FROM api_key_memory_space_scopes ORDER BY id ASC;",
+        "delete_all": "DELETE FROM api_key_memory_space_scopes;",
+        "delete_by_uuid": "DELETE FROM api_key_memory_space_scopes WHERE uuid = $uuid;",
+        "create": "CREATE api_key_memory_space_scopes CONTENT $record;",
+    },
     "oauth_connections": {
         "select": "SELECT * FROM oauth_connections ORDER BY id ASC;",
         "delete_all": "DELETE FROM oauth_connections;",

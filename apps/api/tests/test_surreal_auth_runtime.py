@@ -782,7 +782,8 @@ async def test_authenticate_api_key_batches_last_used_and_project_scopes(
     api_key_id = uuid4()
     user_id = uuid4()
     organization_id = uuid4()
-    project_id = uuid4()
+    project_record_id = uuid4()
+    memory_space_id = uuid4()
     client = _SequenceAuthClient(
         [
             [
@@ -798,21 +799,34 @@ async def test_authenticate_api_key_batches_last_used_and_project_scopes(
                     "expires_at": None,
                 }
             ],
-            {
-                "result": [
-                    {"status": "OK", "result": []},
-                    {
-                        "status": "OK",
-                        "result": [
-                            {
-                                "uuid": str(uuid4()),
-                                "api_key_id": str(api_key_id),
-                                "project_id": str(project_id),
-                            }
-                        ],
-                    },
-                ]
-            },
+            [],
+            [
+                {
+                    "uuid": str(uuid4()),
+                    "api_key_id": str(api_key_id),
+                    "project_id": str(project_record_id),
+                }
+            ],
+            [
+                {
+                    "uuid": str(project_record_id),
+                    "graph_project_id": "project-alpha",
+                }
+            ],
+            [
+                {
+                    "uuid": str(uuid4()),
+                    "api_key_id": str(api_key_id),
+                    "memory_space_id": str(memory_space_id),
+                }
+            ],
+            [
+                {
+                    "uuid": str(memory_space_id),
+                    "memory_scope": "project",
+                    "scope_key": "project-alpha",
+                }
+            ],
         ]
     )
 
@@ -829,15 +843,102 @@ async def test_authenticate_api_key_batches_last_used_and_project_scopes(
     assert auth.user_id == user_id
     assert auth.organization_id == organization_id
     assert auth.scopes == ["api:read"]
-    assert auth.project_ids == [project_id]
-    assert len(client.calls) == 2
+    assert auth.project_ids == ["project-alpha"]
+    assert auth.memory_space_ids == [memory_space_id]
+    assert auth.memory_spaces is not None
+    assert auth.memory_spaces[0].policy_key.endswith("project-alpha")
+    assert len(client.calls) == 6
     scope_query, scope_params = client.calls[1]
     assert "UPDATE api_keys" in scope_query
     assert "revoked_at = NONE" in scope_query
-    assert "SELECT * FROM api_key_project_scopes" in scope_query
     assert "UPSERT api_keys" not in scope_query
     assert scope_params["api_key_id"] == str(api_key_id)
     assert scope_params["last_used_at"] == scope_params["updated_at"]
+    project_scope_query, project_scope_params = client.calls[2]
+    assert "SELECT * FROM api_key_project_scopes" in project_scope_query
+    assert project_scope_params["api_key_id"] == str(api_key_id)
+    memory_scope_query, memory_scope_params = client.calls[4]
+    assert "SELECT * FROM api_key_memory_space_scopes" in memory_scope_query
+    assert memory_scope_params["api_key_id"] == str(api_key_id)
+
+
+@pytest.mark.asyncio
+async def test_create_api_key_writes_project_and_memory_space_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid4()
+    user_id = uuid4()
+    project_record_id = uuid4()
+    memory_space_id = uuid4()
+    created_key_id = uuid4()
+    client = _SequenceAuthClient(
+        [
+            [
+                {
+                    "uuid": str(project_record_id),
+                    "graph_project_id": "project-alpha",
+                }
+            ],
+            [{"uuid": str(memory_space_id)}],
+            [
+                {
+                    "uuid": str(created_key_id),
+                    "organization_id": str(organization_id),
+                    "user_id": str(user_id),
+                    "name": "Scoped key",
+                    "key_prefix": "sk_live_scoped",
+                    "scopes": ["mcp"],
+                    "expires_at": None,
+                    "revoked_at": None,
+                    "last_used_at": None,
+                }
+            ],
+            [],
+            [],
+            [],
+        ]
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    record, raw = await surreal_auth_runtime.create_api_key_for_user(
+        organization_id=organization_id,
+        user_id=user_id,
+        name="Scoped key",
+        live=True,
+        scopes=["mcp"],
+        project_ids=["project-alpha"],
+        memory_space_ids=[memory_space_id],
+        expires_at=None,
+        request=None,
+    )
+
+    assert raw.startswith("sk_live_")
+    assert record.project_ids == ["project-alpha"]
+    assert record.memory_space_ids == [str(memory_space_id)]
+    assert len(client.calls) == 6
+    project_query, project_params = client.calls[0]
+    assert "FROM projects" in project_query
+    assert project_params["project_ids"] == ["project-alpha"]
+    memory_query, memory_params = client.calls[1]
+    assert "FROM memory_spaces" in memory_query
+    assert memory_params["memory_space_ids"] == [str(memory_space_id)]
+    scope_query, scope_params = client.calls[3]
+    assert scope_query == "CREATE api_key_project_scopes CONTENT $record;"
+    assert scope_params["record"]["api_key_id"] == str(created_key_id)
+    assert scope_params["record"]["project_id"] == str(project_record_id)
+    memory_scope_query, memory_scope_params = client.calls[4]
+    assert memory_scope_query == "CREATE api_key_memory_space_scopes CONTENT $record;"
+    assert memory_scope_params["record"]["api_key_id"] == str(created_key_id)
+    assert memory_scope_params["record"]["memory_space_id"] == str(memory_space_id)
+    audit_query, audit_params = client.calls[5]
+    assert audit_query == "CREATE audit_logs CONTENT $record;"
+    assert audit_params["record"]["details"]["project_scope_count"] == 1
+    assert audit_params["record"]["details"]["memory_space_scope_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -1563,6 +1664,51 @@ async def test_list_accessible_project_graph_ids_batches_project_grants(
     assert "FROM team_members" in query
     assert "FROM team_projects" in query
     assert params == {"organization_id": str(org_id), "user_id": str(user_id)}
+
+
+@pytest.mark.asyncio
+async def test_list_accessible_project_graph_ids_intersects_api_key_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+    allowed_project_id = uuid4()
+    hidden_project_id = uuid4()
+    client = _RecordingAuthClient(
+        {
+            "projects": [
+                {
+                    "uuid": str(allowed_project_id),
+                    "graph_project_id": "project_allowed",
+                    "visibility": "org",
+                },
+                {
+                    "uuid": str(hidden_project_id),
+                    "graph_project_id": "project_hidden",
+                    "visibility": "org",
+                },
+            ],
+            "direct_memberships": [],
+            "team_members": [],
+            "team_projects": [],
+        }
+    )
+    ctx = SimpleNamespace(
+        organization=SimpleNamespace(id=org_id),
+        user=SimpleNamespace(id=user_id),
+        org_role="member",
+        api_key_project_ids=["project_allowed"],
+    )
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+
+    accessible = await surreal_auth_runtime.list_accessible_project_graph_ids(ctx)
+
+    assert accessible == {"project_allowed"}
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ EXTENDED_AUTH_TABLES = (
     "organization_invitations",
     "api_keys",
     "api_key_project_scopes",
+    "api_key_memory_space_scopes",
     "oauth_connections",
     "oauth_client_registrations",
     "device_authorization_requests",
@@ -221,6 +222,27 @@ DEFINE INDEX IF NOT EXISTS idx_api_key_project_scopes_project
     ON api_key_project_scopes FIELDS project_id;
 DEFINE INDEX IF NOT EXISTS idx_api_key_project_scopes_key_project
     ON api_key_project_scopes FIELDS api_key_id, project_id UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS api_key_memory_space_scopes SCHEMAFULL;
+ALTER TABLE IF EXISTS api_key_memory_space_scopes SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS uuid ON api_key_memory_space_scopes TYPE string;
+DEFINE FIELD IF NOT EXISTS api_key_id ON api_key_memory_space_scopes TYPE string;
+DEFINE FIELD IF NOT EXISTS memory_space_id ON api_key_memory_space_scopes TYPE string;
+DEFINE FIELD IF NOT EXISTS allowed_operations
+    ON api_key_memory_space_scopes TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS created_at
+    ON api_key_memory_space_scopes TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at
+    ON api_key_memory_space_scopes TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_api_key_memory_space_scopes_uuid
+    ON api_key_memory_space_scopes FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_api_key_memory_space_scopes_key
+    ON api_key_memory_space_scopes FIELDS api_key_id;
+DEFINE INDEX IF NOT EXISTS idx_api_key_memory_space_scopes_space
+    ON api_key_memory_space_scopes FIELDS memory_space_id;
+DEFINE INDEX IF NOT EXISTS idx_api_key_memory_space_scopes_key_space
+    ON api_key_memory_space_scopes FIELDS api_key_id, memory_space_id UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS oauth_connections SCHEMAFULL;
 ALTER TABLE IF EXISTS oauth_connections SCHEMAFULL;

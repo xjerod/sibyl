@@ -42,6 +42,7 @@ from sibyl.api.schemas import (
     ReflectionPromotionRequest,
     ReflectionReviewDrainRequest,
 )
+from sibyl.auth.api_key_common import api_key_memory_scope_key
 from sibyl.jobs import source_imports
 from sibyl_core.auth import OrganizationRole, ProjectRole
 from sibyl_core.services.native_memory import (
@@ -456,6 +457,38 @@ async def test_remember_raw_uses_shared_policy_for_project_scope_write() -> None
 
 
 @pytest.mark.asyncio
+async def test_remember_raw_denies_disallowed_api_key_memory_space() -> None:
+    ctx = _ctx()
+    ctx.api_key_memory_scope_keys = [
+        api_key_memory_scope_key("project", "project_allowed")
+    ]
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project_123"}),
+        ),
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+        patch("sibyl.api.routes.memory.remember_raw_memory", AsyncMock()) as remember,
+        pytest.raises(HTTPException) as exc,
+    ):
+        await remember_raw(
+            RawMemoryRememberRequest(
+                raw_content="project note",
+                memory_scope="project",
+                scope_key="project_123",
+            ),
+            org=_org(),
+            ctx=ctx,
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "api_key_memory_space_denied"
+    remember.assert_not_awaited()
+    audit.assert_awaited_once()
+    assert audit.await_args.kwargs["policy_reason"] == "api_key_memory_space_denied"
+
+
+@pytest.mark.asyncio
 async def test_remember_raw_denies_project_scope_without_policy_membership() -> None:
     http_request = _http_request()
     with (
@@ -660,6 +693,32 @@ async def test_recall_raw_uses_shared_policy_for_project_scope_read() -> None:
         )
 
     accessible_projects.assert_awaited_once_with(ctx)
+    assert response.policy_reason == "project_access_verified"
+
+
+@pytest.mark.asyncio
+async def test_recall_raw_allows_matching_api_key_memory_space() -> None:
+    org = _org()
+    ctx = _ctx()
+    ctx.api_key_memory_scope_keys = [api_key_memory_scope_key("project", "project_123")]
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project_123"}),
+        ),
+        patch("sibyl.api.routes.memory.recall_raw_memory", AsyncMock(return_value=[])) as recall,
+    ):
+        response = await recall_raw(
+            RawMemoryRecallRequest(
+                query="project memory",
+                memory_scope="project",
+                scope_key="project_123",
+            ),
+            org=org,
+            ctx=ctx,
+        )
+
+    recall.assert_awaited_once()
     assert response.policy_reason == "project_access_verified"
 
 

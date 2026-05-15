@@ -1128,6 +1128,8 @@ export interface ApiKey {
   name: string;
   prefix: string;
   scopes: string[];
+  project_ids: string[];
+  memory_space_ids: string[];
   last_used_at: string | null;
   expires_at: string | null;
   created_at: string | null;
@@ -1140,6 +1142,8 @@ export interface ApiKeysResponse {
 export interface ApiKeyCreateRequest {
   name: string;
   scopes?: string[];
+  project_ids?: string[];
+  memory_space_ids?: string[];
   expires_in_days?: number;
 }
 
@@ -1168,6 +1172,8 @@ interface ApiKeyBackendRecord {
   prefix?: string;
   key_prefix?: string;
   scopes?: string[];
+  project_ids?: string[];
+  memory_space_ids?: string[];
   last_used_at?: string | null;
   expires_at?: string | null;
   created_at?: string | null;
@@ -1195,6 +1201,8 @@ function normalizeApiKey(record: ApiKeyBackendRecord): ApiKey {
     name: record.name,
     prefix: record.prefix ?? record.key_prefix ?? '',
     scopes: record.scopes ?? [],
+    project_ids: record.project_ids ?? [],
+    memory_space_ids: record.memory_space_ids ?? [],
     last_used_at: record.last_used_at ?? null,
     expires_at: record.expires_at ?? null,
     created_at: record.created_at ?? null,
@@ -2303,6 +2311,8 @@ export const api = {
           body: JSON.stringify({
             name: data.name,
             scopes: data.scopes,
+            project_ids: data.project_ids,
+            memory_space_ids: data.memory_space_ids,
             expires_days: data.expires_in_days,
           }),
         });

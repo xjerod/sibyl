@@ -9,6 +9,10 @@ from hashlib import pbkdf2_hmac
 from uuid import UUID
 
 
+def api_key_memory_scope_key(memory_scope: object, scope_key: object | None) -> str:
+    return f"{str(memory_scope).strip()}\x1f{'' if scope_key is None else str(scope_key).strip()}"
+
+
 class ApiKeyError(ValueError):
     """API key error."""
 
@@ -46,6 +50,19 @@ def verify_api_key(key: str, *, salt_hex: str, hash_hex: str, iterations: int = 
 
 
 @dataclass(frozen=True)
+class ApiKeyMemorySpaceAuth:
+    """Memory-space scope attached to an API key."""
+
+    memory_space_id: UUID
+    memory_scope: str
+    scope_key: str | None = None
+
+    @property
+    def policy_key(self) -> str:
+        return api_key_memory_scope_key(self.memory_scope, self.scope_key)
+
+
+@dataclass(frozen=True)
 class ApiKeyAuth:
     """Result of API key authentication."""
 
@@ -53,4 +70,6 @@ class ApiKeyAuth:
     user_id: UUID
     organization_id: UUID
     scopes: list[str]
-    project_ids: list[UUID] | None = None
+    project_ids: list[str] | None = None
+    memory_space_ids: list[UUID] | None = None
+    memory_spaces: list[ApiKeyMemorySpaceAuth] | None = None

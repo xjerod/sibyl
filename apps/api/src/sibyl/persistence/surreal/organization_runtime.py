@@ -928,6 +928,10 @@ async def _delete_org_auth_child_records(client, *, organization_id: UUID) -> No
             "DELETE FROM api_key_project_scopes WHERE api_key_id IN $api_key_ids;",
             api_key_ids=api_key_ids,
         )
+        await client.execute_query(
+            "DELETE FROM api_key_memory_space_scopes WHERE api_key_id IN $api_key_ids;",
+            api_key_ids=api_key_ids,
+        )
 
 
 async def delete_org(*, request: Request, slug: str, user_id: UUID) -> None:

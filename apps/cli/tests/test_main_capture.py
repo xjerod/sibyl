@@ -77,6 +77,33 @@ async def test_memory_space_access_client_url_encodes_space_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_api_key_client_posts_scope_restrictions() -> None:
+    client = SibylClient(base_url="http://example.test/api", auth_token="token")
+    client._request = AsyncMock(return_value={"id": "key-1"})  # type: ignore[method-assign]
+
+    data = await client.create_api_key(
+        name="Scoped key",
+        live=True,
+        scopes=["mcp"],
+        project_ids=["project-alpha"],
+        memory_space_ids=["00000000-0000-0000-0000-000000000003"],
+    )
+
+    assert data == {"id": "key-1"}
+    client._request.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/auth/api-keys",
+        json={
+            "name": "Scoped key",
+            "live": True,
+            "scopes": ["mcp"],
+            "project_ids": ["project-alpha"],
+            "memory_space_ids": ["00000000-0000-0000-0000-000000000003"],
+        },
+    )
+
+
+@pytest.mark.asyncio
 async def test_memory_review_drain_client_posts_contract() -> None:
     client = SibylClient(base_url="http://example.test/api", auth_token="token")
     client._request = AsyncMock(return_value={"scanned_count": 1})  # type: ignore[method-assign]

@@ -60,6 +60,14 @@ class ApiKeyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     live: bool = Field(default=True, description="Use sk_live_ prefix (true) or sk_test_ (false)")
     scopes: list[str] = Field(default_factory=lambda: ["mcp"], description="Granted scopes")
+    project_ids: list[str] = Field(
+        default_factory=list,
+        description="Optional graph project IDs this key may access",
+    )
+    memory_space_ids: list[UUID] = Field(
+        default_factory=list,
+        description="Optional memory-space IDs this key may access",
+    )
     expires_days: int | None = Field(
         default=None, ge=1, le=365, description="Optional expiry in days"
     )
@@ -1090,6 +1098,8 @@ async def list_api_keys(
                 "name": k.name,
                 "prefix": k.key_prefix,
                 "scopes": list(k.scopes or []),
+                "project_ids": list(getattr(k, "project_ids", []) or []),
+                "memory_space_ids": list(getattr(k, "memory_space_ids", []) or []),
                 "expires_at": k.expires_at,
                 "revoked_at": k.revoked_at,
                 "last_used_at": k.last_used_at,
@@ -1121,6 +1131,8 @@ async def create_api_key(
         name=body.name,
         live=body.live,
         scopes=body.scopes,
+        project_ids=body.project_ids,
+        memory_space_ids=body.memory_space_ids,
         expires_at=expires_at,
         request=request,
     )
@@ -1129,6 +1141,8 @@ async def create_api_key(
         "name": record.name,
         "prefix": record.key_prefix,
         "scopes": list(record.scopes or []),
+        "project_ids": list(getattr(record, "project_ids", []) or []),
+        "memory_space_ids": list(getattr(record, "memory_space_ids", []) or []),
         "expires_at": record.expires_at,
         "api_key": raw,
     }

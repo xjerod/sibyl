@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from sibyl.auth.api_key_common import ApiKeyAuth
+from sibyl.auth.api_key_common import ApiKeyAuth, ApiKeyMemorySpaceAuth
 from sibyl.auth.dependencies import resolve_claims
 
 
@@ -68,6 +69,40 @@ async def test_api_key_rest_allows_api_read_for_get() -> None:
         assert claims is not None
         assert claims["typ"] == "api_key"
         assert "api:read" in claims["scopes"]
+
+
+@pytest.mark.asyncio
+async def test_api_key_rest_claims_include_control_plane_restrictions() -> None:
+    request = _make_request(method="GET", path="/api/me", token="sk_live_test")
+    memory_space_id = "00000000-0000-0000-0000-000000000003"
+    session = object()
+
+    with patch(
+        "sibyl.auth.dependencies.authenticate_api_key",
+        AsyncMock(
+            return_value=ApiKeyAuth(
+                api_key_id=UUID("00000000-0000-0000-0000-000000000000"),
+                user_id=UUID("00000000-0000-0000-0000-000000000001"),
+                organization_id=UUID("00000000-0000-0000-0000-000000000002"),
+                scopes=["api:read"],
+                project_ids=["project-alpha"],
+                memory_space_ids=[UUID(memory_space_id)],
+                memory_spaces=[
+                    ApiKeyMemorySpaceAuth(
+                        memory_space_id=UUID(memory_space_id),
+                        memory_scope="project",
+                        scope_key="project-alpha",
+                    )
+                ],
+            )
+        ),
+    ):
+        claims = await resolve_claims(request, _session=session)
+
+    assert claims is not None
+    assert claims["api_key_project_ids"] == ["project-alpha"]
+    assert claims["api_key_memory_space_ids"] == [memory_space_id]
+    assert len(claims["api_key_memory_scope_keys"]) == 1
 
 
 @pytest.mark.asyncio

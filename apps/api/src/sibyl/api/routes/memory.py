@@ -44,6 +44,7 @@ from sibyl.api.schemas import (
     ReflectionReviewDrainResponse,
     SourceImportStatusResponse,
 )
+from sibyl.auth.api_key_common import api_key_memory_scope_key
 from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
@@ -88,6 +89,7 @@ from sibyl_core.services.native_memory import (
 )
 from sibyl_core.services.surreal_content import (
     AGENT_DIARY_CAPTURE_SURFACE,
+    MemoryScope,
     RawMemory,
     get_raw_memory,
     get_raw_memory_by_source_id,
@@ -196,6 +198,43 @@ async def _project_accessible_for_policy(
     return {str(project_id) for project_id in accessible_projects or set()}
 
 
+def _api_key_memory_scope_allowed(
+    ctx: AuthContext,
+    *,
+    memory_scope: str,
+    scope_key: str | None,
+) -> bool:
+    allowed_scope_keys = getattr(ctx, "api_key_memory_scope_keys", None)
+    if allowed_scope_keys is None:
+        return True
+    if not isinstance(allowed_scope_keys, list | tuple | set | frozenset):
+        return True
+    effective_scope_key = ctx.user_id if memory_scope == "private" and not scope_key else scope_key
+    scope_key_id = api_key_memory_scope_key(memory_scope, effective_scope_key)
+    return scope_key_id in allowed_scope_keys
+
+
+def _api_key_memory_scope_denial(
+    *,
+    action: MemoryPolicyAction,
+    memory_scope: str,
+    scope_key: str | None,
+    policy_context: MemoryPolicyContext,
+) -> MemoryPolicyDecision:
+    try:
+        normalized_scope = MemoryScope(memory_scope)
+    except ValueError:
+        normalized_scope = MemoryScope.PRIVATE
+    return MemoryPolicyDecision(
+        action=action,
+        allowed=False,
+        reason="api_key_memory_space_denied",
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+        policy_context=policy_context,
+    )
+
+
 async def _authorize_memory_policy(
     *,
     ctx: AuthContext,
@@ -252,6 +291,30 @@ async def _authorize_memory_policy(
         raise HTTPException(
             status_code=_policy_http_status(decision.reason),
             detail=decision.reason,
+        )
+    if not _api_key_memory_scope_allowed(ctx, memory_scope=memory_scope, scope_key=scope_key):
+        deny_decision = _api_key_memory_scope_denial(
+            action=action,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            policy_context=policy_context,
+        )
+        _log_policy_decision(ctx=ctx, decision=deny_decision, surface=surface)
+        await _log_memory_audit(
+            action="memory.policy_deny",
+            ctx=ctx,
+            request=request,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            project_id=project_id,
+            source_surface=surface,
+            policy_allowed=False,
+            policy_reason=deny_decision.reason,
+            details={"policy_action": deny_decision.action.value},
+        )
+        raise HTTPException(
+            status_code=_policy_http_status(deny_decision.reason),
+            detail=deny_decision.reason,
         )
     return decision
 

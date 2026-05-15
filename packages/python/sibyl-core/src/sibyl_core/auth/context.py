@@ -75,12 +75,32 @@ class AuthContext:
     organization: AuthOrganization | None
     org_role: OrganizationRole | None
     scopes: frozenset[str] = frozenset()
+    api_key_id: str | None = None
+    api_key_project_ids: frozenset[str] | None = None
+    api_key_memory_space_ids: frozenset[str] | None = None
+    api_key_memory_scope_keys: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "user", coerce_auth_user(self.user))
         object.__setattr__(self, "organization", coerce_auth_organization(self.organization))
         object.__setattr__(self, "org_role", coerce_organization_role(self.org_role))
         object.__setattr__(self, "scopes", frozenset(str(scope) for scope in self.scopes))
+        object.__setattr__(self, "api_key_id", _optional_string(self.api_key_id))
+        object.__setattr__(
+            self,
+            "api_key_project_ids",
+            _frozen_string_set(self.api_key_project_ids),
+        )
+        object.__setattr__(
+            self,
+            "api_key_memory_space_ids",
+            _frozen_string_set(self.api_key_memory_space_ids),
+        )
+        object.__setattr__(
+            self,
+            "api_key_memory_scope_keys",
+            _frozen_string_set(self.api_key_memory_scope_keys),
+        )
 
     @property
     def is_authenticated(self) -> bool:

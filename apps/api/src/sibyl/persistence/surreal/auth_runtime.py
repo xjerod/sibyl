@@ -18,6 +18,7 @@ from starlette.requests import Request
 from sibyl import config as config_module
 from sibyl.auth.api_key_common import (
     ApiKeyAuth,
+    ApiKeyMemorySpaceAuth,
     api_key_prefix,
     generate_api_key,
     hash_api_key,
@@ -509,6 +510,37 @@ def _api_key_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     )
 
 
+def _unique_strings(values: list[str] | tuple[str, ...] | None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values or []:
+        normalized = str(value).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(normalized)
+    return out
+
+
+def _unique_uuids(values: list[UUID] | tuple[UUID, ...] | None) -> list[UUID]:
+    seen: set[UUID] = set()
+    out: list[UUID] = []
+    for value in values or []:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _api_key_memory_space_scope(record: SurrealRecord) -> ApiKeyMemorySpaceAuth:
+    return ApiKeyMemorySpaceAuth(
+        memory_space_id=_coerce_uuid(record.get("uuid"), field_name="memory_spaces.uuid"),
+        memory_scope=str(record.get("memory_scope") or "private"),
+        scope_key=_optional_str(record.get("scope_key")),
+    )
+
+
 def _device_request_namespace(record: SurrealRecord | None) -> SimpleNamespace | None:
     return _ns(
         record,
@@ -904,6 +936,27 @@ def _scopes_list(value: object | None) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
+def _api_key_claim_payload(auth: ApiKeyAuth) -> SurrealRecord:
+    payload: SurrealRecord = {
+        "sub": str(auth.user_id),
+        "org": str(auth.organization_id),
+        "typ": "api_key",
+        "api_key_id": str(auth.api_key_id),
+        "scopes": list(auth.scopes or []),
+    }
+    if auth.project_ids is not None:
+        payload["api_key_project_ids"] = [str(project_id) for project_id in auth.project_ids]
+    if auth.memory_space_ids is not None:
+        payload["api_key_memory_space_ids"] = [
+            str(memory_space_id) for memory_space_id in auth.memory_space_ids
+        ]
+    if auth.memory_spaces is not None:
+        payload["api_key_memory_scope_keys"] = [
+            memory_space.policy_key for memory_space in auth.memory_spaces
+        ]
+    return payload
+
+
 async def _resolve_auth_context_from_claims(claims: Mapping[str, object]) -> AuthContext:
     async with _auth_client_scope() as client:
         resolver = SurrealAuthContextResolver.from_client(client)
@@ -1073,26 +1126,63 @@ async def authenticate_api_key(raw_key: str):
             ):
                 continue
             api_key_id = _coerce_uuid(candidate.get("uuid"), field_name="api_key.uuid")
-            project_scope_records = await _execute_raw_statement_records(
-                client,
+            await client.execute_query(
                 """
-                    UPDATE api_keys
-                    SET last_used_at = $last_used_at, updated_at = $updated_at
-                    WHERE uuid = $api_key_id AND revoked_at = NONE;
-                    SELECT * FROM api_key_project_scopes
-                    WHERE api_key_id = $api_key_id
-                    ORDER BY created_at ASC;
+                UPDATE api_keys
+                SET last_used_at = $last_used_at, updated_at = $updated_at
+                WHERE uuid = $api_key_id AND revoked_at = NONE;
                 """,
                 api_key_id=str(api_key_id),
                 last_used_at=now,
                 updated_at=now,
             )
-            project_ids = [
-                _coerce_uuid(
-                    record.get("project_id"), field_name="api_key_project_scope.project_id"
-                )
+            project_scope_records = await repo.select_many(
+                "SELECT * FROM api_key_project_scopes "
+                "WHERE api_key_id = $api_key_id ORDER BY created_at ASC;",
+                api_key_id=str(api_key_id),
+            )
+            project_record_ids = [
+                str(record["project_id"])
                 for record in project_scope_records
-                if record.get("project_id") is not None
+                if str(record.get("project_id") or "").strip()
+            ]
+            project_records = (
+                await repo.select_many(
+                    "SELECT uuid, graph_project_id FROM projects "
+                    "WHERE uuid IN $project_ids ORDER BY created_at ASC;",
+                    project_ids=project_record_ids,
+                )
+                if project_record_ids
+                else []
+            )
+            project_ids = [
+                str(record["graph_project_id"])
+                for record in project_records
+                if str(record.get("graph_project_id") or "").strip()
+            ]
+            memory_scope_records = await repo.select_many(
+                "SELECT * FROM api_key_memory_space_scopes "
+                "WHERE api_key_id = $api_key_id ORDER BY created_at ASC;",
+                api_key_id=str(api_key_id),
+            )
+            memory_space_ids = [
+                str(record["memory_space_id"])
+                for record in memory_scope_records
+                if str(record.get("memory_space_id") or "").strip()
+            ]
+            memory_space_records = (
+                await repo.select_many(
+                    "SELECT uuid, memory_scope, scope_key FROM memory_spaces "
+                    "WHERE uuid IN $memory_space_ids AND organization_id = $organization_id "
+                    "ORDER BY created_at ASC;",
+                    memory_space_ids=memory_space_ids,
+                    organization_id=str(candidate.get("organization_id")),
+                )
+                if memory_space_ids
+                else []
+            )
+            memory_spaces = [
+                _api_key_memory_space_scope(record) for record in memory_space_records
             ]
             return ApiKeyAuth(
                 api_key_id=api_key_id,
@@ -1102,6 +1192,8 @@ async def authenticate_api_key(raw_key: str):
                 ),
                 scopes=_scopes_list(candidate.get("scopes")),
                 project_ids=project_ids or None,
+                memory_space_ids=[space.memory_space_id for space in memory_spaces] or None,
+                memory_spaces=memory_spaces or None,
             )
     return None
 
@@ -1681,12 +1773,7 @@ async def resolve_request_claims(request) -> SurrealRecord | None:
         auth = await authenticate_api_key(token)
         if auth is None:
             return None
-        return {
-            "sub": str(auth.user_id),
-            "org": str(auth.organization_id),
-            "typ": "api_key",
-            "scopes": list(auth.scopes or []),
-        }
+        return _api_key_claim_payload(auth)
     return None
 
 
@@ -2656,6 +2743,143 @@ async def add_memory_space_member(
         return _memory_space_member_namespace(saved)
 
 
+async def _resolve_api_key_project_record_ids(
+    repo: _SurrealRepository,
+    *,
+    organization_id: UUID,
+    project_ids: list[str] | tuple[str, ...] | None,
+) -> list[str]:
+    normalized = _unique_strings(project_ids)
+    if not normalized:
+        return []
+    records = await repo.select_many(
+        "SELECT uuid, graph_project_id FROM projects "
+        "WHERE organization_id = $organization_id AND graph_project_id IN $project_ids "
+        "ORDER BY created_at ASC;",
+        organization_id=str(organization_id),
+        project_ids=normalized,
+    )
+    by_graph_id = {str(record.get("graph_project_id")): record for record in records}
+    missing = [project_id for project_id in normalized if project_id not in by_graph_id]
+    if missing:
+        raise HTTPException(status_code=400, detail="invalid_api_key_project_scope")
+    return [str(by_graph_id[project_id]["uuid"]) for project_id in normalized]
+
+
+async def _resolve_api_key_memory_space_ids(
+    repo: _SurrealRepository,
+    *,
+    organization_id: UUID,
+    memory_space_ids: list[UUID] | tuple[UUID, ...] | None,
+) -> list[UUID]:
+    normalized = _unique_uuids(memory_space_ids)
+    if not normalized:
+        return []
+    records = await repo.select_many(
+        "SELECT uuid FROM memory_spaces "
+        "WHERE organization_id = $organization_id AND uuid IN $memory_space_ids "
+        "ORDER BY created_at ASC;",
+        organization_id=str(organization_id),
+        memory_space_ids=[str(memory_space_id) for memory_space_id in normalized],
+    )
+    found = {
+        _coerce_uuid(record.get("uuid"), field_name="memory_spaces.uuid") for record in records
+    }
+    missing = [memory_space_id for memory_space_id in normalized if memory_space_id not in found]
+    if missing:
+        raise HTTPException(status_code=400, detail="invalid_api_key_memory_space_scope")
+    return normalized
+
+
+async def _write_api_key_scope_records(
+    client: QueryClient,
+    *,
+    api_key_id: UUID,
+    project_record_ids: list[str],
+    memory_space_ids: list[UUID],
+) -> None:
+    now = _utcnow()
+    for project_id in project_record_ids:
+        await client.execute_query(
+            "CREATE api_key_project_scopes CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "api_key_id": str(api_key_id),
+                "project_id": project_id,
+                "allowed_operations": [],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+    for memory_space_id in memory_space_ids:
+        await client.execute_query(
+            "CREATE api_key_memory_space_scopes CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "api_key_id": str(api_key_id),
+                "memory_space_id": str(memory_space_id),
+                "allowed_operations": [],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+
+
+async def _decorate_api_key_scopes(
+    repo: _SurrealRepository,
+    keys: list[SimpleNamespace],
+) -> list[SimpleNamespace]:
+    api_key_ids = [str(key.id) for key in keys if getattr(key, "id", None) is not None]
+    if not api_key_ids:
+        return keys
+    project_scope_records = await repo.select_many(
+        "SELECT * FROM api_key_project_scopes "
+        "WHERE api_key_id IN $api_key_ids ORDER BY created_at ASC;",
+        api_key_ids=api_key_ids,
+    )
+    project_record_ids = [
+        str(record["project_id"])
+        for record in project_scope_records
+        if str(record.get("project_id") or "").strip()
+    ]
+    project_records = (
+        await repo.select_many(
+            "SELECT uuid, graph_project_id FROM projects WHERE uuid IN $project_ids;",
+            project_ids=project_record_ids,
+        )
+        if project_record_ids
+        else []
+    )
+    graph_ids_by_uuid = {
+        str(record["uuid"]): str(record["graph_project_id"])
+        for record in project_records
+        if str(record.get("uuid") or "").strip()
+        and str(record.get("graph_project_id") or "").strip()
+    }
+    memory_scope_records = await repo.select_many(
+        "SELECT * FROM api_key_memory_space_scopes "
+        "WHERE api_key_id IN $api_key_ids ORDER BY created_at ASC;",
+        api_key_ids=api_key_ids,
+    )
+    projects_by_key: dict[str, list[str]] = {}
+    for record in project_scope_records:
+        graph_id = graph_ids_by_uuid.get(str(record.get("project_id") or ""))
+        if graph_id:
+            projects_by_key.setdefault(str(record["api_key_id"]), []).append(graph_id)
+    memory_spaces_by_key: dict[str, list[str]] = {}
+    for record in memory_scope_records:
+        memory_space_id = str(record.get("memory_space_id") or "").strip()
+        if memory_space_id:
+            memory_spaces_by_key.setdefault(str(record["api_key_id"]), []).append(
+                memory_space_id
+            )
+    for key in keys:
+        key_id = str(key.id)
+        key.project_ids = projects_by_key.get(key_id, [])
+        key.memory_space_ids = memory_spaces_by_key.get(key_id, [])
+    return keys
+
+
 async def list_api_keys_for_user(*, organization_id: UUID, user_id: UUID):
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
@@ -2666,7 +2890,8 @@ async def list_api_keys_for_user(*, organization_id: UUID, user_id: UUID):
             organization_id=str(organization_id),
             user_id=str(user_id),
         )
-        return [key for record in records if (key := _api_key_namespace(record)) is not None]
+        keys = [key for record in records if (key := _api_key_namespace(record)) is not None]
+        return await _decorate_api_key_scopes(repo, keys)
 
 
 async def create_api_key_for_user(
@@ -2676,10 +2901,23 @@ async def create_api_key_for_user(
     name: str,
     live: bool,
     scopes: list[str],
+    project_ids: list[str] | None = None,
+    memory_space_ids: list[UUID] | None = None,
     expires_at,
     request,
 ):
     async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        project_record_ids = await _resolve_api_key_project_record_ids(
+            repo,
+            organization_id=organization_id,
+            project_ids=project_ids,
+        )
+        resolved_memory_space_ids = await _resolve_api_key_memory_space_ids(
+            repo,
+            organization_id=organization_id,
+            memory_space_ids=memory_space_ids,
+        )
         raw = generate_api_key(live=live)
         salt_hex, hash_hex = hash_api_key(raw)
         now = _utcnow()
@@ -2708,13 +2946,27 @@ async def create_api_key_for_user(
         if key is None:
             msg = "Failed to materialize API key record"
             raise RuntimeError(msg)
+        await _write_api_key_scope_records(
+            client,
+            api_key_id=key.id,
+            project_record_ids=project_record_ids,
+            memory_space_ids=resolved_memory_space_ids,
+        )
+        key.project_ids = list(project_ids or [])
+        key.memory_space_ids = [str(memory_space_id) for memory_space_id in resolved_memory_space_ids]
         await _log_audit_event(
             client,
             action="auth.api_key.create",
             user_id=user_id,
             organization_id=organization_id,
             request=request,
-            details={"api_key_id": str(key.id), "name": key.name, "prefix": key.key_prefix},
+            details={
+                "api_key_id": str(key.id),
+                "memory_space_scope_count": len(resolved_memory_space_ids),
+                "name": key.name,
+                "prefix": key.key_prefix,
+                "project_scope_count": len(project_record_ids),
+            },
         )
         return key, raw
 
@@ -3279,13 +3531,21 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
         if not project_records:
             if ctx.org_role is None:
                 return set()
-            return await _list_graph_project_fallback_ids(org_id)
+            fallback_ids = await _list_graph_project_fallback_ids(org_id)
+            api_key_allowed = getattr(ctx, "api_key_project_ids", None)
+            if api_key_allowed is not None:
+                return fallback_ids & {str(project_id) for project_id in api_key_allowed}
+            return fallback_ids
         if org_role in _ORG_ADMIN_ROLE_VALUES:
-            return {
+            accessible = {
                 str(record["graph_project_id"])
                 for record in project_records
                 if str(record.get("graph_project_id") or "").strip()
             }
+            api_key_allowed = getattr(ctx, "api_key_project_ids", None)
+            if api_key_allowed is not None:
+                return accessible & {str(project_id) for project_id in api_key_allowed}
+            return accessible
         accessible: set[str] = set()
         org_visible = {
             str(record["uuid"]): str(record["graph_project_id"])
@@ -3318,6 +3578,9 @@ async def list_accessible_project_graph_ids(ctx) -> set[str]:
             if str(record.get("uuid")) in granted_project_ids
             and str(record.get("graph_project_id") or "").strip()
         )
+        api_key_allowed = getattr(ctx, "api_key_project_ids", None)
+        if api_key_allowed is not None:
+            return accessible & {str(project_id) for project_id in api_key_allowed}
         return accessible
 
 

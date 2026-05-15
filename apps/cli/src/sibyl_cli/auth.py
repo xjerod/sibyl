@@ -760,6 +760,16 @@ def api_key_create(
         "--scopes",
         help="Comma-separated scopes (default: mcp)",
     ),
+    projects: str | None = typer.Option(
+        None,
+        "--projects",
+        help="Comma-separated graph project IDs this key may access",
+    ),
+    memory_spaces: str | None = typer.Option(
+        None,
+        "--memory-spaces",
+        help="Comma-separated memory-space IDs this key may access",
+    ),
     expires_days: int | None = typer.Option(
         None,
         "--expires-days",
@@ -777,10 +787,18 @@ def api_key_create(
             scope = str(raw_scope.strip())
             if scope:
                 scope_list.append(scope)
+        project_ids: list[str] = [
+            project.strip() for project in (projects or "").split(",") if project.strip()
+        ]
+        memory_space_ids: list[str] = [
+            space.strip() for space in (memory_spaces or "").split(",") if space.strip()
+        ]
         return await client.create_api_key(
             name=name,
             live=live,
             scopes=scope_list,
+            project_ids=project_ids,
+            memory_space_ids=memory_space_ids,
             expires_days=expires_days,
         )
 

@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 
+from sibyl.auth.api_key_common import api_key_memory_scope_key
 from sibyl.server import (
     McpContext,
     _add_mcp_entity,
@@ -425,6 +426,44 @@ def test_authorize_mcp_memory_write_denies_unverified_project() -> None:
             memory_scope="project",
             scope_key="project-b",
             accessible_projects={"project-a"},
+            surface="mcp_remember",
+        )
+
+
+def test_authorize_mcp_memory_write_allows_matching_api_key_memory_space() -> None:
+    ctx = McpContext(
+        org_id=str(uuid4()),
+        user_id=str(uuid4()),
+        scopes=["mcp"],
+        api_key_memory_scope_keys=[api_key_memory_scope_key("project", "project-a")],
+    )
+
+    decision = _authorize_mcp_memory_write(
+        ctx=ctx,
+        memory_scope="project",
+        scope_key="project-a",
+        accessible_projects={"project-a"},
+        surface="mcp_remember",
+    )
+
+    assert decision.allowed
+    assert decision.reason == "same_scope_write_allowed"
+
+
+def test_authorize_mcp_memory_write_denies_api_key_memory_space_mismatch() -> None:
+    ctx = McpContext(
+        org_id=str(uuid4()),
+        user_id=str(uuid4()),
+        scopes=["mcp"],
+        api_key_memory_scope_keys=[api_key_memory_scope_key("project", "project-a")],
+    )
+
+    with pytest.raises(ValueError, match="api_key_memory_space_denied"):
+        _authorize_mcp_memory_write(
+            ctx=ctx,
+            memory_scope="project",
+            scope_key="project-b",
+            accessible_projects={"project-b"},
             surface="mcp_remember",
         )
 

@@ -14,6 +14,7 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 
 from sibyl.api.context_audit import log_context_pack_audit, log_reflection_audit
+from sibyl.auth.api_key_common import api_key_memory_scope_key
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import (
     authenticate_api_key,
@@ -22,9 +23,11 @@ from sibyl.persistence.auth_runtime import (
 )
 from sibyl_core.auth.context import MemoryPolicyContext
 from sibyl_core.auth.memory_policy import (
+    MemoryPolicyAction,
     MemoryPolicyDecision,
     authorize_memory_write,
 )
+from sibyl_core.services.surreal_content import MemoryScope
 
 log = structlog.get_logger()
 
@@ -81,6 +84,8 @@ class McpContext:
     scopes: list[str] | None = None
     # API key project restrictions (None = all, list = only these)
     api_key_project_ids: list[str] | None = None
+    api_key_memory_space_ids: list[str] | None = None
+    api_key_memory_scope_keys: list[str] | None = None
     org_role: str | None = None
     delegated_authority: str | None = None
     agent_id: str | None = None
@@ -141,6 +146,18 @@ async def _get_mcp_context() -> McpContext | None:
                 user_id=str(auth.user_id),
                 scopes=auth.scopes,
                 api_key_project_ids=project_ids,
+                api_key_memory_space_ids=[
+                    str(memory_space_id)
+                    for memory_space_id in getattr(auth, "memory_space_ids", None) or []
+                ]
+                if getattr(auth, "memory_space_ids", None) is not None
+                else None,
+                api_key_memory_scope_keys=[
+                    memory_space.policy_key
+                    for memory_space in getattr(auth, "memory_spaces", None) or []
+                ]
+                if getattr(auth, "memory_spaces", None) is not None
+                else None,
             )
         return None
 
@@ -305,6 +322,37 @@ def _log_mcp_policy_decision(
     )
 
 
+def _mcp_memory_scope_allowed(ctx: McpContext, *, memory_scope: str, scope_key: str | None) -> bool:
+    allowed = ctx.api_key_memory_scope_keys
+    if allowed is None:
+        return True
+    effective_scope_key = ctx.user_id if memory_scope == MemoryScope.PRIVATE.value else scope_key
+    return api_key_memory_scope_key(memory_scope, effective_scope_key) in set(allowed)
+
+
+def _deny_mcp_api_key_memory_scope(
+    *,
+    ctx: McpContext,
+    action: MemoryPolicyAction,
+    memory_scope: str,
+    scope_key: str | None,
+    surface: str,
+) -> None:
+    try:
+        normalized_scope = MemoryScope(memory_scope)
+    except ValueError:
+        normalized_scope = MemoryScope.PRIVATE
+    decision = MemoryPolicyDecision(
+        action=action,
+        allowed=False,
+        reason="api_key_memory_space_denied",
+        memory_scope=normalized_scope,
+        scope_key=scope_key,
+    )
+    _log_mcp_policy_decision(ctx=ctx, decision=decision, surface=surface)
+    raise ValueError(decision.reason)
+
+
 def _authorize_mcp_memory_write(
     *,
     ctx: McpContext,
@@ -326,6 +374,14 @@ def _authorize_mcp_memory_write(
     _log_mcp_policy_decision(ctx=ctx, decision=decision, surface=surface)
     if not decision.allowed:
         raise ValueError(decision.reason)
+    if not _mcp_memory_scope_allowed(ctx, memory_scope=memory_scope, scope_key=scope_key):
+        _deny_mcp_api_key_memory_scope(
+            ctx=ctx,
+            action=MemoryPolicyAction.WRITE,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            surface=surface,
+        )
     return decision
 
 

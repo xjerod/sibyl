@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
 
+from sibyl.auth.api_key_common import ApiKeyAuth
 from sibyl.auth.context import AuthContext
 from sibyl.auth.http import select_access_token
 from sibyl.auth.jwt import JwtError, verify_access_token
@@ -54,6 +55,25 @@ def _api_key_allows_rest(*, scopes: list[str], method: str) -> bool:
     return _REST_WRITE_SCOPE in normalized
 
 
+def _api_key_claims(auth: ApiKeyAuth, *, scopes: list[str]) -> dict[str, object]:
+    claims: dict[str, object] = {
+        "sub": str(auth.user_id),
+        "org": str(auth.organization_id),
+        "typ": "api_key",
+        "api_key_id": str(auth.api_key_id),
+        "scopes": scopes,
+    }
+    if auth.project_ids is not None:
+        claims["api_key_project_ids"] = [str(project_id) for project_id in auth.project_ids]
+    if auth.memory_space_ids is not None:
+        claims["api_key_memory_space_ids"] = [
+            str(memory_space_id) for memory_space_id in auth.memory_space_ids
+        ]
+    if auth.memory_spaces is not None:
+        claims["api_key_memory_scope_keys"] = [space.policy_key for space in auth.memory_spaces]
+    return claims
+
+
 async def resolve_claims(
     request: Request, _session: object | None = None
 ) -> dict[str, object] | None:
@@ -98,12 +118,7 @@ async def resolve_claims(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Insufficient API key scope",
                     )
-                api_key_claims: dict[str, object] = {
-                    "sub": str(auth.user_id),
-                    "org": str(auth.organization_id),
-                    "typ": "api_key",
-                    "scopes": scopes,
-                }
+                api_key_claims = _api_key_claims(auth, scopes=scopes)
                 setattr(request.state, _VALIDATED_AUTH_CLAIMS_ATTR, api_key_claims)
                 return api_key_claims
 

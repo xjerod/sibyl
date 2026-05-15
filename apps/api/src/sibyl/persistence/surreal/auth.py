@@ -154,6 +154,18 @@ def _coerce_optional_str(value: object | None) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _claim_optional_str(value: object | None) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _claim_string_set(value: object | None) -> frozenset[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, list | tuple | set | frozenset):
+        return frozenset(str(item) for item in value)
+    return frozenset({str(value)})
+
+
 def _coerce_optional_int(value: object | None) -> int | None:
     if isinstance(value, bool):
         return None
@@ -765,6 +777,9 @@ class SurrealAuthContextResolver(RepositoryAuthContextResolver):
             if isinstance(scope_values, list | tuple | set | frozenset)
             else frozenset()
         )
+        api_key_project_ids = _claim_string_set(claims.get("api_key_project_ids"))
+        api_key_memory_space_ids = _claim_string_set(claims.get("api_key_memory_space_ids"))
+        api_key_memory_scope_keys = _claim_string_set(claims.get("api_key_memory_scope_keys"))
 
         return AuthContext(
             user=_user_from_record(user_record),
@@ -775,4 +790,8 @@ class SurrealAuthContextResolver(RepositoryAuthContextResolver):
             if membership_record is not None
             else None,
             scopes=scopes,
+            api_key_id=_claim_optional_str(claims.get("api_key_id")),
+            api_key_project_ids=api_key_project_ids,
+            api_key_memory_space_ids=api_key_memory_space_ids,
+            api_key_memory_scope_keys=api_key_memory_scope_keys,
         )

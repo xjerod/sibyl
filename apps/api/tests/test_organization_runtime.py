@@ -135,6 +135,7 @@ async def test_surreal_delete_org_auth_children_batches_dependent_deletes() -> N
         [{"uuid": str(api_key_id)} for api_key_id in api_key_ids],
         [],
         [],
+        [],
     ]
     calls: list[tuple[str, dict[str, object]]] = []
 
@@ -156,6 +157,10 @@ async def test_surreal_delete_org_auth_children_batches_dependent_deletes() -> N
         ),
         (
             "DELETE FROM api_key_project_scopes WHERE api_key_id IN $api_key_ids;",
+            {"api_key_ids": [str(api_key_id) for api_key_id in api_key_ids]},
+        ),
+        (
+            "DELETE FROM api_key_memory_space_scopes WHERE api_key_id IN $api_key_ids;",
             {"api_key_ids": [str(api_key_id) for api_key_id in api_key_ids]},
         ),
     ]
