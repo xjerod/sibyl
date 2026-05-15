@@ -3,7 +3,7 @@
 Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 
 ## Summary
-- REST routers: 26
+- REST routers: 27
 - Top-level HTTP routes: 2
 - WebSocket routes: 1
 - MCP tools: 11
@@ -12,7 +12,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
 - Graphiti import files: 21
-- Retained legacy term files: 93
+- Retained legacy term files: 94
 - Dependency records: 4
 
 ## API Surface
@@ -36,6 +36,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `project_members_router`
 - `invitations_router`
 - `rag_router`
+- `resolve_router`
 - `jobs_router`
 - `logs_router`
 - `memory_router`
@@ -143,6 +144,7 @@ must carry an owner and reason here.
 | `docs/architecture/SIBYL_LLM_SUBSTRATE_PLAN.md` | `graphiti` | 13 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_NORTHSTAR.md` | `falkor`, `graphiti`, `postgres`, `redis` | 43 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_POST_V08_SYNTHESIS_AND_MEMORY_WORKSPACE_PLAN.md` | `graphiti` | 2 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_V012_REFLECTION_OS_PLAN.md` | `graphiti` | 5 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 165 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 88 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md` | `graphiti` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |

@@ -332,6 +332,7 @@ ARCHITECTURE_LEGACY_TERM_FILES = (
     "docs/architecture/SIBYL_LLM_SUBSTRATE_PLAN.md",
     "docs/architecture/SIBYL_NORTHSTAR.md",
     "docs/architecture/SIBYL_POST_V08_SYNTHESIS_AND_MEMORY_WORKSPACE_PLAN.md",
+    "docs/architecture/SIBYL_V012_REFLECTION_OS_PLAN.md",
     "docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md",
     "docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md",
     "docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md",

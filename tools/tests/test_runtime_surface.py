@@ -27,7 +27,7 @@ from tools.inventory.runtime_surface import (
     unclassified_legacy_term_records,
 )
 
-EXPECTED_ROUTER_COUNT = 26
+EXPECTED_ROUTER_COUNT = 27
 EXPECTED_HTTP_ROUTE_COUNT = 2
 EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
 EXPECTED_MCP_TOOL_COUNT = 11
@@ -58,6 +58,7 @@ EXPECTED_LEGACY_TERM_SCAN_PATHS = {
     "packages/python/sibyl-core/moon.yml",
     "pnpm-workspace.yaml",
     "pyproject.toml",
+    "skills/agent-activity-audit/EXAMPLES.md",
     "skills/sibyl/EXAMPLES.md",
     "skills/sibyl/SKILL.md",
     "setup-dev.sh",
