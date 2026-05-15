@@ -177,6 +177,49 @@ class SettingsService:
 
         return None, "none"
 
+    async def get_database_value(self, key: str, *, decrypt: bool = True) -> str | None:
+        """Get a setting value from persisted storage without env fallback."""
+        async with self._session_factory() as session:
+            setting = await get_system_setting(session, key=key)
+            if setting is None:
+                return None
+
+            value = setting.value
+            if setting.is_secret and decrypt:
+                try:
+                    value = decrypt_value(value)
+                except Exception as e:
+                    log.warning("Failed to decrypt setting", key=key, error=str(e))
+                    return None
+            return value
+
+    async def get_llm_setting(self, surface: str, field: str) -> str | None:
+        """Get an LLM surface setting from persisted storage."""
+        return await self.get_database_value(_llm_setting_key(surface, field))
+
+    async def set_llm_setting(
+        self,
+        surface: str,
+        field: str,
+        value: str | int | float | None,
+    ) -> None:
+        """Persist an LLM surface setting."""
+        key = _llm_setting_key(surface, field)
+        if value is None:
+            await self.delete(key)
+            return
+
+        await self.set(
+            key,
+            str(value),
+            is_secret=False,
+            description=f"LLM {surface} {field}",
+        )
+
+    async def delete_llm_setting(self, surface: str, field: str) -> bool:
+        """Delete a persisted LLM surface setting."""
+        return await self.delete(_llm_setting_key(surface, field))
+
     async def set(
         self,
         key: str,
@@ -390,3 +433,7 @@ async def load_runtime_settings_from_db() -> list[str]:
 async def load_api_keys_from_db() -> list[str]:
     """Load persisted runtime settings into environment variables."""
     return await load_runtime_settings_from_db()
+
+
+def _llm_setting_key(surface: str, field: str) -> str:
+    return f"llm.{surface}.{field}"

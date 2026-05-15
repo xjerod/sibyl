@@ -20,6 +20,7 @@ from starlette.routing import WebSocketRoute
 from sibyl.api.rate_limit import limiter
 from sibyl.api.routes import (
     admin_router,
+    ai_settings_router,
     auth_router,
     backups_router,
     context_router,
@@ -84,6 +85,12 @@ async def _load_runtime_settings_from_db() -> list[str]:
     return await load_runtime_settings_from_db()
 
 
+def _install_llm_config_source() -> None:
+    from sibyl.ai.llm.service import install_db_config_source
+
+    install_db_config_source()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
     """Run migrations, pre-warm graph client, and start coordination backends."""
@@ -91,6 +98,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
 
     await _bootstrap_surreal_runtime_schemas()
     await _load_runtime_settings_from_db()
+    _install_llm_config_source()
 
     broker_initialized = False
     queue_backend = "unknown"
@@ -285,6 +293,7 @@ def create_api_app() -> FastAPI:
     app.include_router(context_router)
     app.include_router(graph_router)
     app.include_router(admin_router)
+    app.include_router(ai_settings_router)
     app.include_router(auth_router)
     app.include_router(crawler_router)
     app.include_router(orgs_router)

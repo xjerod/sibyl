@@ -78,6 +78,10 @@ async def startup(ctx: dict[str, Any]) -> None:
 
     await load_api_keys_from_db()
 
+    from sibyl.ai.llm.service import install_db_config_source
+
+    install_db_config_source()
+
 
 async def shutdown(ctx: dict[str, Any]) -> None:  # noqa: ARG001
     """Worker shutdown - cleanup resources."""

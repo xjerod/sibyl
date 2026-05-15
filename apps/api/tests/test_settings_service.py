@@ -109,3 +109,49 @@ async def test_settings_service_get_all_uses_runtime_listing() -> None:
         "masked": None,
         "description": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_settings_service_llm_settings_use_persisted_keys() -> None:
+    @asynccontextmanager
+    async def mock_session():
+        yield None
+
+    service = SettingsService(lambda: mock_session())
+
+    with (
+        patch(
+            "sibyl.services.settings.get_system_setting",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "sibyl.services.settings.save_system_setting",
+            AsyncMock(),
+        ) as save_setting,
+    ):
+        await service.set_llm_setting("crawler", "model", "gemini-3-flash")
+
+    saved = save_setting.await_args.kwargs["setting"]
+    assert saved.key == "llm.crawler.model"
+    assert saved.value == "gemini-3-flash"
+    assert saved.is_secret is False
+
+
+@pytest.mark.asyncio
+async def test_settings_service_get_database_value_skips_env_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @asynccontextmanager
+    async def mock_session():
+        yield None
+
+    service = SettingsService(lambda: mock_session())
+    monkeypatch.setenv("SIBYL_LLM_CRAWLER_MODEL", "env-model")
+
+    with patch(
+        "sibyl.services.settings.get_system_setting",
+        AsyncMock(return_value=None),
+    ):
+        value = await service.get_database_value("llm.crawler.model")
+
+    assert value is None

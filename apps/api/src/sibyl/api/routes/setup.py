@@ -9,7 +9,6 @@ Config update endpoints are admin-only after initial setup.
 
 from __future__ import annotations
 
-import httpx
 import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -21,6 +20,8 @@ from sibyl.persistence.operations_runtime import (
     require_setup_mode_or_auth,
 )
 from sibyl.services.settings import get_settings_service
+from sibyl_core.ai.llm.config import LLMProviderName
+from sibyl_core.ai.validation import KeyValidationResult, check_provider_key
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 log = structlog.get_logger()
@@ -63,7 +64,7 @@ class ApiKeyValidation(BaseModel):
 
 
 async def _check_openai_key(key: str | None = None) -> tuple[bool, str | None]:
-    """Validate OpenAI API key by calling models endpoint.
+    """Validate OpenAI API key through the native LLM substrate.
 
     Args:
         key: API key to validate. If None, fetches from SettingsService.
@@ -75,26 +76,11 @@ async def _check_openai_key(key: str | None = None) -> tuple[bool, str | None]:
     if not key:
         return False, "No API key configured"
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                "https://api.openai.com/v1/models",
-                headers={"Authorization": f"Bearer {key}"},
-            )
-            if response.status_code == 200:
-                return True, None
-            if response.status_code == 401:
-                return False, "Invalid API key"
-            return False, f"API error: {response.status_code}"
-    except httpx.TimeoutException:
-        return False, "Connection timeout"
-    except Exception as e:
-        log.warning("OpenAI validation failed", error=str(e))
-        return False, str(e)
+    return await _check_provider_key("openai", key)
 
 
 async def _check_anthropic_key(key: str | None = None) -> tuple[bool, str | None]:
-    """Validate Anthropic API key by calling messages endpoint with minimal request.
+    """Validate Anthropic API key through the native LLM substrate.
 
     Args:
         key: API key to validate. If None, fetches from SettingsService.
@@ -106,37 +92,11 @@ async def _check_anthropic_key(key: str | None = None) -> tuple[bool, str | None
     if not key:
         return False, "No API key configured"
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # Use a minimal request to validate the key
-            # We intentionally use an invalid request to avoid charges
-            # A 400 with "invalid_request_error" means the key is valid
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={"model": "claude-3-haiku-20240307", "max_tokens": 1, "messages": []},
-            )
-            # 400 = key valid but request invalid (expected - we sent empty messages)
-            # 401 = key invalid
-            # 200 = somehow worked (shouldn't happen with empty messages)
-            if response.status_code in (200, 400):
-                return True, None
-            if response.status_code == 401:
-                return False, "Invalid API key"
-            return False, f"API error: {response.status_code}"
-    except httpx.TimeoutException:
-        return False, "Connection timeout"
-    except Exception as e:
-        log.warning("Anthropic validation failed", error=str(e))
-        return False, str(e)
+    return await _check_provider_key("anthropic", key)
 
 
 async def _check_gemini_key(key: str | None = None) -> tuple[bool, str | None]:
-    """Validate Gemini API key by calling the embeddings endpoint.
+    """Validate Gemini API key through the native LLM substrate.
 
     Args:
         key: API key to validate. If None, fetches from SettingsService.
@@ -148,30 +108,28 @@ async def _check_gemini_key(key: str | None = None) -> tuple[bool, str | None]:
     if not key:
         return False, "No API key configured"
 
+    return await _check_provider_key("gemini", key)
+
+
+async def _check_provider_key(
+    provider: LLMProviderName,
+    key: str | None,
+) -> tuple[bool, str | None]:
+    if not key:
+        return False, "No API key configured"
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                "https://generativelanguage.googleapis.com/v1beta/"
-                "models/gemini-embedding-2:embedContent",
-                headers={
-                    "x-goog-api-key": key,
-                    "content-type": "application/json",
-                },
-                json={
-                    "content": {"parts": [{"text": "sibyl api key validation"}]},
-                    "outputDimensionality": 128,
-                },
-            )
-            if response.status_code == 200:
-                return True, None
-            if response.status_code in (400, 401, 403):
-                return False, "Invalid API key"
-            return False, f"API error: {response.status_code}"
-    except httpx.TimeoutException:
-        return False, "Connection timeout"
+        result = await check_provider_key(provider, key)
     except Exception as e:
-        log.warning("Gemini validation failed", error=str(e))
+        log.warning("Provider key validation failed", provider=provider, error=str(e))
         return False, str(e)
+    return result.valid, _validation_error(result)
+
+
+def _validation_error(result: KeyValidationResult) -> str | None:
+    if result.valid:
+        return None
+    return result.error or result.status
 
 
 @router.get("/status", response_model=SetupStatus)
