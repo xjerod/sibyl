@@ -62,6 +62,19 @@ tasks:
     inputs:
     - '@group(sources)'
     - tests/test_main_capture.py
+  reflection-quality-test:
+    command:
+      uv run pytest
+      tests/test_main_capture.py::test_memory_inspect_command_outputs_json
+      tests/test_main_capture.py::test_memory_promote_preview_command_renders_decision
+      tests/test_main_capture.py::test_memory_promote_auto_command_renders_decision
+      tests/test_main_capture.py::test_memory_review_drain_command_renders_summary
+      tests/test_main_capture.py::test_reflect_command_outputs_markdown_candidates
+      tests/test_main_capture.py::test_reflect_command_can_persist_review_queue
+      -v
+    inputs:
+    - '@group(sources)'
+    - tests/test_main_capture.py
   auth-session-test:
     command: uv run pytest tests/test_client_auth_refresh.py tests/test_auth_store.py -v
     inputs:

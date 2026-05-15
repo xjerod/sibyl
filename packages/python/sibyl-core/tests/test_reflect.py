@@ -38,6 +38,24 @@ async def test_reflect_memory_extracts_domain_general_candidates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reflect_memory_dedupes_repeated_candidates_by_kind_and_content() -> None:
+    pack = await reflect_memory(
+        "We decided reflection should dedupe repeated findings. "
+        "We decided reflection should dedupe repeated findings.",
+        source_title="Repeated reflection",
+        intent="build",
+        domain="sibyl",
+        project="project_123",
+        organization_id="org_123",
+    )
+
+    decisions = [candidate for candidate in pack.candidates if candidate.kind == "decision"]
+
+    assert len(decisions) == 1
+    assert decisions[0].content == "We decided reflection should dedupe repeated findings."
+
+
+@pytest.mark.asyncio
 async def test_reflect_memory_can_use_compatibility_write_when_native_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

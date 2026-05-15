@@ -167,6 +167,25 @@ tasks:
     options:
       envFile: .env
 
+  reflection-quality-test:
+    command:
+      uv run pytest tests/test_routes_context.py::TestReflectRoute
+      tests/test_routes_memory.py::test_preview_reflection_promotion_verifies_project_target
+      tests/test_routes_memory.py::test_auto_review_reflection_candidate_promotes_safe_candidate
+      tests/test_routes_memory.py::test_auto_review_reflection_candidate_dry_run_does_not_promote
+      tests/test_routes_memory.py::test_auto_review_reflection_candidate_routes_exceptions
+      tests/test_routes_memory.py::test_drain_reflection_review_dry_run_summarizes_pending_candidates
+      tests/test_routes_memory.py::test_drain_reflection_review_archives_terminal_exceptions
+      tests/test_routes_memory.py::test_promote_reflection_candidate_verifies_project_target
+      tests/test_routes_memory.py::test_promote_reflection_candidate_returns_policy_denial
+      -v
+    inputs:
+      - "@group(sources)"
+      - tests/test_routes_context.py
+      - tests/test_routes_memory.py
+    options:
+      envFile: .env
+
   auth-session-test:
     command:
       uv run pytest

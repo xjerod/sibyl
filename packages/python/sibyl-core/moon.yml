@@ -105,6 +105,16 @@ tasks:
     - '@group(sources)'
     - tests/test_context_pack.py
     - tests/test_session_bundle.py
+  reflection-quality-test:
+    command:
+      uv run pytest tests/test_reflect.py tests/test_native_memory.py
+      tests/test_memory_autonomy.py tests/test_context_pack.py -v
+    inputs:
+    - '@group(sources)'
+    - tests/test_reflect.py
+    - tests/test_native_memory.py
+    - tests/test_memory_autonomy.py
+    - tests/test_context_pack.py
   synthesis-gate-test:
     command: uv run pytest tests/test_synthesis.py -v
     inputs:
