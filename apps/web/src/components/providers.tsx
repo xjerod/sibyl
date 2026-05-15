@@ -1,6 +1,11 @@
 'use client';
 
-import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  MutationCache,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
 import { type ReactNode, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ThemedToaster } from '@/components/ui/themed-toaster';
@@ -35,6 +40,16 @@ export function Providers({ children }: { children: ReactNode }) {
             staleTime: 60 * 1000, // 1 minute
             gcTime: 5 * 60 * 1000, // 5 minutes
             retry: 1,
+            // Stale-while-revalidate: don't tear down the UI when the user
+            // tabs back in or reconnects. Realtime/websocket invalidation
+            // is the primary freshness signal; window-focus refetch causes
+            // visible reload churn on every tab switch.
+            refetchOnWindowFocus: false,
+            refetchOnReconnect: false,
+            // Keep showing previous data while a refetch is in flight so
+            // the page doesn't flash a skeleton on background updates or
+            // when a query key changes (e.g. selected project, filter).
+            placeholderData: keepPreviousData,
           },
         },
       })
