@@ -4,6 +4,7 @@ Tests entity extraction, linking, and bidirectional relationships
 between crawled documents and the knowledge graph.
 """
 
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -14,12 +15,15 @@ from sibyl.crawler.graph_integration import (
     EntityExtractor,
     EntityLink,
     EntityLinker,
+    ExtractedEntitiesPayload,
     ExtractedEntity,
+    ExtractedEntityPayload,
     GraphIntegrationService,
     IntegrationStats,
     integrate_document_with_graph,
     normalize_extracted_entity_type,
 )
+from sibyl_core.ai.errors import LLMError, LLMProviderError
 from sibyl_core.models.entities import Entity, EntityType, RelationshipType
 
 # Test organization ID for multi-tenancy
@@ -80,130 +84,177 @@ def mock_openai_client():
 # =============================================================================
 
 
+class FakeStructuredExtractor:
+    def __init__(
+        self,
+        payloads: list[ExtractedEntitiesPayload] | None = None,
+        *,
+        error: LLMProviderError | None = None,
+    ) -> None:
+        self.payloads = payloads or []
+        self.error = error
+        self.prompts: list[str] = []
+        self.max_concurrent: int | None = None
+
+    async def extract(self, prompt: str) -> ExtractedEntitiesPayload:
+        self.prompts.append(prompt)
+        if self.error:
+            raise self.error
+        return self.payloads.pop(0)
+
+    async def extract_many(
+        self,
+        prompts: Sequence[str],
+        *,
+        max_concurrent: int = 5,
+    ) -> list[ExtractedEntitiesPayload | LLMError]:
+        self.prompts.extend(prompts)
+        self.max_concurrent = max_concurrent
+        if self.error:
+            return [self.error for _ in prompts]
+        return list(self.payloads)
+
+
 class TestEntityExtractor:
     """Tests for LLM-based entity extraction."""
 
     @pytest.mark.asyncio
     async def test_extract_from_chunk_success(self, sample_chunk_content):
         """Test successful entity extraction from chunk."""
-        # Mock Anthropic API response format (response.content[0].text)
-        mock_content_block = MagicMock()
-        mock_content_block.text = '{"entities": [{"name": "FastAPI", "type": "tool", "description": "Web framework", "confidence": 0.9}]}'
+        structured = FakeStructuredExtractor(
+            [
+                ExtractedEntitiesPayload(
+                    entities=[
+                        ExtractedEntityPayload(
+                            name="FastAPI",
+                            type="tool",
+                            description="Web framework",
+                            confidence=0.9,
+                        )
+                    ]
+                )
+            ]
+        )
+        extractor = EntityExtractor(extractor=structured)
 
-        mock_response = MagicMock()
-        mock_response.content = [mock_content_block]
+        entities = await extractor.extract_from_chunk(
+            content=sample_chunk_content,
+            context="API Documentation",
+            url="https://docs.example.com/fastapi",
+        )
 
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-
-        extractor = EntityExtractor()
-
-        with patch.object(extractor, "_get_client", return_value=mock_client):
-            entities = await extractor.extract_from_chunk(
-                content=sample_chunk_content,
-                context="API Documentation",
-                url="https://docs.example.com/fastapi",
-            )
-
-            assert len(entities) == 1
-            assert entities[0].name == "FastAPI"
-            assert entities[0].entity_type == "tool"
-            assert entities[0].confidence == 0.9
+        assert len(entities) == 1
+        assert entities[0].name == "FastAPI"
+        assert entities[0].entity_type == "tool"
+        assert entities[0].confidence == 0.9
+        assert entities[0].source_url == "https://docs.example.com/fastapi"
+        assert "API Documentation" in structured.prompts[0]
 
     @pytest.mark.asyncio
     async def test_extract_from_chunk_empty_content(self):
         """Test extraction from empty content."""
-        # Mock Anthropic API response format
-        mock_content_block = MagicMock()
-        mock_content_block.text = '{"entities": []}'
+        structured = FakeStructuredExtractor()
+        extractor = EntityExtractor(extractor=structured)
 
-        mock_response = MagicMock()
-        mock_response.content = [mock_content_block]
+        entities = await extractor.extract_from_chunk(content="", url=None)
 
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-
-        extractor = EntityExtractor()
-
-        with patch.object(extractor, "_get_client", return_value=mock_client):
-            entities = await extractor.extract_from_chunk(content="", url=None)
-            assert entities == []
+        assert entities == []
+        assert structured.prompts == []
 
     @pytest.mark.asyncio
     async def test_extract_from_chunk_error_handling(self, sample_chunk_content):
         """Test error handling during extraction."""
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API Error"))
+        structured = FakeStructuredExtractor(error=LLMProviderError("API Error"))
+        extractor = EntityExtractor(extractor=structured)
 
-        extractor = EntityExtractor()
+        entities = await extractor.extract_from_chunk(
+            content=sample_chunk_content,
+            url="https://example.com",
+        )
 
-        with patch.object(extractor, "_get_client", return_value=mock_client):
-            entities = await extractor.extract_from_chunk(
-                content=sample_chunk_content,
-                url="https://example.com",
-            )
-
-            # Should return empty list on error, not crash
-            assert entities == []
+        assert entities == []
 
     @pytest.mark.asyncio
     async def test_extract_batch(self, sample_chunk_content, sample_code_chunk):
         """Test batch entity extraction."""
-        # Mock Anthropic API response format
-        mock_content_block = MagicMock()
-        mock_content_block.text = '{"entities": [{"name": "Entity1", "type": "tool", "description": "Test", "confidence": 0.8}]}'
-
-        mock_response = MagicMock()
-        mock_response.content = [mock_content_block]
-
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-
-        extractor = EntityExtractor()
+        structured = FakeStructuredExtractor(
+            [
+                ExtractedEntitiesPayload(
+                    entities=[
+                        ExtractedEntityPayload(
+                            name="Entity1",
+                            type="tool",
+                            description="Test",
+                            confidence=0.8,
+                        )
+                    ]
+                ),
+                ExtractedEntitiesPayload(
+                    entities=[
+                        ExtractedEntityPayload(
+                            name="Entity2",
+                            type="pattern",
+                            description="Test",
+                            confidence=0.7,
+                        )
+                    ]
+                ),
+            ]
+        )
+        extractor = EntityExtractor(extractor=structured)
 
         chunks = [
             (sample_chunk_content, "Context 1", "url1"),
             (sample_code_chunk, "Context 2", "url2"),
         ]
 
-        with patch.object(extractor, "_get_client", return_value=mock_client):
-            entities = await extractor.extract_batch(chunks, max_concurrent=2)
+        entities = await extractor.extract_batch(chunks, max_concurrent=2)
 
-            # Should have entities from both chunks
-            assert len(entities) == 2
+        assert len(entities) == 2
+        assert {entity.source_chunk_id for entity in entities} == {"url1", "url2"}
+        assert structured.max_concurrent == 2
 
     @pytest.mark.asyncio
     async def test_extract_with_different_entity_types(self):
         """Test extraction of various entity types."""
-        # Mock Anthropic API response format
-        mock_content_block = MagicMock()
-        mock_content_block.text = """{
-            "entities": [
-                {"name": "FastAPI", "type": "tool", "description": "Framework", "confidence": 0.9},
-                {"name": "async/await", "type": "pattern", "description": "Async pattern", "confidence": 0.85},
-                {"name": "Python", "type": "language", "description": "Programming language", "confidence": 0.95}
+        structured = FakeStructuredExtractor(
+            [
+                ExtractedEntitiesPayload(
+                    entities=[
+                        ExtractedEntityPayload(
+                            name="FastAPI",
+                            type="tool",
+                            description="Framework",
+                            confidence=0.9,
+                        ),
+                        ExtractedEntityPayload(
+                            name="async/await",
+                            type="pattern",
+                            description="Async pattern",
+                            confidence=0.85,
+                        ),
+                        ExtractedEntityPayload(
+                            name="Python",
+                            type="language",
+                            description="Programming language",
+                            confidence=0.95,
+                        ),
+                    ]
+                )
             ]
-        }"""
+        )
+        extractor = EntityExtractor(extractor=structured)
 
-        mock_response = MagicMock()
-        mock_response.content = [mock_content_block]
+        entities = await extractor.extract_from_chunk(
+            content="Test content",
+            url="https://example.com",
+        )
 
-        mock_client = AsyncMock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-
-        extractor = EntityExtractor()
-
-        with patch.object(extractor, "_get_client", return_value=mock_client):
-            entities = await extractor.extract_from_chunk(
-                content="Test content",
-                url="https://example.com",
-            )
-
-            assert len(entities) == 3
-            types = {e.entity_type for e in entities}
-            assert "tool" in types
-            assert "pattern" in types
-            assert "language" in types
+        assert len(entities) == 3
+        types = {e.entity_type for e in entities}
+        assert "tool" in types
+        assert "pattern" in types
+        assert "language" in types
 
 
 # =============================================================================

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 
@@ -28,6 +28,19 @@ async def test_generator_streams_text_deltas() -> None:
 
     assert "".join(chunks) == "hello Sibyl"
     assert len(chunks) >= 1
+
+
+@pytest.mark.asyncio
+async def test_generator_passes_per_call_max_tokens() -> None:
+    async def capture_settings(_: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        assert info.model_settings == {"max_tokens": 17}
+        return ModelResponse(parts=[TextPart("ok")], model_name="function")
+
+    generator = Generator(agent=Agent(FunctionModel(capture_settings)))
+
+    result = await generator.generate("say hi", max_tokens=17)
+
+    assert result == "ok"
 
 
 @pytest.mark.asyncio

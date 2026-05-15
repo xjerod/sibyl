@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 from pydantic_ai import Agent
+from pydantic_ai.models import ModelSettings
 
 from sibyl_core.ai.clients import get_agent
 from sibyl_core.ai.errors import LLMError, classify_llm_exception
@@ -28,18 +29,26 @@ class Generator:
         self.output_retries = output_retries
         self._agent = agent
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, *, max_tokens: int | None = None) -> str:
         try:
             agent = await self._get_agent()
-            result = await agent.run(prompt, output_type=str)
+            result = await agent.run(
+                prompt,
+                output_type=str,
+                model_settings=_model_settings(max_tokens),
+            )
             return result.output
         except Exception as exc:
             raise self._classify(exc) from exc
 
-    async def stream(self, prompt: str) -> AsyncIterator[str]:
+    async def stream(self, prompt: str, *, max_tokens: int | None = None) -> AsyncIterator[str]:
         try:
             agent = await self._get_agent()
-            async with agent.run_stream(prompt, output_type=str) as stream:
+            async with agent.run_stream(
+                prompt,
+                output_type=str,
+                model_settings=_model_settings(max_tokens),
+            ) as stream:
                 async for text in stream.stream_text(delta=True):
                     yield text
         except Exception as exc:
@@ -62,3 +71,9 @@ class Generator:
             model=self.model_override,
             surface=self.surface.value,
         )
+
+
+def _model_settings(max_tokens: int | None) -> ModelSettings | None:
+    if max_tokens is None:
+        return None
+    return ModelSettings(max_tokens=max_tokens)

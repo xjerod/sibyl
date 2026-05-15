@@ -1,10 +1,9 @@
-"""LLM-enhanced content generator using Claude Sonnet/Opus."""
+"""LLM-enhanced content generator using the configured synthesis surface."""
 
 import hashlib
 import json
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 
 from sibyl.generator.base import BaseGenerator, GeneratorResult
 from sibyl.generator.config import GeneratorConfig, ModelType
@@ -15,6 +14,7 @@ from sibyl.generator.templates import (
     TEAM_NAMES,
     TemplateGenerator,
 )
+from sibyl_core.ai.llm import Generator, LLMSurface, resolve_llm_config
 from sibyl_core.models.entities import Entity, EntityType
 
 # Cache directory for LLM responses
@@ -22,31 +22,13 @@ CACHE_DIR = Path.home() / ".cache" / "sibyl" / "generator"
 
 
 class LLMContentGenerator(BaseGenerator):
-    """Generate rich content using Claude models.
-
-    Uses Anthropic's Claude Sonnet 4.5 for balanced quality/cost,
-    or Claude Opus 4.5 for highest quality complex generation.
-    """
+    """Generate rich content using Sibyl's synthesis LLM surface."""
 
     def __init__(self, config: GeneratorConfig) -> None:
         super().__init__(config)
-        self._client: Any = None
         self._template_gen = TemplateGenerator(config)
         self._cache: dict[str, str] = {}
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def client(self) -> Any:
-        """Lazy-load Anthropic client."""
-        if self._client is None:
-            try:
-                import anthropic
-
-                self._client = anthropic.Anthropic()
-            except ImportError as e:
-                msg = "anthropic package required. Install with: uv add anthropic"
-                raise ImportError(msg) from e
-        return self._client
 
     def _cache_key(self, prompt: str, model: str) -> str:
         """Generate cache key for prompt + model."""
@@ -95,10 +77,10 @@ class LLMContentGenerator(BaseGenerator):
         model: ModelType | None = None,
         max_tokens: int = 1024,
     ) -> str:
-        """Generate content using Claude.
+        """Generate content using the configured synthesis surface.
 
         Args:
-            prompt: The prompt to send to Claude.
+            prompt: The prompt to send to the LLM.
             model: Model to use (defaults to config.model).
             max_tokens: Maximum tokens in response.
 
@@ -106,23 +88,31 @@ class LLMContentGenerator(BaseGenerator):
             Generated content string.
         """
         model = model or self.config.model
-        model_id = model.model_id
+        cache_label = await self._cache_label(model)
 
         # Check cache first
-        cached = self._get_cached(prompt, model_id)
+        cached = self._get_cached(prompt, cache_label)
         if cached:
             return cached
 
-        # Call Anthropic API
-        message = self.client.messages.create(
-            model=model_id,
+        response = await Generator(surface=LLMSurface.SYNTHESIS).generate(
+            prompt,
             max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
         )
-
-        response = message.content[0].text
-        self._set_cached(prompt, model_id, response)
+        self._set_cached(prompt, cache_label, response)
         return response
+
+    async def _cache_label(self, model: ModelType) -> str:
+        resolved = await resolve_llm_config(LLMSurface.SYNTHESIS)
+        return "|".join(
+            (
+                resolved.provider.value,
+                resolved.model.value,
+                str(resolved.temperature.value),
+                str(resolved.max_tokens.value),
+                model.value,
+            )
+        )
 
     async def generate_pattern_content(
         self,

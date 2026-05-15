@@ -16,17 +16,19 @@ References:
 
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from uuid import uuid4
 
 import structlog
+from pydantic import BaseModel, ConfigDict, Field
 
 from sibyl.persistence.content_common import DocumentChunkRecord
 from sibyl.persistence.content_runtime import get_content_read_session, save_document_chunks
-from sibyl.services.settings import get_settings_service
+from sibyl_core.ai.errors import LLMError
+from sibyl_core.ai.llm import Extractor, LLMSurface
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 if TYPE_CHECKING:
@@ -110,6 +112,45 @@ def normalize_extracted_entity_name(name: str) -> str:
 # Data Classes
 # =============================================================================
 
+ExtractedEntityLabel = Literal[
+    "api",
+    "concept",
+    "example",
+    "language",
+    "organization",
+    "pattern",
+    "person",
+    "project",
+    "tool",
+    "warning",
+]
+
+
+class ExtractedEntityPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    entity_type: ExtractedEntityLabel = Field(alias="type")
+    description: str = Field(min_length=1, max_length=500)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ExtractedEntitiesPayload(BaseModel):
+    entities: list[ExtractedEntityPayload] = Field(default_factory=list, max_length=50)
+
+
+class EntityPayloadExtractor(Protocol):
+    async def extract(self, prompt: str) -> ExtractedEntitiesPayload:
+        ...
+
+    async def extract_many(
+        self,
+        prompts: Sequence[str],
+        *,
+        max_concurrent: int = 5,
+    ) -> list[ExtractedEntitiesPayload | LLMError]:
+        ...
+
 
 @dataclass
 class ExtractedEntity:
@@ -158,8 +199,6 @@ class EntityExtractor:
     our knowledge graph schema.
     """
 
-    _api_key_validated: bool = False
-
     EXTRACTION_PROMPT = """Extract entities from this documentation chunk.
 
 Chunk Content:
@@ -177,44 +216,28 @@ Entity types to extract:
 - warning: Gotcha, pitfall, or common mistake
 - example: Code example or usage pattern
 
-Return a JSON object with an "entities" array. Each entity should have:
-- name: Concise entity name
-- type: One of the types above
-- description: Brief 1-sentence description
-- confidence: 0.0-1.0 confidence score
-
 Only extract entities that are clearly mentioned or demonstrated.
 Do not infer entities that aren't explicitly present."""
 
-    def __init__(self, model: str | None = None):
+    def __init__(
+        self,
+        model: str | None = None,
+        *,
+        extractor: EntityPayloadExtractor | None = None,
+    ):
         """Initialize the extractor.
 
         Args:
             model: LLM model to use (default: claude-haiku-4-5 for cost efficiency)
         """
-        self.model = model or "claude-haiku-4-5"
-        self._client = None
-        # API key validation happens lazily in _get_client()
-        log.debug("Entity extractor initialized", model=self.model)
-
-    async def _get_client(self):
-        """Lazily initialize Anthropic client."""
-        if self._client is None:
-            from anthropic import AsyncAnthropic
-
-            service = get_settings_service()
-            api_key = await service.get_anthropic_key()
-            if not api_key:
-                raise ValueError(
-                    "Anthropic API key not configured (set via UI or SIBYL_ANTHROPIC_API_KEY)"
-                )
-
-            self._client = AsyncAnthropic(api_key=api_key)
-            if not EntityExtractor._api_key_validated:
-                EntityExtractor._api_key_validated = True
-                log.info("Entity extractor API key validated", model=self.model)
-
-        return self._client
+        self.model = model
+        self._extractor: EntityPayloadExtractor = extractor or Extractor(
+            ExtractedEntitiesPayload,
+            surface=LLMSurface.CRAWLER,
+            model_override=model,
+            output_retries=2,
+        )
+        log.debug("Entity extractor initialized", model=model or "surface default")
 
     async def extract_from_chunk(
         self,
@@ -233,43 +256,16 @@ Do not infer entities that aren't explicitly present."""
         Returns:
             List of extracted entities
         """
-        import json
-
         try:
-            client = await self._get_client()
+            if not content.strip():
+                return []
 
-            prompt = self.EXTRACTION_PROMPT.format(
-                content=content[:4000],  # Limit to avoid token overflow
-                context=context or "No additional context",
+            result = await self._extractor.extract(self._format_prompt(content, context))
+            entities = self._to_extracted_entities(
+                result,
+                source_chunk_id=source_chunk_id,
+                source_url=url,
             )
-
-            response = await client.messages.create(
-                model=self.model,
-                max_tokens=1000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-
-            # Extract JSON from response
-            response_text = response.content[0].text if response.content else "{}"
-
-            # Handle case where model wraps JSON in markdown code blocks
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-
-            result = json.loads(response_text.strip())
-            entities = [
-                ExtractedEntity(
-                    name=item.get("name", ""),
-                    entity_type=item.get("type", "concept"),
-                    description=item.get("description", ""),
-                    confidence=float(item.get("confidence", 0.5)),
-                    source_chunk_id=source_chunk_id,
-                    source_url=url,
-                )
-                for item in result.get("entities", [])
-            ]
 
             log.debug(
                 "Extracted entities from chunk",
@@ -302,32 +298,32 @@ Do not infer entities that aren't explicitly present."""
 
         log.info("Starting entity extraction", chunk_count=len(chunks), concurrency=max_concurrent)
 
-        semaphore = asyncio.Semaphore(max_concurrent)
-
-        async def extract_with_limit(content: str, context: str | None, chunk_id: str | None):
-            async with semaphore:
-                return await self.extract_from_chunk(
-                    content,
-                    context,
-                    source_chunk_id=chunk_id,
-                )
-
-        tasks = [
-            extract_with_limit(content, context, chunk_id) for content, context, chunk_id in chunks
+        prompt_chunks = [
+            (content, context, chunk_id)
+            for content, context, chunk_id in chunks
+            if content.strip()
         ]
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = await self._extractor.extract_many(
+            [self._format_prompt(content, context) for content, context, _ in prompt_chunks],
+            max_concurrent=max_concurrent,
+        )
 
         all_entities = []
         failures = 0
-        for result in results:
-            if isinstance(result, list):
-                all_entities.extend(result)
-            elif isinstance(result, Exception):
+        for result, (_, _, chunk_id) in zip(results, prompt_chunks, strict=True):
+            if isinstance(result, LLMError):
                 failures += 1
-                # Log first few failures with details
                 if failures <= 3:
                     log.warning("Extraction task failed", error=str(result))
+                continue
+
+            all_entities.extend(
+                self._to_extracted_entities(
+                    result,
+                    source_chunk_id=chunk_id,
+                    source_url=None,
+                )
+            )
 
         if failures > 0:
             log.warning(
@@ -344,6 +340,31 @@ Do not infer entities that aren't explicitly present."""
             )
 
         return all_entities
+
+    def _format_prompt(self, content: str, context: str | None) -> str:
+        return self.EXTRACTION_PROMPT.format(
+            content=content[:4000],
+            context=context or "No additional context",
+        )
+
+    def _to_extracted_entities(
+        self,
+        payload: ExtractedEntitiesPayload,
+        *,
+        source_chunk_id: str | None,
+        source_url: str | None,
+    ) -> list[ExtractedEntity]:
+        return [
+            ExtractedEntity(
+                name=item.name,
+                entity_type=item.entity_type,
+                description=item.description,
+                confidence=item.confidence,
+                source_chunk_id=source_chunk_id,
+                source_url=source_url,
+            )
+            for item in payload.entities
+        ]
 
 
 # =============================================================================
