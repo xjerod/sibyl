@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,113 +13,19 @@ from sibyl_core.auth.memory_policy import (
     authorize_memory_write,
 )
 from sibyl_core.models.reflection import ReflectionCandidate, ReflectionPack
+from sibyl_core.services.reflection import (
+    HeuristicReflectionExtractor,
+    ReflectionExtractionRequest,
+    ReflectionExtractor,
+    ephemeral_reflection_source_id,
+    ground_reflection_candidate,
+    validate_reflection_candidates,
+)
 from sibyl_core.services.surreal_content import MemoryScope
 from sibyl_core.tools.add import add as default_add
 from sibyl_core.tools.responses import AddResponse
 
 AddFn = Callable[..., Awaitable[AddResponse]]
-
-_KIND_RULES: tuple[tuple[str, tuple[str, ...], str, float], ...] = (
-    (
-        "decision",
-        (
-            "decided",
-            "decision",
-            "we will",
-            "we'll",
-            "chosen",
-            "choose",
-            "keep",
-            "use ",
-        ),
-        "captures a choice or direction future agents should preserve",
-        0.86,
-    ),
-    (
-        "plan",
-        (
-            "plan",
-            "next",
-            "todo",
-            "build",
-            "implement",
-            "migrate",
-            "phase",
-            "workstream",
-        ),
-        "captures sequencing, scope, or intended work",
-        0.80,
-    ),
-    (
-        "idea",
-        (
-            "idea",
-            "maybe",
-            "could",
-            "what if",
-            "explore",
-            "brainstorm",
-            "possible",
-        ),
-        "captures a possibility before it becomes a decision",
-        0.72,
-    ),
-    (
-        "claim",
-        (
-            "confirmed",
-            "validated",
-            "observed",
-            "because",
-            "means",
-            "fact",
-            "latest",
-        ),
-        "captures an assertion that may need provenance or contradiction handling",
-        0.78,
-    ),
-    (
-        "procedure",
-        (
-            "workflow",
-            "steps",
-            "run ",
-            "command",
-            "use `",
-            "verify",
-            "test",
-        ),
-        "captures repeatable process knowledge",
-        0.76,
-    ),
-)
-
-_ARTIFACT_PATTERN = re.compile(
-    r"(?i)(https?://\S+|(?:[\w.-]+/)+[\w.-]+\.\w+|[\w.-]+\.(?:md|py|ts|tsx|json|ya?ml|toml|rs))"
-)
-_SPLIT_PATTERN = re.compile(r"(?:\n+|(?<=[.!?])\s+)")
-
-
-def _compact(value: str, max_chars: int = 500) -> str:
-    compact = " ".join(value.strip().split())
-    if len(compact) <= max_chars:
-        return compact
-    cutoff = compact.rfind(" ", 0, max_chars + 1)
-    if cutoff < max_chars // 2:
-        cutoff = max_chars
-    return compact[:cutoff].rstrip() + "..."
-
-
-def _derive_title(text: str, *, prefix: str | None = None, max_chars: int = 86) -> str:
-    title = _compact(re.sub(r"^[\-*#>\d.)\s]+", "", text), max_chars=max_chars)
-    if prefix and not title.lower().startswith(prefix.lower()):
-        return f"{prefix}: {title}"[:max_chars].rstrip()
-    return title or "Reflected memory"
-
-
-def _segments(content: str) -> list[str]:
-    raw_segments = [_compact(part, max_chars=900) for part in _SPLIT_PATTERN.split(content)]
-    return [part for part in raw_segments if len(part) >= 12]
 
 
 def _tags_for(kind: str, domain: str | None) -> list[str]:
@@ -128,102 +33,6 @@ def _tags_for(kind: str, domain: str | None) -> list[str]:
     if domain:
         tags.append(domain.strip().lower().replace(" ", "-"))
     return tags
-
-
-def _candidate_for_segment(
-    segment: str,
-    *,
-    source_title: str,
-    intent: str,
-    domain: str | None,
-    project: str | None,
-    index: int,
-) -> ReflectionCandidate | None:
-    lower = segment.lower()
-    kind = ""
-    reason = ""
-    confidence = 0.0
-
-    if _ARTIFACT_PATTERN.search(segment):
-        kind = "artifact"
-        reason = "mentions a concrete file, URL, document, or generated output"
-        confidence = 0.82
-    elif lower.startswith(("maybe ", "what if ", "could ")):
-        kind = "idea"
-        reason = "captures a possibility before it becomes a decision"
-        confidence = 0.82
-    elif lower.startswith(("next ", "todo ", "phase ", "workstream ")):
-        kind = "plan"
-        reason = "captures sequencing, scope, or intended work"
-        confidence = 0.84
-    else:
-        for candidate_kind, markers, candidate_reason, score in _KIND_RULES:
-            if any(marker in lower for marker in markers):
-                kind = candidate_kind
-                reason = candidate_reason
-                confidence = score
-                break
-
-    if not kind:
-        return None
-
-    metadata: dict[str, Any] = {
-        "reflection_source_title": source_title,
-        "reflection_intent": intent,
-        "reflection_index": index,
-    }
-    if project:
-        metadata["project_id"] = project
-
-    return ReflectionCandidate(
-        kind=kind,
-        title=_derive_title(segment, prefix=kind.capitalize()),
-        content=segment,
-        reason=reason,
-        confidence=confidence,
-        tags=_tags_for(kind, domain),
-        metadata=metadata,
-    )
-
-
-def _fallback_session_candidate(
-    *,
-    source_title: str,
-    content: str,
-    intent: str,
-    domain: str | None,
-    project: str | None,
-) -> ReflectionCandidate:
-    metadata: dict[str, Any] = {
-        "reflection_source_title": source_title,
-        "reflection_intent": intent,
-        "reflection_index": 0,
-    }
-    if project:
-        metadata["project_id"] = project
-    return ReflectionCandidate(
-        kind="session",
-        title=_derive_title(source_title, prefix="Session"),
-        content=_compact(content, max_chars=1200),
-        reason="preserves the raw session checkpoint when no finer candidate is obvious",
-        confidence=0.60,
-        tags=_tags_for("session", domain),
-        metadata=metadata,
-    )
-
-
-def _dedupe(candidates: list[ReflectionCandidate], limit: int) -> list[ReflectionCandidate]:
-    seen: set[tuple[str, str]] = set()
-    deduped: list[ReflectionCandidate] = []
-    for candidate in sorted(candidates, key=lambda item: item.confidence, reverse=True):
-        key = (candidate.kind, candidate.content.lower())
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(candidate)
-        if len(deduped) >= limit:
-            break
-    return deduped
 
 
 async def reflect_memory(
@@ -244,6 +53,7 @@ async def reflect_memory(
     persist_review: bool = False,
     limit: int = 12,
     add_fn: AddFn = default_add,
+    extractor: ReflectionExtractor | None = None,
 ) -> ReflectionPack:
     """Reflect raw notes into reviewable, optionally persisted memory candidates."""
 
@@ -267,32 +77,18 @@ async def reflect_memory(
         project=project,
         limit=limit,
     )
-    candidates = [
-        candidate
-        for index, segment in enumerate(_segments(content))
-        if (
-            candidate := _candidate_for_segment(
-                segment,
-                source_title=source_title,
-                intent=intent,
-                domain=domain,
-                project=project,
-                index=index,
-            )
+    active_extractor = extractor or HeuristicReflectionExtractor()
+    candidates = await active_extractor.extract(
+        ReflectionExtractionRequest(
+            content=content,
+            source_title=source_title,
+            intent=intent,
+            domain=domain,
+            project=project,
+            limit=limit,
         )
-        is not None
-    ]
-    if not candidates:
-        candidates = [
-            _fallback_session_candidate(
-                source_title=source_title,
-                content=content,
-                intent=intent,
-                domain=domain,
-                project=project,
-            )
-        ]
-    candidates = _dedupe(candidates, limit)
+    )
+    validate_reflection_candidates(candidates, require_source_ids=False)
 
     persist_policy_metadata: dict[str, Any] = {}
     if persist:
@@ -305,10 +101,10 @@ async def reflect_memory(
         persist_policy_metadata = _reflect_policy_metadata(persist_decisions)
         if any(not decision.allowed for decision in persist_decisions):
             denied_candidates = [
-                _candidate_with_review_metadata(
+                ground_reflection_candidate(
                     replace(candidate, metadata={**candidate.metadata, **persist_policy_metadata}),
                     raw_source_ids=[],
-                    suggested_memory_scope=resolved_scope,
+                    suggested_memory_scope=resolved_scope.value,
                     suggested_scope_key=resolved_scope_key,
                     extraction_prompt_metadata=extraction_prompt_metadata,
                     source_id=None,
@@ -384,18 +180,22 @@ async def reflect_memory(
         if source.success:
             source_id = source.id
 
-    raw_source_ids = [source_id] if source_id else []
+    source_anchor_id = source_id
+    if persist and source_anchor_id is None and not persist_source:
+        source_anchor_id = ephemeral_reflection_source_id(content)
+    raw_source_ids = [source_anchor_id] if source_anchor_id else []
     candidates = [
-        _candidate_with_review_metadata(
+        ground_reflection_candidate(
             candidate,
             raw_source_ids=raw_source_ids,
-            suggested_memory_scope=resolved_scope,
+            suggested_memory_scope=resolved_scope.value,
             suggested_scope_key=resolved_scope_key,
             extraction_prompt_metadata=extraction_prompt_metadata,
             source_id=source_id,
         )
         for candidate in candidates
     ]
+    validate_reflection_candidates(candidates, require_source_ids=persist)
 
     persisted: list[ReflectionCandidate] = []
     for candidate in candidates:
@@ -497,7 +297,17 @@ async def reflect_memory(
 
 
 def reflection_pack_to_dict(pack: ReflectionPack) -> dict[str, Any]:
-    return asdict(pack)
+    return {
+        "source_title": pack.source_title,
+        "source_id": pack.source_id,
+        "intent": pack.intent,
+        "domain": pack.domain,
+        "project": pack.project,
+        "candidates": [candidate.to_dict() for candidate in pack.candidates],
+        "total_candidates": pack.total_candidates,
+        "persisted_count": pack.persisted_count,
+        "usage_hint": pack.usage_hint,
+    }
 
 
 def reflection_pack_to_markdown(pack: ReflectionPack) -> str:
@@ -572,42 +382,13 @@ def _extraction_prompt_metadata(
     limit: int,
 ) -> dict[str, object]:
     return {
-        "extractor": "sibyl_reflect_heuristic",
-        "extractor_version": "v0.7",
+        "extractor": "sibyl_reflection_extractor",
+        "extractor_version": "v0.12",
         "intent": intent,
         "domain": domain,
         "project": project,
         "limit": limit,
     }
-
-
-def _candidate_with_review_metadata(
-    candidate: ReflectionCandidate,
-    *,
-    raw_source_ids: list[str],
-    suggested_memory_scope: MemoryScope,
-    suggested_scope_key: str | None,
-    extraction_prompt_metadata: dict[str, object],
-    source_id: str | None,
-) -> ReflectionCandidate:
-    metadata = {
-        **candidate.metadata,
-        "raw_source_ids": list(raw_source_ids),
-        "source_ids": list(raw_source_ids),
-        "suggested_memory_scope": suggested_memory_scope.value,
-        "suggested_scope_key": suggested_scope_key,
-        "review_state": candidate.review_state,
-        "extraction_prompt_metadata": dict(extraction_prompt_metadata),
-    }
-    if source_id:
-        metadata["reflection_source_id"] = source_id
-    return replace(
-        candidate,
-        metadata=metadata,
-        raw_source_ids=list(raw_source_ids),
-        suggested_memory_scope=suggested_memory_scope.value,
-        suggested_scope_key=suggested_scope_key,
-    )
 
 
 def _authorize_reflection_review_write(

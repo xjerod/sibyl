@@ -238,8 +238,8 @@ async def test_native_reflection_write_contract_renders_context_pack(
                     "suggested_scope_key": "project_native",
                     "review_state": "pending",
                     "extraction_prompt_metadata": {
-                        "extractor": "sibyl_reflect_heuristic",
-                        "extractor_version": "v0.7",
+                        "extractor": "sibyl_reflection_extractor",
+                        "extractor_version": "v0.12",
                         "intent": "build",
                         "domain": "sibyl",
                         "project": "project_native",

@@ -208,6 +208,43 @@ class ReflectionFinding:
 
 
 @dataclass(frozen=True)
+class ReflectionRelationshipRecord:
+    source_id: str
+    target_id: str
+    relationship_type: str
+    reason: str
+    confidence: float = 1.0
+    source_ids: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_id": self.source_id,
+            "target_id": self.target_id,
+            "relationship_type": self.relationship_type,
+            "reason": self.reason,
+            "confidence": self.confidence,
+            "source_ids": list(self.source_ids),
+            "created_at": self.created_at,
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> ReflectionRelationshipRecord:
+        return cls(
+            source_id=str(value.get("source_id") or ""),
+            target_id=str(value.get("target_id") or ""),
+            relationship_type=str(value.get("relationship_type") or "RELATED_TO"),
+            reason=str(value.get("reason") or ""),
+            confidence=float(value.get("confidence") or 0.0),
+            source_ids=_str_list(value.get("source_ids")),
+            created_at=str(value.get("created_at") or _now_iso()),
+            metadata=_dict_value(value.get("metadata")),
+        )
+
+
+@dataclass(frozen=True)
 class MemoryLifecycle:
     state: MemoryLifecycleState | str
     source_id: str
@@ -271,6 +308,32 @@ class ReflectionCandidate:
     suggested_scope_key: str | None = None
     review_state: str = "pending"
     persisted_id: str | None = None
+    claim_records: list[ClaimRecord] = field(default_factory=list)
+    reflection_findings: list[ReflectionFinding] = field(default_factory=list)
+    relationship_records: list[ReflectionRelationshipRecord] = field(default_factory=list)
+    sensitivity_flags: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "title": self.title,
+            "content": self.content,
+            "reason": self.reason,
+            "confidence": self.confidence,
+            "tags": list(self.tags),
+            "metadata": dict(self.metadata),
+            "raw_source_ids": list(self.raw_source_ids),
+            "suggested_memory_scope": self.suggested_memory_scope,
+            "suggested_scope_key": self.suggested_scope_key,
+            "review_state": self.review_state,
+            "persisted_id": self.persisted_id,
+            "claim_records": [claim.to_dict() for claim in self.claim_records],
+            "reflection_findings": [finding.to_dict() for finding in self.reflection_findings],
+            "relationship_records": [
+                relationship.to_dict() for relationship in self.relationship_records
+            ],
+            "sensitivity_flags": list(self.sensitivity_flags),
+        }
 
 
 @dataclass(frozen=True)
@@ -296,6 +359,15 @@ def reflection_findings_from_metadata(metadata: dict[str, object]) -> list[Refle
     return [
         ReflectionFinding.from_dict(item)
         for item in _dict_list(metadata.get("reflection_findings"))
+    ]
+
+
+def reflection_relationships_from_metadata(
+    metadata: dict[str, object],
+) -> list[ReflectionRelationshipRecord]:
+    return [
+        ReflectionRelationshipRecord.from_dict(item)
+        for item in _dict_list(metadata.get("relationship_records"))
     ]
 
 
@@ -363,6 +435,19 @@ def with_claim_record_metadata(
     claims = [item.to_dict() for item in claim_records_from_metadata(next_metadata)]
     claims.append(claim.to_dict())
     next_metadata["claim_records"] = claims
+    return next_metadata
+
+
+def with_reflection_relationship_metadata(
+    metadata: dict[str, object],
+    relationship: ReflectionRelationshipRecord,
+) -> dict[str, object]:
+    next_metadata = dict(metadata)
+    relationships = [
+        item.to_dict() for item in reflection_relationships_from_metadata(next_metadata)
+    ]
+    relationships.append(relationship.to_dict())
+    next_metadata["relationship_records"] = relationships
     return next_metadata
 
 

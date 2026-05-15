@@ -1069,6 +1069,10 @@ class ReflectionCandidateResponse(BaseModel):
     suggested_scope_key: str | None = None
     review_state: str = "pending"
     persisted_id: str | None = None
+    claim_records: list[dict[str, Any]] = Field(default_factory=list)
+    reflection_findings: list[dict[str, Any]] = Field(default_factory=list)
+    relationship_records: list[dict[str, Any]] = Field(default_factory=list)
+    sensitivity_flags: list[str] = Field(default_factory=list)
 
 
 class ReflectionResponse(BaseModel):

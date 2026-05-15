@@ -21,7 +21,14 @@ from sibyl_core.models.context import (
     ContextPack,
     ContextSection,
 )
-from sibyl_core.models.reflection import ReflectionCandidate, ReflectionPack
+from sibyl_core.models.reflection import (
+    ClaimRecord,
+    ReflectionCandidate,
+    ReflectionFinding,
+    ReflectionFindingKind,
+    ReflectionPack,
+    ReflectionRelationshipRecord,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -555,6 +562,87 @@ class TestReflectRoute:
             limit=2,
             organization_id=str(org.id),
         )
+
+    @pytest.mark.asyncio
+    async def test_reflect_response_includes_structured_extraction_receipts(self) -> None:
+        from sibyl.api.routes.context import reflect_context
+
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        candidate = ReflectionCandidate(
+            kind="claim",
+            title="Claim: Reflection receipts are source-grounded",
+            content="Reflection receipts are source-grounded.",
+            reason="captures a sourced assertion",
+            confidence=0.91,
+            raw_source_ids=["raw_1"],
+            claim_records=[
+                ClaimRecord(
+                    title="Claim: Reflection receipts are source-grounded",
+                    content="Reflection receipts are source-grounded.",
+                    confidence=0.91,
+                    source_ids=["raw_1"],
+                )
+            ],
+            reflection_findings=[
+                ReflectionFinding(
+                    kind=ReflectionFindingKind.CLAIM,
+                    target_source_id="raw_1",
+                    reason="captures a sourced assertion",
+                    confidence=0.91,
+                    source_ids=["raw_1"],
+                )
+            ],
+            relationship_records=[
+                ReflectionRelationshipRecord(
+                    source_id="candidate:0",
+                    target_id="proj_1",
+                    relationship_type="BELONGS_TO",
+                    reason="candidate was reflected in project scope",
+                    source_ids=["raw_1"],
+                )
+            ],
+        )
+        pack = ReflectionPack(
+            source_title="Planning",
+            source_id="raw_1",
+            intent="build",
+            domain="sibyl",
+            project="proj_1",
+            candidates=[candidate],
+            total_candidates=1,
+            persisted_count=0,
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.context.verify_entity_project_access",
+                AsyncMock(),
+            ),
+            patch(
+                "sibyl_core.tools.core.reflect_memory",
+                AsyncMock(return_value=pack),
+            ),
+            patch(
+                "sibyl_core.tools.core.explore",
+                AsyncMock(return_value=SimpleNamespace(entities=[])),
+            ),
+        ):
+            response = await reflect_context(
+                request=ReflectionRequest(
+                    content="Reflection receipts are source-grounded.",
+                    source_title="Planning",
+                    intent=ContextIntent.BUILD,
+                    project="proj_1",
+                    persist=True,
+                ),
+                org=org,
+                ctx=_ctx(),
+            )
+
+        reflected = response.candidates[0]
+        assert reflected.claim_records[0]["source_ids"] == ["raw_1"]
+        assert reflected.reflection_findings[0]["kind"] == "claim"
+        assert reflected.relationship_records[0]["target_id"] == "proj_1"
 
     @pytest.mark.asyncio
     async def test_reflect_links_explicit_and_single_active_task(self) -> None:
