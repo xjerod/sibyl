@@ -61,6 +61,7 @@ export const queryKeys = {
     audit: (params?: Parameters<typeof api.memory.audit.list>[0]) =>
       ['memory', 'audit', params] as const,
     spaces: ['memory', 'spaces'] as const,
+    sourceAdapters: ['memory', 'source-adapters'] as const,
     sourceImport: (importId: string) => ['memory', 'source-import', importId] as const,
     sourceInspect: (sourceId: string) => ['memory', 'source-inspect', sourceId] as const,
   },
@@ -617,6 +618,67 @@ export function useMemorySourceImport(
     queryFn: () => api.memory.sourceImportStatus(importId),
     enabled: (options?.enabled ?? true) && !!importId,
     initialData: options?.initialData,
+    refetchInterval: query => {
+      const status = query.state.data?.status;
+      return status === 'pending' || status === 'running' ? 2500 : false;
+    },
+  });
+}
+
+export function useSourceImportAdapters(options?: {
+  enabled?: boolean;
+  initialData?: import('./api').SourceAdapterListResponse;
+}) {
+  return useQuery({
+    queryKey: queryKeys.memory.sourceAdapters,
+    queryFn: () => api.sourceImports.adapters(),
+    enabled: options?.enabled ?? true,
+    initialData: options?.initialData,
+  });
+}
+
+export function useStartSourceImport() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: import('./api').SourceImportStartRequest) =>
+      api.sourceImports.start(request),
+    onSuccess: data => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.rawCaptures.all });
+      queryClient.setQueryData(queryKeys.memory.sourceImport(data.import_id), data);
+    },
+  });
+}
+
+export function useResumeSourceImport() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      importId,
+      request,
+    }: {
+      importId: string;
+      request?: import('./api').SourceImportResumeRequest;
+    }) => api.sourceImports.resume(importId, request),
+    onSuccess: data => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.rawCaptures.all });
+      queryClient.setQueryData(queryKeys.memory.sourceImport(data.import_id), data);
+    },
+  });
+}
+
+export function useCancelSourceImport() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (importId: string) => api.sourceImports.cancel(importId),
+    onSuccess: data => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
+      queryClient.setQueryData(queryKeys.memory.sourceImport(data.import_id), data);
+    },
   });
 }
 
@@ -629,6 +691,24 @@ export function useMemorySourceInspect(
     queryFn: () => api.memory.inspect.get(sourceId),
     enabled: (options?.enabled ?? true) && !!sourceId,
     initialData: options?.initialData,
+  });
+}
+
+export function useSynthesisPlan() {
+  return useMutation({
+    mutationFn: (request: import('./api').SynthesisRequest) => api.synthesis.plan(request),
+  });
+}
+
+export function useSynthesisDraft() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: import('./api').SynthesisDraftRequest) => api.synthesis.draft(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.rawCaptures.all });
+    },
   });
 }
 

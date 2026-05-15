@@ -393,6 +393,165 @@ export interface SourceImportStatusResponse {
   completed_at: string | null;
 }
 
+export interface SourceAdapter {
+  name: string;
+  version: string;
+  source_type: string;
+  display_name: string;
+  capabilities: string[];
+  default_privacy_class: string;
+  transform_behavior: string;
+  metadata_schema: Record<string, unknown>;
+  supports_incremental: boolean;
+}
+
+export interface SourceAdapterListResponse {
+  adapters: SourceAdapter[];
+}
+
+export interface SourceImportStartRequest {
+  source_uri: string;
+  adapter_name?: string;
+  target_memory_scope?: MemoryScope;
+  target_scope_key?: string | null;
+  options?: Record<string, unknown>;
+  batch_size?: number;
+  promotion_preview_approved?: boolean;
+}
+
+export interface SourceImportResumeRequest {
+  batch_size?: number | null;
+  promotion_preview_approved?: boolean | null;
+}
+
+export type SynthesisOutputType =
+  | 'documentation'
+  | 'report'
+  | 'briefing'
+  | 'roadmap'
+  | 'release_notes'
+  | 'audit_packet'
+  | 'custom';
+
+export type SynthesisDepth = 'brief' | 'standard' | 'deep';
+export type SynthesisRunStatus = 'planned' | 'drafting' | 'verified' | 'failed';
+export type SynthesisVerificationStatus = 'pending' | 'gaps' | 'pass';
+export type SynthesisArtifactFormat = 'markdown' | 'json';
+
+export interface SynthesisSectionRequest {
+  title: string;
+  prompt?: string | null;
+  required_source_ids?: string[];
+}
+
+export interface SynthesisRequest {
+  goal: string;
+  output_type?: SynthesisOutputType;
+  audience?: string | null;
+  depth?: SynthesisDepth;
+  seed_query?: string | null;
+  project?: string | null;
+  domain?: string | null;
+  entity_ids?: string[];
+  decision_ids?: string[];
+  task_ids?: string[];
+  artifact_ids?: string[];
+  required_sections?: SynthesisSectionRequest[];
+  constraints?: string[];
+  max_sections?: number;
+  include_neighborhoods?: boolean;
+}
+
+export interface SynthesisSourceReference {
+  id: string;
+  type: string;
+  name: string;
+  content_preview: string;
+  score: number;
+  source: string | null;
+  origin: string;
+  relation: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface SynthesisGap {
+  section_id: string;
+  title: string;
+  reason: string;
+  query: string;
+  missing_source_ids: string[];
+}
+
+export interface SynthesisOutlineSection {
+  section_id: string;
+  title: string;
+  prompt: string;
+  source_query: string;
+  source_ids: string[];
+  gaps: SynthesisGap[];
+}
+
+export interface SynthesisOutline {
+  title: string;
+  output_type: SynthesisOutputType;
+  audience: string | null;
+  sections: SynthesisOutlineSection[];
+}
+
+export interface SynthesisSourcePack {
+  section_id: string;
+  title: string;
+  query: string;
+  source_ids: string[];
+  sources: SynthesisSourceReference[];
+  hidden_count: number;
+  redaction_count: number;
+  freshness: Record<string, string | null>;
+  unresolved_claims: string[];
+}
+
+export interface SynthesisVerification {
+  status: SynthesisVerificationStatus;
+  source_count: number;
+  gap_count: number;
+  gaps: SynthesisGap[];
+}
+
+export interface SynthesisPlanResponse {
+  run_id: string;
+  status: SynthesisRunStatus;
+  request: SynthesisRequest;
+  outline: SynthesisOutline;
+  source_packs: SynthesisSourcePack[];
+  verification: SynthesisVerification;
+}
+
+export interface SynthesisArtifact {
+  artifact_id: string;
+  format: SynthesisArtifactFormat;
+  title: string;
+  markdown: string;
+  json_payload: Record<string, unknown>;
+  source_ids: string[];
+  section_source_ids: Record<string, string[]>;
+  generated_text_hash: string;
+  verification: SynthesisVerification;
+  remembered_memory_id: string | null;
+  remembered_source_id: string | null;
+}
+
+export interface SynthesisDraftRequest extends SynthesisRequest {
+  output_format?: SynthesisArtifactFormat;
+  remember?: boolean;
+  memory_scope?: MemoryScope;
+  scope_key?: string | null;
+  tags?: string[];
+}
+
+export interface SynthesisDraftResponse extends SynthesisPlanResponse {
+  artifact: SynthesisArtifact;
+}
+
 export interface SessionBundleContext {
   generated_at: string;
   org_slug: string | null;
@@ -1701,6 +1860,43 @@ export const api = {
           }
         ),
     },
+  },
+
+  sourceImports: {
+    adapters: () => fetchApi<SourceAdapterListResponse>('/sources/import-adapters'),
+    start: (request: SourceImportStartRequest) =>
+      fetchApi<SourceImportStatusResponse>('/sources/imports', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }),
+    get: (importId: string) =>
+      fetchApi<SourceImportStatusResponse>(`/sources/imports/${encodeURIComponent(importId)}`),
+    resume: (importId: string, request: SourceImportResumeRequest = {}) =>
+      fetchApi<SourceImportStatusResponse>(
+        `/sources/imports/${encodeURIComponent(importId)}/resume`,
+        {
+          method: 'POST',
+          body: JSON.stringify(request),
+        }
+      ),
+    cancel: (importId: string) =>
+      fetchApi<SourceImportStatusResponse>(
+        `/sources/imports/${encodeURIComponent(importId)}/cancel`,
+        { method: 'POST' }
+      ),
+  },
+
+  synthesis: {
+    plan: (request: SynthesisRequest) =>
+      fetchApi<SynthesisPlanResponse>('/synthesis/plan', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }),
+    draft: (request: SynthesisDraftRequest) =>
+      fetchApi<SynthesisDraftResponse>('/synthesis/draft', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }),
   },
 
   // Search

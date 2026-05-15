@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import { EntityBadge } from '@/components/ui/badge';
 import {
   Database,
+  FileText,
   type IconComponent,
   Key,
   Search,
@@ -137,6 +138,31 @@ function Panel({ title, count, children }: { title: string; count?: number; chil
       </div>
       {children}
     </section>
+  );
+}
+
+function ToolLink({
+  href,
+  icon: Icon,
+  label,
+  description,
+}: {
+  href: string;
+  icon: IconComponent;
+  label: string;
+  description: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base p-3 transition-colors hover:border-sc-cyan/40 hover:bg-sc-bg-highlight/60"
+    >
+      <Icon width={18} height={18} className="mt-0.5 text-sc-cyan" />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-sc-fg-primary">{label}</span>
+        <span className="mt-1 block truncate text-xs text-sc-fg-muted">{description}</span>
+      </span>
+    </Link>
   );
 }
 
@@ -334,9 +360,9 @@ export function MemoryHome() {
         />
         <MetricCard
           icon={Upload}
-          label="Imports"
+          label="Imported Captures"
           value={imports.length}
-          hint="source-import records"
+          hint="raw records from source imports"
         />
         <MetricCard icon={Search} label="Recalls" value={recalls.length} hint="recent retrievals" />
         <MetricCard
@@ -356,6 +382,27 @@ export function MemoryHome() {
           spacesQuery.data?.spaces ?? []
         )}
       />
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <ToolLink
+          href="/memory/imports"
+          icon={Upload}
+          label="Import Sources"
+          description="watch checkpoints, dedupe, and extraction"
+        />
+        <ToolLink
+          href="/memory/synthesize"
+          icon={FileText}
+          label="Synthesize"
+          description="draft source-backed memory artifacts"
+        />
+        <ToolLink
+          href="/archive?link=unlinked"
+          icon={WarningCircle}
+          label="Review Captures"
+          description="clear raw memory review actions"
+        />
+      </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
         <div className="space-y-4">
