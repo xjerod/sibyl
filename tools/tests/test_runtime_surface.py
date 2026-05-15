@@ -27,10 +27,10 @@ from tools.inventory.runtime_surface import (
     unclassified_legacy_term_records,
 )
 
-EXPECTED_ROUTER_COUNT = 24
+EXPECTED_ROUTER_COUNT = 25
 EXPECTED_HTTP_ROUTE_COUNT = 2
 EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
-EXPECTED_MCP_TOOL_COUNT = 8
+EXPECTED_MCP_TOOL_COUNT = 11
 EXPECTED_MCP_RESOURCE_COUNT = 2
 EXPECTED_SQLMODEL_TABLE_COUNT = 0
 EXPECTED_LEGACY_TERM_SCAN_PATHS = {
@@ -401,8 +401,16 @@ def test_runtime_surface_finds_known_contracts() -> None:
     assert len(surface.sqlmodel_tables) == EXPECTED_SQLMODEL_TABLE_COUNT
 
     assert "search_router" in surface.rest_routers
+    assert "synthesis_router" in surface.rest_routers
     assert surface.websocket_routes[0].path == "/ws"
-    assert {record.name for record in surface.mcp_tools} >= {"search", "explore", "add"}
+    assert {record.name for record in surface.mcp_tools} >= {
+        "search",
+        "explore",
+        "add",
+        "synthesis_plan",
+        "synthesis_draft",
+        "synthesis_verify",
+    }
     raw_sql_paths = {record.path for record in surface.raw_sql_usage}
     assert raw_sql_paths == set()
     assert not any(

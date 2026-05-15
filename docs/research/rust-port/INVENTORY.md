@@ -3,10 +3,10 @@
 Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 
 ## Summary
-- REST routers: 24
+- REST routers: 25
 - Top-level HTTP routes: 2
 - WebSocket routes: 1
-- MCP tools: 8
+- MCP tools: 11
 - MCP resources: 2
 - SQLModel tables: 0
 - Raw SQL query usage files: 0
@@ -40,6 +40,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `memory_router`
 - `metrics_router`
 - `settings_router`
+- `synthesis_router`
 - `setup_router`
 - `users_router`
 
@@ -61,6 +62,9 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `reflect` in `apps/api/src/sibyl/server.py`
 - `remember` in `apps/api/src/sibyl/server.py`
 - `search` in `apps/api/src/sibyl/server.py`
+- `synthesis_draft` in `apps/api/src/sibyl/server.py`
+- `synthesis_plan` in `apps/api/src/sibyl/server.py`
+- `synthesis_verify` in `apps/api/src/sibyl/server.py`
 
 ### Resources
 - `sibyl://health` via `health_resource` in `apps/api/src/sibyl/server.py`
