@@ -41,7 +41,11 @@ from sibyl_cli.config_store import (
     update_context,
 )
 from sibyl_cli.context_quick import quick_context_payload, render_quick_context
-from sibyl_cli.project_refs import PROJECT_RELINK_HINT
+from sibyl_cli.project_refs import (
+    PROJECT_RELINK_HINT,
+    list_accessible_projects,
+    matching_project_refs,
+)
 
 CONTEXT_PACK_PREVIEW_CHARS = 320
 
@@ -105,7 +109,13 @@ def callback(
         async def _fetch_project() -> dict | None:
             try:
                 client = get_client()
-                return await client.get_entity(effective_project, related_limit=0)
+                project = await client.get_entity(effective_project, related_limit=0)
+                if linked_project:
+                    projects = await list_accessible_projects(client)
+                    if not matching_project_refs(projects, effective_project):
+                        _warn_missing_linked_project(effective_project)
+                        return None
+                return project
             except SibylClientError as exc:
                 if exc.status_code == 404:
                     _warn_missing_linked_project(effective_project)

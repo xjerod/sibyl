@@ -123,6 +123,11 @@ def test_context_quick_without_context_reports_missing_auth(
 
 
 @patch("sibyl_cli.context.get_client")
+@patch(
+    "sibyl_cli.context.list_accessible_projects",
+    new_callable=AsyncMock,
+    return_value=[{"id": "project_123", "name": "Sibyl"}],
+)
 @patch("sibyl_cli.context.resolve_project_from_cwd", return_value="project_123")
 @patch(
     "sibyl_cli.context.get_active_context",
@@ -136,6 +141,7 @@ def test_context_quick_without_context_reports_missing_auth(
 def test_context_uses_summary_only_project_fetch(
     mock_get_active_context: MagicMock,
     mock_resolve_project_from_cwd: MagicMock,
+    mock_list_accessible_projects: AsyncMock,
     mock_get_client: MagicMock,
 ) -> None:
     mock_client = MagicMock()
@@ -166,6 +172,42 @@ def test_context_uses_summary_only_project_fetch(
     assert result.exit_code == 0
     assert "Ship full-fidelity context" in result.stdout
     mock_client.get_entity.assert_awaited_once_with("project_123", related_limit=0)
+    mock_list_accessible_projects.assert_awaited_once_with(mock_client)
+    mock_get_active_context.assert_called_once_with()
+    assert mock_resolve_project_from_cwd.call_count == 2
+
+
+@patch("sibyl_cli.context.get_client")
+@patch("sibyl_cli.context.list_accessible_projects", new_callable=AsyncMock, return_value=[])
+@patch("sibyl_cli.context.resolve_project_from_cwd", return_value="project_missing")
+@patch(
+    "sibyl_cli.context.get_active_context",
+    return_value=Context(
+        name="local",
+        server_url="http://localhost:3334",
+        org_slug=None,
+        default_project=None,
+    ),
+)
+def test_context_warns_when_linked_project_has_graph_entity_but_no_registry_record(
+    mock_get_active_context: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+    mock_list_accessible_projects: AsyncMock,
+    mock_get_client: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.get_entity = AsyncMock(return_value={"id": "project_missing", "name": "Sibyl"})
+    mock_get_client.return_value = mock_client
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["context"])
+
+    assert result.exit_code == 0
+    assert "Linked project project_missing is missing server-side" in result.stdout
+    assert "sibyl project relink" in result.stdout
+    assert "Sibyl" not in result.stdout
+    mock_client.get_entity.assert_awaited_once_with("project_missing", related_limit=0)
+    mock_list_accessible_projects.assert_awaited_once_with(mock_client)
     mock_get_active_context.assert_called_once_with()
     assert mock_resolve_project_from_cwd.call_count == 2
 
