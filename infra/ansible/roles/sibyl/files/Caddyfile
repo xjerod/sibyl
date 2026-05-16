@@ -6,11 +6,8 @@
 }
 
 {$SIBYL_DOMAIN} {
-	handle /api/* {
-		reverse_proxy backend:3334
-	}
-
-	handle /mcp* {
+	@backend path /api/* /mcp /mcp/* /_oauth/*
+	handle @backend {
 		reverse_proxy backend:3334
 	}
 

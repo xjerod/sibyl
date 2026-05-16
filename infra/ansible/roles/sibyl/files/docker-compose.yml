@@ -34,6 +34,7 @@ services:
       surrealdb:
         condition: service_healthy
     environment:
+      SIBYL_ENVIRONMENT: production
       SIBYL_STORE: surreal
       SIBYL_AUTH_STORE: surreal
       SIBYL_COORDINATION_BACKEND: auto
@@ -70,6 +71,7 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: https://${SIBYL_DOMAIN:?set SIBYL_DOMAIN in .env}
       SIBYL_API_URL: http://backend:3334/api
+      SIBYL_BACKEND_URL: http://backend:3334
       NODE_ENV: production
     restart: unless-stopped
 
@@ -80,9 +82,12 @@ services:
     depends_on:
       - backend
       - frontend
+    # Bound to the Tailscale address only. Docker NATs published ports
+    # ahead of ufw, so a 0.0.0.0 bind would be public despite the
+    # firewall; binding to the tailnet IP is what keeps this private.
     ports:
-      - "80:80"
-      - "443:443"
+      - "${SIBYL_BIND_IP:?set SIBYL_BIND_IP in .env}:80:80"
+      - "${SIBYL_BIND_IP}:443:443"
     environment:
       SIBYL_DOMAIN: ${SIBYL_DOMAIN:?set SIBYL_DOMAIN in .env}
       CF_API_TOKEN: ${CF_API_TOKEN:?set CF_API_TOKEN in .env}

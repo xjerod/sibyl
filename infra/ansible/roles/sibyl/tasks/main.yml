@@ -110,6 +110,11 @@
     mode: "0644"
   notify: Restart sibyl
 
+- name: Resolve the Tailscale interface address
+  ansible.builtin.command: tailscale ip -4
+  register: sibyl_tailscale_ip
+  changed_when: false
+
 - name: Render the environment file
   ansible.builtin.template:
     src: env.j2
@@ -131,6 +136,9 @@
   notify:
     - Daemon reload
     - Restart sibyl
+
+- name: Flush handlers so the unit is registered before starting
+  ansible.builtin.meta: flush_handlers
 
 - name: Enable and start sibyl
   ansible.builtin.service:
