@@ -26,7 +26,7 @@ import type {
 } from './api';
 import { api } from './api';
 import { TIMING } from './constants';
-import { wsClient } from './websocket';
+import { type ConnectionStatus, wsClient } from './websocket';
 
 // =============================================================================
 // Query Keys
@@ -625,12 +625,18 @@ export function useMemorySourceImport(
   importId: string,
   options?: { enabled?: boolean; initialData?: import('./api').SourceImportStatusResponse }
 ) {
+  const enabled = (options?.enabled ?? true) && !!importId;
+  const wsStatus = useWebSocketStatus(enabled);
+
   return useQuery({
     queryKey: queryKeys.memory.sourceImport(importId),
     queryFn: () => api.memory.sourceImportStatus(importId),
-    enabled: (options?.enabled ?? true) && !!importId,
+    enabled,
     initialData: options?.initialData,
     refetchInterval: query => {
+      if (wsStatus === 'connected') {
+        return false;
+      }
       const status = query.state.data?.status;
       return status === 'pending' || status === 'running' ? 2500 : false;
     },
@@ -1012,6 +1018,23 @@ export function useStats(initialData?: import('./api').StatsResponse) {
 // WebSocket Hook
 // =============================================================================
 
+export function useWebSocketStatus(enabled = true): ConnectionStatus {
+  const [status, setStatus] = useState<ConnectionStatus>(wsClient.status);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    setStatus(wsClient.status);
+    return wsClient.on('connection_status', data => {
+      setStatus(data.status);
+    });
+  }, [enabled]);
+
+  return status;
+}
+
 export function useRealtimeUpdates(isAuthenticated?: boolean) {
   const queryClient = useQueryClient();
 
@@ -1030,6 +1053,11 @@ export function useRealtimeUpdates(isAuthenticated?: boolean) {
 
     // Entity created - smart invalidation based on entity type
     const unsubCreate = wsClient.on('entity_created', data => {
+      const entityType = data.entity_type || data.type;
+      invalidateByEntityType(queryClient, entityType, data.id, { includeStats: true });
+    });
+
+    const unsubPending = wsClient.on('entity_pending', data => {
       const entityType = data.entity_type || data.type;
       invalidateByEntityType(queryClient, entityType, data.id, { includeStats: true });
     });
@@ -1061,6 +1089,14 @@ export function useRealtimeUpdates(isAuthenticated?: boolean) {
     // Search complete (if backend sends it)
     const unsubSearch = wsClient.on('search_complete', () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+    });
+
+    const unsubGraphUpdated = wsClient.on('graph_updated', data => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.graph.all });
+      if ((data.new_entities_created ?? 0) > 0) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.entities.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.admin.stats });
+      }
     });
 
     // Permission changed - refresh auth data
@@ -1141,17 +1177,74 @@ export function useRealtimeUpdates(isAuthenticated?: boolean) {
       queryClient.invalidateQueries({ queryKey: queryKeys.rag.pages(data.source_id) });
     });
 
+    const unsubCrawlSyncComplete = wsClient.on('crawl_sync_complete', data => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources.detail(data.source_id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.rag.pages(data.source_id) });
+    });
+
+    const refreshBackupQueries = (backupId: string, jobId?: string) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.backups.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.backups.detail(backupId) });
+      if (jobId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.backups.jobStatus(jobId) });
+      }
+    };
+
+    const unsubBackupStarted = wsClient.on('backup_started', data => {
+      refreshBackupQueries(data.backup_id, data.job_id);
+    });
+
+    const unsubBackupComplete = wsClient.on('backup_complete', data => {
+      refreshBackupQueries(data.backup_id, data.job_id);
+    });
+
+    const unsubBackupFailed = wsClient.on('backup_failed', data => {
+      refreshBackupQueries(data.backup_id, data.job_id);
+    });
+
+    const refreshTaskNotes = (taskId: string) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.notes(taskId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
+    };
+
+    const unsubNotePending = wsClient.on('note_pending', data => {
+      refreshTaskNotes(data.task_id);
+    });
+
+    const unsubNoteCreated = wsClient.on('note_created', data => {
+      refreshTaskNotes(data.task_id);
+    });
+
+    const unsubSourceImportUpdated = wsClient.on('source_import_updated', data => {
+      queryClient.setQueryData(queryKeys.memory.sourceImport(data.import_id), data);
+      if (['paused', 'completed', 'failed', 'canceled'].includes(data.status)) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.memory.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.rawCaptures.all });
+      }
+    });
+
     // Cleanup on unmount
     return () => {
       unsubCreate();
+      unsubPending();
       unsubUpdate();
       unsubDelete();
       unsubHealth();
       unsubSearch();
+      unsubGraphUpdated();
       unsubPermission();
       unsubCrawlStarted();
       unsubCrawlProgress();
       unsubCrawlComplete();
+      unsubCrawlSyncComplete();
+      unsubBackupStarted();
+      unsubBackupComplete();
+      unsubBackupFailed();
+      unsubNotePending();
+      unsubNoteCreated();
+      unsubSourceImportUpdated();
       wsClient.disconnect();
     };
   }, [queryClient, isAuthenticated]);
@@ -1880,12 +1973,15 @@ export function useUpdateBackupSettings() {
  * List all backups for the current organization.
  */
 export function useBackups(options?: { enabled?: boolean; limit?: number; offset?: number }) {
+  const enabled = options?.enabled ?? true;
+  const wsStatus = useWebSocketStatus(enabled);
+
   return useQuery({
     queryKey: queryKeys.backups.list,
     queryFn: () => api.backups.list(options?.limit ?? 50, options?.offset ?? 0),
-    enabled: options?.enabled ?? true,
+    enabled,
     staleTime: 10000,
-    refetchInterval: 30000, // Auto-refresh every 30 seconds
+    refetchInterval: wsStatus === 'connected' ? false : 30000,
   });
 }
 
