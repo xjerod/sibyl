@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import type { IconComponent } from '@/components/ui/icons';
@@ -45,13 +46,28 @@ export function useBreadcrumbOverride(): BreadcrumbItem[] | null {
 export function useSetBreadcrumb(items: BreadcrumbItem[] | null | undefined) {
   const ctx = useContext(BreadcrumbContext);
   const setOverride = ctx?.setOverride;
+  const previous = useRef<{ key: string; items: BreadcrumbItem[] | null }>({
+    key: '',
+    items: null,
+  });
+
+  const key =
+    items
+      ?.map(item => {
+        const iconName = item.icon?.displayName ?? item.icon?.name ?? '';
+        return `${item.label}\u001f${item.href ?? ''}\u001f${iconName}`;
+      })
+      .join('\u001e') ?? '';
 
   // Stabilize the item list so identical-but-different references don't
   // thrash the override on every render.
-  const stable = useMemo(() => {
-    if (!items || items.length === 0) return null;
-    return items;
-  }, [items]);
+  if (previous.current.key !== key) {
+    previous.current = {
+      key,
+      items: items && items.length > 0 ? items : null,
+    };
+  }
+  const stable = previous.current.items;
 
   useEffect(() => {
     if (!setOverride) return;

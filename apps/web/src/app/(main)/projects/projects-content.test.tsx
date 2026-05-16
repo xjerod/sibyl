@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Breadcrumb } from '@/components/layout/breadcrumb';
+import { BreadcrumbProvider } from '@/components/layout/breadcrumb-context';
 import type { ProjectSummariesResponse, TaskListResponse } from '@/lib/api';
 import { render, screen } from '@/test/utils';
-
-const push = vi.fn();
 
 const hooks = vi.hoisted(() => ({
   useDeleteEntity: vi.fn(),
@@ -18,10 +18,15 @@ const hooks = vi.hoisted(() => ({
   useUpdateProjectMemberRole: vi.fn(),
 }));
 
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  searchParams: '',
+}));
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push: navigation.push }),
   usePathname: () => '/projects',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navigation.searchParams),
 }));
 
 vi.mock('@/lib/hooks', () => hooks);
@@ -87,7 +92,8 @@ describe('ProjectsContent', () => {
   };
 
   beforeEach(() => {
-    push.mockReset();
+    navigation.push.mockReset();
+    navigation.searchParams = '';
     hooks.useDeleteEntity.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
     hooks.useCreateEntity.mockReturnValue({ mutateAsync: vi.fn() });
     hooks.useMe.mockReturnValue({ data: undefined });
@@ -119,5 +125,22 @@ describe('ProjectsContent', () => {
     expect(hooks.useProjectSummaries).toHaveBeenCalledWith(initialProjectSummaries);
     expect(screen.getByText('2 projects | 5 tasks | 2 active')).toBeInTheDocument();
     expect(screen.getByText('Beta')).toBeInTheDocument();
+  });
+
+  it('renders selected project details without thrashing breadcrumb context', () => {
+    navigation.searchParams = 'id=proj-a';
+
+    render(
+      <BreadcrumbProvider>
+        <Breadcrumb />
+        <ProjectsContent
+          initialProjects={initialProjects}
+          initialProjectSummaries={initialProjectSummaries}
+        />
+      </BreadcrumbProvider>
+    );
+
+    expect(screen.getByText('Tech Stack')).toBeInTheDocument();
+    expect(screen.getByText('Team')).toBeInTheDocument();
   });
 });
