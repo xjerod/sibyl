@@ -93,8 +93,8 @@ backend:
     port: "6379"
     jobsDb: "1"
     rateLimitDb: "4"
-    existingSecret: sibyl-secrets
-    secretKey: SIBYL_REDIS_PASSWORD
+    existingSecret: sibyl-redis
+    secretKey: password
 
   env:
     SIBYL_SERVER_HOST: "0.0.0.0"
