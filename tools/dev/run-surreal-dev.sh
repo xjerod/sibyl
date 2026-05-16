@@ -61,6 +61,50 @@ docker_legacy_setup_detected() {
   return 1
 }
 
+docker_is_podman_emulation() {
+  local version=""
+
+  command -v docker >/dev/null 2>&1 || return 1
+  version="$(docker --version 2>&1 || true)"
+  [[ "${version,,}" == *podman* ]]
+}
+
+compose_command() {
+  if docker_is_podman_emulation && command -v podman >/dev/null 2>&1; then
+    if command -v podman-compose >/dev/null 2>&1; then
+      printf 'env\nPODMAN_COMPOSE_WARNING_LOGS=false\nPODMAN_COMPOSE_PROVIDER=%s\npodman\ncompose\n' \
+        "$(command -v podman-compose)"
+      return 0
+    fi
+
+    printf 'env\nPODMAN_COMPOSE_WARNING_LOGS=false\npodman\ncompose\n'
+    return 0
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    printf 'docker\ncompose\n'
+    return 0
+  fi
+
+  if command -v podman >/dev/null 2>&1; then
+    printf 'env\nPODMAN_COMPOSE_WARNING_LOGS=false\npodman\ncompose\n'
+    return 0
+  fi
+
+  return 1
+}
+
+run_compose() {
+  local -a command=()
+
+  if ! mapfile -t command < <(compose_command); then
+    echo "Docker or Podman compose is required for local services" >&2
+    return 1
+  fi
+
+  "${command[@]}" "$@"
+}
+
 surreal_runtime_data_detected() {
   local surreal_data_dir="${1:-}"
 
@@ -170,6 +214,28 @@ wait_for_commands() {
   done
 
   return "$exit_code"
+}
+
+wait_for_api_ready() {
+  local pid="${1:-}"
+  local url="http://${SIBYL_SERVER_HOST}:${SIBYL_SERVER_PORT}/api/health"
+  local deadline=$((SECONDS + ${SIBYL_DEV_API_READY_TIMEOUT:-30}))
+
+  while ((SECONDS < deadline)); do
+    if [[ -n "$pid" ]] && ! process_tree_alive "$pid"; then
+      echo "API process exited before becoming ready" >&2
+      return 1
+    fi
+
+    if curl --fail --silent --show-error --max-time 1 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    sleep 0.2
+  done
+
+  echo "Timed out waiting for API readiness at $url" >&2
+  return 1
 }
 
 cleanup() {
@@ -295,12 +361,11 @@ main() {
   local services=()
   local web_command="${SIBYL_DEV_WEB_COMMAND:-moon run web:dev}"
   local worker_command="${SIBYL_DEV_WORKER_COMMAND:-uv run --directory apps/api arq sibyl.jobs.worker.WorkerSettings --watch src}"
-  local commands=()
+  local extra_commands=()
 
   printf -v api_reload_dir "%q" "$repo_root/apps/api/src"
   default_api_command="uv run --directory apps/api python -m uvicorn sibyl.main:create_dev_app --factory --host ${SIBYL_SERVER_HOST} --port ${SIBYL_SERVER_PORT} --reload --reload-dir $api_reload_dir --timeout-graceful-shutdown 5 --log-level warning"
   local api_command="${SIBYL_DEV_API_COMMAND:-$default_api_command}"
-  commands=("$api_command" "$web_command")
 
   coordination_backend="$(resolve_coordination_backend)"
 
@@ -344,7 +409,7 @@ main() {
       export SIBYL_REDIS_PASSWORD="${SIBYL_REDIS_PASSWORD:-}"
     fi
 
-    commands+=("$worker_command")
+    extra_commands+=("$worker_command")
   else
     unset SIBYL_REDIS_HOST
     unset SIBYL_REDIS_PORT
@@ -398,12 +463,19 @@ main() {
   fi
 
   if ((${#services[@]} > 0)); then
-    docker compose up -d "${services[@]}"
+    run_compose up -d --remove-orphans "${services[@]}"
   fi
 
   sleep 1
 
-  for command in "${commands[@]}"; do
+  launch_command "$api_command"
+  local api_pid="${child_pids[$((${#child_pids[@]} - 1))]}"
+  if ! wait_for_api_ready "$api_pid"; then
+    return 1
+  fi
+
+  launch_command "$web_command"
+  for command in "${extra_commands[@]}"; do
     launch_command "$command"
   done
 

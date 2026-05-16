@@ -28,6 +28,28 @@ exit 1
     docker.chmod(0o755)
 
 
+def _write_podman_docker_stub(bin_dir: Path) -> None:
+    docker = bin_dir / "docker"
+    docker.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf 'Emulate Docker CLI using podman. Create /etc/containers/nodocker to quiet msg.\\n'
+  printf 'podman version 5.8.2\\n'
+  exit 0
+fi
+exit 1
+""",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+
+    for name in ("podman", "podman-compose"):
+        binary = bin_dir / name
+        binary.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        binary.chmod(0o755)
+
+
 def _run_detector(
     tmp_path: Path,
     *,
@@ -114,3 +136,34 @@ def test_legacy_guard_warns_when_legacy_exists_without_surreal_marker(tmp_path: 
     assert "--source-type legacy-archive" in result.stdout
     assert "--target-mode surreal" in result.stdout
     assert "moon run dev-legacy" not in result.stdout
+
+
+def test_compose_command_prefers_quiet_podman_provider(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_podman_docker_stub(bin_dir)
+
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+    }
+    bash = which("bash")
+    assert bash is not None
+
+    result = subprocess.run(  # noqa: S603
+        [bash, "-c", "source tools/dev/run-surreal-dev.sh; compose_command"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        "env",
+        "PODMAN_COMPOSE_WARNING_LOGS=false",
+        f"PODMAN_COMPOSE_PROVIDER={bin_dir / 'podman-compose'}",
+        "podman",
+        "compose",
+    ]
