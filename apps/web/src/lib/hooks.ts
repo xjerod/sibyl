@@ -2075,18 +2075,23 @@ export function useBackupCleanup() {
  * Get status of a backup job.
  */
 export function useBackupJobStatus(jobId: string, options?: { enabled?: boolean }) {
+  const enabled = (options?.enabled ?? true) && !!jobId;
+  const wsStatus = useWebSocketStatus(enabled);
+
   return useQuery({
     queryKey: queryKeys.backups.jobStatus(jobId),
     queryFn: () => api.backups.jobStatus(jobId),
-    enabled: (options?.enabled ?? true) && !!jobId,
+    enabled,
     staleTime: 2000,
     refetchInterval: query => {
-      // Stop polling if job is complete
+      if (wsStatus === 'connected') {
+        return false;
+      }
       const status = query.state.data?.status;
       if (status === 'complete' || status === 'not_found') {
         return false;
       }
-      return 3000; // Poll every 3 seconds while job is running
+      return 3000;
     },
   });
 }
