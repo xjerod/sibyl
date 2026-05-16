@@ -17,7 +17,7 @@ from typing import Any
 import structlog
 
 from sibyl_core.logging.capture import capture_processor
-from sibyl_core.logging.formatters import SibylRenderer
+from sibyl_core.logging.formatters import SibylRenderer, detect_colors
 
 # Track if logging has been configured
 _configured = False
@@ -51,9 +51,8 @@ def configure_logging(
         show_service = os.environ.get("CONCURRENTLY") is None
     global _configured
 
-    # Auto-detect colors
     if colors is None:
-        colors = sys.stderr.isatty()
+        colors = detect_colors(sys.stderr)
 
     # Configure stdlib logging first
     _configure_stdlib_logging(level)

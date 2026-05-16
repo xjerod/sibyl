@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 import traceback
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from sibyl_core.logging.colors import (
     ANSI_CORAL,
@@ -32,6 +32,24 @@ SERVICE_COLORS: dict[str, str] = {
 
 if TYPE_CHECKING:
     from structlog.typing import EventDict, WrappedLogger
+
+
+class _SupportsIsatty(Protocol):
+    def isatty(self) -> bool: ...
+
+
+def detect_colors(stream: _SupportsIsatty = sys.stderr) -> bool:
+    """Detect whether terminal log output should include ANSI colors."""
+    import os
+
+    force_color = os.environ.get("FORCE_COLOR", "").lower()
+    if force_color not in ("", "0", "false", "no"):
+        return True
+
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+
+    return stream.isatty()
 
 
 class SibylRenderer:
@@ -61,17 +79,13 @@ class SibylRenderer:
             max_exception_frames: Max traceback frames to show
             show_service: Whether to show service prefix (False when concurrently provides it)
         """
-        import os
-
         self.service_name = service_name
         self.service_width = service_width
         self.max_exception_frames = max_exception_frames
         self.show_service = show_service
 
         if colors is None:
-            # Auto-detect: TTY or FORCE_COLOR env var
-            force_color = os.environ.get("FORCE_COLOR", "")
-            self.colors = sys.stderr.isatty() or force_color not in ("", "0", "false")
+            self.colors = detect_colors(sys.stderr)
         else:
             self.colors = colors
 
