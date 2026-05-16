@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  role_name: sibyl
+  namespace: hyperb1iss
+  author: Stefanie Jane
+  description: Deploy the Sibyl knowledge-graph stack on a single host.
+  license: AGPL-3.0-or-later
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags:
+    - sibyl
+    - docker
+    - surrealdb
+dependencies: []

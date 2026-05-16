@@ -1,0 +1,9 @@
+---
+- name: Daemon reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart sibyl
+  ansible.builtin.service:
+    name: sibyl
+    state: restarted

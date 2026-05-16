@@ -1,0 +1,139 @@
+---
+- name: Assert required secrets are supplied
+  ansible.builtin.assert:
+    that:
+      - sibyl_surreal_password | default('') | length > 0
+      - sibyl_jwt_secret | default('') | length > 0
+      - sibyl_openai_api_key | default('') | length > 0
+      - sibyl_anthropic_api_key | default('') | length > 0
+      - sibyl_cf_api_token | default('') | length > 0
+    quiet: true
+    fail_msg: >-
+      The sibyl role needs sibyl_surreal_password, sibyl_jwt_secret,
+      sibyl_openai_api_key, sibyl_anthropic_api_key and sibyl_cf_api_token.
+      Supply them through vault-backed variables.
+
+# ─── Docker engine ─────────────────────────────────────────────────────────────
+- name: Create the apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Install the Docker apt signing key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Add the Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ sibyl_docker_arch }} signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+
+- name: Install Docker Engine and the Compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Ensure Docker is running
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+# ─── Firewall ──────────────────────────────────────────────────────────────────
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Allow SSH through ufw
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+  tags: [firewall]
+
+- name: Allow HTTP and HTTPS on the proxy interface only
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ sibyl_proxy_interface }}"
+    proto: tcp
+    port: "{{ item }}"
+  loop: ["80", "443"]
+  tags: [firewall]
+
+- name: Enable ufw with a default-deny inbound policy
+  community.general.ufw:
+    state: enabled
+    direction: incoming
+    policy: deny
+  tags: [firewall]
+
+# ─── Stack ─────────────────────────────────────────────────────────────────────
+- name: Create the deployment directory
+  ansible.builtin.file:
+    path: "{{ sibyl_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Deploy the compose and Caddy config
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ sibyl_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - docker-compose.yml
+    - Caddyfile
+  notify: Restart sibyl
+
+- name: Deploy the Caddy image build context
+  ansible.builtin.copy:
+    src: caddy
+    dest: "{{ sibyl_dir }}/"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart sibyl
+
+- name: Render the environment file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ sibyl_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart sibyl
+
+# ─── Service ───────────────────────────────────────────────────────────────────
+- name: Install the sibyl systemd unit
+  ansible.builtin.template:
+    src: sibyl.service.j2
+    dest: /etc/systemd/system/sibyl.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Daemon reload
+    - Restart sibyl
+
+- name: Enable and start sibyl
+  ansible.builtin.service:
+    name: sibyl
+    state: started
+    enabled: true

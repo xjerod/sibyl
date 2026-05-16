@@ -1,0 +1,30 @@
+---
+# Filesystem location of the deployment on the host.
+sibyl_dir: /opt/sibyl
+
+# ghcr.io/hyperb1iss/sibyl-api and sibyl-web image tag to run.
+sibyl_version: "0.9.0"
+
+# Public hostname Caddy serves and requests a certificate for.
+sibyl_domain: sibyl.hyperbliss.tech
+
+# MCP bearer-token enforcement: on | auto | off.
+sibyl_mcp_auth_mode: "on"
+
+# SurrealDB root user. The password is a secret with no default.
+sibyl_surreal_username: root
+
+# Interface the proxy ports are exposed on. Tailscale-only by default,
+# so the stack stays unreachable from the public internet.
+sibyl_proxy_interface: tailscale0
+
+# Docker apt repository architecture, derived from the host.
+sibyl_docker_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+# Secrets — no defaults on purpose. Supply via host/group vars; homelab
+# maps these to ansible-vault values. The role asserts they are set:
+#   sibyl_surreal_password
+#   sibyl_jwt_secret
+#   sibyl_openai_api_key
+#   sibyl_anthropic_api_key
+#   sibyl_cf_api_token
