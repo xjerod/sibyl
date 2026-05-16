@@ -241,7 +241,9 @@ GET /metrics
 
 Sibyl records its own runtime telemetry in-process and persists bounded minute rollups in
 SurrealDB. The JSON summary powers the web overview page, while `/metrics` exposes
-Prometheus-compatible counters, gauges, and latency summaries.
+Prometheus-compatible counters, gauges, and latency summaries for scrapers. Set
+`SIBYL_METRICS_SCRAPE_TOKEN` for non-local scraping and pass it as a bearer token or
+`X-Sibyl-Metrics-Token` header.
 
 Captured surfaces:
 
@@ -309,6 +311,9 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+      bearerTokenSecret:
+        name: sibyl-metrics
+        key: token
 ```
 
 ### Datadog

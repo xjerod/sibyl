@@ -221,6 +221,12 @@ fallback for migration or investigation.
 | `SEMAPHORE_LIMIT`                | (none)  | Alternative for Graphiti semaphore       |
 | `GRAPHITI_TELEMETRY_ENABLED`     | `false` | Graphiti telemetry (disabled by default) |
 
+## Runtime Telemetry
+
+| Variable                       | Default | Description                                            |
+| ------------------------------ | ------- | ------------------------------------------------------ |
+| `SIBYL_METRICS_SCRAPE_TOKEN`   | (empty) | Bearer/header token for non-local `/metrics` scraping |
+
 ## Email (Resend)
 
 | Variable                  | Default                     | Description                                            |

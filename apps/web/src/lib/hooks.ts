@@ -103,6 +103,10 @@ export const queryKeys = {
     health: ['admin', 'health'] as const,
     stats: ['admin', 'stats'] as const,
   },
+  telemetry: {
+    summary: (params?: Parameters<typeof api.telemetry.summary>[0]) =>
+      ['telemetry', 'summary', params] as const,
+  },
   setup: {
     status: ['setup', 'status'] as const,
     validation: ['setup', 'validation'] as const,
@@ -1011,6 +1015,15 @@ export function useStats(initialData?: import('./api').StatsResponse) {
     initialData,
     staleTime: 5 * TIMING.STALE_TIME,
     refetchOnWindowFocus: false,
+  });
+}
+
+export function useTelemetrySummary(params?: Parameters<typeof api.telemetry.summary>[0]) {
+  return useQuery({
+    queryKey: queryKeys.telemetry.summary(params),
+    queryFn: () => api.telemetry.summary(params),
+    refetchInterval: TIMING.STALE_TIME,
+    staleTime: TIMING.STALE_TIME,
   });
 }
 
