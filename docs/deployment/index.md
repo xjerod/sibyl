@@ -88,6 +88,16 @@ by the default runtime. See [storage-modes.md](../guide/storage-modes.md) and
 - [Kubernetes Guide](kubernetes.md)
 - [Helm Chart Reference](helm-chart.md)
 
+### 4. Single Host (Ansible)
+
+**Best for:** A personal instance on one small cloud VM.
+
+- One host, no Kubernetes
+- Docker Compose stack provisioned by the bundled Ansible role
+- Caddy TLS via the Cloudflare DNS-01 challenge
+- Pairs with Tailscale for a private, zero-public-port deployment
+- [Single-Host Guide](ansible.md)
+
 ## Quick Comparison
 
 | Feature               | Docker Compose | Tilt/Minikube | Production K8s |
