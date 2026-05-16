@@ -73,6 +73,11 @@ services:
       SIBYL_API_URL: http://backend:3334/api
       SIBYL_BACKEND_URL: http://backend:3334
       NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3337/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   caddy:
@@ -80,8 +85,10 @@ services:
       context: ./caddy
     container_name: sibyl-caddy
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
     # Bound to the Tailscale address only. Docker NATs published ports
     # ahead of ufw, so a 0.0.0.0 bind would be public despite the
     # firewall; binding to the tailnet IP is what keeps this private.
