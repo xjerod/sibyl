@@ -462,9 +462,7 @@ async def test_apply_memory_correction_marks_hidden_and_preserves_history(
     assert lifecycle.action == "hide"
     assert findings[-1].kind == "correction"
     assert findings[-1].target_source_id == "source-1"
-    assert result.updated_memory.metadata["correction_history"][0] == {
-        "action": "mark_stale"
-    }
+    assert result.updated_memory.metadata["correction_history"][0] == {"action": "mark_stale"}
     assert result.updated_memory.metadata["correction_history"][1]["action"] == "hide"
     save_raw_memory.assert_awaited_once()
 
@@ -723,6 +721,7 @@ async def test_promote_review_candidate_denies_mixed_scope_without_target(
         organization_id="org-1",
         principal_id="user-1",
         promote_to_scope=None,
+        accessible_projects={"project_123"},
     )
 
     assert not result.success
@@ -753,10 +752,44 @@ async def test_promote_review_candidate_requires_broadest_mixed_scope_target(
         organization_id="org-1",
         principal_id="user-1",
         promote_to_scope="private",
+        accessible_projects={"project_123"},
     )
 
     assert not result.success
     assert result.reason == "promote_to_scope_must_match_broadest_input_scope"
+    persist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_promote_review_candidate_denies_inaccessible_source_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _raw_review_candidate(
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="project_secret",
+        principal_id="victim-user",
+    )
+    source = _raw_review_candidate(id="source-1", principal_id="attacker-user")
+    monkeypatch.setattr(
+        native_memory,
+        "get_raw_memory",
+        AsyncMock(side_effect=[candidate, source]),
+    )
+    persist = AsyncMock()
+    monkeypatch.setattr(native_memory, "persist_reflection_candidate_native", persist)
+
+    result = await promote_reflection_candidate_review(
+        candidate_id="candidate-1",
+        organization_id="org-1",
+        principal_id="attacker-user",
+        promote_to_scope="private",
+        accessible_projects=set(),
+    )
+
+    assert not result.success
+    assert result.reason == "unverified_membership"
+    assert result.memory_scope is MemoryScope.PROJECT
+    assert result.scope_key == "project_secret"
     persist.assert_not_awaited()
 
 
