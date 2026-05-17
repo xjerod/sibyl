@@ -841,7 +841,10 @@ async def _add_mcp_entity(
         repository_url=repository_url,
         check_conflicts=check_conflicts,
         skip_conflicts=skip_conflicts,
-        conflict_threshold=conflict_threshold,
+        # Remote MCP callers may relax conflict detection but must not drop
+        # below the baseline: a near-zero threshold turns every add into a
+        # low-similarity probe of organization entities.
+        conflict_threshold=max(conflict_threshold, 0.85),
     )
     payload = _to_dict(result)
     payload["policy_reason"] = write_decision.reason
