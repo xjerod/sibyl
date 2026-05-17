@@ -36,7 +36,7 @@ services:
     volumes:
       - surreal_data:/data
     healthcheck:
-      test: ["CMD", "/surreal", "is-ready", "--conn", "http://localhost:8000"]
+      test: ["CMD", "/surreal", "is-ready", "--endpoint", "ws://localhost:8000"]
       interval: 10s
       timeout: 5s
       retries: 5
