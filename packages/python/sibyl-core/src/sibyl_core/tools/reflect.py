@@ -184,7 +184,10 @@ async def reflect_memory(
                 tags=_tags_for("session", domain),
                 related_to=related_to,
                 metadata=source_metadata,
-                sync=True,
+                # Keep reflection source checkpoints as episodic memories so they
+                # are tenant-scoped writes and avoid deterministic direct-entity
+                # UUID collisions across organizations/projects.
+                sync=False,
                 check_conflicts=False,
             )
         if source.success:
