@@ -459,9 +459,7 @@ async def test_remember_raw_uses_shared_policy_for_project_scope_write() -> None
 @pytest.mark.asyncio
 async def test_remember_raw_denies_disallowed_api_key_memory_space() -> None:
     ctx = _ctx()
-    ctx.api_key_memory_scope_keys = [
-        api_key_memory_scope_key("project", "project_allowed")
-    ]
+    ctx.api_key_memory_scope_keys = [api_key_memory_scope_key("project", "project_allowed")]
     with (
         patch(
             "sibyl.api.routes.memory.list_accessible_project_graph_ids",
@@ -2028,7 +2026,7 @@ async def test_drain_reflection_review_dry_run_summarizes_pending_candidates() -
         review_state="pending",
         limit=2,
     )
-    access.assert_awaited_once()
+    access.assert_awaited()
     promote.assert_not_awaited()
     assert response.scanned_count == 2
     assert response.auto_promote_count == 1
@@ -2038,6 +2036,56 @@ async def test_drain_reflection_review_dry_run_summarizes_pending_candidates() -
     assert response.results[0].outcome == "auto_promote"
     assert response.results[1].candidate_id == "candidate-exception"
     assert response.results[1].reason == "policy_denied"
+
+
+@pytest.mark.asyncio
+async def test_drain_reflection_review_skips_inaccessible_candidate_scope() -> None:
+    inaccessible_candidate = RawMemory(
+        id="candidate-secret",
+        organization_id="org-1",
+        source_id="source-secret",
+        principal_id="owner-user",
+        memory_scope=MemoryScope.PROJECT,
+        scope_key="secret-project",
+        metadata={"project_id": "secret-project"},
+        capture_surface="reflection_candidate",
+    )
+    with (
+        patch(
+            "sibyl.api.routes.memory.list_reflection_candidate_reviews",
+            AsyncMock(return_value=[inaccessible_candidate]),
+        ),
+        patch(
+            "sibyl.api.routes.memory.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"open-project"}),
+        ),
+        patch(
+            "sibyl.api.routes.memory._accessible_projects_for_promotion",
+            AsyncMock(return_value={"open-project"}),
+        ),
+        patch(
+            "sibyl.api.routes.memory.preview_reflection_candidate_promotion",
+            AsyncMock(),
+        ) as preview,
+        patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()),
+    ):
+        response = await drain_reflection_review(
+            ReflectionReviewDrainRequest(
+                dry_run=False,
+                limit=1,
+                promote_to_scope="project",
+                promote_to_scope_key="open-project",
+            ),
+            org=_org(),
+            ctx=_ctx(),
+        )
+
+    preview.assert_not_awaited()
+    assert response.scanned_count == 1
+    assert response.skip_count == 1
+    assert response.results[0].candidate_id == "candidate-secret"
+    assert response.results[0].reason == "policy_denied"
+    assert response.results[0].policy_reasons == ["unverified_membership"]
 
 
 @pytest.mark.asyncio
