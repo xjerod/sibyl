@@ -905,3 +905,119 @@
   padding-left: 10px;
   margin-left: -2px;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MERMAID DIAGRAMS
+   Live SVG diagrams rendered client-side from ```mermaid fences.
+   ═══════════════════════════════════════════════════════════════ */
+
+.mermaid-diagram {
+  margin: 2rem 0;
+  padding: 1.5rem 1.5rem 1rem;
+  border-radius: 12px;
+  overflow: auto;
+}
+
+.mermaid-diagram svg {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
+  background: transparent !important;
+  cursor: zoom-in;
+  transition: transform 0.2s ease;
+}
+
+.mermaid-diagram svg:hover {
+  transform: scale(1.01);
+}
+
+/* Keep diagram type on the SilkCircuit mono stack */
+.mermaid-diagram .nodeLabel,
+.mermaid-diagram .edgeLabel,
+.mermaid-diagram .cluster-label,
+.mermaid-diagram text {
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace !important;
+}
+
+/* Click-to-zoom hint */
+.mermaid-diagram::after {
+  content: 'Click to zoom';
+  display: block;
+  text-align: center;
+  margin-top: 0.75rem;
+  font-size: 0.78rem;
+  font-style: italic;
+  opacity: 0.6;
+}
+
+/* ── Dark mode (SilkCircuit Neon) ── */
+.dark .mermaid-diagram {
+  background: var(--iris-bg-elevated);
+  border: 1px solid rgba(128, 255, 234, 0.14);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3),
+              0 0 24px rgba(225, 53, 255, 0.08);
+}
+
+.dark .mermaid-diagram::after {
+  color: var(--iris-text-dim);
+}
+
+/* ── Light mode (SilkCircuit Dawn) ── */
+:root:not(.dark) .mermaid-diagram {
+  background: var(--dawn-bg-panel);
+  border: 1px solid rgba(126, 43, 213, 0.14);
+  box-shadow: 0 2px 12px rgba(126, 43, 213, 0.08);
+}
+
+:root:not(.dark) .mermaid-diagram::after {
+  color: var(--dawn-text-dim);
+}
+
+/* ── Click-to-zoom modal ── */
+.mermaid-zoom-modal {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  padding: 2rem;
+  cursor: zoom-out;
+  overflow: auto;
+  backdrop-filter: blur(8px);
+}
+
+.mermaid-zoom-modal.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mermaid-zoom-modal svg {
+  max-width: 95vw;
+  max-height: 95vh;
+  width: auto !important;
+  height: auto !important;
+  padding: 2rem;
+  border-radius: 12px;
+  cursor: zoom-out;
+}
+
+.dark .mermaid-zoom-modal {
+  background: rgba(18, 18, 24, 0.95);
+}
+
+.dark .mermaid-zoom-modal svg {
+  background: var(--iris-bg-panel) !important;
+  box-shadow: 0 0 40px rgba(225, 53, 255, 0.3);
+}
+
+:root:not(.dark) .mermaid-zoom-modal {
+  background: rgba(250, 248, 255, 0.95);
+}
+
+:root:not(.dark) .mermaid-zoom-modal svg {
+  background: var(--dawn-bg-panel) !important;
+  box-shadow: 0 8px 40px rgba(126, 43, 213, 0.2);
+}
