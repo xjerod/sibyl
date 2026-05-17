@@ -130,9 +130,24 @@ services:
   # ==========================================================================
   # SurrealDB (graph + content + auth, unified)
   # ==========================================================================
+  # The SurrealDB image runs as UID 65532 (distroless nonroot), but a
+  # fresh named volume is created root-owned, so SurrealDB cannot create
+  # its RocksDB directory under /data. This one-shot fixes the volume
+  # ownership before SurrealDB starts; the chown is idempotent on reruns.
+  surreal-init:
+    image: busybox:1.37
+    container_name: sibyl-surreal-init
+    command: ["chown", "-R", "65532:65532", "/data"]
+    volumes:
+      - surreal_data:/data
+    restart: "no"
+
   surrealdb:
     image: ${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}
     container_name: sibyl-surrealdb
+    depends_on:
+      surreal-init:
+        condition: service_completed_successfully
     command:
       [
         "start",
@@ -149,7 +164,7 @@ services:
     volumes:
       - surreal_data:/data
     healthcheck:
-      test: ["CMD", "/surreal", "is-ready", "--conn", "http://localhost:8000"]
+      test: ["CMD", "/surreal", "is-ready", "--endpoint", "ws://localhost:8000"]
       interval: 10s
       timeout: 5s
       retries: 5
