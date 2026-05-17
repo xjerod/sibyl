@@ -1498,6 +1498,8 @@ def _candidate_allowed(
 ) -> bool:
     if requested_types and not _candidate_matches_types(candidate, requested_types, facet):
         return False
+    if not _candidate_scope_allowed(candidate, plan):
+        return False
     if _explicit_project_denied(plan) and candidate.type != "raw_memory":
         return False
     if candidate.type == "episode" and (plan.project or plan.accessible_projects is not None):
@@ -1509,6 +1511,42 @@ def _candidate_allowed(
         and candidate.project_id is not None
         and candidate.project_id not in plan.accessible_projects
     )
+
+
+def _candidate_scope_allowed(
+    candidate: NativeRetrievalCandidate, plan: NativeRetrievalPlan
+) -> bool:
+    metadata = candidate.metadata if isinstance(candidate.metadata, Mapping) else {}
+    raw_scope = metadata.get("memory_scope")
+    if raw_scope is None:
+        return True
+    memory_scope = _coerce_memory_scope(raw_scope)
+    if memory_scope is None:
+        return False
+    scope_key = _string_value(metadata.get("scope_key"))
+    plan_principal = plan.scopes[0].principal_id if plan.scopes else None
+    if memory_scope is MemoryScope.PRIVATE:
+        owner = _string_value(metadata.get("principal_id")) or scope_key
+        return bool(plan_principal) and owner == plan_principal
+    agent_id = next((scope.agent_id for scope in plan.scopes if scope.agent_id), None)
+    decision = authorize_memory_read(
+        principal_id=plan_principal,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        project_id=plan.project,
+        agent_id=agent_id,
+        accessible_projects=plan.accessible_projects,
+    )
+    return decision.allowed
+
+
+def _coerce_memory_scope(value: object) -> MemoryScope | None:
+    if isinstance(value, MemoryScope):
+        return value
+    try:
+        return MemoryScope(str(value))
+    except ValueError:
+        return None
 
 
 def _candidate_matches_types(
