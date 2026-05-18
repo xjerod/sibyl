@@ -64,14 +64,6 @@ owner, and deletion or retention criterion.
   - Owner: v0.7 native retrieval
   - Criteria: Compare mode no longer calls Graphiti search and seeded native retrieval is the
     default path.
-- `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py`
-  - Class: `compatibility`
-  - Owner: v0.7 native retrieval
-  - Criteria: Native embedding service owns caching without Graphiti embedder types.
-- `packages/python/sibyl-core/src/sibyl_core/graph/gemini_embedder.py`
-  - Class: `compatibility`
-  - Owner: v0.7 native retrieval
-  - Criteria: Native embedding service supports Gemini directly.
 - `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py`
   - Class: `test`
   - Owner: v0.7 reflection
@@ -234,24 +226,6 @@ source metadata.
   default path.
 - Owner: v0.7 native retrieval.
 - Verify: `moon run core:test -- tests/graph/surreal/test_search_interface.py`.
-
-### `packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py`
-
-- Behavior: cache wrapper for Graphiti-compatible embedders.
-- Default-loop usage: support code for Graphiti client construction.
-- Status: retained compatibility adapter.
-- Removal condition: native embedding service owns caching without Graphiti embedder types.
-- Owner: v0.7 native retrieval.
-- Verify: `moon run core:test -- tests/test_graph_client.py`.
-
-### `packages/python/sibyl-core/src/sibyl_core/graph/gemini_embedder.py`
-
-- Behavior: Gemini embedder adapter shaped for Graphiti's embedder interface.
-- Default-loop usage: support code for Graphiti client construction.
-- Status: retained compatibility adapter.
-- Removal condition: native embedding service supports Gemini directly.
-- Owner: v0.7 native retrieval.
-- Verify: `moon run core:test -- tests/test_graph_client.py`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py`
 

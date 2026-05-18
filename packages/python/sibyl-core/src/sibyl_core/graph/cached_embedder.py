@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import Protocol, cast
 
 import structlog
 
@@ -14,11 +14,19 @@ from sibyl_core.embeddings.native import (
     NativeEmbeddingProvider,
 )
 
-if TYPE_CHECKING:
-    from graphiti_core.embedder.client import EmbedderClient
-
 log = structlog.get_logger()
 _stats = {"hits": 0, "misses": 0, "evictions": 0}
+
+
+class LegacyEmbedderClient(Protocol):
+    config: object
+
+    async def create(
+        self,
+        input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]],
+    ) -> list[float]: ...
+
+    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]: ...
 
 
 def get_cache_stats() -> dict[str, int]:
@@ -33,14 +41,14 @@ def reset_cache_stats() -> None:
 class CachedEmbedder:
     def __init__(
         self,
-        embedder: EmbedderClient | NativeEmbeddingProvider,
+        embedder: LegacyEmbedderClient | NativeEmbeddingProvider,
         max_size: int = 1000,
     ) -> None:
-        legacy_embedder: EmbedderClient | None = None
+        legacy_embedder: LegacyEmbedderClient | None = None
         if _is_native_embedding_provider(embedder):
             provider = cast(NativeEmbeddingProvider, embedder)
         else:
-            legacy_embedder = cast(EmbedderClient, embedder)
+            legacy_embedder = cast(LegacyEmbedderClient, embedder)
             provider = _GraphitiEmbeddingProvider(legacy_embedder)
         self._legacy_embedder = legacy_embedder
         self._provider = CachedNativeEmbeddingProvider(
@@ -73,7 +81,7 @@ class CachedEmbedder:
 
 
 class _GraphitiEmbeddingProvider:
-    def __init__(self, embedder: EmbedderClient) -> None:
+    def __init__(self, embedder: LegacyEmbedderClient) -> None:
         self._embedder = embedder
         config = getattr(embedder, "config", None)
         self._metadata = NativeEmbeddingMetadata(
@@ -112,7 +120,7 @@ def _is_native_embedding_provider(value: object) -> bool:
 
 
 def wrap_embedder_with_cache(
-    embedder: EmbedderClient | NativeEmbeddingProvider,
+    embedder: LegacyEmbedderClient | NativeEmbeddingProvider,
     max_size: int = 1000,
 ) -> CachedEmbedder:
     log.info("Wrapping embedder with native LRU cache", max_size=max_size)

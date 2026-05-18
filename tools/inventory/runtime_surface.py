@@ -294,18 +294,6 @@ GRAPHITI_COMPATIBILITY_ALLOWLIST = (
         criteria="Compare mode no longer calls Graphiti search and seeded native retrieval is the default path.",
     ),
     GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/cached_embedder.py",
-        classification="compatibility",
-        owner="v0.7 native retrieval",
-        criteria="Native embedding service owns caching without Graphiti embedder types.",
-    ),
-    GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/gemini_embedder.py",
-        classification="compatibility",
-        owner="v0.7 native retrieval",
-        criteria="Native embedding service supports Gemini directly.",
-    ),
-    GraphitiCompatibilityRecord(
         path="packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py",
         classification="test",
         owner="v0.7 reflection",

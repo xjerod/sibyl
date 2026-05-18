@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import cast
 
-from graphiti_core.embedder.client import EmbedderClient, EmbedderConfig
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from sibyl_core.embeddings.native import (
     GeminiNativeEmbeddingProvider,
@@ -15,15 +14,18 @@ from sibyl_core.embeddings.native import (
 )
 
 DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2"
+DEFAULT_GRAPH_EMBEDDING_DIMENSIONS = 1024
 
 
-class SibylGeminiEmbedderConfig(EmbedderConfig):
+class SibylGeminiEmbedderConfig(BaseModel):
     embedding_model: str = Field(default=DEFAULT_GEMINI_EMBEDDING_MODEL)
+    embedding_dim: int = Field(default=DEFAULT_GRAPH_EMBEDDING_DIMENSIONS)
     api_key: str | None = None
 
 
-class SibylNativeEmbedderConfig(EmbedderConfig):
+class SibylNativeEmbedderConfig(BaseModel):
     embedding_model: str
+    embedding_dim: int
     api_key: str | None = None
     provider: str = "native"
     cache_namespace: str = "graph"
@@ -53,7 +55,7 @@ class _NativeEmbedderMixin:
         raise TypeError("Native graph embeddings require text input")
 
 
-class SibylNativeEmbedder(_NativeEmbedderMixin, EmbedderClient):
+class SibylNativeEmbedder(_NativeEmbedderMixin):
     def __init__(self, provider: NativeEmbeddingProvider) -> None:
         self.provider = provider
         self.config = SibylNativeEmbedderConfig(
@@ -64,7 +66,7 @@ class SibylNativeEmbedder(_NativeEmbedderMixin, EmbedderClient):
         )
 
 
-class SibylGeminiEmbedder(_NativeEmbedderMixin, EmbedderClient):
+class SibylGeminiEmbedder(_NativeEmbedderMixin):
     def __init__(
         self,
         config: SibylGeminiEmbedderConfig | None = None,

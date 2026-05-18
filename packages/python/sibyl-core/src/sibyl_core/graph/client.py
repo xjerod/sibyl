@@ -3,7 +3,7 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from dotenv import load_dotenv
@@ -62,7 +62,6 @@ from sibyl_core.utils.resilience import GRAPH_RETRY, TIMEOUTS, retry, with_timeo
 if TYPE_CHECKING:
     from graphiti_core import Graphiti
     from graphiti_core.driver.driver import GraphDriver
-    from graphiti_core.embedder.client import EmbedderClient
     from graphiti_core.llm_client import LLMClient
 
     from sibyl_core.embeddings.native import (
@@ -162,7 +161,7 @@ class GraphClient:
             return int(raw)
         return settings.graph_embedding_dimensions
 
-    def _create_embedder(self) -> "EmbedderClient":
+    def _create_embedder(self) -> Any:
         from sibyl_core.graph.gemini_embedder import (
             SibylGeminiEmbedder,
             SibylGeminiEmbedderConfig,
@@ -253,10 +252,13 @@ class GraphClient:
         if self._client is None:
             return
 
-        from sibyl_core.graph.cached_embedder import wrap_embedder_with_cache
+        from sibyl_core.graph.cached_embedder import (
+            LegacyEmbedderClient,
+            wrap_embedder_with_cache,
+        )
 
         self._client.embedder = wrap_embedder_with_cache(
-            self._client.embedder,
+            cast("LegacyEmbedderClient", self._client.embedder),
             max_size=2000,
         )
 
