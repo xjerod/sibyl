@@ -15,6 +15,7 @@ import pytest
 from sibyl.api.dependencies import (
     get_entity_manager,
     get_graph,
+    get_graph_client,
     get_graph_store,
     get_group_id,
     get_knowledge_read_service,
@@ -59,8 +60,22 @@ class TestGetGraph:
     """Tests for get_graph dependency."""
 
     @pytest.mark.asyncio
+    async def test_graph_client_uses_native_service(self) -> None:
+        """get_graph_client delegates to the native runtime service."""
+        mock_client = AsyncMock()
+
+        with patch(
+            "sibyl_core.services.graph_runtime.get_graph_client",
+            return_value=mock_client,
+        ) as mock_get:
+            result = await get_graph_client()
+
+        assert result is mock_client
+        mock_get.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
     async def test_returns_graph_client(self) -> None:
-        """Returns a GraphClient from get_graph_client."""
+        """Returns a graph client from get_graph_client."""
         mock_client = AsyncMock()
 
         with patch(

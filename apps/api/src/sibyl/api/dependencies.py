@@ -1,12 +1,12 @@
 """FastAPI dependencies for graph operations.
 
-These dependencies provide pre-configured managers for route handlers,
+These dependencies provide pre-configured native managers for route handlers,
 eliminating repeated boilerplate for client/manager initialization.
 
 Usage:
     @router.get("/entities")
     async def list_entities(
-        manager: EntityManager = Depends(get_entity_manager),
+        manager = Depends(get_entity_manager),
     ) -> list[Entity]:
         return await manager.list_all()
 """
@@ -23,14 +23,20 @@ from sibyl_core.services import KnowledgeReadService
 
 if TYPE_CHECKING:
     from sibyl.persistence.graph_runtime import ActiveGraphStore as ActiveGraphStoreType
-    from sibyl_core.graph import EntityManager, RelationshipManager
-    from sibyl_core.graph.client import GraphClient
+    from sibyl_core.services.native_graph import (
+        NativeEntityManager,
+        NativeRelationshipManager,
+        NativeSurrealGraphClient,
+    )
     from sibyl_core.storage import GraphStore
 
 
 class _ActiveGraphStoreProxy:
     @staticmethod
-    def from_client(client: GraphClient, group_id: str) -> ActiveGraphStoreType:
+    def from_client(
+        client: NativeSurrealGraphClient,
+        group_id: str,
+    ) -> ActiveGraphStoreType:
         from sibyl.persistence.graph_runtime import ActiveGraphStore
 
         return ActiveGraphStore.from_client(client, group_id)
@@ -53,45 +59,42 @@ ActiveGraphStore = _ActiveGraphStoreProxy
 GraphReadServiceAdapter = _GraphReadServiceAdapterProxy
 
 
-async def get_graph_client() -> GraphClient:
-    from sibyl_core.graph.client import get_graph_client as _get_graph_client
+async def get_graph_client() -> NativeSurrealGraphClient:
+    from sibyl_core.services.graph_runtime import get_graph_client as _get_graph_client
 
     return await _get_graph_client()
 
 
-async def get_graph() -> GraphClient:
+async def get_graph() -> NativeSurrealGraphClient:
     """Get the shared graph client.
 
     This is a thin wrapper around get_graph_client for use as a FastAPI
     dependency. The client is a singleton, so this is cheap to call.
 
     Returns:
-        GraphClient instance
+        Native Surreal graph client instance
     """
     return await get_graph_client()
 
 
 async def get_entity_manager(
     org: AuthOrganization = Depends(get_current_organization),
-) -> EntityManager:
-    """Get an EntityManager scoped to the current organization.
+) -> NativeEntityManager:
+    """Get a native entity manager scoped to the current organization.
 
-    This dependency combines org context resolution with EntityManager
-    initialization, eliminating the common pattern:
-
-        client = await get_graph_client()
-        manager = EntityManager(client, group_id=str(org.id))
+    This dependency combines org context resolution with native graph runtime
+    initialization.
 
     Args:
         org: Current organization from auth context (auto-resolved)
 
     Returns:
-        EntityManager configured for the current org's graph
+        Entity manager configured for the current org's graph
 
     Example:
         @router.get("/entities")
         async def list_entities(
-            manager: EntityManager = Depends(get_entity_manager),
+            manager = Depends(get_entity_manager),
         ) -> list[Entity]:
             return await manager.list_all()
     """
@@ -103,8 +106,8 @@ async def get_entity_manager(
 
 async def get_relationship_manager(
     org: AuthOrganization = Depends(get_current_organization),
-) -> RelationshipManager:
-    """Get a RelationshipManager scoped to the current organization.
+) -> NativeRelationshipManager:
+    """Get a native relationship manager scoped to the current organization.
 
     Similar to get_entity_manager but for relationship operations.
 
@@ -112,7 +115,7 @@ async def get_relationship_manager(
         org: Current organization from auth context (auto-resolved)
 
     Returns:
-        RelationshipManager configured for the current org's graph
+        Relationship manager configured for the current org's graph
     """
     from sibyl.persistence.graph_runtime import get_entity_graph_runtime
 
