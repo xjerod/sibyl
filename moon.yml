@@ -228,6 +228,7 @@ tasks:
       - ~:synthesis-gate-test
       - ~:adapter-ingest-gate-test
       - ~:large-corpus-rehearsal-test
+      - ~:backup-restore-gate-test
       - core:check
       - api:check
       - cli:check
@@ -252,6 +253,7 @@ tasks:
       - ~:synthesis-gate-test
       - ~:adapter-ingest-gate-test
       - ~:large-corpus-rehearsal-test
+      - ~:backup-restore-gate-test
       - core:test
       - api:test
       - cli:test
@@ -794,6 +796,33 @@ tasks:
       - pyproject.toml
       - moon.yml
       - packages/python/sibyl-core/pyproject.toml
+
+  backup-restore-gate:
+    command: uv run python -m tools.trust.backup_restore_gate
+    inputs:
+      - tools/trust/**/*.py
+      - apps/api/src/**/*.py
+      - packages/python/sibyl-core/src/**/*.py
+      - pyproject.toml
+      - moon.yml
+      - apps/api/moon.yml
+      - packages/python/sibyl-core/moon.yml
+    outputs:
+      - .moon/cache/backup-restore-gate/receipt.json
+    options:
+      cache: false
+
+  backup-restore-gate-test:
+    command: uv run pytest tools/tests/test_backup_restore_gate.py -v
+    inputs:
+      - tools/trust/**/*.py
+      - tools/tests/conftest.py
+      - tools/tests/test_backup_restore_gate.py
+      - apps/api/moon.yml
+      - packages/python/sibyl-core/moon.yml
+      - packages/python/sibyl-core/src/**/*.py
+      - pyproject.toml
+      - moon.yml
 
   migrate-rehearse:
     command: uv run sibyld migrate rehearse

@@ -509,6 +509,71 @@ class TestRestoreBackup:
         episode_ops.save_bulk.assert_awaited_once()
         mention_ops.save_bulk.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_restore_preserves_task_link_source_metadata(self) -> None:
+        org_id = "00000000-0000-0000-0000-000000000111"
+        entity_manager = AsyncMock()
+        relationship_manager = AsyncMock()
+        entity_manager.bulk_create_direct = AsyncMock(return_value=(2, 0))
+        relationship_manager.create_bulk = AsyncMock(return_value=(1, 0))
+        relationship_manager.create = AsyncMock()
+        backup_data = BackupData(
+            version="2.0",
+            created_at="2026-04-19T00:00:00Z",
+            organization_id=org_id,
+            entity_count=2,
+            relationship_count=1,
+            entities=[
+                Entity(
+                    id="project-1",
+                    entity_type=EntityType.PROJECT,
+                    name="Project",
+                    metadata={"source_ids": ["source:project"]},
+                ).model_dump(mode="json"),
+                Entity(
+                    id="task-1",
+                    entity_type=EntityType.TASK,
+                    name="Task",
+                    metadata={"source_ids": ["source:task"]},
+                ).model_dump(mode="json"),
+            ],
+            relationships=[
+                Relationship(
+                    id="task-project",
+                    source_id="task-1",
+                    target_id="project-1",
+                    relationship_type=RelationshipType.BELONGS_TO,
+                    metadata={"source_ids": ["source:task"]},
+                ).model_dump(mode="json")
+            ],
+        )
+
+        with patch(
+            "sibyl_core.tools.admin.get_graph_runtime",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    client=SimpleNamespace(get_org_driver=lambda group_id: SimpleNamespace()),
+                    entity_manager=entity_manager,
+                    relationship_manager=relationship_manager,
+                )
+            ),
+        ):
+            result = await restore_backup(
+                backup_data,
+                organization_id=org_id,
+                skip_existing=False,
+            )
+
+        assert result.success is True
+        restored_entities = entity_manager.bulk_create_direct.await_args.args[0]
+        restored_relationships = relationship_manager.create_bulk.await_args.args[0]
+        assert [entity.id for entity in restored_entities] == ["project-1", "task-1"]
+        assert restored_entities[1].metadata["source_ids"] == ["source:task"]
+        assert restored_relationships[0].source_id == "task-1"
+        assert restored_relationships[0].target_id == "project-1"
+        assert restored_relationships[0].relationship_type is RelationshipType.BELONGS_TO
+        assert restored_relationships[0].metadata["source_ids"] == ["source:task"]
+
 
 class TestBackfillTaskProjectRelationships:
     """Project validation should page through the full project set."""

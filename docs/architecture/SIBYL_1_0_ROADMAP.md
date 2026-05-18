@@ -342,8 +342,8 @@ Goal: remove remaining Graphiti and Redis-required default-runtime assumptions.
 - no-Graphiti smoke strengthened from default-loop proof to supported-runtime proof
 - Redis remains opt-in for distributed deployments while local single-machine installs work with
   SurrealDB as the only required data service
-- backup/restore round-trip for auth, graph, content, raw memory, tasks, settings, and source
-  imports
+- `backup-restore-gate` round-trip for auth, graph, content, raw memory, tasks, settings, source
+  imports, and synthesis artifact provenance
 - Docker, Helm, Homebrew, quickstart, and docs alignment to remove Graphiti from default install
   paths and prove the Surreal-only runtime
 
@@ -351,7 +351,7 @@ Required gates:
 
 - `moon run inventory-check inventory-typecheck inventory-test`
 - strengthened no-Graphiti supported-runtime proof
-- backup/restore round-trip
+- `backup-restore-gate`
 - `memory-trust-gate`
 - `trust-control-gate`
 - `reflection-quality-gate`

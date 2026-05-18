@@ -227,6 +227,24 @@ tasks:
     options:
       envFile: .env
 
+  backup-restore-gate-test:
+    command:
+      uv run pytest
+      tests/test_jobs_backup.py
+      tests/test_backups_routes.py
+      tests/test_surreal_auth_persistence.py::test_auth_archive_restore_accepts_full_user_rows
+      tests/test_surreal_content_persistence.py::test_content_archive_restore_preserves_embeddings_and_metadata
+      tests/test_surreal_content_persistence.py::test_content_archive_export_reads_from_surreal_backend
+      -v
+    inputs:
+      - "@group(sources)"
+      - tests/test_jobs_backup.py
+      - tests/test_backups_routes.py
+      - tests/test_surreal_auth_persistence.py
+      - tests/test_surreal_content_persistence.py
+    options:
+      envFile: .env
+
   memory-trust-context-test:
     command: uv run pytest tests/test_routes_context.py tests/test_routes_session.py -v
     inputs:

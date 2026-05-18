@@ -143,6 +143,17 @@ tasks:
     inputs:
     - '@group(sources)'
     - tests/test_tools.py
+  backup-restore-gate-test:
+    command:
+      uv run pytest
+      tests/test_tools_admin.py::TestBackupInventory
+      tests/test_tools_admin.py::TestRestoreBackup
+      tests/test_migrate_archive.py
+      -v
+    inputs:
+    - '@group(sources)'
+    - tests/test_tools_admin.py
+    - tests/test_migrate_archive.py
   adapter-ingest-contract-test:
     command: uv run pytest tests/test_source_adapters.py -v
     inputs:

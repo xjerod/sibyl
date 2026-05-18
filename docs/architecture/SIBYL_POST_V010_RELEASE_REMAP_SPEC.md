@@ -404,7 +404,7 @@ Actions:
 - add `moon run backup-restore-gate`
 - cover auth, graph, content, raw memory, tasks, settings, source import runs, and synthesis
   artifacts
-- write the round-trip receipt to a release-citable artifact
+- write the round-trip receipt to `.moon/cache/backup-restore-gate/receipt.json`
 
 Verify:
 
@@ -505,21 +505,21 @@ The output should show current work, not stale release ghosts.
 
 ## 11. Gate Matrix
 
-| Gate                               | Current Status      | Release Role                                                               |
-| ---------------------------------- | ------------------- | -------------------------------------------------------------------------- |
-| `memory-trust-gate`                | exists              | Always-on regression gate for memory policy and leak prevention            |
-| `trust-control-gate`               | exists              | Always-on regression gate for memory spaces, MCP, jobs, CLI, and web trust |
-| `auth-session-gate`                | exists              | Required for v0.12+ and any auth/session change                            |
-| `autonomy-gate`                    | exists              | Required when automatic promotion or exception routing changes             |
-| `reflection-quality-gate`          | exists              | Required for v0.11+ because synthesis depends on lifecycle signals         |
-| `overview-perf-gate`               | exists              | Required for product releases touching overview, activity, or realtime     |
-| `adapter-ingest-gate`              | exists              | Primary v0.11 gate                                                         |
-| `synthesis-gate`                   | exists              | Primary v0.11 gate                                                         |
-| `large-corpus-rehearsal`           | exists              | v0.11 dogfood volume, resume, search, dedupe, and policy receipt           |
-| `context-quality-gate`             | missing             | Add in v0.12                                                               |
-| `workspace-trust-gate`             | missing             | Add in v0.12                                                               |
-| no-Graphiti supported-runtime gate | partial             | Strengthen in v0.13                                                        |
-| `backup-restore-gate`              | missing or informal | Add by v0.13                                                               |
+| Gate                               | Current Status | Release Role                                                               |
+| ---------------------------------- | -------------- | -------------------------------------------------------------------------- |
+| `memory-trust-gate`                | exists         | Always-on regression gate for memory policy and leak prevention            |
+| `trust-control-gate`               | exists         | Always-on regression gate for memory spaces, MCP, jobs, CLI, and web trust |
+| `auth-session-gate`                | exists         | Required for v0.12+ and any auth/session change                            |
+| `autonomy-gate`                    | exists         | Required when automatic promotion or exception routing changes             |
+| `reflection-quality-gate`          | exists         | Required for v0.11+ because synthesis depends on lifecycle signals         |
+| `overview-perf-gate`               | exists         | Required for product releases touching overview, activity, or realtime     |
+| `adapter-ingest-gate`              | exists         | Primary v0.11 gate                                                         |
+| `synthesis-gate`                   | exists         | Primary v0.11 gate                                                         |
+| `large-corpus-rehearsal`           | exists         | v0.11 dogfood volume, resume, search, dedupe, and policy receipt           |
+| `context-quality-gate`             | missing        | Add in v0.12                                                               |
+| `workspace-trust-gate`             | missing        | Add in v0.12                                                               |
+| no-Graphiti supported-runtime gate | partial        | Strengthen in v0.13                                                        |
+| `backup-restore-gate`              | exists         | Required v0.13 round-trip proof for archive restore scope and provenance   |
 
 ## 12. Risk Register
 

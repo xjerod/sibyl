@@ -341,6 +341,7 @@ async def test_surreal_content_schema_bootstrap_creates_tables(
         "crawled_documents",
         "document_chunks",
         "raw_captures",
+        "source_imports",
         "system_settings",
         "backup_settings",
         "backups",
@@ -356,6 +357,7 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
     document_id = uuid4()
     chunk_id = uuid4()
     capture_id = uuid4()
+    source_import_id = uuid4()
     backup_settings_id = uuid4()
     backup_id = uuid4()
     payload = {
@@ -414,12 +416,50 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
                 {
                     "id": str(capture_id),
                     "organization_id": "org-123",
+                    "source_id": "source:docs:1",
+                    "principal_id": "user-123",
+                    "memory_scope": "private",
+                    "scope_key": "user-123",
                     "title": "Capture",
                     "raw_content": "captured",
                     "entity_type": "note",
                     "tags": ["capture"],
                     "metadata": {"source": "manual"},
+                    "provenance": {"source_import_id": str(source_import_id)},
+                    "capture_surface": "source_import",
                     "created_at": "2026-04-20T00:00:00+00:00",
+                }
+            ],
+            "source_imports": [
+                {
+                    "id": str(source_import_id),
+                    "organization_id": "org-123",
+                    "principal_id": "user-123",
+                    "adapter_name": "mailbox",
+                    "adapter_version": "1.0",
+                    "source_uri": "mbox://docs",
+                    "source_identity": "docs-mailbox",
+                    "source_version": "2026-04-20",
+                    "privacy_class": "personal",
+                    "target_memory_scope": "private",
+                    "target_scope_key": "user-123",
+                    "status": "completed",
+                    "checkpoint": {"cursor": None, "done": True},
+                    "options": {"label": "docs"},
+                    "policy_context": {"memory_scope": "private", "scope_key": "user-123"},
+                    "counters": {"imported_count": 1},
+                    "raw_memory_ids": [str(capture_id)],
+                    "source_ids": ["source:docs:1"],
+                    "dedupe_keys": ["mailbox:docs:1"],
+                    "duplicate_dedupe_keys": [],
+                    "skipped_records": [],
+                    "errors": [],
+                    "raw_memory_by_source_id": {"source:docs:1": str(capture_id)},
+                    "batch_size": 100,
+                    "promotion_preview_approved": False,
+                    "created_at": "2026-04-20T00:00:00+00:00",
+                    "updated_at": "2026-04-20T00:00:00+00:00",
+                    "completed_at": "2026-04-20T00:00:00+00:00",
                 }
             ],
             "system_settings": [
@@ -464,11 +504,12 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
             "crawled_documents": 1,
             "document_chunks": 1,
             "raw_captures": 1,
+            "source_imports": 1,
             "system_settings": 1,
             "backup_settings": 1,
             "backups": 1,
         },
-        "total_rows": 7,
+        "total_rows": 8,
     }
 
     with (
@@ -481,8 +522,8 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
         result = await restore_content_archive_payload(payload, clean=True)
 
     assert result.success is True
-    assert result.tables_restored == 7
-    assert result.rows_restored == 7
+    assert result.tables_restored == 8
+    assert result.rows_restored == 8
 
     chunk_rows = _normalize_records(
         await surreal_content_client.execute_query(
@@ -494,6 +535,12 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
         await surreal_content_client.execute_query(
             "SELECT * FROM raw_captures WHERE uuid = $uuid LIMIT 1;",
             uuid=str(capture_id),
+        )
+    )
+    source_import_rows = _normalize_records(
+        await surreal_content_client.execute_query(
+            "SELECT * FROM source_imports WHERE uuid = $uuid LIMIT 1;",
+            uuid=str(source_import_id),
         )
     )
     setting_rows = _normalize_records(
@@ -517,7 +564,15 @@ async def test_content_archive_restore_preserves_embeddings_and_metadata(
 
     assert chunk_rows[0]["document_id"] == str(document_id)
     assert chunk_rows[0]["embedding"] == [0.1] * 1536
+    assert capture_rows[0]["source_id"] == "source:docs:1"
+    assert capture_rows[0]["memory_scope"] == "private"
+    assert capture_rows[0]["scope_key"] == "user-123"
     assert capture_rows[0]["metadata"] == {"source": "manual"}
+    assert capture_rows[0]["provenance"] == {"source_import_id": str(source_import_id)}
+    assert source_import_rows[0]["target_memory_scope"] == "private"
+    assert source_import_rows[0]["target_scope_key"] == "user-123"
+    assert source_import_rows[0]["source_ids"] == ["source:docs:1"]
+    assert source_import_rows[0]["raw_memory_by_source_id"] == {"source:docs:1": str(capture_id)}
     assert setting_rows[0]["is_secret"] is True
     assert backup_setting_rows[0]["include_database_dump"] is True
     assert backup_rows[0]["include_database_dump"] is True
@@ -811,6 +866,20 @@ async def test_content_archive_export_reads_from_surreal_backend(
             "include_graph": True,
         },
     )
+    await surreal_content_client.execute_query(
+        "CREATE source_imports CONTENT $record;",
+        record={
+            "uuid": str(uuid4()),
+            "organization_id": org_id,
+            "principal_id": "user-export",
+            "adapter_name": "mailbox",
+            "status": "completed",
+            "target_memory_scope": "private",
+            "target_scope_key": "user-export",
+            "source_ids": ["source:export:1"],
+            "raw_memory_by_source_id": {"source:export:1": "raw-export"},
+        },
+    )
     close = AsyncMock()
 
     monkeypatch.setattr(content_archive.config_module.settings, "store", "surreal")
@@ -824,10 +893,13 @@ async def test_content_archive_export_reads_from_surreal_backend(
     payload = await content_archive.export_content_archive_payload()
 
     assert payload["row_counts"]["system_settings"] == 1
+    assert payload["row_counts"]["source_imports"] == 1
     assert payload["row_counts"]["backup_settings"] == 1
     assert payload["row_counts"]["backups"] == 1
-    assert payload["total_rows"] == 3
+    assert payload["total_rows"] == 4
     assert payload["tables"]["system_settings"][0]["key"] == "exported_setting"
+    assert payload["tables"]["source_imports"][0]["target_memory_scope"] == "private"
+    assert payload["tables"]["source_imports"][0]["source_ids"] == ["source:export:1"]
     assert payload["tables"]["backup_settings"][0]["include_database_dump"] is False
     assert payload["tables"]["backups"][0]["include_database_dump"] is False
     close.assert_awaited_once()

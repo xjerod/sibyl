@@ -59,6 +59,14 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         create_sql="CREATE raw_captures CONTENT $record;",
     ),
     ContentArchiveTableSpec(
+        name="source_imports",
+        source_identity_field="id",
+        target_identity_field="uuid",
+        select_sql="SELECT * FROM source_imports ORDER BY id ASC;",
+        delete_by_identity_sql="DELETE FROM source_imports WHERE uuid = $identity;",
+        create_sql="CREATE source_imports CONTENT $record;",
+    ),
+    ContentArchiveTableSpec(
         name="system_settings",
         source_identity_field="key",
         target_identity_field="key",
