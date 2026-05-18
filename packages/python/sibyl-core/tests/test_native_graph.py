@@ -448,7 +448,7 @@ async def test_native_entity_manager_counts_by_type_without_listing_entities() -
 async def test_hierarchical_graph_uses_native_managers_without_graphiti(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from sibyl_core.graph import communities
+    import sibyl_core.services.graph_communities as communities
 
     _block_graphiti_imports(monkeypatch)
     client = NativeSurrealGraphClient(group_id="org-native-hierarchy", url="memory://")

@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from sibyl_core.graph.communities import (
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.services.graph_communities import (
     CommunityConfig,
     DetectedCommunity,
     detect_communities,
@@ -16,7 +17,6 @@ from sibyl_core.graph.communities import (
     partition_to_communities,
     store_communities,
 )
-from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 # Test organization ID for multi-tenancy
 TEST_ORG_ID = "test-org-communities"
@@ -300,9 +300,12 @@ class TestExportToNetworkx:
         relationship_manager.list_all = AsyncMock(return_value=[])
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):
@@ -332,9 +335,12 @@ class TestExportToNetworkx:
         )
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):
@@ -394,12 +400,17 @@ class TestDetectCommunities:
         mock_modularity = 0.5
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
-            patch("sibyl_core.graph.communities.detect_communities_louvain") as mock_louvain,
+            patch(
+                "sibyl_core.services.graph_communities.detect_communities_louvain"
+            ) as mock_louvain,
         ):
             mock_louvain.return_value = (mock_partition, mock_modularity)
 
@@ -440,19 +451,21 @@ class TestHierarchicalGraph:
         partition = {entity.id: 0 for entity in entities}
 
         with (
-            patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.services.graph_communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict(
+                "sibyl_core.services.graph_communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True
+            ),
+            patch.dict("sibyl_core.services.graph_communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
-                "sibyl_core.graph.communities._list_all_entities",
+                "sibyl_core.services.graph_communities._list_all_entities",
                 AsyncMock(return_value=entities),
             ) as list_entities,
             patch(
-                "sibyl_core.graph.communities._list_all_relationships",
+                "sibyl_core.services.graph_communities._list_all_relationships",
                 AsyncMock(return_value=relationships),
             ) as list_relationships,
             patch(
-                "sibyl_core.graph.communities.detect_communities_louvain",
+                "sibyl_core.services.graph_communities.detect_communities_louvain",
                 return_value=(partition, 0.5),
             ),
         ):
@@ -491,19 +504,21 @@ class TestHierarchicalGraph:
         partition = {entity.id: 0 for entity in entities}
 
         with (
-            patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.services.graph_communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict(
+                "sibyl_core.services.graph_communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True
+            ),
+            patch.dict("sibyl_core.services.graph_communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
-                "sibyl_core.graph.communities._list_all_entities",
+                "sibyl_core.services.graph_communities._list_all_entities",
                 AsyncMock(return_value=entities),
             ),
             patch(
-                "sibyl_core.graph.communities._list_all_relationships",
+                "sibyl_core.services.graph_communities._list_all_relationships",
                 AsyncMock(return_value=relationships),
             ),
             patch(
-                "sibyl_core.graph.communities.detect_communities_louvain",
+                "sibyl_core.services.graph_communities.detect_communities_louvain",
                 return_value=(partition, 0.5),
             ),
         ):
@@ -549,19 +564,21 @@ class TestHierarchicalGraph:
         partition = {entity.id: 0 for entity in entities}
 
         with (
-            patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.services.graph_communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict(
+                "sibyl_core.services.graph_communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True
+            ),
+            patch.dict("sibyl_core.services.graph_communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
-                "sibyl_core.graph.communities._list_all_entities",
+                "sibyl_core.services.graph_communities._list_all_entities",
                 AsyncMock(return_value=entities),
             ),
             patch(
-                "sibyl_core.graph.communities._list_all_relationships",
+                "sibyl_core.services.graph_communities._list_all_relationships",
                 AsyncMock(return_value=relationships),
             ),
             patch(
-                "sibyl_core.graph.communities.detect_communities_louvain",
+                "sibyl_core.services.graph_communities.detect_communities_louvain",
                 return_value=(partition, 0.5),
             ),
         ):
@@ -588,19 +605,21 @@ class TestHierarchicalGraph:
         partition = {entity.id: 0 for entity in entities}
 
         with (
-            patch.dict("sibyl_core.graph.communities.HIERARCHICAL_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True),
-            patch.dict("sibyl_core.graph.communities.GRAPH_LOD_CACHE", {}, clear=True),
+            patch.dict("sibyl_core.services.graph_communities.HIERARCHICAL_CACHE", {}, clear=True),
+            patch.dict(
+                "sibyl_core.services.graph_communities.GRAPH_SNAPSHOT_CACHE", {}, clear=True
+            ),
+            patch.dict("sibyl_core.services.graph_communities.GRAPH_LOD_CACHE", {}, clear=True),
             patch(
-                "sibyl_core.graph.communities._list_all_entities",
+                "sibyl_core.services.graph_communities._list_all_entities",
                 AsyncMock(return_value=entities),
             ),
             patch(
-                "sibyl_core.graph.communities._list_all_relationships",
+                "sibyl_core.services.graph_communities._list_all_relationships",
                 AsyncMock(return_value=relationships),
             ),
             patch(
-                "sibyl_core.graph.communities.detect_communities_louvain",
+                "sibyl_core.services.graph_communities.detect_communities_louvain",
                 return_value=(partition, 0.5),
             ),
         ):
@@ -640,9 +659,12 @@ class TestStoreCommunities:
         ]
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):
@@ -678,9 +700,12 @@ class TestStoreCommunities:
         ]
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):
@@ -704,9 +729,12 @@ class TestGetEntityCommunities:
         relationship_manager.get_for_entity = AsyncMock(return_value=[])
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):
@@ -734,9 +762,12 @@ class TestGetEntityCommunities:
         )
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):
@@ -760,9 +791,12 @@ class TestGetCommunityMembers:
         relationship_manager.get_for_entity = AsyncMock(return_value=[])
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):
@@ -790,9 +824,12 @@ class TestGetCommunityMembers:
         )
 
         with (
-            patch("sibyl_core.graph.communities.EntityManager", return_value=entity_manager),
             patch(
-                "sibyl_core.graph.communities.RelationshipManager",
+                "sibyl_core.services.graph_communities._entity_manager_factory",
+                return_value=entity_manager,
+            ),
+            patch(
+                "sibyl_core.services.graph_communities._relationship_manager_factory",
                 return_value=relationship_manager,
             ),
         ):

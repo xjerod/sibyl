@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 
 import structlog
 
@@ -35,9 +35,6 @@ from sibyl_core.storage import (
     SearchHit,
     SearchIndex,
 )
-
-if TYPE_CHECKING:
-    from sibyl_core.graph.communities import ClusterSummary, HierarchicalGraphData
 
 log = structlog.get_logger()
 _MISSING = object()
@@ -87,12 +84,6 @@ def _entity_manager_for(client: Any, group_id: str) -> Any:
 
 def _relationship_manager_for(client: Any, group_id: str) -> Any:
     return NativeRelationshipManager(_native_driver_for_client(client, group_id), group_id=group_id)
-
-
-async def get_graph_client() -> Any:
-    from sibyl_core.graph.client import get_graph_client as get_legacy_graph_client
-
-    return await get_legacy_graph_client()
 
 
 def _decode_cursor(cursor: str | None) -> int:
@@ -1172,10 +1163,8 @@ class GraphQueryAdapter:
             **params,
         )
 
-    async def get_clusters_for_visualization(
-        self, *, force_refresh: bool = False
-    ) -> list[ClusterSummary]:
-        from sibyl_core.graph.communities import get_clusters_for_visualization
+    async def get_clusters_for_visualization(self, *, force_refresh: bool = False) -> list[Any]:
+        from sibyl_core.services.graph_communities import get_clusters_for_visualization
 
         return await get_clusters_for_visualization(
             self._client,
@@ -1184,7 +1173,7 @@ class GraphQueryAdapter:
         )
 
     async def get_cluster_nodes(self, cluster_id: str) -> dict[str, Any]:
-        from sibyl_core.graph.communities import get_cluster_nodes
+        from sibyl_core.services.graph_communities import get_cluster_nodes
 
         return await get_cluster_nodes(self._client, self._group_id, cluster_id)
 
@@ -1197,8 +1186,8 @@ class GraphQueryAdapter:
         max_edges: int = 5000,
         resolution: str = "detail",
         cluster_id: str | None = None,
-    ) -> HierarchicalGraphData:
-        from sibyl_core.graph.communities import get_hierarchical_graph
+    ) -> Any:
+        from sibyl_core.services.graph_communities import get_hierarchical_graph
 
         return await get_hierarchical_graph(
             self._client,

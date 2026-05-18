@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from sibyl_core.graph import communities
-from sibyl_core.graph.communities import (
+import sibyl_core.services.graph_communities as communities
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
+from sibyl_core.services.graph_communities import (
     GRAPH_RESOLUTION_OVERVIEW,
     _build_cluster_detail_graph_from_snapshot,
     _build_overview_graph_from_snapshot,
 )
-from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 
 
 def _entity(entity_id: str, entity_type: EntityType, *, project_id: str = "project-1") -> Entity:
