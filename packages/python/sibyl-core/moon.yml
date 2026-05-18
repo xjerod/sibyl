@@ -105,6 +105,16 @@ tasks:
     - '@group(sources)'
     - tests/test_context_pack.py
     - tests/test_session_bundle.py
+  context-quality-test:
+    command:
+      uv run pytest tests/test_context_pack.py tests/test_context_pack_evals.py
+      tests/test_evals_runtime.py -v
+    inputs:
+    - '@group(sources)'
+    - tests/test_context_pack.py
+    - tests/test_context_pack_evals.py
+    - tests/test_evals_runtime.py
+    - /benchmarks/context_pack_cases.json
   reflection-quality-test:
     command:
       uv run pytest tests/test_reflection_models.py tests/test_reflection_extractor.py

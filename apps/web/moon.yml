@@ -74,6 +74,21 @@ tasks:
       - src/app/(main)/memory/page.test.tsx
       - src/components/memory/source-inspect-panel.test.tsx
 
+  workspace-trust-test:
+    command:
+      pnpm vitest run 'src/app/(main)/memory/page.test.tsx'
+      src/components/memory/source-inspect-panel.test.tsx
+      src/components/memory/source-import-progress.test.tsx
+      src/components/memory/raw-capture-review.test.tsx
+      src/components/memory/synthesis-runner.test.tsx
+    inputs:
+      - "@group(sources)"
+      - src/app/(main)/memory/page.test.tsx
+      - src/components/memory/source-inspect-panel.test.tsx
+      - src/components/memory/source-import-progress.test.tsx
+      - src/components/memory/raw-capture-review.test.tsx
+      - src/components/memory/synthesis-runner.test.tsx
+
   reflection-quality-test:
     command:
       pnpm vitest run 'src/app/(main)/memory/page.test.tsx'

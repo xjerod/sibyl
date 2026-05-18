@@ -223,6 +223,8 @@ tasks:
       - ~:baseline-test
       - ~:memory-trust-gate-test
       - ~:trust-control-gate-test
+      - ~:context-quality-gate-test
+      - ~:workspace-trust-gate-test
       - ~:synthesis-gate-test
       - ~:adapter-ingest-gate-test
       - ~:large-corpus-rehearsal-test
@@ -245,6 +247,8 @@ tasks:
       - ~:baseline-test
       - ~:memory-trust-gate-test
       - ~:trust-control-gate-test
+      - ~:context-quality-gate-test
+      - ~:workspace-trust-gate-test
       - ~:synthesis-gate-test
       - ~:adapter-ingest-gate-test
       - ~:large-corpus-rehearsal-test
@@ -625,6 +629,41 @@ tasks:
       - tools/trust/**/*.py
       - tools/tests/conftest.py
       - tools/tests/test_trust_control_gate.py
+      - pyproject.toml
+      - moon.yml
+      - apps/api/moon.yml
+      - apps/cli/moon.yml
+      - apps/web/moon.yml
+      - packages/python/sibyl-core/moon.yml
+
+  context-quality-gate:
+    command: uv run python -m tools.trust.context_quality_gate
+    options:
+      cache: false
+
+  context-quality-gate-test:
+    command: uv run pytest tools/tests/test_context_quality_gate.py -v
+    inputs:
+      - tools/trust/**/*.py
+      - tools/tests/conftest.py
+      - tools/tests/test_context_quality_gate.py
+      - pyproject.toml
+      - moon.yml
+      - apps/api/moon.yml
+      - apps/cli/moon.yml
+      - packages/python/sibyl-core/moon.yml
+
+  workspace-trust-gate:
+    command: uv run python -m tools.trust.workspace_trust_gate
+    options:
+      cache: false
+
+  workspace-trust-gate-test:
+    command: uv run pytest tools/tests/test_workspace_trust_gate.py -v
+    inputs:
+      - tools/trust/**/*.py
+      - tools/tests/conftest.py
+      - tools/tests/test_workspace_trust_gate.py
       - pyproject.toml
       - moon.yml
       - apps/api/moon.yml

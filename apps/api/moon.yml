@@ -236,6 +236,31 @@ tasks:
     options:
       envFile: .env
 
+  context-quality-test:
+    command:
+      uv run pytest tests/test_routes_context.py tests/test_routes_session.py
+      tests/test_server_accessible_projects.py::test_compile_mcp_context_pack_audits_render_receipt
+      -v
+    inputs:
+      - "@group(sources)"
+      - tests/test_routes_context.py
+      - tests/test_routes_session.py
+      - tests/test_server_accessible_projects.py
+    options:
+      envFile: .env
+
+  workspace-trust-test:
+    command:
+      uv run pytest tests/test_routes_memory.py tests/test_jobs_source_imports.py
+      tests/test_routes_jobs.py -v
+    inputs:
+      - "@group(sources)"
+      - tests/test_routes_memory.py
+      - tests/test_jobs_source_imports.py
+      - tests/test_routes_jobs.py
+    options:
+      envFile: .env
+
   memory-trust-mcp-test:
     command:
       uv run pytest tests/test_server_accessible_projects.py
