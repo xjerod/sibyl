@@ -8,10 +8,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from graphiti_core.search.search_filters import ComparisonOperator, DateFilter, SearchFilters
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.graph.search_interface import SurrealSearchInterface
+from sibyl_core.graph.surreal.compat.search_filters import (
+    ComparisonOperator,
+    DateFilter,
+    SearchFilters,
+)
 
 
 class FakeSurrealSearchDriver:

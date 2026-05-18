@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from graphiti_core.search.search_filters import SearchFilters
 
 import sibyl_core.retrieval.native as native_retrieval
 from sibyl_core.backends.surreal import SurrealDriver
@@ -15,6 +14,7 @@ from sibyl_core.backends.surreal.content_client import SurrealContentClient
 from sibyl_core.backends.surreal.content_schema import bootstrap_content_schema
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
 from sibyl_core.graph.search_interface import SurrealSearchInterface
+from sibyl_core.graph.surreal.compat.search_filters import SearchFilters
 from sibyl_core.services.surreal_content import RawMemory, recall_raw_memory, remember_raw_memory
 from sibyl_core.tools.context import compile_context, context_pack_to_markdown
 

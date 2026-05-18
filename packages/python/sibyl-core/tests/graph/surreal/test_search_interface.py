@@ -3,22 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 import pytest
-from graphiti_core import Graphiti
-from graphiti_core.cross_encoder.client import CrossEncoderClient
-from graphiti_core.embedder.client import EmbedderClient
-from graphiti_core.llm_client.client import LLMClient
-from graphiti_core.llm_client.config import LLMConfig, ModelSize
-from graphiti_core.prompts.models import Message
-from graphiti_core.search.search_filters import ComparisonOperator, DateFilter, SearchFilters
-from graphiti_core.search.search_utils import get_embeddings_for_edges, get_embeddings_for_nodes
-from pydantic import BaseModel
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
-from sibyl_core.graph.mock_llm import MockLLMClient as NativeMockLLMClient
 from sibyl_core.graph.search_interface import SurrealSearchInterface
 from sibyl_core.graph.surreal.compat.models import (
     CommunityNode,
@@ -28,40 +17,13 @@ from sibyl_core.graph.surreal.compat.models import (
     EpisodicEdge,
     EpisodicNode,
     HasEpisodeEdge,
+    SagaNode,
 )
-
-
-class _FakeEmbedder(EmbedderClient):
-    async def create(self, input_data: object) -> list[float]:
-        return [0.0] * EMBEDDING_DIM
-
-    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
-        return [[0.0] * EMBEDDING_DIM for _ in input_data_list]
-
-
-class _FakeCrossEncoder(CrossEncoderClient):
-    async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
-        return [(passage, 0.0) for passage in passages]
-
-
-class _GraphitiMockLLMClient(LLMClient):
-    def __init__(self) -> None:
-        super().__init__(LLMConfig(api_key="mock-key", model="mock-model"), cache=False)
-        self._native_mock = NativeMockLLMClient()
-
-    async def _generate_response(
-        self,
-        messages: list[Message],
-        response_model: type[BaseModel] | None = None,
-        max_tokens: int = 1000,
-        model_size: ModelSize = ModelSize.medium,
-    ) -> dict[str, Any]:
-        return await self._native_mock._generate_response(
-            messages,
-            response_model=response_model,
-            max_tokens=max_tokens,
-            model_size=model_size,
-        )
+from sibyl_core.graph.surreal.compat.search_filters import (
+    ComparisonOperator,
+    DateFilter,
+    SearchFilters,
+)
 
 
 def _entity(uuid: str, group_id: str, *, name: str, summary: str) -> EntityNode:
@@ -314,7 +276,7 @@ class TestSurrealSearchInterfaceIntegration:
         assert wrong_group == []
 
     @pytest.mark.asyncio
-    async def test_graphiti_model_methods_use_surreal_graph_operations_interface(
+    async def test_local_model_methods_use_surreal_graph_operations_interface(
         self, surreal_schema: SurrealDriver
     ) -> None:
         gid = surreal_schema.group_id
@@ -346,8 +308,14 @@ class TestSurrealSearchInterfaceIntegration:
             1,
             [gid],
         )
-        node_embeddings = await get_embeddings_for_nodes(surreal_schema, [loaded_source])
-        edge_embeddings = await get_embeddings_for_edges(surreal_schema, [loaded_edge])
+        node_embeddings = await surreal_schema.graph_operations_interface.node_load_embeddings_bulk(
+            surreal_schema,
+            [loaded_source],
+        )
+        edge_embeddings = await surreal_schema.graph_operations_interface.edge_load_embeddings_bulk(
+            surreal_schema,
+            [loaded_edge],
+        )
 
         assert loaded_source.uuid == "graphiti-source"
         assert loaded_edge.uuid == "graphiti-edge"
@@ -479,46 +447,65 @@ class TestSurrealSearchInterfaceIntegration:
         assert new_contents == ["current content"]
 
     @pytest.mark.asyncio
-    async def test_graphiti_add_episode_with_saga_uses_surreal_bulk_adapter(
+    async def test_saga_episode_bulk_ops_use_surreal_adapter(
         self, surreal_schema: SurrealDriver
     ) -> None:
-        graph = Graphiti(
-            graph_driver=surreal_schema,
-            llm_client=_GraphitiMockLLMClient(),
-            embedder=_FakeEmbedder(),
-            cross_encoder=_FakeCrossEncoder(),
-        )
+        gid = surreal_schema.group_id
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        interface = surreal_schema.graph_operations_interface
 
-        result = await graph.add_episode(
-            name="Graphiti add episode",
-            episode_body="Bliss is testing Surreal add_episode compatibility.",
-            source_description="test",
-            reference_time=datetime(2026, 1, 1, tzinfo=UTC),
-            source=EpisodeType.message,
-            group_id=surreal_schema.group_id,
-            saga="daily",
+        await interface.saga_node_save(
+            SagaNode(uuid="daily-saga", name="daily", group_id=gid, created_at=now),
+            surreal_schema,
+        )
+        await interface.episodic_node_save_bulk(
+            None,
+            surreal_schema,
+            None,
+            [
+                {
+                    "uuid": "bulk-episode",
+                    "name": "Bulk episode",
+                    "content": "Bliss is testing Surreal episode compatibility.",
+                    "source": EpisodeType.message,
+                    "source_description": "test",
+                    "group_id": gid,
+                    "created_at": now,
+                    "valid_at": now,
+                    "entity_edges": [],
+                }
+            ],
+        )
+        await interface.has_episode_edge_save_bulk(
+            None,
+            surreal_schema,
+            None,
+            [
+                HasEpisodeEdge(
+                    uuid="has-bulk-episode",
+                    group_id=gid,
+                    source_node_uuid="daily-saga",
+                    target_node_uuid="bulk-episode",
+                    created_at=now,
+                )
+            ],
         )
 
         episodes = await surreal_schema.execute_query("SELECT uuid, name FROM episode;")
         sagas = await surreal_schema.execute_query("SELECT uuid, name FROM saga;")
         saga_edges = await surreal_schema.execute_query("SELECT uuid FROM has_episode;")
 
-        assert result.episode.name == "Graphiti add episode"
-        assert [episode["uuid"] for episode in episodes] == [result.episode.uuid]
+        assert [episode["name"] for episode in episodes] == ["Bulk episode"]
+        assert [episode["uuid"] for episode in episodes] == ["bulk-episode"]
         assert [saga["name"] for saga in sagas] == ["daily"]
         assert len(saga_edges) == 1
 
     @pytest.mark.asyncio
-    async def test_graphiti_remove_episode_uses_surreal_native_ops(
+    async def test_episode_related_payload_deletion_uses_surreal_native_ops(
         self, surreal_schema: SurrealDriver
     ) -> None:
         gid = surreal_schema.group_id
-        graph = Graphiti(
-            graph_driver=surreal_schema,
-            llm_client=_GraphitiMockLLMClient(),
-            embedder=_FakeEmbedder(),
-            cross_encoder=_FakeCrossEncoder(),
-        )
+        interface = surreal_schema.graph_operations_interface
         await surreal_schema.episode_node_ops.save(
             surreal_schema,
             _episode("remove-episode", gid, content="removal regression"),
@@ -549,7 +536,26 @@ class TestSurrealSearchInterfaceIntegration:
             _mention("remove-mention", gid, "remove-episode", "remove-node"),
         )
 
-        await graph.remove_episode("remove-episode")
+        await interface.episodic_edge_delete_by_uuids(
+            None,
+            surreal_schema,
+            ["remove-mention"],
+            gid,
+        )
+        await interface.edge_delete_by_uuids(
+            None,
+            surreal_schema,
+            ["remove-edge"],
+            gid,
+        )
+        await interface.node_delete(
+            await EntityNode.get_by_uuid(surreal_schema, "remove-node"),
+            surreal_schema,
+        )
+        await interface.episodic_node_delete(
+            await EpisodicNode.get_by_uuid(surreal_schema, "remove-episode"),
+            surreal_schema,
+        )
 
         episodes = await surreal_schema.execute_query(
             "SELECT uuid FROM episode WHERE uuid = 'remove-episode';"
