@@ -505,14 +505,14 @@ export function useOnboardingProgress() {
   };
 
   const isAllComplete =
-    checklist.connected_claude && checklist.added_source && checklist.tried_search;
+    checklist.connected_agent && checklist.added_source && checklist.tried_search;
 
   return {
     checklist,
     isLoading,
     isAllComplete,
     markComplete,
-    markConnectedClaude: () => markComplete('connected_claude'),
+    markConnectedAgent: () => markComplete('connected_agent'),
     markAddedSource: () => markComplete('added_source'),
     markTriedSearch: () => markComplete('tried_search'),
   };

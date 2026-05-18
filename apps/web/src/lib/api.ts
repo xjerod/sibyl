@@ -1316,7 +1316,7 @@ export interface PasswordChangeRequest {
 
 // Onboarding checklist state
 export interface OnboardingChecklist {
-  connected_claude?: boolean;
+  connected_agent?: boolean;
   added_source?: boolean;
   tried_search?: boolean;
 }

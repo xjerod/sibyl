@@ -52,7 +52,7 @@ export function CompletionStep({ onFinish }: CompletionStepProps) {
               <span className="w-5 h-5 rounded bg-sc-green/15 text-sc-green flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
                 ⚡
               </span>
-              <span>Connect Sibyl to your IDE via MCP for inline assistance</span>
+              <span>Connect Sibyl to your coding agent via the CLI or MCP</span>
             </li>
           </ul>
         </div>

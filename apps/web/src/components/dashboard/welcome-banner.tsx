@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { ConnectClaudeModal } from '@/components/dashboard/connect-claude-modal';
+import { ConnectAgentModal } from '@/components/dashboard/connect-agent-modal';
 import { ArrowRight, BookOpen, Check, Network, Search, Xmark } from '@/components/ui/icons';
 import { useOnboardingProgress, useSetupStatus } from '@/lib/hooks';
 
@@ -24,7 +24,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
     validateKeys: false,
     enabled: totalEntities === 0,
   });
-  const { checklist, markConnectedClaude, markAddedSource, markTriedSearch } =
+  const { checklist, markConnectedAgent, markAddedSource, markTriedSearch } =
     useOnboardingProgress();
 
   // Load dismissal state from localStorage on mount
@@ -92,23 +92,23 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
 
         {/* Getting Started Steps */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
-          {/* Step 1: Connect Claude Code */}
+          {/* Step 1: Connect an agent */}
           <ChecklistStep
             step={1}
-            title="Connect Claude Code"
-            description="Optional after local setup: add Sibyl as an MCP server for AI-assisted recall and task context."
+            title="Connect your agent"
+            description="Optional after local setup: install the CLI or add Sibyl as an MCP server for any agent."
             color="purple"
-            isComplete={checklist.connected_claude}
+            isComplete={checklist.connected_agent}
             action={
               <button
                 type="button"
                 onClick={() => {
                   setShowConnectModal(true);
-                  markConnectedClaude();
+                  markConnectedAgent();
                 }}
                 className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sc-purple/10 border border-sc-purple/20 text-xs font-medium text-sc-purple hover:bg-sc-purple/20 transition-colors"
               >
-                {checklist.connected_claude ? (
+                {checklist.connected_agent ? (
                   <>
                     <Check width={14} height={14} />
                     Connected
@@ -204,8 +204,8 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
         </div>
       </div>
 
-      {/* Claude Code Connection Modal */}
-      <ConnectClaudeModal open={showConnectModal} onOpenChange={setShowConnectModal} />
+      {/* Agent connection modal */}
+      <ConnectAgentModal open={showConnectModal} onOpenChange={setShowConnectModal} />
     </div>
   );
 }

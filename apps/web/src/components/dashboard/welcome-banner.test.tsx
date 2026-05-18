@@ -11,8 +11,8 @@ const storage = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/hooks', () => hooks);
-vi.mock('@/components/dashboard/connect-claude-modal', () => ({
-  ConnectClaudeModal: () => <div data-testid="connect-claude-modal" />,
+vi.mock('@/components/dashboard/connect-agent-modal', () => ({
+  ConnectAgentModal: () => <div data-testid="connect-agent-modal" />,
 }));
 vi.stubGlobal('localStorage', storage);
 
@@ -31,11 +31,11 @@ describe('WelcomeBanner', () => {
     });
     hooks.useOnboardingProgress.mockReturnValue({
       checklist: {
-        connected_claude: false,
+        connected_agent: false,
         added_source: false,
         tried_search: false,
       },
-      markConnectedClaude: vi.fn(),
+      markConnectedAgent: vi.fn(),
       markAddedSource: vi.fn(),
       markTriedSearch: vi.fn(),
     });
