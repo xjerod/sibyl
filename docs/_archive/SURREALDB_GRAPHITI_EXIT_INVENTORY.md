@@ -55,10 +55,6 @@ owner, and deletion or retention criterion.
   - Owner: v0.7 native memory
   - Criteria: Native write, exact lookup, semantic search, and entity hydration cover the seeded
     graph behavior without Graphiti node APIs.
-- `packages/python/sibyl-core/src/sibyl_core/graph/relationships.py`
-  - Class: `compatibility`
-  - Owner: v0.7 native write adapter
-  - Criteria: Native relation manager owns relates_to, mentions, and relationship model hydration.
 - `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py`
   - Class: `compatibility`
   - Owner: v0.7 native retrieval
@@ -205,13 +201,12 @@ source metadata.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/relationships.py`
 
-- Behavior: relationship CRUD and edge hydration through Graphiti edge models.
+- Behavior: relationship CRUD and edge hydration through Sibyl-local edge payloads.
 - Default-loop usage: fallback for explicit graph relationship writes and reads.
-- Status: fallback.
-- Removal condition: native relation manager owns `relates_to`, `mentions`, and relationship model
-  hydration.
-- Owner: v0.7 native write adapter.
-- Verify: `moon run core:test -- tests/test_graph_relationships.py`.
+- Status: Graphiti runtime imports removed in v0.13; legacy manager surface remains.
+- Removal condition: native relation manager owns every explicit graph relationship path.
+- Owner: v0.13 Graphiti runtime import deletion.
+- Verify: `moon run core:graphiti-compatibility-file-test`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py`
 

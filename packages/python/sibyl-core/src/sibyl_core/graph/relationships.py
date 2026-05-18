@@ -1,19 +1,19 @@
 """Relationship compatibility surface for the knowledge graph.
 
 Default memory flows use native Surreal relationship managers. This module remains
-for named compatibility and admin paths that still adapt through Graphiti edge models.
+for named compatibility and admin paths that still use the legacy manager surface.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import structlog
-from graphiti_core.edges import EntityEdge, EpisodicEdge
-from graphiti_core.errors import EdgeNotFoundError
 
 from sibyl_core.errors import GraphError
 from sibyl_core.graph.client import GraphClient
@@ -27,8 +27,38 @@ _MISSING = object()
 VALID_RELATIONSHIP_TYPES = frozenset(rt.value for rt in RelationshipType)
 
 
+@dataclass(slots=True)
+class _RelationshipEdge:
+    uuid: str
+    group_id: str
+    source_node_uuid: str
+    target_node_uuid: str
+    created_at: datetime
+    name: str
+    fact: str
+    fact_embedding: list[float] | None = None
+    episodes: list[str] = field(default_factory=list)
+    expired_at: datetime | None = None
+    valid_at: datetime | None = None
+    invalid_at: datetime | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class _EpisodeMentionEdge:
+    uuid: str
+    group_id: str
+    source_node_uuid: str
+    target_node_uuid: str
+    created_at: datetime
+
+
 def _is_episode_id(node_id: str) -> bool:
     return node_id.startswith("episode")
+
+
+def _is_edge_not_found_error(error: Exception) -> bool:
+    return type(error).__name__ == "EdgeNotFoundError"
 
 
 def _declared_driver_attr(driver: object, attr: str) -> object | None:
@@ -80,7 +110,7 @@ def _sanitize_pagination(value: int, max_value: int = 10000) -> int:
 
 
 class RelationshipManager:
-    """Manages relationship operations using Graphiti's EntityEdge API."""
+    """Manages relationship operations for the knowledge graph."""
 
     def __init__(self, client: GraphClient, *, group_id: str) -> None:
         """Initialize relationship manager with graph client.
@@ -164,16 +194,16 @@ class RelationshipManager:
         ):
             raise error
 
-    def _to_graphiti_edge(self, relationship: Relationship) -> EntityEdge:
-        """Convert our Relationship model to Graphiti's EntityEdge.
+    def _to_graphiti_edge(self, relationship: Relationship) -> _RelationshipEdge:
+        """Convert our Relationship model to an edge payload.
 
         Args:
             relationship: Our relationship model
 
         Returns:
-            Graphiti EntityEdge
+            Edge payload accepted by the configured graph driver.
         """
-        return EntityEdge(
+        return _RelationshipEdge(
             uuid=relationship.id or str(uuid4()),
             group_id=self._group_id,
             source_node_uuid=relationship.source_id,
@@ -197,7 +227,7 @@ class RelationshipManager:
         if episodic_edge_ops is None:
             raise RuntimeError("SurrealDB episode mentions require native episodic edge operations")
 
-        edge = EpisodicEdge(
+        edge = _EpisodeMentionEdge(
             uuid=relationship.id or str(uuid4()),
             group_id=self._group_id,
             source_node_uuid=relationship.source_id,
@@ -214,11 +244,92 @@ class RelationshipManager:
             return False
         return True
 
-    def _from_graphiti_edge(self, edge: EntityEdge) -> Relationship:
-        """Convert Graphiti's EntityEdge to our Relationship model.
+    async def _get_existing_edges_between_nodes(
+        self,
+        source_id: str,
+        target_id: str,
+    ) -> list[_RelationshipEdge]:
+        query = """
+            MATCH (source {uuid: $source_uuid})-[r]->(target {uuid: $target_uuid})
+            WHERE r.group_id = $group_id
+            RETURN r.uuid as uuid,
+                   COALESCE(r.name, type(r)) as name,
+                   COALESCE(r.source_node_uuid, r.source_uuid, source.uuid) as source_id,
+                   COALESCE(r.target_node_uuid, r.target_uuid, target.uuid) as target_id,
+                   COALESCE(r.weight, 1.0) as weight,
+                   COALESCE(r.fact, r.name, type(r)) as fact,
+                   properties(r) as properties
+        """
+        result = await self._driver.execute_query(
+            query,
+            source_uuid=source_id,
+            target_uuid=target_id,
+            group_id=self._group_id,
+        )
+        rows = self._client.normalize_result(result)
+        edges: list[_RelationshipEdge] = []
+        for row in rows:
+            if isinstance(row, dict):
+                edge_uuid = row.get("uuid")
+                name = row.get("name")
+                source_node_uuid = row.get("source_id")
+                target_node_uuid = row.get("target_id")
+                weight = row.get("weight", 1.0)
+                fact = row.get("fact")
+                properties = row.get("properties")
+            else:
+                edge_uuid = row[0] if len(row) > 0 else None
+                name = row[1] if len(row) > 1 else None
+                source_node_uuid = row[2] if len(row) > 2 else None
+                target_node_uuid = row[3] if len(row) > 3 else None
+                weight = row[4] if len(row) > 4 else 1.0
+                fact = row[5] if len(row) > 5 else None
+                properties = row[6] if len(row) > 6 else None
+
+            if not edge_uuid or not name or not source_node_uuid or not target_node_uuid:
+                continue
+
+            attributes = (
+                {
+                    key: value
+                    for key, value in properties.items()
+                    if key
+                    not in {
+                        "uuid",
+                        "name",
+                        "group_id",
+                        "source_node_uuid",
+                        "source_uuid",
+                        "target_node_uuid",
+                        "target_uuid",
+                        "created_at",
+                        "fact",
+                    }
+                }
+                if isinstance(properties, dict)
+                else {}
+            )
+            attributes.setdefault("weight", weight)
+            edges.append(
+                _RelationshipEdge(
+                    uuid=str(edge_uuid),
+                    group_id=self._group_id,
+                    source_node_uuid=str(source_node_uuid),
+                    target_node_uuid=str(target_node_uuid),
+                    created_at=datetime.now(UTC),
+                    name=str(name),
+                    fact=str(fact) if fact else f"{name} relationship",
+                    valid_at=datetime.now(UTC),
+                    attributes=attributes,
+                )
+            )
+        return edges
+
+    def _from_graphiti_edge(self, edge: Any) -> Relationship:
+        """Convert an edge payload to our Relationship model.
 
         Args:
-            edge: Graphiti EntityEdge
+            edge: Edge payload from the configured graph driver.
 
         Returns:
             Our Relationship model
@@ -242,7 +353,7 @@ class RelationshipManager:
             metadata=attributes,
         )
 
-    def _from_episodic_edge(self, edge: EpisodicEdge) -> Relationship:
+    def _from_episodic_edge(self, edge: Any) -> Relationship:
         return Relationship(
             id=edge.uuid,
             relationship_type=RelationshipType.RELATED_TO,
@@ -371,9 +482,7 @@ class RelationshipManager:
 
             self._assert_legacy_fallback_allowed("create")
 
-            # Check for existing relationship
-            existing = await EntityEdge.get_between_nodes(
-                self._client.driver,
+            existing = await self._get_existing_edges_between_nodes(
                 relationship.source_id,
                 relationship.target_id,
             )
@@ -387,8 +496,7 @@ class RelationshipManager:
                     )
                     return edge.uuid
 
-            # Create edge via direct Cypher (more reliable than Graphiti's EntityEdge.save)
-            # EntityEdge.save() has issues finding Episodic nodes by UUID
+            # Create edge via direct Cypher; legacy edge saves miss episodic UUIDs.
             edge = self._to_graphiti_edge(relationship)
 
             # Validate relationship type against whitelist to prevent Cypher injection
@@ -937,7 +1045,9 @@ class RelationshipManager:
             if surreal_edge_ops is not None:
                 try:
                     edge = await surreal_edge_ops.get_by_uuid(self._driver, relationship_id)
-                except EdgeNotFoundError:
+                except Exception as edge_error:
+                    if not _is_edge_not_found_error(edge_error):
+                        raise
                     log.warning("Relationship not found", relationship_id=relationship_id)
                     return False
 
@@ -1202,8 +1312,7 @@ class RelationshipManager:
             safe_offset = _sanitize_pagination(offset, max_value=100000)
             safe_limit = _sanitize_pagination(limit, max_value=100000)
 
-            # Direct Cypher query to get edges (Graphiti's EntityEdge.get_by_group_ids
-            # expects ENTITY_EDGE label but our edges have RELATES_TO, MENTIONS, etc.)
+            # Direct Cypher query to get edges across the native relation types.
             type_filter = ""
             if relationship_types:
                 # Validate each type against whitelist to prevent Cypher injection

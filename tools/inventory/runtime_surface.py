@@ -282,12 +282,6 @@ GRAPHITI_COMPATIBILITY_ALLOWLIST = (
         criteria="Native write, exact lookup, semantic search, and entity hydration cover the seeded graph behavior without Graphiti node APIs.",
     ),
     GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/relationships.py",
-        classification="compatibility",
-        owner="v0.7 native write adapter",
-        criteria="Native relation manager owns relates_to, mentions, and relationship model hydration.",
-    ),
-    GraphitiCompatibilityRecord(
         path="packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py",
         classification="compatibility",
         owner="v0.7 native retrieval",

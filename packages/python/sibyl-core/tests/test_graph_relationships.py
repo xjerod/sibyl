@@ -281,10 +281,9 @@ class TestRelationshipCreate:
         mock_driver: MagicMock,
     ) -> None:
         """create() stores relationship and returns ID."""
-        # Mock no existing relationship
         with patch.object(
-            EntityEdge,
-            "get_between_nodes",
+            relationship_manager,
+            "_get_existing_edges_between_nodes",
             new_callable=AsyncMock,
             return_value=[],
         ):
@@ -319,8 +318,8 @@ class TestRelationshipCreate:
             )
 
             with patch.object(
-                EntityEdge,
-                "get_between_nodes",
+                relationship_manager,
+                "_get_existing_edges_between_nodes",
                 new_callable=AsyncMock,
                 return_value=[],
             ):
@@ -337,8 +336,8 @@ class TestRelationshipCreate:
     ) -> None:
         """create() returns existing ID if duplicate relationship exists."""
         with patch.object(
-            EntityEdge,
-            "get_between_nodes",
+            relationship_manager,
+            "_get_existing_edges_between_nodes",
             new_callable=AsyncMock,
             return_value=[sample_entity_edge],
         ):
@@ -370,8 +369,8 @@ class TestRelationshipCreate:
         )
 
         with patch.object(
-            EntityEdge,
-            "get_between_nodes",
+            relationship_manager,
+            "_get_existing_edges_between_nodes",
             new_callable=AsyncMock,
             return_value=[existing_edge],
         ):
@@ -398,8 +397,8 @@ class TestRelationshipCreate:
         )
 
         with patch.object(
-            EntityEdge,
-            "get_between_nodes",
+            relationship_manager,
+            "_get_existing_edges_between_nodes",
             new_callable=AsyncMock,
             return_value=[],
         ):
@@ -416,8 +415,8 @@ class TestRelationshipCreate:
         """create() raises GraphError on failure."""
         with (
             patch.object(
-                EntityEdge,
-                "get_between_nodes",
+                relationship_manager,
+                "_get_existing_edges_between_nodes",
                 new_callable=AsyncMock,
                 side_effect=Exception("DB connection failed"),
             ),
