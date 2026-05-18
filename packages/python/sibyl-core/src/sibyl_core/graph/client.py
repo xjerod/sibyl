@@ -1,68 +1,33 @@
-"""Graphiti client wrapper for Sibyl's active graph runtime."""
+"""Legacy graph client wrapper for Sibyl's SurrealDB runtime."""
+
+from __future__ import annotations
 
 import asyncio
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from dotenv import load_dotenv
 
 from sibyl_core.config import core_config as settings
 
-# Load .env BEFORE graphiti is imported to ensure SEMAPHORE_LIMIT is set.
 _env_path = Path(__file__).parent.parent.parent.parent / ".env"
 if _env_path.exists():
     load_dotenv(_env_path)
 
-# Set SEMAPHORE_LIMIT from settings (mostly unused - we patch semaphore_gather below)
-# Kept for any code paths that might read the env var directly
 if not os.getenv("SEMAPHORE_LIMIT"):
     os.environ["SEMAPHORE_LIMIT"] = str(settings.graphiti_semaphore_limit)
 
-# Graphiti's OpenAI embedder reads EMBEDDING_DIM at import time. If unset, Graphiti
-# defaults to 1024, but we pin it explicitly to avoid "mixed-dimension" graphs when
-# a different EMBEDDING_DIM leaks in from the shell environment.
 if not os.getenv("EMBEDDING_DIM"):
     os.environ["EMBEDDING_DIM"] = str(settings.graph_embedding_dimensions)
-
-# Disable Graphiti's PostHog telemetry (noisy retry errors when offline)
-os.environ.setdefault("GRAPHITI_TELEMETRY_ENABLED", "false")
-
-
-def _patch_semaphore_gather() -> None:
-    """Remove Graphiti's semaphore bottleneck by replacing semaphore_gather with asyncio.gather.
-
-    Graphiti uses a global semaphore (SEMAPHORE_LIMIT) for ALL concurrent operations,
-    including both LLM calls and store queries. This was designed for LLM rate limiting,
-    but applying it to SurrealDB operations creates artificial serialization.
-    """
-    import asyncio
-    from collections.abc import Coroutine
-    from typing import Any
-
-    import graphiti_core.helpers as helpers
-
-    async def unlimited_gather[T](
-        *coroutines: Coroutine[Any, Any, T],
-    ) -> list[T]:
-        """Execute coroutines concurrently without semaphore throttling."""
-        return list(await asyncio.gather(*coroutines))
-
-    # Replace the throttled version with unlimited concurrency
-    helpers.semaphore_gather = unlimited_gather
-
-
-_patch_semaphore_gather()
-
 
 from sibyl_core.errors import GraphConnectionError  # noqa: E402
 from sibyl_core.utils.resilience import GRAPH_RETRY, TIMEOUTS, retry, with_timeout  # noqa: E402
 
 if TYPE_CHECKING:
-    from graphiti_core import Graphiti
-    from graphiti_core.driver.driver import GraphDriver
-
+    from sibyl_core.backends.surreal import SurrealDriver
     from sibyl_core.embeddings.native import (
         NativeEmbeddingMetadata,
         NativeEmbeddingProvider,
@@ -71,63 +36,39 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
-class GraphClient:
-    """Wrapper around Graphiti client for knowledge graph operations.
+@dataclass(slots=True)
+class _SurrealRuntimeClient:
+    driver: SurrealDriver
+    llm_client: object | None
+    embedder: Any
 
-    This client manages the connection to the active graph runtime and provides
-    high-level methods for graph operations.
+    async def close(self) -> None:
+        await self.driver.close()
+
+
+class GraphClient:
+    """Wrapper around the legacy graph client surface.
+
+    Default application code uses ``sibyl_core.services.graph_runtime``. This
+    class remains for legacy graph managers and compatibility tests that expect
+    a ``.client.driver`` shape.
     """
 
     def __init__(self) -> None:
         """Initialize the graph client."""
-        self._client: Graphiti | None = None
+        self._client: Any | None = None
         self._connected = False
         self._store = "surreal"
-        self._org_drivers: dict[str, GraphDriver] = {}
+        self._org_drivers: dict[str, SurrealDriver] = {}
 
-    def _create_llm_client(self) -> Any:
-        """Create the LLM client based on provider settings.
-
-        Returns:
-            Configured LLM client (MockLLMClient, AnthropicClient, or OpenAIClient).
-        """
-        # Check for mock mode first (for CI/testing without API keys)
+    def _create_llm_client(self) -> object | None:
+        """Return the retained mock LLM adapter for compatibility tests."""
         if os.getenv("SIBYL_MOCK_LLM", "").lower() in ("true", "1", "yes"):
             from sibyl_core.graph.mock_llm import MockLLMClient
 
             log.info("Using MockLLMClient (SIBYL_MOCK_LLM=true)")
             return MockLLMClient()
-
-        from graphiti_core.llm_client.config import LLMConfig
-
-        if settings.llm_provider == "anthropic":
-            from graphiti_core.llm_client.anthropic_client import AnthropicClient
-
-            # Get API key from settings or environment
-            api_key = settings.anthropic_api_key.get_secret_value()
-            if not api_key:
-                api_key = os.getenv("ANTHROPIC_API_KEY", "")
-
-            config = LLMConfig(
-                api_key=api_key,
-                model=settings.llm_model,
-            )
-            log.debug("Using Anthropic LLM client", model=settings.llm_model)
-            return AnthropicClient(config=config)
-
-        # openai
-        from graphiti_core.llm_client.openai_client import OpenAIClient
-
-        api_key = settings.openai_api_key.get_secret_value()
-        if not api_key:
-            api_key = os.getenv("OPENAI_API_KEY", "")
-
-        config = LLMConfig(
-            api_key=api_key,
-            model=settings.llm_model,
-        )
-        log.debug("Using OpenAI LLM client", model=settings.llm_model)
-        return OpenAIClient(config=config)
+        return None
 
     def _prepare_embedder_env(self) -> None:
         """Ensure provider SDKs see configured API keys."""
@@ -162,9 +103,7 @@ class GraphClient:
 
     @property
     def node_hybrid_search_config(self) -> Any:
-        from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
-
-        return NODE_HYBRID_SEARCH_RRF
+        return None
 
     def _create_embedder(self) -> Any:
         from sibyl_core.graph.gemini_embedder import (
@@ -191,7 +130,7 @@ class GraphClient:
             )
         return SibylNativeEmbedder(native_provider)
 
-    def _create_native_embedding_provider(self) -> "NativeEmbeddingProvider":
+    def _create_native_embedding_provider(self) -> NativeEmbeddingProvider:
         provider = self._graph_embedding_provider()
         model = self._graph_embedding_model()
         dimensions = self._graph_embedding_dimensions()
@@ -241,7 +180,7 @@ class GraphClient:
         provider: str,
         model: str,
         dimensions: int,
-    ) -> "NativeEmbeddingMetadata":
+    ) -> NativeEmbeddingMetadata:
         from sibyl_core.embeddings.native import NativeEmbeddingMetadata
 
         return NativeEmbeddingMetadata(
@@ -252,26 +191,9 @@ class GraphClient:
             tokenizer_estimate_method="provider-default",
         )
 
-    def _wrap_graphiti_embedder_cache(self) -> None:
-        """Wrap Graphiti's embedder with a small LRU cache."""
-        if self._client is None:
-            return
-
-        from sibyl_core.graph.cached_embedder import (
-            LegacyEmbedderClient,
-            wrap_embedder_with_cache,
-        )
-
-        self._client.embedder = wrap_embedder_with_cache(
-            cast("LegacyEmbedderClient", self._client.embedder),
-            max_size=2000,
-        )
-
     async def _connect_surreal(self) -> None:
         """Establish the SurrealDB runtime connection."""
         try:
-            from graphiti_core import Graphiti
-
             from sibyl_core.backends.surreal import SurrealDriver
 
             url = settings.resolved_surreal_url
@@ -296,7 +218,11 @@ class GraphClient:
 
             self._prepare_embedder_env()
             embedder = self._create_embedder()
-            self._client = Graphiti(graph_driver=driver, llm_client=llm_client, embedder=embedder)
+            self._client = _SurrealRuntimeClient(
+                driver=driver,
+                llm_client=llm_client,
+                embedder=embedder,
+            )
 
             self._connected = True
             self._store = "surreal"
@@ -331,8 +257,8 @@ class GraphClient:
             log.info("Disconnected from graph runtime", store=self._store)
 
     @property
-    def client(self) -> "Graphiti":
-        """Get the underlying Graphiti client.
+    def client(self) -> Any:
+        """Get the underlying runtime client.
 
         Raises:
             GraphConnectionError: If not connected.
@@ -347,7 +273,7 @@ class GraphClient:
         return self._connected
 
     @property
-    def driver(self) -> "GraphDriver":
+    def driver(self) -> SurrealDriver:
         """Get the underlying graph driver.
 
         Convenience property to access client.driver directly.
@@ -401,7 +327,7 @@ class GraphClient:
             return [result]
         return []
 
-    def get_org_driver(self, organization_id: str) -> "GraphDriver":
+    def get_org_driver(self, organization_id: str) -> SurrealDriver:
         """Get a driver cloned for a specific organization's graph.
 
         Each organization gets an isolated logical graph. The group ID becomes
@@ -532,7 +458,7 @@ class GraphClient:
         result = await driver.execute_query(query, **params)
         return self.normalize_result(result)
 
-    async def __aenter__(self) -> "GraphClient":
+    async def __aenter__(self) -> GraphClient:
         """Async context manager entry."""
         await self.connect()
         return self

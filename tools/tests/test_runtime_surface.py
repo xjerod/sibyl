@@ -248,15 +248,15 @@ def test_graphiti_exit_inventory_rejects_docs_only_default_import(tmp_path) -> N
     assert unclassified_graphiti_imports(surface, inventory_path=inventory_path) == (record,)
 
 
-def test_graphiti_exit_inventory_allows_named_compatibility_imports() -> None:
+def test_graphiti_exit_inventory_rejects_former_compatibility_imports() -> None:
     record = GraphitiImportRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/client.py",
+        path="packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/entity_node_ops.py",
         imports=("graphiti_core",),
     )
     surface = runtime_surface_with_graphiti(record)
 
-    assert graphiti_allowlist_record(record.path) is not None
-    assert default_runtime_graphiti_imports(surface) == ()
+    assert graphiti_allowlist_record(record.path) is None
+    assert default_runtime_graphiti_imports(surface) == (record,)
 
 
 def test_graphiti_exit_inventory_detects_dynamic_imports() -> None:
@@ -477,10 +477,7 @@ def test_runtime_surface_finds_known_contracts() -> None:
     assert "apps/api/src/sibyl/persistence/content_runtime.py" not in session_storage_paths
     assert "apps/api/src/sibyl/persistence/settings_runtime.py" not in session_storage_paths
     assert session_storage_paths == set()
-    assert any(
-        record.path == "packages/python/sibyl-core/src/sibyl_core/graph/client.py"
-        for record in surface.graphiti_imports
-    )
+    assert surface.graphiti_imports == ()
 
 
 def test_dependency_inventory_covers_legacy_and_target_stack() -> None:

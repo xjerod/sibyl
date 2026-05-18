@@ -262,20 +262,7 @@ def legacy_term_allowlist_records(
     return tuple(LegacyTermAllowlistRecord(path=path, owner=owner, reason=reason) for path in paths)
 
 
-GRAPHITI_COMPATIBILITY_ALLOWLIST = (
-    GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/client.py",
-        classification="compatibility",
-        owner="v0.7 Graphiti exit",
-        criteria="Native graph client replaces Graphiti construction and provider adapters.",
-    ),
-    GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*",
-        classification="compatibility",
-        owner="v0.7 Graphiti exit",
-        criteria="No default or fallback memory path constructs Graphiti or calls Graphiti model operation interfaces.",
-    ),
-)
+GRAPHITI_COMPATIBILITY_ALLOWLIST: tuple[GraphitiCompatibilityRecord, ...] = ()
 
 ARCHITECTURE_LEGACY_TERM_FILES = (
     "docs/architecture/PERMISSION_SYSTEM_AUDIT.md",

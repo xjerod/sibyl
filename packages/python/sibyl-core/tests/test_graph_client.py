@@ -3,10 +3,8 @@ from collections.abc import Sequence
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import graphiti_core
 import pytest
 
-import sibyl_core.graph.cached_embedder as cached_embedder
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.config import CoreConfig
 from sibyl_core.embeddings.native import (
@@ -74,15 +72,8 @@ async def test_connect_ignores_removed_legacy_runtime(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_connect_surreal_constructs_surreal_driver(monkeypatch) -> None:
     client = GraphClient()
-
-    class FakeGraphiti:
-        def __init__(self, *, graph_driver, llm_client, embedder):
-            self.driver = graph_driver
-            self.llm_client = llm_client
-            self.embedder = embedder
-
-        async def close(self) -> None:
-            return None
+    llm_client = object()
+    embedder = object()
 
     monkeypatch.setattr(_graph_client.settings, "surreal_url", "memory://")
     monkeypatch.setattr(_graph_client.settings, "surreal_data_dir", "")
@@ -99,21 +90,15 @@ async def test_connect_surreal_constructs_surreal_driver(monkeypatch) -> None:
         "surreal_token",
         _graph_client.settings.surreal_token,
     )
-    monkeypatch.setattr(client, "_create_llm_client", lambda: object())
-    monkeypatch.setattr(client, "_create_embedder", lambda: object())
-
-    monkeypatch.setattr(graphiti_core, "Graphiti", FakeGraphiti)
-    monkeypatch.setattr(
-        cached_embedder,
-        "wrap_embedder_with_cache",
-        lambda embedder, max_size: embedder,
-    )
-
+    monkeypatch.setattr(client, "_create_llm_client", lambda: llm_client)
+    monkeypatch.setattr(client, "_create_embedder", lambda: embedder)
     await client._connect_surreal()
 
     assert isinstance(client.driver, SurrealDriver)
     assert client.driver.namespace_prefix == "tenant_"
     assert client.driver.default_database == "graph_test"
+    assert client.client.llm_client is llm_client
+    assert client.client.embedder is embedder
     assert client.is_connected is True
 
 
@@ -450,10 +435,10 @@ async def test_org_execute_read_allows_explicit_surreal_debug_escape_hatch() -> 
 @pytest.mark.asyncio
 async def test_disconnect_closes_cached_org_drivers_once() -> None:
     client = GraphClient()
-    base_graphiti = SimpleNamespace(close=AsyncMock())
+    base_runtime = SimpleNamespace(close=AsyncMock())
     org_driver = MagicMock()
     org_driver.close = AsyncMock()
-    client._client = base_graphiti
+    client._client = base_runtime
     client._connected = True
     client._org_drivers["org-123"] = org_driver
     client._org_drivers["org-456"] = org_driver
@@ -461,5 +446,5 @@ async def test_disconnect_closes_cached_org_drivers_once() -> None:
     await client.disconnect()
 
     org_driver.close.assert_awaited_once_with()
-    base_graphiti.close.assert_awaited_once_with()
+    base_runtime.close.assert_awaited_once_with()
     assert client._org_drivers == {}

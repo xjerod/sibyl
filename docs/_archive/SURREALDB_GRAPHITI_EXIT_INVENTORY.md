@@ -31,26 +31,14 @@ Recorded on 2026-05-13 at local commit `1de0b408`.
 
 ## Coverage Rule
 
-Every generated Graphiti import path must match the code allowlist in
-`tools/inventory/runtime_surface.py` and appear as a backticked path in this document. A path that
-is only documented here still fails the inventory gate unless the code allowlist classifies it. The
-group `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*` covers the Graphiti
-operation adapter package as one named compatibility surface.
+Generated Graphiti import paths are now disallowed in supported source. The code allowlist in
+`tools/inventory/runtime_surface.py` is empty, so a source import fails the inventory gate even if
+it is documented here. This document remains the removal ledger for historical context, opt-in test
+islands, dependency cleanup, and compatibility-module deletion.
 
 ## Compatibility Allowlist
 
-These are the only retained Graphiti import surfaces. Each entry has a machine-enforced class,
-owner, and deletion or retention criterion.
-
-- `packages/python/sibyl-core/src/sibyl_core/graph/client.py`
-  - Class: `compatibility`
-  - Owner: v0.7 Graphiti exit
-  - Criteria: Native graph client replaces Graphiti construction and provider adapters.
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
-  - Class: `compatibility`
-  - Owner: v0.7 Graphiti exit
-  - Criteria: No default or fallback memory path constructs Graphiti or calls Graphiti model
-    operation interfaces.
+None. Supported source code has no Graphiti import allowlist.
 
 ## Compatibility Test Island
 
@@ -129,8 +117,9 @@ default runtime continues moving to native Surreal surfaces.
 - `reflect`: persisted reflection sources and candidates write native graph records by default. Set
   `SIBYL_NATIVE_WRITE=disabled` to use the compatibility path. Review-mode raw candidate storage
   remains the explicit review path.
-- Graphiti remains only in named compatibility, compare-mode, admin, and migration surfaces until
-  their removal conditions below are met.
+- Graphiti imports are removed from supported source; remaining work is dependency cleanup,
+  compatibility-test replacement, and deletion of legacy manager surfaces that still preserve
+  Graphiti-shaped behavior.
 - `graphiti-core` is owned by the `sibyl-core[compatibility]` extra and the core dev dependency
   group. It is not a default `sibyl-core` runtime dependency.
 
@@ -157,11 +146,13 @@ source metadata.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/client.py`
 
-- Behavior: Graphiti client construction, LLM client selection, embedder setup, and driver cloning.
-- Default-loop usage: compatibility graph client for remaining legacy write and search surfaces.
-- Status: fallback.
-- Removal condition: native graph client replaces Graphiti construction and provider adapters.
-- Owner: v0.7 Graphiti exit.
+- Behavior: legacy graph client wrapper, native Surreal driver holder, embedder setup, and driver
+  cloning.
+- Default-loop usage: none; retained for legacy graph managers and compatibility tests that expect a
+  `.client.driver` shape.
+- Status: Graphiti runtime imports removed in v0.13; legacy client surface remains.
+- Removal condition: native runtime services replace every caller of `sibyl_core.graph.client`.
+- Owner: v0.13 Graphiti runtime import deletion.
 - Verify: `moon run core:test -- tests/test_graph_client.py`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/entities.py`
@@ -199,8 +190,8 @@ source metadata.
 
 - Behavior: Surreal implementations of Graphiti node, edge, saga, community, and graph operation
   contracts.
-- Default-loop usage: compatibility substrate beneath remaining Graphiti client paths.
-- Status: retained compatibility adapter package.
+- Default-loop usage: compatibility substrate beneath remaining legacy manager paths.
+- Status: Graphiti runtime imports removed in v0.13; retained compatibility adapter package.
 - Classification: `compatibility-retain`
 - Removal condition: no default or fallback memory path constructs Graphiti or calls Graphiti model
   operation interfaces.
