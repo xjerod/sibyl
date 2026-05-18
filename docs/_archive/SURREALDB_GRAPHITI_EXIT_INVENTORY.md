@@ -42,10 +42,6 @@ operation adapter package as one named compatibility surface.
 These are the only retained Graphiti import surfaces. Each entry has a machine-enforced class,
 owner, and deletion or retention criterion.
 
-- `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py`
-  - Class: `compatibility`
-  - Owner: v0.7 Graphiti exit
-  - Criteria: Graphiti client construction is deleted and native services own graph access.
 - `packages/python/sibyl-core/src/sibyl_core/graph/client.py`
   - Class: `compatibility`
   - Owner: v0.7 Graphiti exit
@@ -158,15 +154,6 @@ source metadata.
   after native exact lookup, deduplication, and search cover graph behavior.
 - Owner: v0.7 native write adapter.
 - Verify: `moon run api:test -- tests/test_jobs_entities.py`.
-
-### `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py`
-
-- Behavior: SurrealDB driver implementing Graphiti driver contracts.
-- Default-loop usage: compatibility substrate whenever a Graphiti client is still constructed.
-- Status: retained compatibility adapter.
-- Removal condition: Graphiti client construction is deleted and native services own graph access.
-- Owner: v0.7 Graphiti exit.
-- Verify: `moon run core:test`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/client.py`
 

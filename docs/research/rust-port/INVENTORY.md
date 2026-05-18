@@ -11,7 +11,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - SQLModel tables: 0
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
-- Graphiti import files: 14
+- Graphiti import files: 13
 - Retained legacy term files: 89
 - Dependency records: 3
 
@@ -82,7 +82,6 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 ### Session-backed storage access files
 
 ### Graphiti import files
-- `packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py` — class: `compatibility`; imports: `graphiti_core.driver.driver`
 - `packages/python/sibyl-core/src/sibyl_core/graph/client.py` — class: `compatibility`; imports: `graphiti_core`, `graphiti_core.driver.driver`, `graphiti_core.helpers`, `graphiti_core.llm_client.anthropic_client`, `graphiti_core.llm_client.config`, `graphiti_core.llm_client.openai_client`, `graphiti_core.search.search_config_recipes`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/_common.py` — class: `compatibility`; imports: `graphiti_core.driver.query_executor`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/community_edge_ops.py` — class: `compatibility`; imports: `graphiti_core.driver.operations.community_edge_ops`, `graphiti_core.driver.query_executor`, `graphiti_core.edges`, `graphiti_core.errors`, `graphiti_core.helpers`

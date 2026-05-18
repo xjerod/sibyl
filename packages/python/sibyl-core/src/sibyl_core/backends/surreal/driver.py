@@ -1,4 +1,4 @@
-"""SurrealDB implementation of Graphiti's GraphDriver interface.
+"""SurrealDB implementation of the Graphiti-compatible driver surface.
 
 Each organization's knowledge graph lives in its own SurrealDB namespace
 (``org_{hex_uuid}``) under database ``graph``. ``clone(group_id)`` returns a
@@ -18,11 +18,10 @@ Transaction model:
     ships with the permissive embedded behavior.
 
 Provider tag:
-    Graphiti's ``GraphProvider`` enum does not yet include a SurrealDB
-    variant. We reuse ``NEO4J`` as the closest semantic neighbor (openCypher
-    family, property-graph model). Sibyl's custom operations interfaces
-    intercept save/delete dispatch before any provider-specific Cypher is
-    emitted, so the tag only affects fallback paths we override.
+    The compatibility surface reuses a Neo4j-shaped provider tag as the closest
+    semantic neighbor (openCypher family, property-graph model). Sibyl's custom
+    operations interfaces intercept save/delete dispatch before provider-specific
+    Cypher is emitted, so the tag only affects fallback paths we override.
 """
 
 from __future__ import annotations
@@ -30,15 +29,12 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+import sys
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
+from enum import Enum
 from functools import cached_property
 from typing import Any, Concatenate, Literal, ParamSpec, TypeVar, cast
-
-from graphiti_core.driver.driver import (
-    GraphDriver,
-    GraphDriverSession,
-    GraphProvider,
-)
 
 from sibyl_core.backends.surreal.connection import _can_retry_query, _is_transient_connection_error
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
@@ -47,8 +43,15 @@ from sibyl_core.backends.surreal.protocols import QueryParams, SurrealClient
 
 logger = logging.getLogger(__name__)
 
-# See module docstring "Provider tag" for rationale.
-_SURREAL_PROVIDER_TAG: GraphProvider = GraphProvider.NEO4J
+
+class GraphProvider(Enum):
+    NEO4J = "neo4j"
+    FALKORDB = "falkordb"
+    KUZU = "kuzu"
+    NEPTUNE = "neptune"
+
+
+_SURREAL_PROVIDER_TAG = GraphProvider.NEO4J
 _MAX_CLOSED_CONNECTION_RETRIES = 2
 _EDGE_FULLTEXT_MATCH_HEADROOM = 8
 _EDGE_FULLTEXT_MIN_MATCH_LIMIT = 32
@@ -69,6 +72,18 @@ def _object_mapping(value: object) -> Mapping[object, object] | None:
     if not isinstance(value, Mapping):
         return None
     return cast(Mapping[object, object], value)
+
+
+def _register_graphiti_virtual_subclass(driver_cls: type[Any]) -> None:
+    module = sys.modules.get("graphiti_core.driver.driver")
+    graph_driver_cls = getattr(module, "GraphDriver", None)
+    register = getattr(graph_driver_cls, "register", None)
+    if callable(register):
+        register(driver_cls)
+    graph_provider_cls = getattr(module, "GraphProvider", None)
+    graphiti_neo4j = getattr(graph_provider_cls, "NEO4J", None)
+    if graphiti_neo4j is not None:
+        driver_cls.provider = graphiti_neo4j
 
 
 def _raise_if_surreal_error(query: str, result: object) -> None:
@@ -597,8 +612,16 @@ async def _execute_graphiti_edge_fulltext_query(
     return records[: _limit_from_param(params.get("limit"))]
 
 
-class SurrealDriverSession(GraphDriverSession):
-    """GraphDriverSession wrapper for SurrealDB.
+class _SessionTransaction:
+    def __init__(self, session: SurrealDriverSession) -> None:
+        self._session = session
+
+    async def run(self, query: str, **kwargs: object) -> object:
+        return await self._session.run(query, **kwargs)
+
+
+class SurrealDriverSession:
+    """Session wrapper for SurrealDB Graphiti compatibility.
 
     The session delegates to the owning driver's client and provides the
     async context manager interface Graphiti expects. Closing the session
@@ -606,10 +629,13 @@ class SurrealDriverSession(GraphDriverSession):
     driver lifecycle).
     """
 
-    provider: GraphProvider = _SURREAL_PROVIDER_TAG
+    provider = _SURREAL_PROVIDER_TAG
 
     def __init__(self, driver: SurrealDriver) -> None:
         self._driver = driver
+
+    async def __aenter__(self) -> SurrealDriverSession:
+        return self
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         await self.close()
@@ -629,11 +655,14 @@ class SurrealDriverSession(GraphDriverSession):
         return await func(self, *args, **kwargs)
 
 
-class SurrealDriver(GraphDriver):
-    """Graphiti ``GraphDriver`` backed by SurrealDB."""
+class SurrealDriver:
+    """Graphiti-compatible SurrealDB graph driver."""
 
-    provider: GraphProvider = _SURREAL_PROVIDER_TAG
+    provider = _SURREAL_PROVIDER_TAG
     fulltext_syntax: str = ""
+    default_group_id: str = ""
+    search_interface: Any | None = None
+    graph_operations_interface: Any | None = None
 
     def __init__(
         self,
@@ -645,6 +674,7 @@ class SurrealDriver(GraphDriver):
         namespace_prefix: str = "org_",
         default_database: str = "graph",
     ) -> None:
+        _register_graphiti_virtual_subclass(type(self))
         self._url = url
         self._username = username
         self._password = password
@@ -934,7 +964,7 @@ class SurrealDriver(GraphDriver):
             return _graphiti_records(result), None, None
         return result
 
-    def session(self, database: str | None = None) -> GraphDriverSession:
+    def session(self, database: str | None = None) -> SurrealDriverSession:
         if database is not None and database != self._database:
             return self.clone(database).session()
         return SurrealDriverSession(self)
@@ -952,6 +982,17 @@ class SurrealDriver(GraphDriver):
         cloned._client = None
         cloned._query_lock = asyncio.Lock()
         return cloned
+
+    def with_database(self, database: str) -> SurrealDriver:
+        return self.clone(database)
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[_SessionTransaction]:
+        session = self.session()
+        try:
+            yield _SessionTransaction(session)
+        finally:
+            await session.close()
 
     async def delete_all_indexes(self) -> None:
         from sibyl_core.backends.surreal.schema import drop_all_indexes

@@ -264,12 +264,6 @@ def legacy_term_allowlist_records(
 
 GRAPHITI_COMPATIBILITY_ALLOWLIST = (
     GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py",
-        classification="compatibility",
-        owner="v0.7 Graphiti exit",
-        criteria="Graphiti client construction is deleted and native services own graph access.",
-    ),
-    GraphitiCompatibilityRecord(
         path="packages/python/sibyl-core/src/sibyl_core/graph/client.py",
         classification="compatibility",
         owner="v0.7 Graphiti exit",
