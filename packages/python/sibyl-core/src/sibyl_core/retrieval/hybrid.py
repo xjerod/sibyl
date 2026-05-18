@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 import structlog
 
@@ -18,10 +18,6 @@ from sibyl_core.models.entities import Entity
 from sibyl_core.retrieval.fusion import rrf_merge, rrf_merge_with_metadata
 from sibyl_core.retrieval.temporal import temporal_boost
 from sibyl_core.utils.log_safety import query_log_fields
-
-if TYPE_CHECKING:
-    from sibyl_core.graph.client import GraphClient
-    from sibyl_core.graph.entities import EntityManager
 
 log = structlog.get_logger()
 
@@ -35,7 +31,7 @@ def _require_group_id(group_id: str | None, operation: str) -> str:
     return str(group_id)
 
 
-def _resolve_group_id(entity_manager: EntityManager, group_id: str | None) -> str:
+def _resolve_group_id(entity_manager: Any, group_id: str | None) -> str:
     """Resolve the organization scope for hybrid retrieval.
 
     Hybrid retrieval traverses the graph directly, so it must never fall back
@@ -106,7 +102,7 @@ class _VectorSearchAttempt:
 
 async def _vector_search_attempt(
     query: str,
-    entity_manager: EntityManager,
+    entity_manager: Any,
     entity_types: list[Any] | None = None,
     limit: int = 20,
 ) -> _VectorSearchAttempt:
@@ -125,7 +121,7 @@ async def _vector_search_attempt(
 
 async def vector_search(
     query: str,
-    entity_manager: EntityManager,
+    entity_manager: Any,
     entity_types: list[Any] | None = None,
     limit: int = 20,
 ) -> list[tuple[Any, float]]:
@@ -152,7 +148,7 @@ async def vector_search(
 
 async def graph_traversal(
     seed_ids: list[str],
-    client: GraphClient,
+    client: Any,
     depth: int = 2,
     limit: int = 20,
     group_id: str | None = None,
@@ -191,22 +187,21 @@ async def graph_traversal(
 
 async def _graph_traversal_via_relationship_manager(
     seed_ids: list[str],
-    client: GraphClient,
+    client: Any,
     *,
     depth: int,
     limit: int,
     group_id: str,
 ) -> list[tuple[Entity, float]]:
-    from sibyl_core.services.native_graph import NativeSurrealGraphClient
+    from sibyl_core.services.native_graph import (
+        NativeRelationshipManager,
+        NativeSurrealGraphClient,
+    )
 
-    if isinstance(client, NativeSurrealGraphClient):
-        from sibyl_core.services.native_graph import NativeRelationshipManager
+    if not isinstance(client, NativeSurrealGraphClient):
+        raise RuntimeError("Graph traversal requires a native graph client")
 
-        relationship_manager = NativeRelationshipManager(client, group_id=group_id)
-    else:
-        from sibyl_core.graph.relationships import RelationshipManager
-
-        relationship_manager = RelationshipManager(client, group_id=group_id)
+    relationship_manager = NativeRelationshipManager(client, group_id=group_id)
 
     seed_id_set = {seed_id for seed_id in seed_ids if seed_id}
     frontier = [seed_id for seed_id in seed_ids if seed_id]
@@ -272,8 +267,8 @@ async def _graph_traversal_via_relationship_manager(
 
 async def hybrid_search(
     query: str,
-    client: GraphClient,
-    entity_manager: EntityManager,
+    client: Any,
+    entity_manager: Any,
     entity_types: list[Any] | None = None,
     limit: int = 10,
     config: HybridConfig | None = None,
@@ -443,7 +438,7 @@ async def hybrid_search(
 
 async def simple_hybrid_search(
     query: str,
-    entity_manager: EntityManager,
+    entity_manager: Any,
     entity_types: list[Any] | None = None,
     limit: int = 10,
     apply_temporal: bool = True,

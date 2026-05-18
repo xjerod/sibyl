@@ -11,15 +11,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 from uuid import uuid4
 
 import numpy as np
 import structlog
-
-if TYPE_CHECKING:
-    from sibyl_core.graph.client import GraphClient
-    from sibyl_core.graph.entities import EntityManager
 
 log = structlog.get_logger()
 
@@ -144,8 +140,8 @@ class EntityDeduplicator:
         await dedup.merge_entities(keep_id="id1", remove_id="id2")
     """
 
-    client: GraphClient
-    entity_manager: EntityManager
+    client: Any
+    entity_manager: Any
     config: DedupConfig = field(default_factory=DedupConfig)
 
     # Internal state
@@ -425,12 +421,10 @@ class EntityDeduplicator:
             NativeSurrealGraphClient,
         )
 
-        if isinstance(self.client, NativeSurrealGraphClient):
-            return NativeRelationshipManager(self.client, group_id=self._require_group_id())
+        if not isinstance(self.client, NativeSurrealGraphClient):
+            raise RuntimeError("Entity deduplication requires a native graph client")
 
-        from sibyl_core.graph.relationships import RelationshipManager
-
-        return RelationshipManager(self.client, group_id=self._require_group_id())
+        return NativeRelationshipManager(self.client, group_id=self._require_group_id())
 
     async def _redirect_relationships_via_manager(
         self,
@@ -508,8 +502,8 @@ _deduplicator: EntityDeduplicator | None = None
 
 
 def get_deduplicator(
-    client: GraphClient,
-    entity_manager: EntityManager,
+    client: Any,
+    entity_manager: Any,
     config: DedupConfig | None = None,
 ) -> EntityDeduplicator:
     """Get or create a global deduplicator instance."""
@@ -524,8 +518,8 @@ def get_deduplicator(
 
 
 async def find_duplicates(
-    client: GraphClient,
-    entity_manager: EntityManager,
+    client: Any,
+    entity_manager: Any,
     threshold: float = 0.95,
     entity_types: list[str] | None = None,
 ) -> list[DuplicatePair]:
