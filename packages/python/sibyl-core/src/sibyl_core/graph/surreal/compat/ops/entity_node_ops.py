@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 
-from graphiti_core.driver.record_parsers import entity_node_from_record
 from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import EntityNode
 
@@ -22,6 +21,7 @@ from sibyl_core.graph.surreal.compat.ops._common import (
     build_node_upsert_query,
     normalize_embedding,
     normalize_records,
+    parse_db_date,
     run_query,
 )
 
@@ -89,6 +89,46 @@ def _string_list_or_none(value: object) -> list[str] | None:
     if not isinstance(value, list | tuple | set):
         return None
     return [str(item) for item in value if item is not None]
+
+
+def entity_node_from_record(record: SurrealRecord) -> EntityNode:
+    raw_attributes = record["attributes"]
+    attributes = (
+        {str(key): value for key, value in raw_attributes.items()}
+        if isinstance(raw_attributes, dict)
+        else {}
+    )
+    for key in (
+        "uuid",
+        "name",
+        "group_id",
+        "name_embedding",
+        "summary",
+        "created_at",
+        "labels",
+    ):
+        attributes.pop(key, None)
+
+    raw_labels = record.get("labels", [])
+    labels = [str(label) for label in raw_labels] if isinstance(raw_labels, list) else []
+    group_id = record.get("group_id")
+    if isinstance(group_id, str):
+        dynamic_label = "Entity_" + group_id.replace("-", "")
+        if dynamic_label in labels:
+            labels.remove(dynamic_label)
+
+    return EntityNode.model_validate(
+        {
+            "uuid": record["uuid"],
+            "name": record["name"],
+            "name_embedding": record.get("name_embedding"),
+            "group_id": group_id,
+            "labels": labels,
+            "created_at": parse_db_date(record["created_at"]),
+            "summary": record["summary"],
+            "attributes": attributes,
+        }
+    )
 
 
 def _entity_save_payload(node: EntityNode) -> SurrealRecord:

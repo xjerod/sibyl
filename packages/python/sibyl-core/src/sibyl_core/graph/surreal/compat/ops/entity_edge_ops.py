@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 
-from graphiti_core.driver.record_parsers import entity_edge_from_record
 from graphiti_core.edges import EntityEdge
 from graphiti_core.errors import EdgeNotFoundError
 
@@ -22,6 +21,7 @@ from sibyl_core.graph.surreal.compat.ops._common import (
     build_relation_save_query,
     normalize_embedding,
     normalize_records,
+    parse_db_date,
     relation_record_id,
     resolve_record_id,
     run_query,
@@ -76,6 +76,50 @@ def _entity_edge_save_payload(edge: EntityEdge) -> SurrealRecord:
         "valid_at": edge.valid_at,
         "invalid_at": edge.invalid_at,
     }
+
+
+def entity_edge_from_record(record: SurrealRecord) -> EntityEdge:
+    raw_attributes = record["attributes"]
+    attributes = (
+        {str(key): value for key, value in raw_attributes.items()}
+        if isinstance(raw_attributes, dict)
+        else {}
+    )
+    for key in (
+        "uuid",
+        "source_node_uuid",
+        "target_node_uuid",
+        "fact",
+        "fact_embedding",
+        "name",
+        "group_id",
+        "episodes",
+        "created_at",
+        "expired_at",
+        "valid_at",
+        "invalid_at",
+        "reference_time",
+    ):
+        attributes.pop(key, None)
+
+    return EntityEdge.model_validate(
+        {
+            "uuid": record["uuid"],
+            "source_node_uuid": record["source_node_uuid"],
+            "target_node_uuid": record["target_node_uuid"],
+            "fact": record["fact"],
+            "fact_embedding": record.get("fact_embedding"),
+            "name": record["name"],
+            "group_id": record["group_id"],
+            "episodes": record["episodes"],
+            "created_at": parse_db_date(record["created_at"]),
+            "expired_at": parse_db_date(record["expired_at"]),
+            "valid_at": parse_db_date(record["valid_at"]),
+            "invalid_at": parse_db_date(record["invalid_at"]),
+            "reference_time": parse_db_date(record.get("reference_time")),
+            "attributes": attributes,
+        }
+    )
 
 
 class SurrealEntityEdgeOperations:

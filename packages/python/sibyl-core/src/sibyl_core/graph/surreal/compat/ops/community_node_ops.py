@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 
-from graphiti_core.driver.record_parsers import community_node_from_record
 from graphiti_core.errors import NodeNotFoundError
 from graphiti_core.nodes import CommunityNode
 
@@ -20,6 +19,7 @@ from sibyl_core.graph.surreal.compat.ops._common import (
     build_node_bulk_upsert_query,
     build_node_upsert_query,
     normalize_records,
+    parse_db_date,
     run_query,
 )
 
@@ -54,12 +54,25 @@ _COMMUNITY_SAVE_BULK = build_node_bulk_upsert_query(
 def _ensure_community_fields(record: SurrealRecord) -> SurrealRecord:
     """Backfill option<> fields SurrealDB omits when they are NONE.
 
-    ``community_node_from_record`` uses strict ``record['name_embedding']``
-    indexing, but SurrealDB drops unset option fields from SELECT output.
+    The compat parser uses strict ``record['name_embedding']`` indexing, but
+    SurrealDB drops unset option fields from SELECT output.
     """
     record.setdefault("name_embedding", None)
     record.setdefault("summary", "")
     return record
+
+
+def community_node_from_record(record: SurrealRecord) -> CommunityNode:
+    return CommunityNode.model_validate(
+        {
+            "uuid": record["uuid"],
+            "name": record["name"],
+            "group_id": record["group_id"],
+            "name_embedding": record["name_embedding"],
+            "created_at": parse_db_date(record["created_at"]),
+            "summary": record["summary"],
+        }
+    )
 
 
 def _community_save_payload(node: CommunityNode) -> SurrealRecord:

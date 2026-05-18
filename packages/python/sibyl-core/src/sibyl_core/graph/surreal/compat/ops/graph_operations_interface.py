@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from graphiti_core.driver.record_parsers import episodic_node_from_record
 from graphiti_core.edges import (
     CommunityEdge,
     EntityEdge,
@@ -16,6 +15,7 @@ from graphiti_core.edges import (
 from graphiti_core.nodes import CommunityNode, EntityNode, EpisodeType, EpisodicNode, SagaNode
 
 from sibyl_core.graph.surreal.compat.ops._common import SurrealRecord, normalize_records
+from sibyl_core.graph.surreal.compat.ops.episode_node_ops import episodic_node_from_record
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.driver import SurrealDriver

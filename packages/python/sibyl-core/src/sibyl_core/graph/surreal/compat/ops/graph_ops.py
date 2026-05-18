@@ -21,15 +21,13 @@ from __future__ import annotations
 import logging
 
 from graphiti_core.driver.operations.graph_utils import Neighbor, label_propagation
-from graphiti_core.driver.record_parsers import (
-    community_node_from_record,
-    entity_node_from_record,
-)
 from graphiti_core.nodes import CommunityNode, EntityNode, EpisodicNode
 
 from sibyl_core.backends.surreal.driver import SurrealDriver
 from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
 from sibyl_core.graph.surreal.compat.ops._common import QueryExecutor, normalize_records
+from sibyl_core.graph.surreal.compat.ops.community_node_ops import community_node_from_record
+from sibyl_core.graph.surreal.compat.ops.entity_node_ops import entity_node_from_record
 
 logger = logging.getLogger(__name__)
 
@@ -249,8 +247,8 @@ class SurrealGraphMaintenanceOperations:
         )
         for row in community_rows:
             # SurrealDB elides option<> fields when NONE; Graphiti's
-            # community_node_from_record keys off record['name_embedding']
-            # and record['summary'] directly, so backfill the misses.
+            # community-node shape keys off record['name_embedding'] and
+            # record['summary'] directly, so backfill the misses.
             row.setdefault("name_embedding", None)
             row.setdefault("summary", None)
         return [community_node_from_record(r) for r in community_rows]

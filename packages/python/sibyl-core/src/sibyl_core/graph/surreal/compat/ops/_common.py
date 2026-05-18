@@ -132,9 +132,8 @@ def normalize_record(record: object) -> SurrealRecord | None:
         return None
     out = {str(key): value for key, value in record.items()}
     out.pop("id", None)
-    # Graphiti's entity_node_from_record mutates attributes in place, so we
-    # always return a fresh mutable dict. Missing optional fields default
-    # to the right empty value.
+    # The compat entity parsers expect attributes to be dict-shaped. Missing
+    # optional fields default to the right empty value.
     if "attributes" not in out or out["attributes"] is None:
         out["attributes"] = {}
     if "labels" not in out or out["labels"] is None:

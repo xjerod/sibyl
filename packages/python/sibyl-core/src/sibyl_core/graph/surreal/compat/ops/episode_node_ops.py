@@ -10,9 +10,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from graphiti_core.driver.record_parsers import episodic_node_from_record
 from graphiti_core.errors import NodeNotFoundError
-from graphiti_core.nodes import EpisodicNode
+from graphiti_core.nodes import EpisodeType, EpisodicNode
 
 from sibyl_core.graph.surreal.compat.ops._common import (
     QueryExecutor,
@@ -21,6 +20,7 @@ from sibyl_core.graph.surreal.compat.ops._common import (
     build_node_bulk_upsert_query,
     build_node_upsert_query,
     normalize_records,
+    parse_db_date,
     run_query,
 )
 
@@ -61,13 +61,37 @@ _EPISODE_SAVE_BULK = build_node_bulk_upsert_query(
 def _ensure_episode_fields(record: SurrealRecord) -> SurrealRecord:
     """Backfill option<> fields SurrealDB omits when they are NONE.
 
-    ``episodic_node_from_record`` uses strict indexing; any missing
-    option<> field would raise KeyError before hitting the None check.
+    The compat parser uses strict indexing; any missing option<> field would
+    raise KeyError before hitting the None check.
     """
     record.setdefault("source_description", None)
     record.setdefault("valid_at", None)
     record.setdefault("entity_edges", [])
     return record
+
+
+def episodic_node_from_record(record: SurrealRecord) -> EpisodicNode:
+    created_at = parse_db_date(record["created_at"])
+    valid_at = parse_db_date(record["valid_at"])
+
+    if created_at is None:
+        raise ValueError(f"created_at cannot be None for episode {record.get('uuid', 'unknown')}")
+    if valid_at is None:
+        raise ValueError(f"valid_at cannot be None for episode {record.get('uuid', 'unknown')}")
+
+    return EpisodicNode.model_validate(
+        {
+            "content": record["content"],
+            "created_at": created_at,
+            "valid_at": valid_at,
+            "uuid": record["uuid"],
+            "group_id": record["group_id"],
+            "source": EpisodeType.from_str(str(record["source"])),
+            "name": record["name"],
+            "source_description": record["source_description"],
+            "entity_edges": record["entity_edges"],
+        }
+    )
 
 
 def _episode_save_payload(node: EpisodicNode) -> SurrealRecord:
