@@ -11,7 +11,6 @@ DEPRECATION NOTICE:
 
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from importlib import import_module
 from typing import Any
 
 import structlog
@@ -109,18 +108,8 @@ async def get_graph_runtime(group_id: str) -> ManageGraphRuntime:
 
     client = await get_graph_client(str(group_id))
 
-    entity_manager_factory = EntityManager
-    if entity_manager_factory is _compat_entity_manager:
-        entity_manager_factory = import_module("sibyl_core.graph.entities").EntityManager
-
-    relationship_manager_factory = RelationshipManager
-    if relationship_manager_factory is _compat_relationship_manager:
-        relationship_manager_factory = import_module(
-            "sibyl_core.graph.relationships"
-        ).RelationshipManager
-
-    entity_manager = entity_manager_factory(client, group_id=str(group_id))
-    relationship_manager = relationship_manager_factory(client, group_id=str(group_id))
+    entity_manager = EntityManager(client, group_id=str(group_id))
+    relationship_manager = RelationshipManager(client, group_id=str(group_id))
 
     return ManageGraphRuntime(
         client=client,
