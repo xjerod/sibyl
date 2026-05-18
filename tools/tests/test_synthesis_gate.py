@@ -70,6 +70,9 @@ def test_run_gate_prints_release_receipt(capsys: pytest.CaptureFixture[str]) -> 
     assert "status: PASS" in captured.out
     assert "source ids per section" in captured.out
     assert "hidden-scope absence" in captured.out
+    assert "redaction handling" in captured.out
+    assert "freshness gaps" in captured.out
+    assert "correction impact" in captured.out
     assert "unresolved-gap reporting" in captured.out
     assert "artifact provenance" in captured.out
 

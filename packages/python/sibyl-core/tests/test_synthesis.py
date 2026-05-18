@@ -234,9 +234,7 @@ async def test_plan_synthesis_uses_entity_ids_and_graph_neighborhoods() -> None:
         related_fn=fake_related,
     )
 
-    all_source_ids = {
-        source_id for pack in run.source_packs for source_id in pack.source_ids
-    }
+    all_source_ids = {source_id for pack in run.source_packs for source_id in pack.source_ids}
     assert related_calls == ["decision:root"]
     assert "decision:root" in all_source_ids
     assert "task:neighbor" in all_source_ids
@@ -481,6 +479,118 @@ async def test_materialize_synthesis_section_packs_hides_private_sources_by_prin
 
 
 @pytest.mark.asyncio
+async def test_materialize_synthesis_section_packs_omits_corrected_sources() -> None:
+    async def fake_search(**kwargs: Any) -> SearchResponse:
+        return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
+
+    run = await plan_synthesis(
+        SynthesisRequest(
+            goal="Write corrected-source report",
+            required_sections=[SynthesisSectionRequest(title="Evidence")],
+        ),
+        organization_id="org-123",
+        search_fn=fake_search,
+        related_fn=_empty_related,
+    )
+
+    async def fake_context(**kwargs: Any) -> ContextPack:
+        return ContextPack(
+            goal=kwargs["goal"],
+            intent=ContextIntent.RESEARCH,
+            query=kwargs["goal"],
+            domain=None,
+            project=None,
+            sections=[
+                ContextSection(
+                    facet=ContextFacet.RECENT_MEMORY,
+                    title="Recent Memory",
+                    items=[
+                        ContextItem(
+                            id="raw_memory:current",
+                            type="raw_memory",
+                            name="Current source",
+                            content="Current source text.",
+                            score=0.9,
+                            facet=ContextFacet.RECENT_MEMORY,
+                            reason="current source",
+                            source="source:current",
+                            quality=ContextItemQualityMetadata(updated_at="2026-05-16T12:00:00Z"),
+                            metadata={"source_id": "source:current"},
+                        ),
+                        ContextItem(
+                            id="raw_memory:stale",
+                            type="raw_memory",
+                            name="Stale source",
+                            content="Stale correction text must not leak.",
+                            score=0.89,
+                            facet=ContextFacet.RECENT_MEMORY,
+                            reason="stale source",
+                            source="source:stale",
+                            metadata={
+                                "source_id": "source:stale",
+                                "lifecycle_state": "stale",
+                            },
+                        ),
+                        ContextItem(
+                            id="raw_memory:superseded",
+                            type="raw_memory",
+                            name="Superseded source",
+                            content="Superseded correction text must not leak.",
+                            score=0.88,
+                            facet=ContextFacet.RECENT_MEMORY,
+                            reason="superseded source",
+                            source="source:superseded",
+                            metadata={
+                                "source_id": "source:superseded",
+                                "superseded_by_source_id": "source:current",
+                            },
+                        ),
+                        ContextItem(
+                            id="raw_memory:duplicate",
+                            type="raw_memory",
+                            name="Duplicate source",
+                            content="Duplicate correction text must not leak.",
+                            score=0.87,
+                            facet=ContextFacet.RECENT_MEMORY,
+                            reason="duplicate source",
+                            source="source:duplicate",
+                            metadata={
+                                "source_id": "source:duplicate",
+                                "duplicate_of_source_id": "source:current",
+                            },
+                        ),
+                    ],
+                )
+            ],
+            total_items=4,
+        )
+
+    materialized = await materialize_synthesis_section_packs(
+        run,
+        organization_id="org-123",
+        principal_id="user-123",
+        context_fn=fake_context,
+    )
+    artifact = draft_synthesis_artifact(materialized)
+    pack = materialized.source_packs[0]
+
+    assert pack.source_ids == ["source:current"]
+    assert pack.correction_count == 3
+    assert pack.correction_reasons == {
+        "duplicate_of_source_id": 1,
+        "lifecycle_stale": 1,
+        "superseded_by_source_id": 1,
+    }
+    assert artifact.verification.status is SynthesisVerificationStatus.PASS
+    assert "Current source text. [source:current]" in artifact.markdown
+    assert "Corrected sources omitted: 3" in artifact.markdown
+    assert "Stale correction text" not in artifact.markdown
+    assert "Superseded correction text" not in artifact.markdown
+    assert "Duplicate correction text" not in artifact.markdown
+    assert artifact.json_payload["sections"][0]["correction_count"] == 3
+
+
+@pytest.mark.asyncio
 async def test_draft_synthesis_artifact_renders_citable_markdown_and_json() -> None:
     async def fake_search(**kwargs: Any) -> SearchResponse:
         return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
@@ -661,9 +771,7 @@ async def test_remember_synthesis_artifact_persists_source_link_metadata() -> No
                             facet=ContextFacet.ARTIFACTS,
                             reason="allowed source",
                             source="source:allowed",
-                            quality=ContextItemQualityMetadata(
-                                updated_at="2026-05-14T12:00:00Z"
-                            ),
+                            quality=ContextItemQualityMetadata(updated_at="2026-05-14T12:00:00Z"),
                             metadata={"source_id": "source:allowed"},
                         )
                     ],

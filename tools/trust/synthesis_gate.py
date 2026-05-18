@@ -47,6 +47,9 @@ GATE_CHECKS: tuple[GateCheck, ...] = (
         surfaces=(
             "source ids per section",
             "hidden-scope absence",
+            "redaction handling",
+            "freshness gaps",
+            "correction impact",
             "unresolved-gap reporting",
             "artifact provenance",
         ),
@@ -68,6 +71,9 @@ GATE_CHECKS: tuple[GateCheck, ...] = (
 REQUIRED_SURFACES: tuple[str, ...] = (
     "source ids per section",
     "hidden-scope absence",
+    "redaction handling",
+    "freshness gaps",
+    "correction impact",
     "unresolved-gap reporting",
     "artifact provenance",
     "remember provenance",

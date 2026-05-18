@@ -120,6 +120,8 @@ class SynthesisSourcePack:
     sources: list[SynthesisSourceReference] = field(default_factory=list)
     hidden_count: int = 0
     redaction_count: int = 0
+    correction_count: int = 0
+    correction_reasons: dict[str, int] = field(default_factory=dict)
     freshness: dict[str, str | None] = field(default_factory=dict)
     unresolved_claims: list[str] = field(default_factory=list)
 

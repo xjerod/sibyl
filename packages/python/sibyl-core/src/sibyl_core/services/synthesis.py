@@ -103,6 +103,12 @@ SOURCE_ABSENCE_GAP_REASONS = {
     "no_materialized_sources",
     "no_citable_sources",
 }
+CORRECTED_LIFECYCLE_STATES = {
+    "duplicate",
+    "stale",
+    "superseded",
+    "wrong",
+}
 
 
 async def default_search(**kwargs: Any) -> SearchResponse:
@@ -415,6 +421,19 @@ def _context_item_is_hidden(lifecycle_state: str | None) -> bool:
     return lifecycle_state in {"deleted", "hidden"}
 
 
+def _context_item_correction_reason(
+    metadata: dict[str, Any],
+    lifecycle_state: str | None,
+) -> str | None:
+    if lifecycle_state in CORRECTED_LIFECYCLE_STATES:
+        return f"lifecycle_{lifecycle_state}"
+    if metadata.get("superseded_by_source_id"):
+        return "superseded_by_source_id"
+    if metadata.get("duplicate_of_source_id"):
+        return "duplicate_of_source_id"
+    return None
+
+
 def _context_item_allowed_for_render(
     *,
     metadata: dict[str, Any],
@@ -434,8 +453,7 @@ def _context_item_allowed_for_render(
         decision = authorize_memory_read(
             principal_id=principal_id,
             memory_scope=memory_scope_value,
-            scope_key=str(metadata.get("scope_key") or project_id or "")
-            or None,
+            scope_key=str(metadata.get("scope_key") or project_id or "") or None,
             project_id=project_id,
             accessible_projects=accessible_projects,
         )
@@ -486,6 +504,8 @@ async def materialize_synthesis_section_packs(
         unresolved_claims: list[str] = []
         hidden_count = 0
         redaction_count = 0
+        correction_count = 0
+        correction_reasons: dict[str, int] = {}
         seen_source_ids: set[str] = set()
         for item in pack.items:
             source_id = context_item_source_id(item)
@@ -499,6 +519,12 @@ async def materialize_synthesis_section_packs(
                 accessible_projects=accessible_projects,
             ):
                 hidden_count += 1
+                continue
+            if correction_reason := _context_item_correction_reason(metadata, lifecycle_state):
+                correction_count += 1
+                correction_reasons[correction_reason] = (
+                    correction_reasons.get(correction_reason, 0) + 1
+                )
                 continue
             redacted = _context_item_is_redacted(metadata, lifecycle_state)
             if redacted:
@@ -541,15 +567,9 @@ async def materialize_synthesis_section_packs(
         source_ids = [source.id for source in sources]
         section_gaps = [
             *section.gaps,
-            *[
-                gap
-                for gap in materialization_gaps
-                if gap.section_id == section.section_id
-            ],
+            *[gap for gap in materialization_gaps if gap.section_id == section.section_id],
         ]
-        outline_sections.append(
-            replace(section, source_ids=source_ids, gaps=section_gaps)
-        )
+        outline_sections.append(replace(section, source_ids=source_ids, gaps=section_gaps))
         materialized_packs.append(
             SynthesisSourcePack(
                 section_id=section.section_id,
@@ -559,6 +579,8 @@ async def materialize_synthesis_section_packs(
                 sources=sources,
                 hidden_count=hidden_count,
                 redaction_count=redaction_count,
+                correction_count=correction_count,
+                correction_reasons=correction_reasons,
                 freshness=freshness,
                 unresolved_claims=list(dict.fromkeys(unresolved_claims)),
             )
@@ -566,12 +588,10 @@ async def materialize_synthesis_section_packs(
 
     gaps = [*run.verification.gaps, *materialization_gaps]
     verification = SynthesisVerification(
-        status=(
-            SynthesisVerificationStatus.GAPS
-            if gaps
-            else run.verification.status
+        status=(SynthesisVerificationStatus.GAPS if gaps else run.verification.status),
+        source_count=len(
+            {source_id for pack in materialized_packs for source_id in pack.source_ids}
         ),
-        source_count=len({source_id for pack in materialized_packs for source_id in pack.source_ids}),
         gap_count=len(gaps),
         gaps=gaps,
     )
@@ -614,16 +634,11 @@ def _dedupe_gaps(gaps: Iterable[SynthesisGap]) -> list[SynthesisGap]:
 
 
 def verify_synthesis_run(run: SynthesisRun) -> SynthesisVerification:
-    sourceful_sections = {
-        pack.section_id for pack in run.source_packs if pack.source_ids
-    }
+    sourceful_sections = {pack.section_id for pack in run.source_packs if pack.source_ids}
     gaps: list[SynthesisGap] = [
         gap
         for gap in run.verification.gaps
-        if not (
-            gap.section_id in sourceful_sections
-            and gap.reason in SOURCE_ABSENCE_GAP_REASONS
-        )
+        if not (gap.section_id in sourceful_sections and gap.reason in SOURCE_ABSENCE_GAP_REASONS)
     ]
     for pack in run.source_packs:
         if not pack.source_ids:
@@ -636,9 +651,7 @@ def verify_synthesis_run(run: SynthesisRun) -> SynthesisVerification:
             )
             continue
         missing_freshness = [
-            source_id
-            for source_id in pack.source_ids
-            if not pack.freshness.get(source_id)
+            source_id for source_id in pack.source_ids if not pack.freshness.get(source_id)
         ]
         if missing_freshness:
             gaps.append(
@@ -661,9 +674,7 @@ def verify_synthesis_run(run: SynthesisRun) -> SynthesisVerification:
     deduped_gaps = _dedupe_gaps(gaps)
     return SynthesisVerification(
         status=(
-            SynthesisVerificationStatus.GAPS
-            if deduped_gaps
-            else SynthesisVerificationStatus.PASS
+            SynthesisVerificationStatus.GAPS if deduped_gaps else SynthesisVerificationStatus.PASS
         ),
         source_count=len(source_ids),
         gap_count=len(deduped_gaps),
@@ -708,6 +719,8 @@ def _section_to_json(pack: SynthesisSourcePack) -> dict[str, Any]:
         "sources": [_source_to_json(source, pack) for source in pack.sources],
         "hidden_count": pack.hidden_count,
         "redaction_count": pack.redaction_count,
+        "correction_count": pack.correction_count,
+        "correction_reasons": dict(pack.correction_reasons),
         "freshness": dict(pack.freshness),
         "unresolved_claims": list(pack.unresolved_claims),
     }
@@ -748,6 +761,14 @@ def _section_markdown(pack: SynthesisSourcePack) -> list[str]:
         lines.append(f"Hidden context omitted: {pack.hidden_count}")
     if pack.redaction_count:
         lines.append(f"Redacted source previews: {pack.redaction_count}")
+    if pack.correction_count:
+        correction_reasons = ", ".join(
+            f"`{reason}`={count}" for reason, count in sorted(pack.correction_reasons.items())
+        )
+        lines.append(
+            f"Corrected sources omitted: {pack.correction_count}"
+            + (f" ({correction_reasons})" if correction_reasons else "")
+        )
     if pack.freshness:
         freshness = ", ".join(
             f"`{source_id}`={value or 'unknown'}"
@@ -801,10 +822,7 @@ def draft_synthesis_artifact(
     source_ids = list(
         dict.fromkeys(source_id for pack in run.source_packs for source_id in pack.source_ids)
     )
-    section_source_ids = {
-        pack.section_id: list(pack.source_ids)
-        for pack in run.source_packs
-    }
+    section_source_ids = {pack.section_id: list(pack.source_ids) for pack in run.source_packs}
     artifact_id = f"artifact:{run.run_id.split(':', 1)[-1]}:{generated_text_hash[:12]}"
     return SynthesisArtifact(
         artifact_id=artifact_id,
@@ -860,9 +878,7 @@ async def remember_synthesis_artifact(
             "section_source_ids": dict(artifact.section_source_ids),
             "verification": asdict(artifact.verification),
             "unresolved_claims": [
-                claim
-                for pack in run.source_packs
-                for claim in pack.unresolved_claims
+                claim for pack in run.source_packs for claim in pack.unresolved_claims
             ],
         },
         provenance={
@@ -914,9 +930,15 @@ async def plan_synthesis(
     base_query = _query_for(request)
     explicit_sources = [
         *[_explicit_source(source_id, "entity", "entity") for source_id in request.entity_ids],
-        *[_explicit_source(source_id, "decision", "decision") for source_id in request.decision_ids],
+        *[
+            _explicit_source(source_id, "decision", "decision")
+            for source_id in request.decision_ids
+        ],
         *[_explicit_source(source_id, "task", "task") for source_id in request.task_ids],
-        *[_explicit_source(source_id, "artifact", "artifact") for source_id in request.artifact_ids],
+        *[
+            _explicit_source(source_id, "artifact", "artifact")
+            for source_id in request.artifact_ids
+        ],
     ]
     searched_sources = await _search_sources(
         query=base_query,
@@ -1003,11 +1025,7 @@ async def plan_synthesis(
         sections=outline_sections,
     )
     verification = SynthesisVerification(
-        status=(
-            SynthesisVerificationStatus.GAPS
-            if gaps
-            else SynthesisVerificationStatus.PENDING
-        ),
+        status=(SynthesisVerificationStatus.GAPS if gaps else SynthesisVerificationStatus.PENDING),
         source_count=len({source.id for source in sources}),
         gap_count=len(gaps),
         gaps=gaps,
