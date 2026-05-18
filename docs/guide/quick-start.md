@@ -1,232 +1,125 @@
 ---
 title: Quick Start
-description: Get up and running with Sibyl in 5 minutes
+description: Install Sibyl and run your first memory loop in five minutes
 ---
 
 # Quick Start
 
-This guide gets you from zero to a working Sibyl setup in about 5 minutes.
+This guide takes you from nothing to a running Sibyl with your first
+captured memory, in about five minutes.
 
-## Prerequisites
+::: tip Working on Sibyl itself?
+This guide is for _using_ Sibyl. To set up the monorepo for development,
+see [Installation](./installation.md).
+:::
 
-Make sure you have:
+## Step 1: Install the CLI
 
-- Python 3.13+ installed
-- Docker (for local SurrealDB)
-- An OpenAI API key
-
-## Step 1: Install and Configure
+The one-line installer sets up uv if needed, installs the `sibyl` CLI,
+and gets you ready to start.
 
 ```bash
-# Clone and install
-git clone https://github.com/hyperb1iss/sibyl.git
-cd sibyl
-./setup-dev.sh
-
-# Configure
-cp .env.example .env
+curl -fsSL https://raw.githubusercontent.com/hyperb1iss/sibyl/main/install.sh | sh
 ```
 
-Edit `.env` and set:
+Already manage Python tools with uv? Install it directly:
 
 ```bash
-SIBYL_OPENAI_API_KEY=sk-your-openai-key
-SIBYL_JWT_SECRET=any-secret-string-for-development
-SIBYL_STORE=surreal
-SIBYL_COORDINATION_BACKEND=local
+uv tool install sibyl-dev
 ```
 
-## Step 2: Start the Server
+## Step 2: Start the local stack
 
 ```bash
-# Start the recommended local-dev stack
-moon run dev
-
-# Or just the API
-cd apps/api && uv run sibyld serve
+sibyl local start
 ```
 
-The server is now running on `http://localhost:3334`.
+This launches Sibyl in Docker: the API, the web UI, a background worker,
+and SurrealDB. On first run it generates local secrets and then opens
+the web UI at `http://localhost:3337`.
 
-`moon run dev` starts local SurrealDB on port `8000` and keeps jobs plus schedules in-process under
-the API server. If you want Redis-backed coordination later, set `SIBYL_COORDINATION_BACKEND=redis`
-and start Redis explicitly with Docker Compose.
+| Service   | URL                   |
+| --------- | --------------------- |
+| Web UI    | http://localhost:3337 |
+| API + MCP | http://localhost:3334 |
 
-## Step 3: Configure the CLI
+## Step 3: Finish setup in the browser
+
+The first time you open the web UI, a setup wizard runs. It walks you
+through three things:
+
+1. **API keys** — Sibyl needs an Anthropic key for entity extraction
+   and an OpenAI or Gemini key for embeddings.
+2. **Admin account** — the first account, which holds owner privileges.
+3. **Connect** — how to start using Sibyl from the terminal or an agent.
+
+## Step 4: Connect the CLI
+
+Confirm the CLI can reach your local server:
 
 ```bash
-# Set the server URL
-sibyl config set server.url http://localhost:3334/api
-
-# Check health
 sibyl health
 ```
 
-## Step 4: Create Your First Entity
+Sibyl is now yours from any terminal.
 
-Let's add some knowledge to the graph:
+## Step 5: Run the memory loop
 
-```bash
-# Add a learning
-sibyl add "Python async gotcha" "Always use asyncio.gather() for concurrent awaits, not sequential awaits in a loop"
-```
+Sibyl's core is a loop: **recall, act, remember, reflect**. Try it.
 
-You should see:
-
-```
-Added: Python async gotcha (id: episode_abc123)
-```
-
-## Step 5: Search for Knowledge
+Capture something worth keeping:
 
 ```bash
-# Search by meaning
-sibyl search "async concurrency"
+sibyl remember "Async gotcha" \
+  "Use asyncio.gather for concurrent awaits, not a sequential loop" \
+  --kind pattern
 ```
 
-The search will find your learning even though you searched for different words - that's semantic
-search in action.
-
-## Step 6: Create a Task
-
-Tasks require a project, so let's create one:
+Pull it back as working context:
 
 ```bash
-# Create a project
-sibyl project create --name "My First Project" --description "Learning Sibyl"
-
-# Note the project ID from the output, then create a task
-sibyl task create --title "Try Sibyl features" --project <project_id>
+sibyl recall "async concurrency" --intent build
 ```
 
-## Step 7: Manage Task Lifecycle
+Or search the whole graph by meaning:
 
 ```bash
-# List your tasks
-sibyl task list --status todo
-
-# Start working on a task
-sibyl task start <task_id>
-
-# Check what's in progress
-sibyl task list --status doing
-
-# Complete with learnings
-sibyl task complete <task_id> --learnings "Sibyl CLI is intuitive!"
+sibyl search "running awaits at the same time"
 ```
 
-## Step 8: Link a Directory (Optional)
+Semantic search finds that memory even though you searched with
+different words.
 
-If you're working on a specific project, link your directory:
+## Step 6: Connect your AI agent
+
+Sibyl earns its keep when your coding agent uses it too. Any agent can
+reach Sibyl through the `sibyl` CLI, and MCP-capable agents (Claude
+Code, Codex, opencode, and others) can connect to the MCP endpoint.
+
+Install the Sibyl skill and hooks for Claude Code and Codex:
 
 ```bash
-# In your project directory
-cd ~/my-project
-
-# Link to a Sibyl project
-sibyl project link proj_abc123
-
-# Now task commands auto-scope to this project
-sibyl task list --status todo  # Shows only tasks for linked project
+sibyl local setup
 ```
 
-## Step 9: Explore the Graph
+For per-client MCP configuration and the agent prompt snippet, see
+[Agents & MCP](./claude-code.md).
 
-```bash
-# List all projects
-sibyl entity list --type project
+## Where to go next
 
-# Find related entities
-sibyl explore related entity_xyz
+- [The Memory Loop](./memory-loop.md) — recall, act, remember, reflect
+- [Capturing Knowledge](./capturing-knowledge.md) — what is worth saving
+- [Task Management](./task-management.md) — plan and track work
+- [Agents & MCP](./claude-code.md) — connect any AI coding agent
 
-# See task dependencies
-sibyl explore dependencies task_abc
-```
-
-## Using with Claude Code
-
-Add to your Claude Code MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "sibyl": {
-      "type": "http",
-      "url": "http://localhost:3334/mcp"
-    }
-  }
-}
-```
-
-Now Claude can:
-
-- Search your knowledge graph
-- Track tasks
-- Capture learnings
-- Navigate relationships
-
-## The Memory Loop
-
-When working with Claude Code and Sibyl:
-
-```
-1. RECALL    -> sibyl recall "topic"
-2. ACT       -> sibyl task start <id>
-3. REMEMBER  -> sibyl remember "learning" "description"
-4. REFLECT   -> sibyl reflect --persist --review < notes.md
-```
-
-See [The Memory Loop](./memory-loop.md) for the cycle in full.
-
-## Common Commands Reference
+## Common commands
 
 | Action           | Command                                      |
 | ---------------- | -------------------------------------------- |
-| Search knowledge | `sibyl search "query"`                       |
-| Add a learning   | `sibyl add "title" "content"`                |
-| List tasks       | `sibyl task list --status todo`              |
-| Start a task     | `sibyl task start <id>`                      |
+| Capture a memory | `sibyl remember "Title" "What matters"`      |
+| Recall context   | `sibyl recall "goal" --intent build`         |
+| Search the graph | `sibyl search "query"`                       |
+| Create a task    | `sibyl task create --title "..."`            |
 | Complete a task  | `sibyl task complete <id> --learnings "..."` |
-| List projects    | `sibyl project list`                         |
-| Link directory   | `sibyl project link <id>`                    |
+| Link a repo      | `sibyl project link <id>`                    |
 | Check health     | `sibyl health`                               |
-
-## Output Formats
-
-The CLI supports multiple output formats:
-
-```bash
-# Table (default, human-readable)
-sibyl task list
-
-# JSON (for scripting and agents)
-sibyl task list --json
-
-# CSV (for spreadsheets)
-sibyl task list --csv
-```
-
-## What's Next?
-
-Now that you have Sibyl running:
-
-1. **Learn the Memory Loop** - [The Memory Loop](./memory-loop.md) explains recall, act, remember,
-   reflect
-2. **Read the Philosophy** - [Introduction](./index.md) explains why context should survive the
-   session
-3. **Understand the Graph** - [Knowledge Graph](./knowledge-graph.md) explains how entities connect
-4. **Set Up Claude** - [Claude Code Integration](./claude-code.md) for full AI agent support
-
-## Tips for Success
-
-::: tip Search First Before implementing anything, search the graph. Patterns, past solutions, and
-gotchas might already be there. :::
-
-::: tip Capture Non-Obvious Learnings If it took time to figure out, it's worth saving. Future you
-(or your AI agent) will thank you. :::
-
-::: tip Use Project Context Link your directories to projects. It keeps task lists focused and
-prevents cross-project confusion. :::
-
-::: warning Don't Skip Learnings The `--learnings` flag on task completion is where the real value
-accumulates. Be specific about what you learned. :::

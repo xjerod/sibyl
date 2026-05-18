@@ -1,22 +1,26 @@
 ---
 title: Setting Up Prompts
-description: Configure CLAUDE.md for effective agent collaboration
+description: Configure AGENTS.md and CLAUDE.md for effective agent collaboration
 ---
 
 # Setting Up Prompts
 
-Your `CLAUDE.md` file is the most important configuration for agent collaboration. It's the first
-thing your AI agent reads. Use it to establish workflows, project context, and the Sibyl
-integration.
+Your agent's instruction file is the most important configuration for collaboration. It is the
+first thing the agent reads each session. Use it to establish workflows, project context, and the
+Sibyl integration.
+
+Most coding agents read a Markdown instruction file. `AGENTS.md` is the cross-tool convention that
+Codex, opencode, and others follow; Claude Code reads `CLAUDE.md`. The structure below applies to
+either: keep one file, or keep both with the same content.
 
 ## The Two-Level System
 
-Claude Code uses two levels of instructions:
+Agents read instructions at two levels:
 
-| Level                    | Location                  | Scope             |
-| ------------------------ | ------------------------- | ----------------- |
-| **Global instructions**  | `~/.claude/CLAUDE.md`     | All projects      |
-| **Project instructions** | `./CLAUDE.md` (repo root) | This project only |
+| Level                    | Location                                    | Scope             |
+| ------------------------ | ------------------------------------------- | ----------------- |
+| **Global instructions**  | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` | All projects      |
+| **Project instructions** | `AGENTS.md` or `CLAUDE.md` (repo root)      | This project only |
 
 Both are read at session start. Project-level instructions can override or extend global ones.
 
@@ -33,31 +37,34 @@ Your global instructions apply to every project. This is where you establish:
 ```markdown
 ## Sibyl - Your Persistent Memory
 
-Sibyl is your knowledge graph, extended memory that persists across sessions.
+Sibyl is your durable memory across sessions. It is a knowledge graph of
+decisions, patterns, tasks, and learnings. Reach it through the `sibyl` CLI or
+the Sibyl MCP tools, whichever your setup has.
 
-### Session Start (MANDATORY)
+### The memory loop: recall, act, remember, reflect
 
-**Run `/sibyl` at the start of every session.** The skill provides full CLI guidance, task context,
-and relevant patterns. No exceptions.
+1. **Recall** working context before you act. A past session may have solved this.
+   CLI: `sibyl recall "<goal>" --intent build`. MCP: the `search` and `context` tools.
+2. **Act** with that context in hand.
+3. **Remember** durable knowledge as you learn it: decisions, gotchas, patterns.
+   The next session should not have to rediscover it.
+   CLI: `sibyl remember "Title" "What matters" --kind decision`. MCP: the `remember` tool.
+4. **Reflect** at clean breakpoints to distill session notes into reviewable memory.
+   CLI: `sibyl reflect "<notes>" --title "<session>"`. MCP: the `reflect` tool.
 
-### The Memory Loop
+### What to capture
 
-1. **Recall first**: Pull working context before you act, past sessions may have solved this
-2. **Act**: Do the work in a task so progress survives the session
-3. **Remember**: When you solve something non-obvious, capture it as durable memory
-4. **Reflect**: Distill session notes into reviewable memory candidates
+**Always:** non-obvious solutions, gotchas, config quirks, architectural decisions.
+**Skip:** trivial facts, throwaway hacks, well-documented basics.
 
-### What to Capture
+Make each memory findable and reusable later:
 
-**Always:** Non-obvious solutions, gotchas, configuration quirks, architectural decisions
-**Consider:** Useful patterns, performance findings, integration approaches **Skip:** Trivial info,
-temporary hacks, well-documented basics
+- Weak: "Fixed the auth bug."
+- Strong: "JWT refresh fails silently when the Redis TTL expires. The token
+  service does not handle WRONGTYPE. Fix: regenerate the token on that error."
 
-### Quality Bar
-
-**Bad:** "Fixed the auth bug" **Good:** "JWT refresh tokens fail silently when Redis TTL expires.
-Root cause: token service doesn't handle WRONGTYPE error. Fix: Add try/except with token
-regeneration fallback."
+If your client supports skills (Claude Code, Codex), run `/sibyl` for the full
+command reference. Otherwise `sibyl --help` covers it.
 ```
 
 ### Adding Personal Style
@@ -381,9 +388,9 @@ touch CLAUDE.md
 
 ### Verify Installation
 
-Start a new Claude Code session. The agent should:
+Start a new agent session. The agent should:
 
-1. Read your CLAUDE.md automatically
+1. Read your instruction file automatically
 2. Understand the project context
 3. Be ready to use the Sibyl workflow
 

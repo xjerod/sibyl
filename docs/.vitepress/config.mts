@@ -59,11 +59,14 @@ export default defineConfig({
                     ],
                 },
                 {
-                    text: 'Working with Assistants',
+                    text: 'Working with Agents',
                     items: [
-                        { text: 'Human Workflow', link: '/guide/working-with-agents' },
+                        { text: 'Overview', link: '/guide/working-with-agents' },
                         { text: 'Setting Up Prompts', link: '/guide/setting-up-prompts' },
+                        { text: 'Agents & MCP', link: '/guide/claude-code' },
+                        { text: 'MCP Configuration', link: '/guide/mcp-configuration' },
                         { text: 'Skills & Hooks', link: '/guide/skills' },
+                        { text: 'Agent Collaboration', link: '/guide/agent-collaboration' },
                         { text: 'Knowledge Repository', link: '/guide/knowledge-repository' },
                     ],
                 },
@@ -98,15 +101,6 @@ export default defineConfig({
                         { text: 'Synthesis', link: '/guide/synthesis' },
                         { text: 'Memory Workspace', link: '/guide/memory-workspace' },
                         { text: 'External Sources', link: '/guide/sources' },
-                    ],
-                },
-                {
-                    text: 'External Assistants',
-                    items: [
-                        { text: 'Assistants Overview', link: '/guide/working-with-agents' },
-                        { text: 'Claude Code', link: '/guide/claude-code' },
-                        { text: 'MCP Configuration', link: '/guide/mcp-configuration' },
-                        { text: 'Assistant Collaboration', link: '/guide/agent-collaboration' },
                     ],
                 },
             ],

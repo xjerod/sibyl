@@ -1,17 +1,18 @@
 ---
-title: Claude Code Integration
-description: Using Sibyl with Claude Code via MCP
+title: Agents & MCP
+description: Connect Sibyl to any AI coding agent over MCP
 ---
 
-# Claude Code Integration
+# Agents & MCP
 
-Sibyl is designed as an MCP (Model Context Protocol) server that integrates directly with Claude
-Code. This guide explains how to set up and use Sibyl as your AI agent's persistent memory.
+Sibyl runs as an MCP (Model Context Protocol) server, so any MCP-capable AI coding agent can use it
+as persistent memory. This guide explains how to connect an agent and what Sibyl exposes once it is
+wired in. It works the same for Claude Code, Codex, opencode, and other MCP clients.
 
 ## What is MCP?
 
-The Model Context Protocol (MCP) allows AI assistants like Claude to interact with external tools
-and data sources. Sibyl exposes 11 MCP tools:
+The Model Context Protocol (MCP) is an open standard that lets AI agents interact with external
+tools and data sources. Sibyl exposes 11 MCP tools:
 
 | Tool               | Purpose                                                        |
 | ------------------ | -------------------------------------------------------------- |
@@ -31,11 +32,21 @@ The four memory-loop tools (`context`, `remember`, `reflect`, and the `synthesis
 implement the [memory loop](./memory-loop.md) for agents. `search`, `explore`, `add`, and `manage`
 cover retrieval and workflow.
 
-## Configuration
+## Connecting an Agent
 
 ### HTTP Mode (Recommended)
 
-Add to your Claude Code MCP configuration:
+Point your agent at a running Sibyl server. The exact step depends on the client:
+
+```bash
+# Claude Code
+claude mcp add sibyl --transport http http://localhost:3334/mcp
+
+# Codex
+codex mcp add sibyl --url http://localhost:3334/mcp
+```
+
+Clients that use a JSON config file take the standard MCP server block:
 
 ```json
 {
@@ -48,7 +59,8 @@ Add to your Claude Code MCP configuration:
 }
 ```
 
-This connects to a running Sibyl server.
+The Sibyl web UI generates the exact command for your server in the Connect panel. See
+[MCP Configuration](./mcp-configuration.md) for transport, auth, and per-client detail.
 
 ### Subprocess Mode
 
@@ -98,7 +110,7 @@ When `SIBYL_JWT_SECRET` is set, MCP requires authentication:
 Create an API key:
 
 ```bash
-sibyl auth api-key create --name "Claude Code" --scopes mcp
+sibyl auth api-key create --name "my-agent" --scopes mcp
 ```
 
 ### Without Authentication (Dev Mode)
@@ -302,26 +314,26 @@ See [Synthesis](./synthesis.md) for the three-stage flow in detail.
 
 ### What are Skills?
 
-Skills are Claude Code's knowledge injection system. Sibyl provides skills that teach Claude how to
-use the knowledge graph effectively.
+Skills are a knowledge-injection mechanism in agents like Claude Code and Codex. Sibyl ships a skill
+that teaches the agent how to use the knowledge graph effectively.
 
 ### Installing Skills
 
 ```bash
-moon run cli:setup-assistants
+sibyl local setup
 ```
 
-This installs Claude Code skills and hooks, and also installs the Codex skill copy.
+This installs the Sibyl skill and hooks for Claude Code, and the skill for Codex.
 
 ### Using Skills
 
-Invoke skills via slash commands:
+In a client that supports skills, invoke it as a slash command:
 
 ```
 /sibyl
 ```
 
-The skill teaches Claude:
+The skill teaches the agent:
 
 - CLI commands
 - Workflow patterns
@@ -473,7 +485,7 @@ manage("complete_task", entity_id="task_xyz",
 
 ### Tools Not Available
 
-1. Restart Claude Code
+1. Restart your agent
 2. Check MCP server logs
 3. Verify config syntax
 

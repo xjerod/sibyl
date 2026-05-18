@@ -197,7 +197,7 @@ and is rejected by the production config validator.
 
 The MCP server is constructed in `server.py` and registers 11 tools: `search`, `context`,
 `synthesis_plan`, `synthesis_draft`, `synthesis_verify`, `explore`, `add`, `remember`, `reflect`,
-`manage`, and `logs`. See [Claude Code Integration](./claude-code.md) for what each one does.
+`manage`, and `logs`. See [Agents & MCP](./claude-code.md) for what each one does.
 
 ```python
 mcp = FastMCP(
@@ -393,6 +393,6 @@ curl http://localhost:3334/api/metrics
 
 ## Next Steps
 
-- [Claude Code Integration](./claude-code.md) - Using MCP with Claude
+- [Agents & MCP](./claude-code.md) - Connect any agent over MCP
 - [Skills Development](./skills.md) - Create custom skills
 - [Multi-Tenancy](./multi-tenancy.md) - Organization scoping
