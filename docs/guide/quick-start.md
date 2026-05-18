@@ -5,18 +5,15 @@ description: Install Sibyl and run your first memory loop in five minutes
 
 # Quick Start
 
-This guide takes you from nothing to a running Sibyl with your first
-captured memory, in about five minutes.
+This guide takes you from nothing to a running Sibyl with your first captured memory, in about five
+minutes.
 
-::: tip Working on Sibyl itself?
-This guide is for _using_ Sibyl. To set up the monorepo for development,
-see [Installation](./installation.md).
-:::
+::: tip Working on Sibyl itself? This guide is for _using_ Sibyl. To set up the monorepo for
+development, see [Installation](./installation.md). :::
 
 ## Step 1: Install the CLI
 
-The one-line installer sets up uv if needed, installs the `sibyl` CLI,
-and gets you ready to start.
+The one-line installer sets up uv if needed, installs the `sibyl` CLI, and gets you ready to start.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hyperb1iss/sibyl/main/install.sh | sh
@@ -34,9 +31,8 @@ uv tool install sibyl-dev
 sibyl local start
 ```
 
-This launches Sibyl in Docker: the API, the web UI, a background worker,
-and SurrealDB. On first run it generates local secrets and then opens
-the web UI at `http://localhost:3337`.
+This launches Sibyl in Docker: the API, the web UI, a background worker, and SurrealDB. On first run
+it generates local secrets and then opens the web UI at `http://localhost:3337`.
 
 | Service   | URL                   |
 | --------- | --------------------- |
@@ -45,11 +41,10 @@ the web UI at `http://localhost:3337`.
 
 ## Step 3: Finish setup in the browser
 
-The first time you open the web UI, a setup wizard runs. It walks you
-through three things:
+The first time you open the web UI, a setup wizard runs. It walks you through three things:
 
-1. **API keys** — Sibyl needs an Anthropic key for entity extraction
-   and an OpenAI or Gemini key for embeddings.
+1. **API keys** — Sibyl needs an Anthropic key for entity extraction and an OpenAI or Gemini key for
+   embeddings.
 2. **Admin account** — the first account, which holds owner privileges.
 3. **Connect** — how to start using Sibyl from the terminal or an agent.
 
@@ -87,14 +82,13 @@ Or search the whole graph by meaning:
 sibyl search "running awaits at the same time"
 ```
 
-Semantic search finds that memory even though you searched with
-different words.
+Semantic search finds that memory even though you searched with different words.
 
 ## Step 6: Connect your AI agent
 
-Sibyl earns its keep when your coding agent uses it too. Any agent can
-reach Sibyl through the `sibyl` CLI, and MCP-capable agents (Claude
-Code, Codex, opencode, and others) can connect to the MCP endpoint.
+Sibyl earns its keep when your coding agent uses it too. Any agent can reach Sibyl through the
+`sibyl` CLI, and MCP-capable agents (Claude Code, Codex, opencode, and others) can connect to the
+MCP endpoint.
 
 Install the Sibyl skill and hooks for Claude Code and Codex:
 
@@ -102,8 +96,7 @@ Install the Sibyl skill and hooks for Claude Code and Codex:
 sibyl local setup
 ```
 
-For per-client MCP configuration and the agent prompt snippet, see
-[Agents & MCP](./claude-code.md).
+For per-client MCP configuration and the agent prompt snippet, see [Agents & MCP](./claude-code.md).
 
 ## Where to go next
 

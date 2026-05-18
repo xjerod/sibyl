@@ -5,9 +5,9 @@ description: Configure AGENTS.md and CLAUDE.md for effective agent collaboration
 
 # Setting Up Prompts
 
-Your agent's instruction file is the most important configuration for collaboration. It is the
-first thing the agent reads each session. Use it to establish workflows, project context, and the
-Sibyl integration.
+Your agent's instruction file is the most important configuration for collaboration. It is the first
+thing the agent reads each session. Use it to establish workflows, project context, and the Sibyl
+integration.
 
 Most coding agents read a Markdown instruction file. `AGENTS.md` is the cross-tool convention that
 Codex, opencode, and others follow; Claude Code reads `CLAUDE.md`. The structure below applies to
@@ -37,34 +37,33 @@ Your global instructions apply to every project. This is where you establish:
 ```markdown
 ## Sibyl - Your Persistent Memory
 
-Sibyl is your durable memory across sessions. It is a knowledge graph of
-decisions, patterns, tasks, and learnings. Reach it through the `sibyl` CLI or
-the Sibyl MCP tools, whichever your setup has.
+Sibyl is your durable memory across sessions. It is a knowledge graph of decisions, patterns, tasks,
+and learnings. Reach it through the `sibyl` CLI or the Sibyl MCP tools, whichever your setup has.
 
 ### The memory loop: recall, act, remember, reflect
 
-1. **Recall** working context before you act. A past session may have solved this.
-   CLI: `sibyl recall "<goal>" --intent build`. MCP: the `search` and `context` tools.
+1. **Recall** working context before you act. A past session may have solved this. CLI:
+   `sibyl recall "<goal>" --intent build`. MCP: the `search` and `context` tools.
 2. **Act** with that context in hand.
-3. **Remember** durable knowledge as you learn it: decisions, gotchas, patterns.
-   The next session should not have to rediscover it.
-   CLI: `sibyl remember "Title" "What matters" --kind decision`. MCP: the `remember` tool.
-4. **Reflect** at clean breakpoints to distill session notes into reviewable memory.
-   CLI: `sibyl reflect "<notes>" --title "<session>"`. MCP: the `reflect` tool.
+3. **Remember** durable knowledge as you learn it: decisions, gotchas, patterns. The next session
+   should not have to rediscover it. CLI: `sibyl remember "Title" "What matters" --kind decision`.
+   MCP: the `remember` tool.
+4. **Reflect** at clean breakpoints to distill session notes into reviewable memory. CLI:
+   `sibyl reflect "<notes>" --title "<session>"`. MCP: the `reflect` tool.
 
 ### What to capture
 
-**Always:** non-obvious solutions, gotchas, config quirks, architectural decisions.
-**Skip:** trivial facts, throwaway hacks, well-documented basics.
+**Always:** non-obvious solutions, gotchas, config quirks, architectural decisions. **Skip:**
+trivial facts, throwaway hacks, well-documented basics.
 
 Make each memory findable and reusable later:
 
 - Weak: "Fixed the auth bug."
-- Strong: "JWT refresh fails silently when the Redis TTL expires. The token
-  service does not handle WRONGTYPE. Fix: regenerate the token on that error."
+- Strong: "JWT refresh fails silently when the Redis TTL expires. The token service does not handle
+  WRONGTYPE. Fix: regenerate the token on that error."
 
-If your client supports skills (Claude Code, Codex), run `/sibyl` for the full
-command reference. Otherwise `sibyl --help` covers it.
+If your client supports skills (Claude Code, Codex), run `/sibyl` for the full command reference.
+Otherwise `sibyl --help` covers it.
 ```
 
 ### Adding Personal Style
