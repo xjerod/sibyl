@@ -119,6 +119,11 @@ GRAPHITI_OPS_CLASSIFICATIONS = (
     "benchmark-only",
     "historical migration",
 )
+GRAPHITI_OPS_IMPORT_ALLOWLIST = {
+    "packages/python/sibyl-core/src/sibyl_core/backends/surreal/driver.py",
+    "packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py",
+}
+GRAPHITI_OPS_IMPORT_PREFIX = "sibyl_core.graph.surreal.compat.ops"
 
 
 def _embedded_no_graphiti_scripts() -> tuple[str, ...]:
@@ -151,6 +156,28 @@ def _script_imports(script: str) -> set[str]:
         ):
             imports.add(node.args[0].value)
     return imports
+
+
+def _imports_graphiti_ops(path) -> bool:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(
+                alias.name == GRAPHITI_OPS_IMPORT_PREFIX
+                or alias.name.startswith(f"{GRAPHITI_OPS_IMPORT_PREFIX}.")
+                for alias in node.names
+            ):
+                return True
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and (
+                node.module == GRAPHITI_OPS_IMPORT_PREFIX
+                or node.module.startswith(f"{GRAPHITI_OPS_IMPORT_PREFIX}.")
+            )
+        ):
+            return True
+    return False
 
 
 def runtime_surface_with_graphiti(
@@ -271,6 +298,24 @@ def test_graphiti_exit_inventory_classifies_each_ops_module() -> None:
         assert "- Owner:" in section
         assert "- Removal condition:" in section
         assert "- Verify:" in section
+
+
+def test_graphiti_ops_imports_stay_in_named_compatibility_island() -> None:
+    source_roots = (
+        REPO_ROOT / "apps/api/src",
+        REPO_ROOT / "packages/python/sibyl-core/src",
+    )
+    ops_root = REPO_ROOT / "packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops"
+    offenders: list[str] = []
+    for source_root in source_roots:
+        for path in sorted(source_root.rglob("*.py")):
+            if path.is_relative_to(ops_root):
+                continue
+            relative_path = path.relative_to(REPO_ROOT).as_posix()
+            if relative_path not in GRAPHITI_OPS_IMPORT_ALLOWLIST and _imports_graphiti_ops(path):
+                offenders.append(relative_path)
+
+    assert offenders == []
 
 
 def test_graphiti_compatibility_test_island_is_named() -> None:
