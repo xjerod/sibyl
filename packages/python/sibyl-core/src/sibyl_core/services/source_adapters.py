@@ -370,6 +370,21 @@ def raw_memory_write_from_source_record(
     )
 
 
+def _skipped_record_for_manifest(
+    *,
+    manifest: SourceImportManifest,
+    skipped: SourceSkippedRecord,
+) -> SourceSkippedRecord:
+    metadata = {
+        **dict(skipped.metadata),
+        "adapter_name": manifest.adapter_name,
+        "adapter_version": manifest.adapter_version,
+        "source_identity": manifest.source_identity,
+        "source_version": manifest.source_version,
+    }
+    return skipped.model_copy(update={"metadata": metadata})
+
+
 async def import_source_batch(
     adapter: SourceAdapter,
     manifest: SourceImportManifest,
@@ -397,7 +412,10 @@ async def import_source_batch(
         checkpoint=checkpoint,
         batch_size=batch_size,
     ):
-        skipped_records.extend(batch.skipped)
+        skipped_records.extend(
+            _skipped_record_for_manifest(manifest=plan.manifest, skipped=skipped)
+            for skipped in batch.skipped
+        )
         last_checkpoint = batch.checkpoint
         batch_payloads: list[tuple[SourceRecord, SourceRawMemoryWrite]] = []
         for record in batch.records:
@@ -426,15 +444,18 @@ async def import_source_batch(
             if existing_raw_memory_id is not None:
                 duplicate_dedupe_keys.append(record.dedupe_key)
                 skipped_records.append(
-                    SourceSkippedRecord(
-                        adapter_record_id=record.adapter_record_id,
-                        source_uri=record.source_uri,
-                        reason="duplicate_dedupe_key",
-                        metadata={
-                            "dedupe_key": record.dedupe_key,
-                            "raw_memory_id": existing_raw_memory_id,
-                            "source_id": record.source_id,
-                        },
+                    _skipped_record_for_manifest(
+                        manifest=plan.manifest,
+                        skipped=SourceSkippedRecord(
+                            adapter_record_id=record.adapter_record_id,
+                            source_uri=record.source_uri,
+                            reason="duplicate_dedupe_key",
+                            metadata={
+                                "dedupe_key": record.dedupe_key,
+                                "raw_memory_id": existing_raw_memory_id,
+                                "source_id": record.source_id,
+                            },
+                        ),
                     )
                 )
                 continue

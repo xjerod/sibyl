@@ -355,6 +355,10 @@ async def test_import_source_batch_uses_registered_adapter_contract() -> None:
     assert result.dedupe_keys == (record.dedupe_key,)
     assert result.checkpoint is not None
     assert result.checkpoint.done is True
+    assert result.skipped_records[0].metadata["adapter_name"] == "fake"
+    assert result.skipped_records[0].metadata["adapter_version"] == "1.0"
+    assert result.skipped_records[0].metadata["source_identity"] == "fixture"
+    assert result.skipped_records[0].metadata["source_version"] == "v1"
     assert writes[0]["source_id"] == record.source_id
     assert writes[0]["capture_surface"] == "source_import"
 
@@ -416,6 +420,40 @@ async def test_import_source_batch_tracks_metadata_only_records_as_pending() -> 
     assert writes[0]["metadata"]["source_extraction_state"] == "pending"
     assert writes[0]["metadata"]["transform_behavior"] == "metadata_only"
     assert writes[0]["metadata"]["transform_version"] == "headers-v1"
+
+
+@pytest.mark.asyncio
+async def test_import_source_batch_records_duplicate_skip_metadata() -> None:
+    manifest = _manifest()
+    record = _record(manifest)
+    adapter = FakeSourceAdapter([record])
+
+    async def fake_remember(**kwargs: object) -> RawMemory:
+        raise AssertionError("duplicate records should not be written")
+
+    async def duplicate_checker(**kwargs: object) -> str | None:
+        assert kwargs["record"] == record
+        return "raw-existing"
+
+    result = await import_source_batch(
+        adapter,
+        manifest,
+        organization_id="org-1",
+        principal_id="user-1",
+        remember=fake_remember,
+        duplicate_checker=duplicate_checker,
+    )
+
+    assert result.imported_count == 0
+    assert result.dedupe_count == 1
+    assert result.duplicate_dedupe_keys == (record.dedupe_key,)
+    duplicate_skip = result.skipped_records[1]
+    assert duplicate_skip.reason == "duplicate_dedupe_key"
+    assert duplicate_skip.metadata["adapter_name"] == "fake"
+    assert duplicate_skip.metadata["source_identity"] == "fixture"
+    assert duplicate_skip.metadata["source_version"] == "v1"
+    assert duplicate_skip.metadata["raw_memory_id"] == "raw-existing"
+    assert duplicate_skip.metadata["source_id"] == record.source_id
 
 
 @pytest.mark.asyncio
