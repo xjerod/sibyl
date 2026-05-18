@@ -197,3 +197,28 @@ async def test_get_config_status_uses_settings_service(monkeypatch: pytest.Monke
     assert response.openai_source == "database"
     assert response.anthropic_source == "none"
     assert response.gemini_source == "environment"
+
+
+@pytest.mark.asyncio
+async def test_get_integration_returns_client_agnostic_payload() -> None:
+    response = await setup_routes.get_integration()
+
+    assert response.server_url
+    assert response.mcp_url.endswith("/mcp")
+    assert response.cli_install.startswith("curl -fsSL")
+    assert [client.id for client in response.mcp_clients] == [
+        "claude",
+        "codex",
+        "opencode",
+        "generic",
+    ]
+    for client in response.mcp_clients:
+        assert response.mcp_url in client.snippet
+    assert "memory loop" in response.prompt_snippet
+
+
+def test_integration_route_requires_setup_mode_or_auth() -> None:
+    routes = [route for route in setup_routes.router.routes if isinstance(route, APIRoute)]
+    route = next(route for route in routes if route.path.endswith("/integration"))
+
+    assert route.dependencies[0].dependency is setup_routes.require_setup_mode_or_auth

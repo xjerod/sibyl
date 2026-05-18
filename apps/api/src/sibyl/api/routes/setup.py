@@ -22,6 +22,7 @@ from sibyl.persistence.operations_runtime import (
 from sibyl.services.settings import get_settings_service
 from sibyl_core.ai.llm.config import LLMProviderName
 from sibyl_core.ai.validation import KeyValidationResult, check_provider_key
+from sibyl_core.integration import integration_content
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 log = structlog.get_logger()
@@ -231,6 +232,49 @@ async def get_mcp_command() -> dict[str, str]:
         "server_url": f"{server_url}/mcp",
         "description": "Run this command in your terminal to connect Claude Code to Sibyl",
     }
+
+
+class McpClientConfig(BaseModel):
+    """One way to wire Sibyl into an MCP-capable agent."""
+
+    id: str = Field(description="Stable client identifier")
+    label: str = Field(description="Human-readable client name")
+    kind: str = Field(description='"command" to run in a terminal or "config" to paste into a file')
+    language: str = Field(description="Syntax hint for rendering: bash, json, or toml")
+    snippet: str = Field(description="The command or config text to use")
+    target: str | None = Field(default=None, description="Where a config snippet belongs")
+
+
+class IntegrationResponse(BaseModel):
+    """Everything a user needs to connect Sibyl to a CLI or MCP client."""
+
+    server_url: str = Field(description="Public base URL of this Sibyl server")
+    mcp_url: str = Field(description="MCP endpoint URL")
+    cli_install: str = Field(description="One-liner command to install the sibyl CLI")
+    cli_install_alt: str = Field(description="Alternative install command via uv")
+    mcp_clients: list[McpClientConfig] = Field(
+        description="Per-client MCP setup snippets (Claude Code, Codex, opencode, generic)"
+    )
+    prompt_snippet: str = Field(
+        description="Client-agnostic snippet for an agent's system prompt or AGENTS.md"
+    )
+
+
+@router.get(
+    "/integration",
+    response_model=IntegrationResponse,
+    dependencies=[Depends(require_setup_mode_or_auth)],
+)
+async def get_integration() -> IntegrationResponse:
+    """Get everything needed to connect Sibyl to a CLI or MCP client.
+
+    Returns the CLI install command, per-client MCP configuration snippets,
+    and the agent prompt snippet. This is the single source of truth behind
+    the web setup wizard and the dashboard connect panel.
+
+    During initial setup: accessible without auth. After setup: requires authentication.
+    """
+    return IntegrationResponse.model_validate(integration_content(settings.server_url))
 
 
 class ConfigUpdateRequest(BaseModel):
