@@ -121,14 +121,12 @@ def export_graph(
 
     @run_async
     async def _export() -> None:
-        from sibyl_core.graph.client import get_graph_client
-        from sibyl_core.graph.entities import EntityManager
-        from sibyl_core.graph.relationships import RelationshipManager
+        from sibyl_core.services.native_graph import get_native_graph_runtime
 
         try:
-            client = await get_graph_client()
-            entity_mgr = EntityManager(client, group_id=org_id)
-            rel_mgr = RelationshipManager(client, group_id=org_id)
+            runtime = await get_native_graph_runtime(org_id)
+            entity_mgr = runtime.entity_manager
+            rel_mgr = runtime.relationship_manager
 
             # Get all entities
             entities = []

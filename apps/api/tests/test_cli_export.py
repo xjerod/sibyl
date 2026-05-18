@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from sibyl.cli import export as export_cli
@@ -129,7 +128,6 @@ def test_export_entities_pages_all_results(tmp_path: Path, monkeypatch) -> None:
     ]
 
 
-@pytest.mark.graphiti_compatibility
 def test_export_graph_pages_entities_and_relationships(tmp_path: Path, monkeypatch) -> None:
     output = tmp_path / "graph.json"
     entity_manager = MagicMock()
@@ -172,12 +170,14 @@ def test_export_graph_pages_entities_and_relationships(tmp_path: Path, monkeypat
     monkeypatch.setattr(export_cli, "GRAPH_ENTITY_PAGE_SIZE", 2)
     monkeypatch.setattr(export_cli, "GRAPH_RELATIONSHIP_PAGE_SIZE", 3)
 
-    with (
-        patch("sibyl_core.graph.client.get_graph_client", AsyncMock(return_value=AsyncMock())),
-        patch("sibyl_core.graph.entities.EntityManager", return_value=entity_manager),
-        patch(
-            "sibyl_core.graph.relationships.RelationshipManager", return_value=relationship_manager
-        ),
+    runtime = SimpleNamespace(
+        entity_manager=entity_manager,
+        relationship_manager=relationship_manager,
+    )
+
+    with patch(
+        "sibyl_core.services.native_graph.get_native_graph_runtime",
+        AsyncMock(return_value=runtime),
     ):
         result = runner.invoke(
             export_cli.app,
