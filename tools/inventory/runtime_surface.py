@@ -343,7 +343,6 @@ GUIDE_LEGACY_TERM_FILES = (
     "docs/guide/memory-loop.md",
     "docs/guide/mcp-configuration.md",
     "docs/guide/migrating-from-falkor.md",
-    "docs/guide/quick-start.md",
     "docs/guide/semantic-search.md",
     "docs/guide/setting-up-prompts.md",
     "docs/guide/sources.md",
