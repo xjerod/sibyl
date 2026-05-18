@@ -71,6 +71,9 @@ export function SynthesisOutlineEditor({
               requiredSourceCount > 0 ? requiredSourceCount : (sourcePack?.source_ids.length ?? 0);
             const impact = sourcePack ? impactLabels(sourcePack) : [];
             const freshnessEntries = sourcePack ? Object.entries(sourcePack.freshness) : [];
+            const correctionReasonEntries = sourcePack
+              ? Object.entries(sourcePack.correction_reasons)
+              : [];
 
             return (
               <article
@@ -164,14 +167,15 @@ export function SynthesisOutlineEditor({
                     {impact.length > 0 && (
                       <p className="mt-2 text-xs text-sc-yellow">{impact.join(' · ')}</p>
                     )}
-                    {sourcePack.correction_reasons.length > 0 && (
+                    {correctionReasonEntries.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {sourcePack.correction_reasons.slice(0, 4).map(reason => (
+                        {correctionReasonEntries.slice(0, 4).map(([reason, count]) => (
                           <span
                             key={reason}
                             className="rounded border border-sc-yellow/20 bg-sc-yellow/10 px-1.5 py-0.5 text-[11px] text-sc-yellow"
                           >
                             {reason.replace(/_/g, ' ')}
+                            {count > 1 ? ` (${count})` : ''}
                           </span>
                         ))}
                       </div>

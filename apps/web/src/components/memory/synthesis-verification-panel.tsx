@@ -30,8 +30,14 @@ export function SynthesisVerificationPanel({
     (total, pack) => total + Object.keys(pack.freshness).length,
     0
   );
-  const correctionReasons = Array.from(
-    new Set(sourcePacks.flatMap(pack => pack.correction_reasons))
+  const correctionReasons = sourcePacks.reduce<Record<string, number>>((reasons, pack) => {
+    for (const [reason, count] of Object.entries(pack.correction_reasons)) {
+      reasons[reason] = (reasons[reason] ?? 0) + count;
+    }
+    return reasons;
+  }, {});
+  const correctionReasonEntries = Object.entries(correctionReasons).sort(([a], [b]) =>
+    a.localeCompare(b)
   );
   const hasImpact =
     hiddenCount > 0 || redactionCount > 0 || correctionCount > 0 || freshnessCount > 0;
@@ -100,14 +106,15 @@ export function SynthesisVerificationPanel({
               <dd className="mt-1 font-semibold text-sc-fg-primary">{freshnessCount}</dd>
             </div>
           </dl>
-          {correctionReasons.length > 0 && (
+          {correctionReasonEntries.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {correctionReasons.slice(0, 5).map(reason => (
+              {correctionReasonEntries.slice(0, 5).map(([reason, count]) => (
                 <span
                   key={reason}
                   className="rounded border border-sc-yellow/20 bg-sc-bg-base/70 px-1.5 py-0.5 text-[11px] text-sc-yellow"
                 >
                   {reason.replace(/_/g, ' ')}
+                  {count > 1 ? ` (${count})` : ''}
                 </span>
               ))}
             </div>

@@ -972,7 +972,7 @@ class SynthesisSourcePackResponse(BaseModel):
     hidden_count: int = 0
     redaction_count: int = 0
     correction_count: int = 0
-    correction_reasons: list[str] = Field(default_factory=list)
+    correction_reasons: dict[str, int] = Field(default_factory=dict)
     freshness: dict[str, str | None] = Field(default_factory=dict)
     unresolved_claims: list[str] = Field(default_factory=list)
 

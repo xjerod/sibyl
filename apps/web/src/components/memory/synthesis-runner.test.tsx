@@ -63,7 +63,7 @@ const planResponse = {
       hidden_count: 0,
       redaction_count: 1,
       correction_count: 1,
-      correction_reasons: ['mark_stale'],
+      correction_reasons: { mark_stale: 1 },
       freshness: { 'raw-1': '2026-05-14T12:00:00Z' },
       unresolved_claims: [],
     },

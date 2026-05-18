@@ -1307,7 +1307,7 @@ def test_synthesis_plan_command_outputs_section_summary(
                     "hidden_count": 1,
                     "redaction_count": 0,
                     "correction_count": 1,
-                    "correction_reasons": ["mark_stale"],
+                    "correction_reasons": {"mark_stale": 1},
                     "freshness": {"source-1": "2026-05-14T12:00:00Z"},
                     "unresolved_claims": [],
                 }

@@ -510,7 +510,7 @@ export interface SynthesisSourcePack {
   hidden_count: number;
   redaction_count: number;
   correction_count: number;
-  correction_reasons: string[];
+  correction_reasons: Record<string, number>;
   freshness: Record<string, string | null>;
   unresolved_claims: string[];
 }

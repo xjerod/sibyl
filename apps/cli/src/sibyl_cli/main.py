@@ -516,15 +516,19 @@ def _source_pack_correction_reasons(data: dict[str, object]) -> list[str]:
     reasons: list[str] = []
     seen: set[str] = set()
     for pack in _dict_list(data.get("source_packs")):
-        raw_reasons = pack.get("correction_reasons")
-        if not isinstance(raw_reasons, list):
-            continue
-        for item in raw_reasons:
-            reason = str(item)
+        for reason in _correction_reason_names(pack.get("correction_reasons")):
             if reason not in seen:
                 reasons.append(reason)
                 seen.add(reason)
     return reasons
+
+
+def _correction_reason_names(value: object) -> list[str]:
+    if isinstance(value, dict):
+        return [str(reason) for reason in value]
+    if isinstance(value, list):
+        return [str(reason) for reason in value]
+    return []
 
 
 def _find_source_pack(data: dict[str, object], section_id: object) -> dict[str, object] | None:
@@ -546,9 +550,9 @@ def _print_source_pack_receipt(pack: dict[str, object]) -> None:
         console.print(
             f"    [dim]impact: {hidden} hidden · {redacted} redacted · {corrected} corrected[/dim]"
         )
-    reasons = pack.get("correction_reasons")
-    if isinstance(reasons, list) and reasons:
-        console.print(f"    [dim]corrections: {', '.join(str(item) for item in reasons[:4])}[/dim]")
+    reasons = _correction_reason_names(pack.get("correction_reasons"))
+    if reasons:
+        console.print(f"    [dim]corrections: {', '.join(reasons[:4])}[/dim]")
 
 
 def _print_synthesis_plan(data: dict[str, object]) -> None:
