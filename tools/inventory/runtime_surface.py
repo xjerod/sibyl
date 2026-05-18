@@ -276,12 +276,6 @@ GRAPHITI_COMPATIBILITY_ALLOWLIST = (
         criteria="Native graph client replaces Graphiti construction and provider adapters.",
     ),
     GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/entities.py",
-        classification="compatibility",
-        owner="v0.7 native memory",
-        criteria="Native write, exact lookup, semantic search, and entity hydration cover the seeded graph behavior without Graphiti node APIs.",
-    ),
-    GraphitiCompatibilityRecord(
         path="packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*",
         classification="compatibility",
         owner="v0.7 Graphiti exit",

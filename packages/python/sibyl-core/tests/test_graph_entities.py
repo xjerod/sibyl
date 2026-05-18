@@ -6,11 +6,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from graphiti_core.nodes import EntityNode, EpisodicNode
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.errors import EntityCreationError, EntityNotFoundError, SearchError
-from sibyl_core.graph.entities import EntityManager, sanitize_search_query
+from sibyl_core.graph.entities import EntityManager, EntityNode, EpisodicNode, sanitize_search_query
 from sibyl_core.models.entities import Entity, EntityType
 from sibyl_core.models.tasks import (
     Epic,

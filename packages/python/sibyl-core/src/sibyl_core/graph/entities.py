@@ -10,14 +10,14 @@ import json
 import random
 import re
 from collections import defaultdict
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
-from enum import Enum
-from typing import Any, TypeVar
+from enum import Enum, StrEnum
+from typing import Any, TypeVar, cast
 from uuid import uuid4
 
 import structlog
-from graphiti_core.nodes import EntityNode, EpisodeType, EpisodicNode
-from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
 from pydantic import BaseModel
 
 from sibyl_core.errors import EntityNotFoundError, SearchError
@@ -41,6 +41,7 @@ from sibyl_core.utils.resilience import GRAPHITI_RETRY
 
 log = structlog.get_logger()
 _MISSING = object()
+_NODE_HYBRID_SEARCH_RRF = object()
 
 # Generic enum type for coercion
 TEnum = TypeVar("TEnum", bound=Enum)
@@ -68,6 +69,71 @@ _SEARCH_STOP_WORDS = {
     "to",
     "with",
 }
+
+
+class EpisodeType(StrEnum):
+    text = "text"
+
+
+@dataclass(slots=True)
+class EntityNode:
+    uuid: str
+    name: str
+    group_id: str
+    labels: list[str]
+    created_at: datetime
+    summary: str
+    attributes: dict[str, Any] = dataclass_field(default_factory=dict)
+    name_embedding: list[float] | None = None
+
+    async def save(self, driver: Any) -> None:
+        ops = cast(Any, _declared_driver_attr(driver, "entity_node_ops"))
+        if ops is not None:
+            await ops.save(driver, self)
+            return
+        raise RuntimeError("native entity node save operations are unavailable")
+
+    async def delete(self, driver: Any) -> None:
+        ops = cast(Any, _declared_driver_attr(driver, "entity_node_ops"))
+        if ops is not None:
+            await ops.delete(driver, self)
+            return
+        raise RuntimeError("native entity node delete operations are unavailable")
+
+    @classmethod
+    async def get_by_uuid(cls, driver: Any, uuid: str) -> "EntityNode":
+        ops = cast(Any, _declared_driver_attr(driver, "entity_node_ops"))
+        if ops is not None:
+            return await ops.get_by_uuid(driver, uuid)
+        raise RuntimeError(f"native entity node lookup operations are unavailable: {uuid}")
+
+
+@dataclass(slots=True)
+class EpisodicNode:
+    uuid: str
+    name: str
+    group_id: str
+    labels: list[str]
+    source: EpisodeType | str
+    source_description: str
+    content: str
+    valid_at: datetime | None = None
+    entity_edges: list[Any] = dataclass_field(default_factory=list)
+    created_at: datetime = dataclass_field(default_factory=lambda: datetime.now(UTC))
+
+    async def delete(self, driver: Any) -> None:
+        ops = cast(Any, _declared_driver_attr(driver, "episode_node_ops"))
+        if ops is not None:
+            await ops.delete(driver, self)
+            return
+        raise RuntimeError("native episode node delete operations are unavailable")
+
+    @classmethod
+    async def get_by_uuid(cls, driver: Any, uuid: str) -> "EpisodicNode":
+        ops = cast(Any, _declared_driver_attr(driver, "episode_node_ops"))
+        if ops is not None:
+            return await ops.get_by_uuid(driver, uuid)
+        raise RuntimeError(f"native episode node lookup operations are unavailable: {uuid}")
 
 
 def _entity_type_filter_values(entity_types: list[EntityType]) -> list[str]:
@@ -99,6 +165,10 @@ def _declared_driver_attr(driver: object, attr: str) -> object | None:
 
     value = attrs.get(attr, _MISSING)
     return None if value is _MISSING else value
+
+
+def _node_hybrid_search_config(client: object) -> object:
+    return getattr(client, "node_hybrid_search_config", _NODE_HYBRID_SEARCH_RRF)
 
 
 def _search_terms(query: str) -> list[str]:
@@ -1388,7 +1458,7 @@ class EntityManager:
                 # uses the default driver which points to "default" graph, not our org graph
                 search_results = await self._client.client.search_(
                     query=safe_query,
-                    config=NODE_HYBRID_SEARCH_RRF,
+                    config=_node_hybrid_search_config(self._client),
                     group_ids=[self._group_id],
                     driver=self._driver,
                 )

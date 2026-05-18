@@ -50,11 +50,6 @@ owner, and deletion or retention criterion.
   - Class: `compatibility`
   - Owner: v0.7 Graphiti exit
   - Criteria: Native graph client replaces Graphiti construction and provider adapters.
-- `packages/python/sibyl-core/src/sibyl_core/graph/entities.py`
-  - Class: `compatibility`
-  - Owner: v0.7 native memory
-  - Criteria: Native write, exact lookup, semantic search, and entity hydration cover the seeded
-    graph behavior without Graphiti node APIs.
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
   - Class: `compatibility`
   - Owner: v0.7 Graphiti exit
@@ -184,15 +179,15 @@ source metadata.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/entities.py`
 
-- Behavior: entity CRUD, legacy `add_episode`, direct node save, and Graphiti hybrid search
-  fallback.
+- Behavior: entity CRUD, legacy `add_episode`, direct node save, and hybrid search fallback through
+  Sibyl-local node payloads.
 - Default-loop usage: fallback for `add` and graph search; native context retrieval bypasses it in
   native mode.
-- Status: fallback.
-- Removal condition: native write, exact lookup, semantic search, and entity hydration cover the
-  seeded graph behavior without Graphiti node APIs.
-- Owner: v0.7 native memory.
-- Verify: `moon run core:test -- tests/test_graph_entities.py`.
+- Status: Graphiti runtime imports removed in v0.13; legacy manager surface remains.
+- Removal condition: native write, exact lookup, semantic search, and entity hydration cover every
+  seeded graph behavior without the legacy manager surface.
+- Owner: v0.13 Graphiti runtime import deletion.
+- Verify: `moon run core:graphiti-compatibility-file-test`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/relationships.py`
 

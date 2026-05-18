@@ -160,6 +160,12 @@ class GraphClient:
             return int(raw)
         return settings.graph_embedding_dimensions
 
+    @property
+    def node_hybrid_search_config(self) -> Any:
+        from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
+
+        return NODE_HYBRID_SEARCH_RRF
+
     def _create_embedder(self) -> Any:
         from sibyl_core.graph.gemini_embedder import (
             SibylGeminiEmbedder,

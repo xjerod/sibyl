@@ -478,7 +478,7 @@ def test_runtime_surface_finds_known_contracts() -> None:
     assert "apps/api/src/sibyl/persistence/settings_runtime.py" not in session_storage_paths
     assert session_storage_paths == set()
     assert any(
-        record.path == "packages/python/sibyl-core/src/sibyl_core/graph/entities.py"
+        record.path == "packages/python/sibyl-core/src/sibyl_core/graph/client.py"
         for record in surface.graphiti_imports
     )
 
