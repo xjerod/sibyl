@@ -12,29 +12,15 @@ from sibyl.ingestion.relationships import ExtractedRelationship, RelationType
 from sibyl_core.models.entities import Entity, Relationship, RelationshipType
 
 if TYPE_CHECKING:
-    from sibyl_core.graph.client import GraphClient
-    from sibyl_core.graph.entities import EntityManager
-    from sibyl_core.graph.relationships import RelationshipManager
+    from sibyl.persistence.graph_runtime import TaskGraphRuntime
 
 log = structlog.get_logger()
 
 
-async def _get_graph_client() -> "GraphClient":
-    from sibyl_core.graph.client import get_graph_client
+async def _get_graph_runtime(group_id: str) -> "TaskGraphRuntime":
+    from sibyl.persistence.graph_runtime import get_entity_graph_runtime
 
-    return await get_graph_client()
-
-
-def _entity_manager(client: "GraphClient", group_id: str) -> "EntityManager":
-    from sibyl_core.graph.entities import EntityManager
-
-    return EntityManager(client, group_id=group_id)
-
-
-def _relationship_manager(client: "GraphClient", group_id: str) -> "RelationshipManager":
-    from sibyl_core.graph.relationships import RelationshipManager
-
-    return RelationshipManager(client, group_id=group_id)
+    return await get_entity_graph_runtime(group_id)
 
 
 def _sanitize_name(name: str) -> str:
@@ -212,8 +198,8 @@ async def store_entities(
     Returns:
         Tuple of (entity_name_to_id_map, errors).
     """
-    client = await _get_graph_client()
-    entity_manager = _entity_manager(client, group_id)
+    runtime = await _get_graph_runtime(group_id)
+    entity_manager = runtime.entity_manager
 
     entity_id_map: dict[str, str] = {}
     errors: list[str] = []
@@ -257,8 +243,8 @@ async def store_relationships(
     Returns:
         Tuple of (stored_count, skipped_count, errors).
     """
-    client = await _get_graph_client()
-    relationship_manager = _relationship_manager(client, group_id)
+    runtime = await _get_graph_runtime(group_id)
+    relationship_manager = runtime.relationship_manager
 
     stored = 0
     skipped = 0

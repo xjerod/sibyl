@@ -62,6 +62,8 @@ async def main():
         get_task_dependencies,
         suggest_task_order,
     )
+    from sibyl.ingestion.extractor import ExtractedEntity, ExtractedEntityType
+    from sibyl.ingestion.relationships import ExtractedRelationship, RelationType
     from sibyl_core.services.native_graph import (
         NativeEntityManager,
         NativeGraphRuntime,
@@ -82,6 +84,7 @@ async def main():
     import sibyl_core.tools.temporal as temporal_module
     import sibyl.api.dependencies as api_dependencies
     import sibyl.crawler.graph_integration as graph_integration
+    import sibyl.ingestion.storage as ingestion_storage
     import sibyl.jobs.consolidation as consolidation_module
     import sibyl.persistence.graph_runtime as graph_runtime_module
 
@@ -115,8 +118,56 @@ async def main():
     temporal_module.get_graph_runtime = runtime_factory
     consolidation_module._get_graph_runtime = runtime_factory
     graph_runtime_module._get_graph_runtime = runtime_factory
+    ingestion_storage._get_graph_runtime = runtime_factory
 
     try:
+        ingestion_entities = [
+            ExtractedEntity(
+                entity_type=ExtractedEntityType.CONCEPT,
+                name="Native Ingestion Source",
+                description="Default loop ingestion source.",
+                confidence=0.91,
+                source_episode_id="episode-no-graphiti",
+                context="Native ingestion source context.",
+            ),
+            ExtractedEntity(
+                entity_type=ExtractedEntityType.CONCEPT,
+                name="Native Ingestion Target",
+                description="Default loop ingestion target.",
+                confidence=0.92,
+                source_episode_id="episode-no-graphiti",
+                context="Native ingestion target context.",
+            ),
+        ]
+        ingestion_entity_ids, ingestion_errors = await ingestion_storage.store_entities(
+            ingestion_entities,
+            group_id=group_id,
+        )
+        assert ingestion_errors == []
+        assert set(ingestion_entity_ids) == {
+            "native ingestion source",
+            "native ingestion target",
+        }
+        stored_rels, skipped_rels, relationship_errors = (
+            await ingestion_storage.store_relationships(
+                [
+                    ExtractedRelationship(
+                        source_name="Native Ingestion Source",
+                        target_name="Native Ingestion Target",
+                        relation_type=RelationType.RELATED_TO,
+                        confidence=0.88,
+                        source_episode_id="episode-no-graphiti",
+                        evidence="Native ingestion source references target.",
+                    )
+                ],
+                ingestion_entity_ids,
+                group_id=group_id,
+            )
+        )
+        assert stored_rels == 1
+        assert skipped_rels == 0
+        assert relationship_errors == []
+
         project = await core_module.add(
             title=project_title,
             content="Project anchor for native default loop smoke coverage.",
@@ -402,6 +453,7 @@ import sibyl.jobs.pending
 import sibyl.jobs.queue
 import sibyl.jobs.worker
 import sibyl.crawler.pipeline
+import sibyl.ingestion.storage
 import sibyl_core.retrieval.native
 import sibyl_core.tools.admin
 import sibyl_core.tools.conflicts
