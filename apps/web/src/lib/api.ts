@@ -828,6 +828,29 @@ export interface McpCommandResponse {
   description: string;
 }
 
+/** One way to wire Sibyl into an MCP-capable agent. */
+export interface McpClientConfig {
+  id: string;
+  label: string;
+  /** "command" to run in a terminal, or "config" to paste into a file. */
+  kind: 'command' | 'config';
+  /** Syntax hint for rendering. */
+  language: 'bash' | 'json' | 'toml';
+  snippet: string;
+  /** Where a "config" snippet belongs, when applicable. */
+  target: string | null;
+}
+
+/** Everything a user needs to connect Sibyl to a CLI or MCP client. */
+export interface IntegrationResponse {
+  server_url: string;
+  mcp_url: string;
+  cli_install: string;
+  cli_install_alt: string;
+  mcp_clients: McpClientConfig[];
+  prompt_snippet: string;
+}
+
 export function isSetupAlreadyInitializedError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -2885,6 +2908,8 @@ export const api = {
     validateKeys: () => fetchApi<ApiKeyValidation>('/setup/validate-keys'),
 
     mcpCommand: () => fetchApi<McpCommandResponse>('/setup/mcp-command'),
+
+    integration: () => fetchApi<IntegrationResponse>('/setup/integration'),
   },
 
   // System settings (no auth required during setup mode)

@@ -111,6 +111,7 @@ export const queryKeys = {
     status: ['setup', 'status'] as const,
     validation: ['setup', 'validation'] as const,
     mcpCommand: ['setup', 'mcp-command'] as const,
+    integration: ['setup', 'integration'] as const,
   },
   settings: {
     all: ['settings'] as const,
@@ -1849,6 +1850,21 @@ export function useMcpCommand(options?: { enabled?: boolean }) {
     queryFn: () => api.setup.mcpCommand(),
     enabled: options?.enabled ?? true,
     staleTime: Infinity, // Never stale (URL doesn't change)
+  });
+}
+
+/**
+ * Get the integration payload for connecting Sibyl to a CLI or MCP client.
+ *
+ * Returns the CLI install command, per-client MCP configs, and the agent
+ * prompt snippet. Single source of truth behind the connect surfaces.
+ */
+export function useIntegration(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.setup.integration,
+    queryFn: () => api.setup.integration(),
+    enabled: options?.enabled ?? true,
+    staleTime: Infinity, // Server URL and snippets are stable
   });
 }
 

@@ -25,6 +25,7 @@ from sibyl_cli.common import (
     success,
     warn,
 )
+from sibyl_core.integration import AGENT_PROMPT_SNIPPET
 
 # ============================================================================
 # Paths
@@ -38,43 +39,6 @@ CODEX_SKILLS_DIR = Path.home() / ".codex" / "skills"
 
 # Skills to install
 SKILL_NAMES = ["sibyl"]
-
-# ============================================================================
-# Prompt Snippet
-# ============================================================================
-
-PROMPT_SNIPPET = """## Sibyl - Your Persistent Memory
-
-Sibyl is your knowledge graph—extended memory that persists across sessions.
-
-### Session Start (MANDATORY)
-
-**Immediately run `/sibyl` at the start of every session.** The skill provides full CLI guidance,
-task context, and relevant patterns. No exceptions.
-
-### Workflow
-
-1. **Research first** — Search for patterns, past learnings, known issues before implementing
-2. **Track tasks** — Never do significant work without a task. Update status as you go
-3. **Capture learnings** — When you solve something non-obvious, add it to the graph
-
-### What to Capture
-
-**Always:** Non-obvious solutions, gotchas, configuration quirks, architectural decisions
-**Consider:** Useful patterns, performance findings, integration approaches
-**Skip:** Trivial info, temporary hacks, well-documented basics
-
-### Quality Bar
-
-**Bad:** "Fixed the auth bug"
-**Good:** "JWT refresh tokens fail silently when Redis TTL expires. Root cause: token service
-doesn't handle WRONGTYPE error. Fix: Add try/except with token regeneration fallback."
-
----
-
-The graph should be smarter after every session. Search often. Add generously. Track everything.
-"""
-
 
 # ============================================================================
 # Hook Configuration
@@ -433,12 +397,13 @@ def print_prompt_snippet() -> None:
     )
     console.print()
     console.print(
-        "Copy this to your [bold]~/.claude/CLAUDE.md[/bold] or [bold]~/.codex/AGENTS.md[/bold]:"
+        "Copy this into your agent's instructions "
+        "([bold]~/.claude/CLAUDE.md[/bold], [bold]AGENTS.md[/bold], or its system prompt):"
     )
     console.print()
 
     panel = Panel(
-        PROMPT_SNIPPET,
+        AGENT_PROMPT_SNIPPET,
         title="[bold]Sibyl Integration[/bold]",
         border_style=NEON_CYAN,
         padding=(1, 2),
