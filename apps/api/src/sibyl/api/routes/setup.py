@@ -214,26 +214,6 @@ async def validate_api_keys() -> ApiKeyValidation:
     )
 
 
-@router.get("/mcp-command", dependencies=[Depends(require_setup_mode_or_auth)])
-async def get_mcp_command() -> dict[str, str]:
-    """Get the Claude Code command to connect to this Sibyl instance.
-
-    Returns the command users should run to add this Sibyl server
-    to their Claude Code configuration.
-
-    During initial setup: accessible without auth.
-    After setup: requires authentication.
-    """
-    # Use the configured server URL or fall back to localhost
-    server_url = settings.server_url.rstrip("/")
-
-    return {
-        "command": f"claude mcp add sibyl --transport http {server_url}/mcp",
-        "server_url": f"{server_url}/mcp",
-        "description": "Run this command in your terminal to connect Claude Code to Sibyl",
-    }
-
-
 class McpClientConfig(BaseModel):
     """One way to wire Sibyl into an MCP-capable agent."""
 

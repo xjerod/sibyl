@@ -110,7 +110,6 @@ export const queryKeys = {
   setup: {
     status: ['setup', 'status'] as const,
     validation: ['setup', 'validation'] as const,
-    mcpCommand: ['setup', 'mcp-command'] as const,
     integration: ['setup', 'integration'] as const,
   },
   settings: {
@@ -1838,18 +1837,6 @@ export function useValidateApiKeys(options?: { enabled?: boolean }) {
     enabled: options?.enabled ?? true,
     staleTime: 60000, // Cache for 1 minute
     retry: 1, // One retry on timeout
-  });
-}
-
-/**
- * Get the Claude Code MCP command for this server.
- */
-export function useMcpCommand(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: queryKeys.setup.mcpCommand,
-    queryFn: () => api.setup.mcpCommand(),
-    enabled: options?.enabled ?? true,
-    staleTime: Infinity, // Never stale (URL doesn't change)
   });
 }
 

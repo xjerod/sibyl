@@ -824,12 +824,6 @@ export interface ApiKeyValidation {
   gemini_error: string | null;
 }
 
-export interface McpCommandResponse {
-  command: string;
-  server_url: string;
-  description: string;
-}
-
 /** One way to wire Sibyl into an MCP-capable agent. */
 export interface McpClientConfig {
   id: string;
@@ -2908,8 +2902,6 @@ export const api = {
     },
 
     validateKeys: () => fetchApi<ApiKeyValidation>('/setup/validate-keys'),
-
-    mcpCommand: () => fetchApi<McpCommandResponse>('/setup/mcp-command'),
 
     integration: () => fetchApi<IntegrationResponse>('/setup/integration'),
   },
