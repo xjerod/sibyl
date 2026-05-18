@@ -294,12 +294,6 @@ GRAPHITI_COMPATIBILITY_ALLOWLIST = (
         criteria="Compare mode no longer calls Graphiti search and seeded native retrieval is the default path.",
     ),
     GraphitiCompatibilityRecord(
-        path="packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py",
-        classification="test",
-        owner="v0.7 reflection",
-        criteria="Native reflection tests no longer instantiate Graphiti extraction clients.",
-    ),
-    GraphitiCompatibilityRecord(
         path="packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*",
         classification="compatibility",
         owner="v0.7 Graphiti exit",

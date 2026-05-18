@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from graphiti_core import Graphiti
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 from graphiti_core.edges import EntityEdge, EpisodicEdge
 from graphiti_core.embedder.client import EmbedderClient
+from graphiti_core.llm_client.client import LLMClient
+from graphiti_core.llm_client.config import LLMConfig, ModelSize
 from graphiti_core.nodes import CommunityNode, EntityNode, EpisodeType, EpisodicNode
+from graphiti_core.prompts.models import Message
 from graphiti_core.search.search_filters import ComparisonOperator, DateFilter, SearchFilters
 from graphiti_core.search.search_utils import get_embeddings_for_edges, get_embeddings_for_nodes
+from pydantic import BaseModel
 
 from sibyl_core.backends.surreal import SurrealDriver
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
-from sibyl_core.graph.mock_llm import MockLLMClient
+from sibyl_core.graph.mock_llm import MockLLMClient as NativeMockLLMClient
 from sibyl_core.graph.search_interface import SurrealSearchInterface
 
 
@@ -30,6 +35,26 @@ class _FakeEmbedder(EmbedderClient):
 class _FakeCrossEncoder(CrossEncoderClient):
     async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
         return [(passage, 0.0) for passage in passages]
+
+
+class _GraphitiMockLLMClient(LLMClient):
+    def __init__(self) -> None:
+        super().__init__(LLMConfig(api_key="mock-key", model="mock-model"), cache=False)
+        self._native_mock = NativeMockLLMClient()
+
+    async def _generate_response(
+        self,
+        messages: list[Message],
+        response_model: type[BaseModel] | None = None,
+        max_tokens: int = 1000,
+        model_size: ModelSize = ModelSize.medium,
+    ) -> dict[str, Any]:
+        return await self._native_mock._generate_response(
+            messages,
+            response_model=response_model,
+            max_tokens=max_tokens,
+            model_size=model_size,
+        )
 
 
 def _entity(uuid: str, group_id: str, *, name: str, summary: str) -> EntityNode:
@@ -392,7 +417,7 @@ class TestSurrealSearchInterfaceIntegration:
     ) -> None:
         graph = Graphiti(
             graph_driver=surreal_schema,
-            llm_client=MockLLMClient(),
+            llm_client=_GraphitiMockLLMClient(),
             embedder=_FakeEmbedder(),
             cross_encoder=_FakeCrossEncoder(),
         )
@@ -423,7 +448,7 @@ class TestSurrealSearchInterfaceIntegration:
         gid = surreal_schema.group_id
         graph = Graphiti(
             graph_driver=surreal_schema,
-            llm_client=MockLLMClient(),
+            llm_client=_GraphitiMockLLMClient(),
             embedder=_FakeEmbedder(),
             cross_encoder=_FakeCrossEncoder(),
         )

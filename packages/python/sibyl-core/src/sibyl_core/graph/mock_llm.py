@@ -1,7 +1,7 @@
 """Mock LLM client for testing without API keys.
 
 This module provides a mock LLM client that returns valid but empty responses,
-allowing the full Graphiti workflow to run without actual LLM calls.
+allowing graph workflows to run without actual LLM calls.
 
 Usage:
     Set SIBYL_MOCK_LLM=true to enable mock mode in tests/CI.
@@ -9,25 +9,25 @@ Usage:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Any
 
 import structlog
-from graphiti_core.llm_client.client import LLMClient
-from graphiti_core.llm_client.config import LLMConfig
 from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    from graphiti_core.llm_client.config import ModelSize
-    from graphiti_core.prompts.models import Message
 
 log = structlog.get_logger()
 
 
-class MockLLMClient(LLMClient):
-    """Mock LLM client that returns empty extraction results.
+@dataclass(frozen=True)
+class MockLLMConfig:
+    api_key: str = "mock-key"
+    model: str = "mock-model"
+    small_model: str = "mock-small-model"
 
-    This client inherits from Graphiti's LLMClient to pass Pydantic validation,
-    but returns valid empty responses without making API calls.
+
+class MockLLMClient:
+    """Mock LLM client that returns empty extraction results.
 
     Used for:
     - CI/CD testing without API keys
@@ -37,24 +37,39 @@ class MockLLMClient(LLMClient):
 
     def __init__(self) -> None:
         """Initialize mock client with minimal config."""
-        # Initialize parent with a dummy config
-        config = LLMConfig(api_key="mock-key", model="mock-model")
-        super().__init__(config, cache=False)
+        self.config = MockLLMConfig()
+        self.model = self.config.model
+        self.small_model = self.config.small_model
+        self.token_tracker = SimpleNamespace()
+        self.tracer: object | None = None
 
-        # Override parent's model attributes
-        self.model = "mock-model"
-        self.small_model = "mock-small-model"
+    def set_tracer(self, tracer: object) -> None:
+        self.tracer = tracer
+
+    async def generate_response(
+        self,
+        messages: list[Any],
+        response_model: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
+        model_size: Any | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        return await self._generate_response(
+            messages,
+            response_model=response_model,
+            max_tokens=max_tokens or 1000,
+            model_size=model_size,
+        )
 
     async def _generate_response(
         self,
-        messages: list[Message],
+        messages: list[Any],
         response_model: type[BaseModel] | None = None,
         max_tokens: int = 1000,
-        model_size: ModelSize | None = None,
+        model_size: Any | None = None,
     ) -> dict[str, Any]:
         """Return mock response matching expected schema.
 
-        This is the abstract method from LLMClient that we must implement.
         Returns empty/default responses without making actual LLM API calls.
 
         Args:

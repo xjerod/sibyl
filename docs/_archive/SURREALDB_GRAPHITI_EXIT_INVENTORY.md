@@ -64,10 +64,6 @@ owner, and deletion or retention criterion.
   - Owner: v0.7 native retrieval
   - Criteria: Compare mode no longer calls Graphiti search and seeded native retrieval is the
     default path.
-- `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py`
-  - Class: `test`
-  - Owner: v0.7 reflection
-  - Criteria: Native reflection tests no longer instantiate Graphiti extraction clients.
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
   - Class: `compatibility`
   - Owner: v0.7 Graphiti exit
@@ -226,15 +222,6 @@ source metadata.
   default path.
 - Owner: v0.7 native retrieval.
 - Verify: `moon run core:test -- tests/graph/surreal/test_search_interface.py`.
-
-### `packages/python/sibyl-core/src/sibyl_core/graph/mock_llm.py`
-
-- Behavior: mock Graphiti LLM client for tests and local extraction without provider calls.
-- Default-loop usage: support code for Graphiti extraction compatibility.
-- Status: retained compatibility adapter.
-- Removal condition: native reflection tests no longer instantiate Graphiti extraction clients.
-- Owner: v0.7 reflection.
-- Verify: `moon run core:test -- tests/test_graph_client.py tests/test_reflect.py`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
 

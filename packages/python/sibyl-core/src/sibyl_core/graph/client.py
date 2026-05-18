@@ -62,7 +62,6 @@ from sibyl_core.utils.resilience import GRAPH_RETRY, TIMEOUTS, retry, with_timeo
 if TYPE_CHECKING:
     from graphiti_core import Graphiti
     from graphiti_core.driver.driver import GraphDriver
-    from graphiti_core.llm_client import LLMClient
 
     from sibyl_core.embeddings.native import (
         NativeEmbeddingMetadata,
@@ -86,7 +85,7 @@ class GraphClient:
         self._store = "surreal"
         self._org_drivers: dict[str, GraphDriver] = {}
 
-    def _create_llm_client(self) -> "LLMClient":
+    def _create_llm_client(self) -> Any:
         """Create the LLM client based on provider settings.
 
         Returns:
