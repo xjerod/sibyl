@@ -27,7 +27,7 @@ from tools.inventory.runtime_surface import (
     unclassified_legacy_term_records,
 )
 
-EXPECTED_ROUTER_COUNT = 27
+EXPECTED_ROUTER_COUNT = 28
 EXPECTED_HTTP_ROUTE_COUNT = 2
 EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
 EXPECTED_MCP_TOOL_COUNT = 11

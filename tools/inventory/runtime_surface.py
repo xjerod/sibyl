@@ -15,7 +15,7 @@ import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT_PATH = REPO_ROOT / "docs/research/rust-port/INVENTORY.md"
-GRAPHITI_EXIT_INVENTORY_PATH = REPO_ROOT / "docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md"
+GRAPHITI_EXIT_INVENTORY_PATH = REPO_ROOT / "docs/_archive/SURREALDB_GRAPHITI_EXIT_INVENTORY.md"
 APP_PATH = REPO_ROOT / "apps/api/src/sibyl/api/app.py"
 MODELS_PATH = REPO_ROOT / "apps/api/src/sibyl/db/models.py"
 PYPROJECT_EXCLUDED_PARTS = {
@@ -327,22 +327,10 @@ GRAPHITI_COMPATIBILITY_ALLOWLIST = (
 
 ARCHITECTURE_LEGACY_TERM_FILES = (
     "docs/architecture/PERMISSION_SYSTEM_AUDIT.md",
-    "docs/architecture/PERMISSION_SYSTEM_PLAN.md",
     "docs/architecture/SIBYL_1_0_ROADMAP.md",
-    "docs/architecture/SIBYL_LLM_SUBSTRATE_PLAN.md",
     "docs/architecture/SIBYL_NORTHSTAR.md",
-    "docs/architecture/SIBYL_POST_V08_SYNTHESIS_AND_MEMORY_WORKSPACE_PLAN.md",
-    "docs/architecture/SIBYL_V012_REFLECTION_OS_PLAN.md",
-    "docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md",
-    "docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md",
-    "docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md",
-    "docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md",
-    "docs/architecture/SURREALDB_NATIVE_MEMORY_CORE_SPEC.md",
-    "docs/architecture/SURREALDB_PHASE1_BUGS.md",
-    "docs/architecture/SURREALDB_PHASE2_AUTH_MIGRATION.md",
-    "docs/architecture/SURREALDB_PHASE2_LIVE_GATES.md",
-    "docs/architecture/SURREALDB_PHASE3_BURNDOWN.md",
-    "docs/architecture/SURREALDB_V07_GRAPHITI_EXIT_AND_PURE_SURREAL_PLAN.md",
+    "docs/architecture/SIBYL_POST_V010_RELEASE_REMAP_SPEC.md",
+    "docs/architecture/SIBYL_REFLECTION_OS_PLAN.md",
     "docs/architecture/TASKIQ_MIGRATION_PLAN.md",
 )
 GUIDE_LEGACY_TERM_FILES = (
@@ -352,6 +340,7 @@ GUIDE_LEGACY_TERM_FILES = (
     "docs/guide/index.md",
     "docs/guide/installation.md",
     "docs/guide/knowledge-graph.md",
+    "docs/guide/memory-loop.md",
     "docs/guide/mcp-configuration.md",
     "docs/guide/migrating-from-falkor.md",
     "docs/guide/quick-start.md",
@@ -376,18 +365,25 @@ DEPLOYMENT_LEGACY_TERM_FILES = (
 )
 API_CLI_LEGACY_TERM_FILES = (
     "docs/api/auth-authorization.md",
+    "docs/api/index.md",
     "docs/api/mcp-add.md",
     "docs/api/mcp-explore.md",
+    "docs/api/mcp-reflect.md",
     "docs/api/rest-projects.md",
+    "docs/api/rest-memory.md",
     "docs/api/rest-tasks.md",
     "docs/cli/add.md",
     "docs/cli/entity.md",
+    "docs/cli/index.md",
     "docs/cli/project.md",
+    "docs/cli/reflect.md",
+    "docs/cli/remember.md",
     "docs/cli/search.md",
     "docs/cli/task-create.md",
     "docs/cli/task-lifecycle.md",
 )
 APP_LEGACY_TERM_FILES = (
+    "apps/api/examples/README.md",
     "apps/api/README.md",
     "apps/api/moon.yml",
     "apps/cli/README.md",

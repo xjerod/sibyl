@@ -3,7 +3,7 @@
 Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 
 ## Summary
-- REST routers: 27
+- REST routers: 28
 - Top-level HTTP routes: 2
 - WebSocket routes: 1
 - MCP tools: 11
@@ -12,7 +12,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
 - Graphiti import files: 21
-- Retained legacy term files: 94
+- Retained legacy term files: 90
 - Dependency records: 4
 
 ## API Surface
@@ -43,6 +43,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `metrics_router`
 - `settings_router`
 - `synthesis_router`
+- `telemetry_router`
 - `setup_router`
 - `users_router`
 
@@ -116,9 +117,10 @@ must carry an owner and reason here.
 | `.env.test.example` | `falkor`, `postgres` | 10 | dev env templates | Environment templates keep legacy ports, migration knobs, and optional Redis/Valkey secrets. |
 | `AGENTS.md` | `graphiti`, `redis`, `valkey` | 4 | project instructions | Project agent guides preserve ports, archive shapes, and compatibility boundaries. |
 | `CLAUDE.md` | `graphiti`, `redis`, `valkey` | 4 | project instructions | Project agent guides preserve ports, archive shapes, and compatibility boundaries. |
-| `README.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 20 | v0.8 pure Surreal closure | Default quickstart plus explicit legacy migration and optional Redis coordination notes. |
+| `README.md` | `graphiti`, `postgres`, `redis`, `valkey` | 13 | v0.8 pure Surreal closure | Default quickstart plus explicit legacy migration and optional Redis coordination notes. |
 | `Tiltfile` | `redis`, `valkey` | 14 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `apps/api/README.md` | `postgres`, `redis` | 12 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
+| `apps/api/examples/README.md` | `valkey` | 1 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/api/moon.yml` | `graphiti` | 7 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/api/pyproject.toml` | `graphiti`, `redis` | 4 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `apps/cli/README.md` | `redis` | 1 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
@@ -130,53 +132,48 @@ must carry an owner and reason here.
 | `charts/sibyl/templates/redis-secret.yaml` | `redis` | 8 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `charts/sibyl/templates/worker-deployment.yaml` | `redis` | 6 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `charts/sibyl/values.yaml` | `redis`, `valkey` | 17 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
-| `docker-compose.prod.yml` | `falkor`, `redis`, `valkey` | 21 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
-| `docker-compose.quickstart.yml` | `falkor`, `redis`, `valkey` | 21 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
+| `docker-compose.prod.yml` | `falkor`, `redis`, `valkey` | 20 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
+| `docker-compose.quickstart.yml` | `falkor`, `redis`, `valkey` | 20 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `docker-compose.yml` | `redis`, `valkey` | 11 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
-| `docs/api/auth-authorization.md` | `postgres` | 3 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
-| `docs/api/mcp-add.md` | `graphiti`, `postgres`, `redis` | 9 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/api/auth-authorization.md` | `postgres` | 4 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/api/index.md` | `redis` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/api/mcp-add.md` | `falkor`, `graphiti`, `postgres`, `redis` | 11 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/api/mcp-explore.md` | `postgres` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/api/mcp-reflect.md` | `postgres` | 2 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/api/rest-memory.md` | `postgres` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/api/rest-projects.md` | `postgres`, `redis` | 5 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/api/rest-tasks.md` | `redis` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/architecture/PERMISSION_SYSTEM_AUDIT.md` | `falkor`, `postgres` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/PERMISSION_SYSTEM_PLAN.md` | `falkor`, `postgres`, `redis` | 13 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_1_0_ROADMAP.md` | `graphiti`, `redis` | 26 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_LLM_SUBSTRATE_PLAN.md` | `graphiti` | 13 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_1_0_ROADMAP.md` | `graphiti`, `redis` | 36 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_NORTHSTAR.md` | `falkor`, `graphiti`, `postgres`, `redis` | 43 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_POST_V08_SYNTHESIS_AND_MEMORY_WORKSPACE_PLAN.md` | `graphiti` | 2 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_V012_REFLECTION_OS_PLAN.md` | `graphiti` | 5 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_AND_MEMORY_TRUST_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 165 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_V08_PURE_SURREAL_CLOSURE_EXECUTION_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis`, `valkey` | 88 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_GRAPHITI_EXIT_BENCHMARK_EVIDENCE.md` | `graphiti` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md` | `graphiti` | 114 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_NATIVE_MEMORY_CORE_SPEC.md` | `falkor`, `graphiti`, `postgres` | 48 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_PHASE1_BUGS.md` | `postgres`, `redis` | 3 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_PHASE2_AUTH_MIGRATION.md` | `falkor`, `postgres`, `redis` | 69 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_PHASE2_LIVE_GATES.md` | `postgres` | 7 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_PHASE3_BURNDOWN.md` | `falkor`, `graphiti`, `postgres` | 62 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SURREALDB_V07_GRAPHITI_EXIT_AND_PURE_SURREAL_PLAN.md` | `falkor`, `graphiti`, `postgres`, `redis` | 93 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_POST_V010_RELEASE_REMAP_SPEC.md` | `graphiti`, `redis` | 36 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_REFLECTION_OS_PLAN.md` | `graphiti` | 4 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/TASKIQ_MIGRATION_PLAN.md` | `redis` | 57 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/cli/add.md` | `falkor`, `graphiti`, `postgres`, `redis` | 9 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/cli/add.md` | `postgres`, `redis` | 3 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/cli/entity.md` | `postgres`, `redis` | 3 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/cli/index.md` | `redis` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/cli/project.md` | `postgres` | 2 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/cli/reflect.md` | `postgres` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
+| `docs/cli/remember.md` | `postgres`, `redis` | 2 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/cli/search.md` | `postgres` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/cli/task-create.md` | `redis` | 2 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/cli/task-lifecycle.md` | `postgres`, `redis` | 7 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
-| `docs/deployment/docker-compose.md` | `postgres`, `redis`, `valkey` | 39 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/deployment/environment.md` | `graphiti`, `postgres`, `redis`, `valkey` | 51 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/deployment/helm-chart.md` | `postgres`, `redis`, `valkey` | 15 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/deployment/index.md` | `falkor`, `postgres`, `redis`, `valkey` | 7 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/docker-compose.md` | `postgres`, `redis`, `valkey` | 42 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/environment.md` | `graphiti`, `postgres`, `redis`, `valkey` | 55 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/helm-chart.md` | `postgres`, `redis`, `valkey` | 17 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/index.md` | `falkor`, `postgres`, `redis`, `valkey` | 8 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/kubernetes.md` | `falkor`, `postgres`, `redis`, `valkey` | 15 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/monitoring.md` | `graphiti`, `redis` | 2 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/tilt-minikube.md` | `falkor`, `postgres`, `redis`, `valkey` | 19 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/troubleshooting.md` | `graphiti`, `postgres`, `redis` | 14 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/guide/capturing-knowledge.md` | `falkor`, `redis` | 11 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
+| `docs/guide/capturing-knowledge.md` | `redis` | 10 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/claude-code.md` | `redis` | 2 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/entity-types.md` | `redis` | 1 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/index.md` | `redis` | 2 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/installation.md` | `falkor`, `postgres`, `redis`, `valkey` | 19 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/knowledge-graph.md` | `falkor`, `graphiti`, `redis` | 11 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/mcp-configuration.md` | `postgres`, `redis`, `valkey` | 7 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
+| `docs/guide/memory-loop.md` | `redis` | 1 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/migrating-from-falkor.md` | `falkor`, `postgres` | 16 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/quick-start.md` | `redis` | 3 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/semantic-search.md` | `redis` | 1 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
@@ -187,15 +184,15 @@ must carry an owner and reason here.
 | `docs/guide/task-management.md` | `redis` | 1 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/why-surreal.md` | `falkor`, `graphiti`, `postgres`, `redis` | 17 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/working-with-agents.md` | `redis` | 6 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
-| `docs/index.md` | `redis` | 1 | v0.8 docs | Top-level docs mention current Surreal default and historical migration context. |
+| `docs/index.md` | `redis` | 2 | v0.8 docs | Top-level docs mention current Surreal default and historical migration context. |
 | `docs/testing/benchmark-methodology.md` | `falkor`, `graphiti`, `postgres` | 8 | benchmark evidence | Benchmark comparison flow names historical migration rehearsal mode. |
-| `infra/local/README.md` | `redis`, `valkey` | 11 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
+| `infra/local/README.md` | `redis`, `valkey` | 12 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `infra/local/secrets.yaml.example` | `redis`, `valkey` | 2 | dev env templates | Environment templates keep legacy ports, migration knobs, and optional Redis/Valkey secrets. |
 | `infra/local/sibyl-values.yaml` | `redis`, `valkey` | 4 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `infra/local/valkey-values.yaml` | `redis`, `valkey` | 4 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `moon.yml` | `graphiti` | 6 | v0.7 Graphiti exit | Root moon tasks retain the explicit Graphiti compatibility test island. |
 | `packages/python/sibyl-core/COVERAGE_PLAN.md` | `falkor` | 3 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
-| `packages/python/sibyl-core/README.md` | `graphiti` | 1 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
+| `packages/python/sibyl-core/README.md` | `graphiti` | 3 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `packages/python/sibyl-core/moon.yml` | `graphiti` | 9 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `packages/python/sibyl-core/pyproject.toml` | `graphiti` | 2 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `pyproject.toml` | `graphiti` | 4 | repo package config | Root package configs retain compatibility extras and dev dependency boundaries. |

@@ -262,7 +262,7 @@ tasks:
     command: uv run python tools/inventory/runtime_surface.py
     inputs:
       - tools/**/*.py
-      - docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
+      - docs/_archive/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
       - moon.yml
       - apps/api/moon.yml
       - packages/python/sibyl-core/moon.yml
@@ -331,7 +331,7 @@ tasks:
     command: uv run python tools/inventory/runtime_surface.py --check
     inputs:
       - tools/**/*.py
-      - docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
+      - docs/_archive/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
       - docs/research/rust-port/INVENTORY.md
       - moon.yml
       - apps/api/moon.yml
@@ -413,7 +413,7 @@ tasks:
       tools/tests/test_retrieval_mode_history.py -v
     inputs:
       - tools/**/*.py
-      - docs/architecture/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
+      - docs/_archive/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
       - docs/research/rust-port/INVENTORY.md
       - README.md
       - AGENTS.md
