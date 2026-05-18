@@ -9,7 +9,7 @@ Your agent's instruction file is the most important configuration for collaborat
 thing the agent reads each session. Use it to establish workflows, project context, and the Sibyl
 integration.
 
-Most coding agents read a Markdown instruction file. `AGENTS.md` is the cross-tool convention that
+Most AI agents read a Markdown instruction file. `AGENTS.md` is the cross-tool convention that
 Codex, opencode, and others follow; Claude Code reads `CLAUDE.md`. The structure below applies to
 either: keep one file, or keep both with the same content.
 

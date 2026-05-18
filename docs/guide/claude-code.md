@@ -1,13 +1,14 @@
 ---
 title: Agents & MCP
-description: Connect Sibyl to any AI coding agent over MCP
+description: Connect Sibyl to any AI agent over MCP
 ---
 
 # Agents & MCP
 
-Sibyl runs as an MCP (Model Context Protocol) server, so any MCP-capable AI coding agent can use it
-as persistent memory. This guide explains how to connect an agent and what Sibyl exposes once it is
-wired in. It works the same for Claude Code, Codex, opencode, and other MCP clients.
+Sibyl runs as an MCP (Model Context Protocol) server, so any MCP-capable AI agent can use it as
+persistent memory. This guide explains how to connect an agent and what Sibyl exposes once it is
+wired in. It works the same for coding agents like Claude Code, Codex, and opencode, and for
+personal assistants like OpenClaw.
 
 ## What is MCP?
 

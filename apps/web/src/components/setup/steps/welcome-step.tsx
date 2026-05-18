@@ -18,8 +18,8 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
       <div className="text-center mb-8">
         <h2 className="text-2xl font-semibold text-sc-fg-primary mb-3">Welcome to Sibyl</h2>
         <p className="text-sc-fg-muted leading-relaxed max-w-md mx-auto">
-          Sibyl is a memory system for you and your AI coding agents. Knowledge, context, and tasks
-          that persist across every development session.
+          Sibyl is a memory system for you and your AI agents. Knowledge, context, and tasks that
+          persist across every session.
         </p>
       </div>
 
@@ -38,7 +38,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
         <Feature
           icon={<Code aria-hidden="true" width={20} height={20} />}
           title="Works With Any Agent"
-          description="Use the sibyl CLI or connect any MCP client: Claude Code, Codex, opencode, and more"
+          description="Use the sibyl CLI or connect any MCP client: Claude Code, Codex, opencode, OpenClaw, and more"
         />
       </div>
 

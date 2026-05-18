@@ -86,8 +86,8 @@ Semantic search finds that memory even though you searched with different words.
 
 ## Step 6: Connect your AI agent
 
-Sibyl earns its keep when your coding agent uses it too. Any agent can reach Sibyl through the
-`sibyl` CLI, and MCP-capable agents (Claude Code, Codex, opencode, and others) can connect to the
+Sibyl earns its keep when your AI agent uses it too. Any agent can reach Sibyl through the `sibyl`
+CLI, and MCP-capable agents (Claude Code, Codex, opencode, OpenClaw, and others) can connect to the
 MCP endpoint.
 
 Install the Sibyl skill and hooks for Claude Code and Codex:
@@ -103,7 +103,7 @@ For per-client MCP configuration and the agent prompt snippet, see [Agents & MCP
 - [The Memory Loop](./memory-loop.md) — recall, act, remember, reflect
 - [Capturing Knowledge](./capturing-knowledge.md) — what is worth saving
 - [Task Management](./task-management.md) — plan and track work
-- [Agents & MCP](./claude-code.md) — connect any AI coding agent
+- [Agents & MCP](./claude-code.md) — connect any AI agent
 
 ## Common commands
 

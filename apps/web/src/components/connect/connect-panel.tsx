@@ -52,7 +52,7 @@ export function ConnectPanel() {
       <Section
         icon={<Network aria-hidden="true" width={18} height={18} />}
         title="Connect your agent"
-        description="Wire Sibyl into your AI coding agent over MCP. Pick your client."
+        description="Wire Sibyl into your AI agent over MCP. Pick your client."
       >
         <McpClientTabs clients={data.mcp_clients} />
       </Section>
