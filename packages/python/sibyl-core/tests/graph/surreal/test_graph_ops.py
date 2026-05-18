@@ -158,11 +158,6 @@ class TestGraphMaintenance:
         assert len(communities) == 1
         assert communities[0].uuid == "c-1"
 
-    @pytest.mark.skip(
-        reason="Community clustering depends on graphiti.label_propagation "
-        "which hangs on dense subgraphs with the current neighbor projection. "
-        "Tracked separately; not required for driver sign-off."
-    )
     async def test_get_community_clusters(self, surreal_schema: SurrealDriver) -> None:
         ops = SurrealGraphMaintenanceOperations()
         entity_ops = SurrealEntityNodeOperations()

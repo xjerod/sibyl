@@ -19,8 +19,9 @@ Implements Graphiti's ``GraphMaintenanceOperations`` contract:
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
+from dataclasses import dataclass
 
-from graphiti_core.driver.operations.graph_utils import Neighbor, label_propagation
 from graphiti_core.nodes import CommunityNode, EntityNode, EpisodicNode
 
 from sibyl_core.backends.surreal.driver import SurrealDriver
@@ -30,6 +31,59 @@ from sibyl_core.graph.surreal.compat.ops.community_node_ops import community_nod
 from sibyl_core.graph.surreal.compat.ops.entity_node_ops import entity_node_from_record
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class Neighbor:
+    node_uuid: str
+    edge_count: int
+
+
+def label_propagation(projection: dict[str, list[Neighbor]]) -> list[list[str]]:
+    community_map = {uuid: i for i, uuid in enumerate(projection)}
+    seen_states: set[tuple[tuple[str, int], ...]] = set()
+
+    for _ in range(max(len(projection) * 10, 1)):
+        state = tuple((uuid, community_map[uuid]) for uuid in projection)
+        if state in seen_states:
+            break
+        seen_states.add(state)
+
+        no_change = True
+        new_community_map: dict[str, int] = {}
+
+        for uuid, neighbors in projection.items():
+            curr_community = community_map[uuid]
+
+            community_candidates: dict[int, int] = defaultdict(int)
+            for neighbor in neighbors:
+                community_candidates[community_map[neighbor.node_uuid]] += neighbor.edge_count
+            community_lst = [
+                (count, community) for community, count in community_candidates.items()
+            ]
+
+            community_lst.sort(reverse=True)
+            candidate_rank, community_candidate = community_lst[0] if community_lst else (0, -1)
+            if community_candidate != -1 and candidate_rank > 1:
+                new_community = community_candidate
+            else:
+                new_community = max(community_candidate, curr_community)
+
+            new_community_map[uuid] = new_community
+
+            if new_community != curr_community:
+                no_change = False
+
+        community_map = new_community_map
+
+        if no_change:
+            break
+
+    community_cluster_map: dict[int, list[str]] = defaultdict(list)
+    for uuid, community in community_map.items():
+        community_cluster_map[community].append(uuid)
+
+    return list(community_cluster_map.values())
 
 
 def _count_value(value: object) -> int:

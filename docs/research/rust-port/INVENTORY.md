@@ -90,7 +90,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/episode_node_ops.py` — class: `compatibility`; imports: `graphiti_core.errors`, `graphiti_core.nodes`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/episodic_edge_ops.py` — class: `compatibility`; imports: `graphiti_core.edges`, `graphiti_core.errors`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/graph_operations_interface.py` — class: `compatibility`; imports: `graphiti_core.edges`, `graphiti_core.nodes`
-- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/graph_ops.py` — class: `compatibility`; imports: `graphiti_core.driver.operations.graph_utils`, `graphiti_core.nodes`
+- `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/graph_ops.py` — class: `compatibility`; imports: `graphiti_core.nodes`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/has_episode_edge_ops.py` — class: `compatibility`; imports: `graphiti_core.edges`, `graphiti_core.errors`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/next_episode_edge_ops.py` — class: `compatibility`; imports: `graphiti_core.edges`, `graphiti_core.errors`
 - `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/saga_node_ops.py` — class: `compatibility`; imports: `graphiti_core.errors`, `graphiti_core.nodes`
