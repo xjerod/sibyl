@@ -25,6 +25,19 @@ Set `SIBYL_COORDINATION_BACKEND=auto` (the default) and sibyld picks the right c
 for each mode. Override it only when you need Redis-backed coordination for multi-process Surreal
 dev.
 
+## Archive And Rollback Policy
+
+Archive rehearsal is evidence work, not an alternate runtime. Historical PostgreSQL dump payloads
+may be restored only against an operator-managed rehearsal database, then verified through explicit
+`sibyld migrate` commands.
+
+Rollback has a narrow operational boundary:
+
+- before SurrealDB accepts new production writes, point traffic back to the preserved source
+  deployment and unfreeze source writes if needed;
+- after SurrealDB accepts new writes, do not treat the historical PostgreSQL/FalkorDB stack as a
+  lossless rollback target. Restore from Surreal backups or replay source archives deliberately.
+
 ## Fully Surreal (default)
 
 **Pick this for:** new installs, self-hosted local dev, simpler ops.
@@ -54,7 +67,7 @@ SIBYL_COORDINATION_BACKEND=local
 
 - SurrealDB backs graph, auth/RBAC, content, and RAG runtime paths
 - PostgreSQL dump payloads remain available only for migration and rollback evidence
-- Redis/Valkey is optional for distributed coordination
+- Redis/Valkey is optional for distributed coordination and must be enabled explicitly
 
 ## Switching modes
 

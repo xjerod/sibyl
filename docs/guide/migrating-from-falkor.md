@@ -6,7 +6,7 @@ description: CLI playbook for moving an existing install to SurrealDB
 # Migrating from FalkorDB
 
 Sibyl ships CLI tooling to move an organization (or a whole install) from the legacy FalkorDB +
-PostgreSQL stack to SurrealDB. The migration is an explicit, reversible operation. Nothing happens
+PostgreSQL stack to SurrealDB. The migration is explicit and rehearsal-driven. Nothing happens
 automatically when you upgrade.
 
 SurrealDB is the default runtime now. Legacy graph/content data is a source-side migration concern
@@ -27,6 +27,8 @@ are upgrading an existing install.
   insurance.
 - **Rehearse.** Run the migration against a staging SurrealDB first to confirm the archive loads and
   counts match.
+- **Choose the rollback window.** Source rollback is only safe while SurrealDB writes are still
+  frozen. Once SurrealDB accepts new writes, recovery uses Surreal backups or deliberate replay.
 
 ## The three-step flow
 
@@ -161,8 +163,8 @@ moon run migrate-cutover -- \
 ```
 
 7. Point clients at the new Surreal-backed API (`SIBYL_STORE=surreal`, new `SIBYL_SURREAL_URL`).
-8. Keep the preserved legacy source deployment up for a few days as a rollback option. It holds
-   read-only history until you're confident.
+8. Keep the preserved legacy source deployment up for a few days as a read-only evidence source. It
+   is a rollback target only until SurrealDB accepts new production writes.
 9. Decommission FalkorDB + PostgreSQL once traffic has run cleanly on Surreal and your rollback
    window has closed.
 
@@ -170,14 +172,16 @@ moon run migrate-cutover -- \
 
 If post-cutover verification reveals a problem:
 
-1. Point clients back at the preserved legacy API if Surreal has not accepted new writes yet.
-2. Remove the auth/RBAC read-only guard before resuming legacy writes:
+1. Point clients back at the preserved legacy API only if SurrealDB has not accepted new production
+   writes yet.
+2. Remove the auth/RBAC read-only guard before resuming source writes:
 
 ```bash
 moon run auth-readonly -- --mode unfreeze --apply --yes
 ```
 
-3. The legacy stack is otherwise unchanged. The export is non-destructive.
+3. If SurrealDB has accepted new production writes, keep clients on SurrealDB and recover through a
+   Surreal backup restore, a corrected archive import, or deliberate replay of the affected writes.
 4. File an issue with the archive manifest and the failing verification output.
 
 ## FAQ

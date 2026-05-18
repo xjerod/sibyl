@@ -161,8 +161,8 @@ must carry an owner and reason here.
 | `docs/deployment/docker-compose.md` | `postgres`, `redis`, `valkey` | 42 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/environment.md` | `graphiti`, `postgres`, `redis`, `valkey` | 55 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/helm-chart.md` | `postgres`, `redis`, `valkey` | 17 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/deployment/index.md` | `falkor`, `postgres`, `redis`, `valkey` | 8 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/deployment/kubernetes.md` | `falkor`, `postgres`, `redis`, `valkey` | 15 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/index.md` | `falkor`, `postgres`, `redis`, `valkey` | 14 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/kubernetes.md` | `falkor`, `postgres`, `redis`, `valkey` | 17 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/monitoring.md` | `graphiti`, `redis` | 2 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/tilt-minikube.md` | `falkor`, `postgres`, `redis`, `valkey` | 19 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/troubleshooting.md` | `graphiti`, `postgres`, `redis` | 14 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
@@ -178,8 +178,8 @@ must carry an owner and reason here.
 | `docs/guide/semantic-search.md` | `redis` | 1 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/setting-up-prompts.md` | `redis`, `valkey` | 3 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/sources.md` | `redis` | 2 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
-| `docs/guide/storage-modes.md` | `falkor`, `postgres`, `redis`, `valkey` | 14 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
-| `docs/guide/surrealdb-migration-release-notes.md` | `falkor`, `graphiti`, `postgres` | 28 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
+| `docs/guide/storage-modes.md` | `falkor`, `postgres`, `redis`, `valkey` | 17 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
+| `docs/guide/surrealdb-migration-release-notes.md` | `falkor`, `graphiti`, `postgres` | 29 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/task-management.md` | `redis` | 1 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/why-surreal.md` | `falkor`, `graphiti`, `postgres`, `redis` | 17 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
 | `docs/guide/working-with-agents.md` | `redis` | 6 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |

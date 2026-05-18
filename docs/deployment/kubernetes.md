@@ -209,8 +209,9 @@ demo uses the official `valkey/valkey` Helm chart.
 
 ### Archive Rehearsal Sidecars
 
-PostgreSQL is no longer part of the active Kubernetes runtime. Keep it outside the release chart and
-bring it up only for explicit legacy `postgres.sql` archive rehearsal or rollback validation.
+PostgreSQL is no longer part of the active Kubernetes runtime. Keep PostgreSQL and preserved
+FalkorDB source deployments outside the release chart. Bring them up only for explicit legacy
+`postgres.sql` archive rehearsal or rollback validation during a write-freeze window.
 
 ## Secrets Management
 

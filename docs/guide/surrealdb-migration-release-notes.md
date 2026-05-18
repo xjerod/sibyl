@@ -11,7 +11,8 @@ content, and auth. Do not start new deployments on FalkorDB or PostgreSQL auth.
 Legacy FalkorDB runtime support was retired after the v0.6.0 compatibility release. PostgreSQL auth
 was removed after the same release, and active content/RAG runtime paths now resolve through
 SurrealDB. Structured auth/content archive export now reads SurrealDB; retained `postgres.sql`
-payloads are restore-only evidence for rehearsal or rollback validation.
+payloads are restore-only evidence for rehearsal or rollback validation, not ambient runtime
+sidecars.
 
 ## What changed
 
@@ -102,7 +103,8 @@ new `postgres.sql` sidecars in fully Surreal mode.
 ## Rollback posture
 
 The migration is explicit and archive-backed. Upgrading does not destructively rewrite your legacy
-data. If a cutover fails before Surreal accepts new writes, point traffic back to the legacy API.
+data. If a cutover fails before SurrealDB accepts new writes, point traffic back to the legacy API.
 
-Once Surreal accepts new production writes, treating PostgreSQL as an instant read-write rollback is
-unsafe. Restore from the pre-cutover archive and replay any Surreal-only writes deliberately.
+Once SurrealDB accepts new production writes, treating PostgreSQL or FalkorDB as an instant
+read-write rollback is unsafe. Restore from Surreal backups or replay any affected writes
+deliberately.

@@ -5,7 +5,7 @@ clusters.
 
 ## Architecture
 
-Sibyl consists of four components plus one unified storage backend (SurrealDB by default):
+Sibyl consists of four components plus one unified storage backend:
 
 | Component     | Purpose                             | Port   |
 | ------------- | ----------------------------------- | ------ |
@@ -13,10 +13,23 @@ Sibyl consists of four components plus one unified storage backend (SurrealDB by
 | **Worker**    | arq job queue processor             | -      |
 | **Frontend**  | Next.js 16 web UI                   | 3337   |
 | **SurrealDB** | Graph + content + auth (default)    | 8000\* |
-| **Postgres**  | Migration/archive rehearsal only    | 5433\* |
+| **Postgres**  | External archive rehearsal only     | 5433\* |
 
-\*Default internal ports. External mappings vary by deployment mode. PostgreSQL is not part of the
-default runtime; it is used only for explicit migration and archive-rehearsal flows.
+\*Default internal ports. External mappings vary by deployment mode. PostgreSQL is not deployed by
+default; use an operator-managed instance only for explicit migration and archive-rehearsal flows.
+
+## Runtime Boundary
+
+- SurrealDB is the only required data service for new local, single-host, and supported production
+  deployments.
+- Redis/Valkey coordination is explicit opt-in. Use it for multi-process or multi-replica
+  deployments by setting `SIBYL_COORDINATION_BACKEND=redis` or Helm `coordinationBackend: redis`.
+- PostgreSQL and preserved FalkorDB installs are migration sources or archive-rehearsal inputs, not
+  ambient sidecars for current deployments.
+- Rollback is bounded by the write-freeze window. Before SurrealDB accepts new production writes,
+  traffic can return to the preserved source deployment. After writes reopen on SurrealDB, recovery
+  uses Surreal backups, archive receipts, and deliberate replay, not an instant switch back to
+  legacy services.
 
 ```
                                    +------------------+
@@ -52,8 +65,8 @@ default runtime; it is used only for explicit migration and archive-rehearsal fl
                                    +------------------+
 ```
 
-PostgreSQL is retained only for explicit migration and archive-rehearsal flows. It is not deployed
-by the default runtime. See [storage-modes.md](../guide/storage-modes.md) and
+PostgreSQL is retained only as an external archive-rehearsal target. See
+[storage-modes.md](../guide/storage-modes.md) and
 [migrating-from-falkor.md](../guide/migrating-from-falkor.md).
 
 ## Deployment Modes
