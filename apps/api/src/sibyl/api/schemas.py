@@ -971,6 +971,8 @@ class SynthesisSourcePackResponse(BaseModel):
     sources: list[SynthesisSourceReferenceResponse] = Field(default_factory=list)
     hidden_count: int = 0
     redaction_count: int = 0
+    correction_count: int = 0
+    correction_reasons: list[str] = Field(default_factory=list)
     freshness: dict[str, str | None] = Field(default_factory=dict)
     unresolved_claims: list[str] = Field(default_factory=list)
 

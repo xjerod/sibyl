@@ -509,6 +509,8 @@ export interface SynthesisSourcePack {
   sources: SynthesisSourceReference[];
   hidden_count: number;
   redaction_count: number;
+  correction_count: number;
+  correction_reasons: string[];
   freshness: Record<string, string | null>;
   unresolved_claims: string[];
 }

@@ -69,6 +69,20 @@ async def test_memory_inspect_client_url_encodes_source_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_source_import_status_client_url_encodes_import_id() -> None:
+    client = SibylClient(base_url="http://example.test/api", auth_token="token")
+    client._request = AsyncMock(return_value={"import_id": "import-1"})  # type: ignore[method-assign]
+
+    data = await client.source_import_status("import/run:1")
+
+    assert data == {"import_id": "import-1"}
+    client._request.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "GET",
+        "/memory/source-imports/import%2Frun%3A1",
+    )
+
+
+@pytest.mark.asyncio
 async def test_memory_space_access_client_url_encodes_space_id() -> None:
     client = SibylClient(base_url="http://example.test/api", auth_token="token")
     client._request = AsyncMock(return_value={"allowed": True})  # type: ignore[method-assign]
@@ -1271,6 +1285,7 @@ def test_synthesis_plan_command_outputs_section_summary(
                 "title": "Write Roadmap",
                 "sections": [
                     {
+                        "section_id": "section-1",
                         "title": "Current State",
                         "source_ids": ["source-1"],
                         "gaps": [],
@@ -1283,6 +1298,20 @@ def test_synthesis_plan_command_outputs_section_summary(
                 "gap_count": 0,
                 "gaps": [],
             },
+            "source_packs": [
+                {
+                    "section_id": "section-1",
+                    "title": "Current State",
+                    "source_ids": ["source-1"],
+                    "sources": [],
+                    "hidden_count": 1,
+                    "redaction_count": 0,
+                    "correction_count": 1,
+                    "correction_reasons": ["mark_stale"],
+                    "freshness": {"source-1": "2026-05-14T12:00:00Z"},
+                    "unresolved_claims": [],
+                }
+            ],
         }
     )
     mock_get_client.return_value = _FakeClientContext(mock_client)
@@ -1308,6 +1337,8 @@ def test_synthesis_plan_command_outputs_section_summary(
     assert result.exit_code == 0
     assert "Write Roadmap" in result.stdout
     assert "Current State" in result.stdout
+    assert "corrected" in result.stdout
+    assert "mark_stale" in result.stdout
     mock_client.synthesis_plan.assert_awaited_once_with(
         goal="Write roadmap",
         output_type="roadmap",
@@ -1372,9 +1403,11 @@ def test_synthesis_remember_command_requests_artifact_persistence(
     mock_client.synthesis_draft = AsyncMock(
         return_value={
             "artifact": {
+                "artifact_id": "artifact-1",
                 "title": "Roadmap",
                 "remembered_memory_id": "memory:artifact",
                 "remembered_source_id": "artifact:generated",
+                "source_ids": ["source-1"],
             }
         }
     )
@@ -1396,6 +1429,8 @@ def test_synthesis_remember_command_requests_artifact_persistence(
 
     assert result.exit_code == 0
     assert "Remembered synthesis artifact" in result.stdout
+    assert "artifact-1" in result.stdout
+    assert "source-1" in result.stdout
     mock_client.synthesis_draft.assert_awaited_once()
     kwargs = mock_client.synthesis_draft.await_args.kwargs
     assert kwargs["remember"] is True
@@ -1499,6 +1534,45 @@ def test_memory_inspect_command_renders_source_summary(mock_get_client: MagicMoc
         entity_type="raw_memory",
     )
     mock_client.memory_inspect.assert_awaited_once_with("memory-1")
+
+
+@patch("sibyl_cli.main.get_client")
+def test_memory_import_status_command_renders_import_receipts(mock_get_client: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.source_import_status = AsyncMock(
+        return_value={
+            "import_id": "import/run:1",
+            "status": "completed",
+            "adapter_name": "maildir",
+            "source_identity": "maildir:///archive",
+            "target_memory_scope": "private",
+            "target_scope_key": None,
+            "privacy_class": "personal",
+            "progress": {
+                "imported_count": 2,
+                "skipped_count": 1,
+                "dedupe_count": 1,
+                "error_count": 0,
+                "attachment_count": 3,
+                "extraction_pending_count": 1,
+            },
+            "raw_memory_ids": ["raw-1", "raw-2"],
+            "skipped_records": [{"adapter_record_id": "msg-3", "reason": "empty_body"}],
+            "errors": [],
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["memory-import-status", "import/run:1"])
+
+    assert result.exit_code == 0
+    assert "Source import receipt" in result.stdout
+    assert "import/run:1" in result.stdout
+    assert "Raw memory receipts" in result.stdout
+    assert "raw-1" in result.stdout
+    assert "empty_body" in result.stdout
+    mock_client.source_import_status.assert_awaited_once_with("import/run:1")
 
 
 @patch("sibyl_cli.main.get_client")

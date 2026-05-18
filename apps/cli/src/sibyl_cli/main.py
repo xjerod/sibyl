@@ -487,6 +487,70 @@ def _print_raw_memory_results(memories: list[object]) -> None:
         console.print()
 
 
+def _int_value(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [cast("dict[str, object]", item) for item in value if isinstance(item, dict)]
+
+
+def _source_pack_receipt_counts(data: dict[str, object]) -> tuple[int, int, int, int]:
+    hidden = 0
+    redacted = 0
+    corrected = 0
+    freshness = 0
+    for pack in _dict_list(data.get("source_packs")):
+        hidden += _int_value(pack.get("hidden_count"))
+        redacted += _int_value(pack.get("redaction_count"))
+        corrected += _int_value(pack.get("correction_count"))
+        freshness_payload = pack.get("freshness")
+        if isinstance(freshness_payload, dict):
+            freshness += len(freshness_payload)
+    return hidden, redacted, corrected, freshness
+
+
+def _source_pack_correction_reasons(data: dict[str, object]) -> list[str]:
+    reasons: list[str] = []
+    seen: set[str] = set()
+    for pack in _dict_list(data.get("source_packs")):
+        raw_reasons = pack.get("correction_reasons")
+        if not isinstance(raw_reasons, list):
+            continue
+        for item in raw_reasons:
+            reason = str(item)
+            if reason not in seen:
+                reasons.append(reason)
+                seen.add(reason)
+    return reasons
+
+
+def _find_source_pack(data: dict[str, object], section_id: object) -> dict[str, object] | None:
+    for pack in _dict_list(data.get("source_packs")):
+        if pack.get("section_id") == section_id:
+            return pack
+    return None
+
+
+def _print_source_pack_receipt(pack: dict[str, object]) -> None:
+    source_ids = pack.get("source_ids")
+    source_count = len(source_ids) if isinstance(source_ids, list) else 0
+    hidden = _int_value(pack.get("hidden_count"))
+    redacted = _int_value(pack.get("redaction_count"))
+    corrected = _int_value(pack.get("correction_count"))
+    if source_count:
+        console.print(f"    [dim]sources: {source_count} receipt(s)[/dim]")
+    if hidden or redacted or corrected:
+        console.print(
+            f"    [dim]impact: {hidden} hidden · {redacted} redacted · {corrected} corrected[/dim]"
+        )
+    reasons = pack.get("correction_reasons")
+    if isinstance(reasons, list) and reasons:
+        console.print(f"    [dim]corrections: {', '.join(str(item) for item in reasons[:4])}[/dim]")
+
+
 def _print_synthesis_plan(data: dict[str, object]) -> None:
     outline = cast("dict[str, object]", data.get("outline") or {})
     title = str(outline.get("title") or "Synthesis Plan")
@@ -512,6 +576,8 @@ def _print_synthesis_plan(data: dict[str, object]) -> None:
             if isinstance(gap, dict):
                 gap_data = cast("dict[str, object]", gap)
                 console.print(f"    [dim]gap: {gap_data.get('reason')}[/dim]")
+        if pack := _find_source_pack(data, section.get("section_id")):
+            _print_source_pack_receipt(pack)
 
 
 def _print_synthesis_verification(data: dict[str, object]) -> None:
@@ -528,6 +594,15 @@ def _print_synthesis_verification(data: dict[str, object]) -> None:
         if isinstance(gap, dict):
             gap_data = cast("dict[str, object]", gap)
             console.print(f"  [dim]{gap_data.get('title')}: {gap_data.get('reason')}[/dim]")
+    hidden, redacted, corrected, freshness = _source_pack_receipt_counts(data)
+    if hidden or redacted or corrected or freshness:
+        console.print(
+            f"  [dim]Correction impact: {hidden} hidden · {redacted} redacted · "
+            f"{corrected} corrected · {freshness} freshness[/dim]"
+        )
+    reasons = _source_pack_correction_reasons(data)
+    if reasons:
+        console.print(f"  [dim]Correction reasons: {', '.join(reasons[:5])}[/dim]")
 
 
 def _print_synthesis_artifact(data: dict[str, object], *, output_format: str) -> None:
@@ -544,10 +619,74 @@ def _print_synthesis_remember(data: dict[str, object]) -> None:
     remembered_source_id = artifact.get("remembered_source_id")
     if remembered_memory_id:
         success(f"Remembered synthesis artifact: {artifact.get('title')}")
+        console.print(f"  [dim]Artifact: {artifact.get('artifact_id', '')}[/dim]")
         console.print(f"  [dim]Memory: {remembered_memory_id}[/dim]")
         console.print(f"  [dim]Source: {remembered_source_id}[/dim]")
+        source_ids = artifact.get("source_ids")
+        if isinstance(source_ids, list) and source_ids:
+            console.print(
+                f"  [dim]Source receipts: {', '.join(str(item) for item in source_ids)}[/dim]"
+            )
         return
     error("Synthesis artifact was drafted but not remembered.")
+
+
+def _source_import_scope(data: dict[str, object]) -> str:
+    scope = str(data.get("target_memory_scope") or "private")
+    if scope_key := data.get("target_scope_key"):
+        return f"{scope}:{scope_key}"
+    return scope
+
+
+def _source_import_progress(data: dict[str, object]) -> dict[str, object]:
+    progress = data.get("progress")
+    return cast("dict[str, object]", progress) if isinstance(progress, dict) else {}
+
+
+def _source_import_safe_record_summary(record: dict[str, object]) -> str:
+    for key in ("adapter_record_id", "source_uri", "code", "type"):
+        if value := record.get(key):
+            return str(value)
+    return "record"
+
+
+def _print_source_import_status(data: dict[str, object]) -> None:
+    progress = _source_import_progress(data)
+    console.print("\n[bold]Source import receipt[/bold]\n")
+    table = create_table(None, "Field", "Value", expand=False)
+    table.add_row("Import Id", str(data.get("import_id") or ""))
+    table.add_row("Status", str(data.get("status") or ""))
+    table.add_row("Adapter", str(data.get("adapter_name") or ""))
+    table.add_row("Source", str(data.get("source_identity") or ""))
+    table.add_row("Target scope", _source_import_scope(data))
+    table.add_row("Privacy", str(data.get("privacy_class") or "default"))
+    table.add_row("Imported", str(progress.get("imported_count") or 0))
+    table.add_row("Skipped", str(progress.get("skipped_count") or 0))
+    table.add_row("Deduped", str(progress.get("dedupe_count") or 0))
+    table.add_row("Errors", str(progress.get("error_count") or 0))
+    table.add_row("Attachments", str(progress.get("attachment_count") or 0))
+    table.add_row("Pending extraction", str(progress.get("extraction_pending_count") or 0))
+    console.print(table)
+
+    raw_memory_ids = data.get("raw_memory_ids")
+    if isinstance(raw_memory_ids, list) and raw_memory_ids:
+        console.print("\n[bold]Raw memory receipts[/bold]")
+        for source_id in raw_memory_ids[:18]:
+            console.print(f"  [{CORAL}]{source_id}[/{CORAL}]")
+
+    skipped_records = _dict_list(data.get("skipped_records"))
+    if skipped_records:
+        console.print("\n[bold]Skipped records[/bold]")
+        for record in skipped_records[:6]:
+            reason = record.get("reason") or record.get("message") or "skipped"
+            console.print(f"  [dim]{_source_import_safe_record_summary(record)}: {reason}[/dim]")
+
+    errors = _dict_list(data.get("errors"))
+    if errors:
+        console.print("\n[bold]Errors[/bold]")
+        for record in errors[:6]:
+            message = record.get("message") or record.get("error") or "error"
+            console.print(f"  [dim]{_source_import_safe_record_summary(record)}: {message}[/dim]")
 
 
 def _parse_policy_filter(value: str | None) -> bool | None:
@@ -1984,6 +2123,28 @@ def memory_inspect(
     run_memory_inspect()
 
 
+@app.command("memory-import-status")
+def memory_import_status(
+    import_id: str = typer.Argument(..., help="Source import ID"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Inspect a source import receipt and its published raw memory IDs."""
+
+    @run_async
+    async def run_memory_import_status() -> None:
+        try:
+            async with get_client() as client:
+                data = await client.source_import_status(import_id)
+            if json_output:
+                print_json(data)
+                return
+            _print_source_import_status(cast("dict[str, object]", data))
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_memory_import_status()
+
+
 @app.command("memory-promote")
 def memory_promote(
     candidate_id: str = typer.Argument(..., help="Raw reflection candidate ID"),
@@ -2228,16 +2389,8 @@ def memory_review_status(
                     ),
                 )
             events = [
-                *(
-                    promoted.get("events", [])
-                    if isinstance(promoted.get("events"), list)
-                    else []
-                ),
-                *(
-                    reviewed.get("events", [])
-                    if isinstance(reviewed.get("events"), list)
-                    else []
-                ),
+                *(promoted.get("events", []) if isinstance(promoted.get("events"), list) else []),
+                *(reviewed.get("events", []) if isinstance(reviewed.get("events"), list) else []),
             ]
             events = sorted(
                 (event for event in events if isinstance(event, dict)),

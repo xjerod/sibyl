@@ -1169,6 +1169,11 @@ class SibylClient:
         encoded_source_id = quote(source_id, safe="")
         return await self._request("GET", f"/memory/inspect/{encoded_source_id}")
 
+    async def source_import_status(self, import_id: str) -> dict[str, Any]:
+        """Inspect a source import receipt from the memory surface."""
+        encoded_import_id = quote(import_id, safe="")
+        return await self._request("GET", f"/memory/source-imports/{encoded_import_id}")
+
     async def preview_reflection_promotion(
         self,
         *,

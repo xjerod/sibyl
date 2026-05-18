@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { type FormEvent, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { EntityBadge } from '@/components/ui/badge';
@@ -140,6 +141,15 @@ function outlineSections(plan: SynthesisPlanResponse): SynthesisSectionRequest[]
 
 function sourceCount(plan: SynthesisPlanResponse | SynthesisDraftResponse | null): number {
   return plan ? new Set(plan.source_packs.flatMap(pack => pack.source_ids)).size : 0;
+}
+
+function shortId(value: string): string {
+  if (value.length <= 28) return value;
+  return `${value.slice(0, 12)}...${value.slice(-8)}`;
+}
+
+function sourceHref(sourceId: string): string {
+  return `/memory/sources/${encodeURIComponent(sourceId)}`;
 }
 
 function StepDot({
@@ -653,7 +663,10 @@ export function SynthesisRunner() {
           )}
 
           {activeRun?.verification && (
-            <SynthesisVerificationPanel verification={activeRun.verification} />
+            <SynthesisVerificationPanel
+              verification={activeRun.verification}
+              sourcePacks={activeRun.source_packs}
+            />
           )}
 
           {draft?.artifact && (
@@ -679,6 +692,64 @@ export function SynthesisRunner() {
               </div>
               <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base/60 p-4">
                 <Markdown content={draft.artifact.markdown} />
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 p-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-sc-fg-subtle">
+                    Artifact Receipts
+                  </p>
+                  <dl className="mt-2 grid gap-1.5 text-xs">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                      <dt className="text-sc-fg-muted">Artifact</dt>
+                      <dd className="truncate font-mono text-sc-coral">
+                        {draft.artifact.artifact_id}
+                      </dd>
+                    </div>
+                    {draft.artifact.remembered_memory_id && (
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <dt className="text-sc-fg-muted">Memory</dt>
+                        <dd className="truncate font-mono text-sc-green">
+                          {draft.artifact.remembered_memory_id}
+                        </dd>
+                      </div>
+                    )}
+                    {draft.artifact.remembered_source_id && (
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <dt className="text-sc-fg-muted">Source</dt>
+                        <dd className="truncate">
+                          <Link
+                            href={sourceHref(draft.artifact.remembered_source_id)}
+                            className="font-mono text-sc-cyan transition-colors hover:text-sc-purple"
+                          >
+                            {draft.artifact.remembered_source_id}
+                          </Link>
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+
+                <div className="rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 p-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-sc-fg-subtle">
+                    Source Receipts
+                  </p>
+                  {draft.artifact.source_ids.length === 0 ? (
+                    <p className="mt-2 text-sm text-sc-fg-muted">No source receipts recorded</p>
+                  ) : (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {draft.artifact.source_ids.slice(0, 12).map(id => (
+                        <Link
+                          key={id}
+                          href={sourceHref(id)}
+                          className="rounded border border-sc-cyan/20 bg-sc-cyan/10 px-1.5 py-0.5 font-mono text-[11px] text-sc-cyan transition-colors hover:border-sc-purple/40 hover:text-sc-purple"
+                          title={id}
+                        >
+                          {shortId(id)}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           )}

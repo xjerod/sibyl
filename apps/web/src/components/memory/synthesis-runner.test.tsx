@@ -61,8 +61,10 @@ const planResponse = {
         },
       ],
       hidden_count: 0,
-      redaction_count: 0,
-      freshness: {},
+      redaction_count: 1,
+      correction_count: 1,
+      correction_reasons: ['mark_stale'],
+      freshness: { 'raw-1': '2026-05-14T12:00:00Z' },
       unresolved_claims: [],
     },
   ],
@@ -127,8 +129,13 @@ describe('SynthesisRunner', () => {
       })
     );
     expect(await screen.findByDisplayValue('Recommended Path')).toBeInTheDocument();
-    expect(screen.getByText('Roadmap assessment')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Roadmap assessment' })).toHaveAttribute(
+      'href',
+      '/memory/sources/raw-1'
+    );
     expect(screen.getByText('Verification')).toBeInTheDocument();
+    expect(screen.getByText('Correction Impact')).toBeInTheDocument();
+    expect(screen.getAllByText('mark stale').length).toBeGreaterThan(0);
   });
 
   it('drafts with the reviewed outline and remember settings', async () => {
@@ -173,5 +180,10 @@ describe('SynthesisRunner', () => {
     );
     expect(await screen.findByText(/Ship the unified memory workspace/i)).toBeInTheDocument();
     expect(screen.getByText('remembered')).toBeInTheDocument();
+    expect(screen.getByText('artifact-1')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'source-remembered' })).toHaveAttribute(
+      'href',
+      '/memory/sources/source-remembered'
+    );
   });
 });

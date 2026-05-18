@@ -1,6 +1,6 @@
 'use client';
 
-import type { SynthesisVerification } from '@/lib/api';
+import type { SynthesisSourcePack, SynthesisVerification } from '@/lib/api';
 
 const STATUS_STYLES: Record<SynthesisVerification['status'], string> = {
   pending: 'border-sc-fg-subtle/20 bg-sc-fg-subtle/10 text-sc-fg-muted',
@@ -18,9 +18,24 @@ function titleCase(value: string): string {
 
 export function SynthesisVerificationPanel({
   verification,
+  sourcePacks = [],
 }: {
   verification: SynthesisVerification;
+  sourcePacks?: SynthesisSourcePack[];
 }) {
+  const hiddenCount = sourcePacks.reduce((total, pack) => total + pack.hidden_count, 0);
+  const redactionCount = sourcePacks.reduce((total, pack) => total + pack.redaction_count, 0);
+  const correctionCount = sourcePacks.reduce((total, pack) => total + pack.correction_count, 0);
+  const freshnessCount = sourcePacks.reduce(
+    (total, pack) => total + Object.keys(pack.freshness).length,
+    0
+  );
+  const correctionReasons = Array.from(
+    new Set(sourcePacks.flatMap(pack => pack.correction_reasons))
+  );
+  const hasImpact =
+    hiddenCount > 0 || redactionCount > 0 || correctionCount > 0 || freshnessCount > 0;
+
   return (
     <section className="rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -62,6 +77,42 @@ export function SynthesisVerificationPanel({
         <p className="mt-4 text-sm text-sc-fg-muted">
           No verification gaps reported for this synthesis run.
         </p>
+      )}
+
+      {hasImpact && (
+        <div className="mt-4 rounded-lg border border-sc-yellow/20 bg-sc-yellow/10 p-3">
+          <h3 className="text-sm font-medium text-sc-yellow">Correction Impact</h3>
+          <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-4">
+            <div>
+              <dt className="text-sc-fg-muted">Hidden</dt>
+              <dd className="mt-1 font-semibold text-sc-fg-primary">{hiddenCount}</dd>
+            </div>
+            <div>
+              <dt className="text-sc-fg-muted">Redacted</dt>
+              <dd className="mt-1 font-semibold text-sc-fg-primary">{redactionCount}</dd>
+            </div>
+            <div>
+              <dt className="text-sc-fg-muted">Corrected</dt>
+              <dd className="mt-1 font-semibold text-sc-fg-primary">{correctionCount}</dd>
+            </div>
+            <div>
+              <dt className="text-sc-fg-muted">Freshness</dt>
+              <dd className="mt-1 font-semibold text-sc-fg-primary">{freshnessCount}</dd>
+            </div>
+          </dl>
+          {correctionReasons.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {correctionReasons.slice(0, 5).map(reason => (
+                <span
+                  key={reason}
+                  className="rounded border border-sc-yellow/20 bg-sc-bg-base/70 px-1.5 py-0.5 text-[11px] text-sc-yellow"
+                >
+                  {reason.replace(/_/g, ' ')}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </section>
   );

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { EntityBadge } from '@/components/ui/badge';
 import { FormField } from '@/components/ui/form-field';
 import { Input, Textarea } from '@/components/ui/input';
@@ -14,6 +15,23 @@ function textToSourceIds(value: string): string[] {
     .split(',')
     .map(part => part.trim())
     .filter(Boolean);
+}
+
+function shortId(value: string): string {
+  if (value.length <= 24) return value;
+  return `${value.slice(0, 10)}...${value.slice(-6)}`;
+}
+
+function sourceHref(sourceId: string): string {
+  return `/memory/sources/${encodeURIComponent(sourceId)}`;
+}
+
+function impactLabels(sourcePack: SynthesisSourcePack): string[] {
+  const labels: string[] = [];
+  if (sourcePack.hidden_count > 0) labels.push(`${sourcePack.hidden_count} hidden`);
+  if (sourcePack.redaction_count > 0) labels.push(`${sourcePack.redaction_count} redacted`);
+  if (sourcePack.correction_count > 0) labels.push(`${sourcePack.correction_count} corrected`);
+  return labels;
 }
 
 export function SynthesisOutlineEditor({
@@ -48,8 +66,11 @@ export function SynthesisOutlineEditor({
         <div className="space-y-3">
           {sections.map((section, index) => {
             const sourcePack = sourcePacks[index];
+            const requiredSourceCount = section.required_source_ids?.length ?? 0;
             const sourceCount =
-              section.required_source_ids?.length ?? sourcePack?.source_ids.length ?? 0;
+              requiredSourceCount > 0 ? requiredSourceCount : (sourcePack?.source_ids.length ?? 0);
+            const impact = sourcePack ? impactLabels(sourcePack) : [];
+            const freshnessEntries = sourcePack ? Object.entries(sourcePack.freshness) : [];
 
             return (
               <article
@@ -110,8 +131,15 @@ export function SynthesisOutlineEditor({
                           key={source.id}
                           className="rounded border border-sc-fg-subtle/20 bg-sc-bg-base/70 px-3 py-2"
                         >
-                          <p className="truncate text-sm font-medium text-sc-fg-primary">
+                          <Link
+                            href={sourceHref(source.id)}
+                            className="block truncate text-sm font-medium text-sc-fg-primary transition-colors hover:text-sc-purple"
+                            title={source.id}
+                          >
                             {source.name}
+                          </Link>
+                          <p className="mt-0.5 truncate font-mono text-[11px] text-sc-cyan">
+                            {shortId(source.id)}
                           </p>
                           <p className="mt-1 line-clamp-2 text-xs text-sc-fg-muted">
                             {source.content_preview}
@@ -119,10 +147,44 @@ export function SynthesisOutlineEditor({
                         </div>
                       ))}
                     </div>
-                    {(sourcePack.hidden_count > 0 || sourcePack.redaction_count > 0) && (
-                      <p className="mt-2 text-xs text-sc-yellow">
-                        {sourcePack.hidden_count} hidden · {sourcePack.redaction_count} redacted
-                      </p>
+                    {sourcePack.source_ids.length > sourcePack.sources.length && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {sourcePack.source_ids.slice(sourcePack.sources.length, 10).map(id => (
+                          <Link
+                            key={id}
+                            href={sourceHref(id)}
+                            className="rounded border border-sc-cyan/20 bg-sc-cyan/10 px-1.5 py-0.5 font-mono text-[11px] text-sc-cyan transition-colors hover:border-sc-purple/40 hover:text-sc-purple"
+                            title={id}
+                          >
+                            {shortId(id)}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                    {impact.length > 0 && (
+                      <p className="mt-2 text-xs text-sc-yellow">{impact.join(' · ')}</p>
+                    )}
+                    {sourcePack.correction_reasons.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {sourcePack.correction_reasons.slice(0, 4).map(reason => (
+                          <span
+                            key={reason}
+                            className="rounded border border-sc-yellow/20 bg-sc-yellow/10 px-1.5 py-0.5 text-[11px] text-sc-yellow"
+                          >
+                            {reason.replace(/_/g, ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {freshnessEntries.length > 0 && (
+                      <dl className="mt-2 grid gap-1 text-[11px]">
+                        {freshnessEntries.slice(0, 4).map(([id, timestamp]) => (
+                          <div key={id} className="flex min-w-0 items-center justify-between gap-3">
+                            <dt className="truncate font-mono text-sc-fg-subtle">{shortId(id)}</dt>
+                            <dd className="truncate text-sc-fg-muted">{timestamp ?? 'unknown'}</dd>
+                          </div>
+                        ))}
+                      </dl>
                     )}
                   </div>
                 )}
