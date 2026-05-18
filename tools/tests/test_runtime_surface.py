@@ -442,12 +442,6 @@ def test_dependency_inventory_covers_legacy_and_target_stack() -> None:
         "graph",
     ) in dependencies
     assert (
-        "packages/python/sibyl-core/pyproject.toml",
-        "dependency-group:dev",
-        "graphiti-core[anthropic,google-genai]>=0.28.2",
-        "graph",
-    ) in dependencies
-    assert (
         "apps/api/pyproject.toml",
         "default",
         "surrealdb>=1.0.8,<3.0",
@@ -481,6 +475,7 @@ def test_graphiti_dependency_is_compatibility_only() -> None:
         "packages/python/sibyl-core/pyproject.toml"
     }
     assert all(record.scope != "default" for record in graphiti_dependencies)
+    assert all(record.scope != "dependency-group:dev" for record in graphiti_dependencies)
     assert any(record.scope == "optional:compatibility" for record in graphiti_dependencies)
     assert all(
         record.scope == "optional:compatibility" or record.scope.startswith("dependency-group:")

@@ -13,7 +13,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - Session-backed storage access files: 0
 - Graphiti import files: 21
 - Retained legacy term files: 89
-- Dependency records: 4
+- Dependency records: 3
 
 ## API Surface
 
@@ -193,7 +193,7 @@ must carry an owner and reason here.
 | `packages/python/sibyl-core/COVERAGE_PLAN.md` | `falkor` | 3 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `packages/python/sibyl-core/README.md` | `graphiti` | 3 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `packages/python/sibyl-core/moon.yml` | `graphiti` | 9 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
-| `packages/python/sibyl-core/pyproject.toml` | `graphiti` | 2 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
+| `packages/python/sibyl-core/pyproject.toml` | `graphiti` | 1 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `pyproject.toml` | `graphiti` | 4 | repo package config | Root package configs retain compatibility extras and dev dependency boundaries. |
 | `setup-dev.sh` | `falkor`, `postgres` | 3 | dev bootstrap | Dev scripts mention legacy migration checks and optional Redis coordination. |
 | `skills/agent-activity-audit/EXAMPLES.md` | `falkor` | 1 | v0.8 skill docs | Source skill docs retain examples that mention Redis as historical troubleshooting context. |
@@ -209,7 +209,6 @@ must carry an owner and reason here.
 ### Graph runtime dependencies
 | Project | Scope | Dependency |
 | ------- | ----- | ---------- |
-| `packages/python/sibyl-core/pyproject.toml` | `dependency-group:dev` | `graphiti-core[anthropic,google-genai]>=0.28.2` |
 | `packages/python/sibyl-core/pyproject.toml` | `optional:compatibility` | `graphiti-core[anthropic,google-genai]>=0.28.2` |
 
 ### Target SurrealDB dependencies

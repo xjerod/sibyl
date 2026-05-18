@@ -2964,7 +2964,6 @@ compatibility = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "graphiti-core", extra = ["anthropic", "google-genai"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -2993,7 +2992,6 @@ provides-extras = ["compatibility"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "graphiti-core", extras = ["anthropic", "google-genai"], specifier = ">=0.28.2" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
