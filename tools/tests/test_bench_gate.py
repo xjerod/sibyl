@@ -349,6 +349,16 @@ def test_evaluate_report_ai_memory_profile_enforces_quality_thresholds() -> None
     )
 
 
+def test_evaluate_report_ai_memory_profile_skips_tiny_slice_thresholds() -> None:
+    report = _ai_memory_report(mode="hybrid")
+    report["diagnostics"] = {"question_type_counts": {"temporal-reasoning": {"cases": 4.0}}}
+    report["per_type"]["temporal-reasoning"]["ndcg@5"] = 0.10
+
+    failures = eval_gate.evaluate_report(report, profile="ai-memory")
+
+    assert failures == []
+
+
 def test_evaluate_report_reports_threshold_and_metadata_failures() -> None:
     report = {
         "metrics": {

@@ -32,6 +32,13 @@ on:
         description: "LongMemEval live concurrency"
         type: string
         default: "2"
+      longmemeval_corpus_text_policy:
+        description: "LongMemEval session content projection"
+        type: choice
+        options:
+          - user-and-assistant-turns-v1
+          - user-turns-only-v1
+        default: user-and-assistant-turns-v1
       run_longmemeval_full:
         description: "Run the full 500-question LongMemEval live job"
         type: boolean
@@ -308,6 +315,7 @@ jobs:
             --allow-localhost \
             --limit "${{ inputs.longmemeval_smoke_limit }}" \
             --sample-strategy stratified \
+            --corpus-text-policy "${{ inputs.longmemeval_corpus_text_policy }}" \
             --concurrency "${{ inputs.longmemeval_concurrency }}" \
             --output .moon/cache/evals/longmemeval_live_smoke.json \
             --label live-smoke \
@@ -428,6 +436,7 @@ jobs:
             .moon/cache/benchmarks/longmemeval_s_cleaned.json \
             --api-url http://localhost:3334/api \
             --allow-localhost \
+            --corpus-text-policy "${{ inputs.longmemeval_corpus_text_policy }}" \
             --concurrency "${{ inputs.longmemeval_concurrency }}" \
             --output .moon/cache/evals/longmemeval_live_full.json \
             --label live-full \

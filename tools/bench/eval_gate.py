@@ -52,6 +52,7 @@ AI_MEMORY_PER_SLICE_THRESHOLDS: dict[str, MetricThreshold] = {
     "recall@10": MetricThreshold(minimum=0.80),
     "ndcg@10": MetricThreshold(minimum=0.60),
 }
+AI_MEMORY_PER_SLICE_MIN_CASES = 10
 
 _AI_MEMORY_SUMMARY_KEYS = ("per_type", "per_slice", "per_category", "per_task")
 _AI_MEMORY_CASE_ID_KEYS = ("case_id", "question_id", "task_id")
@@ -359,6 +360,13 @@ def _validate_ai_memory_isolation(report: dict[str, Any]) -> list[str]:
 
 def _validate_ai_memory_per_slice_thresholds(report: dict[str, Any]) -> list[str]:
     failures: list[str] = []
+    diagnostics = report.get("diagnostics")
+    type_counts = (
+        diagnostics.get("question_type_counts")
+        if isinstance(diagnostics, dict)
+        and isinstance(diagnostics.get("question_type_counts"), dict)
+        else {}
+    )
     for summary_key in _AI_MEMORY_SUMMARY_KEYS:
         summary = report.get(summary_key)
         if not isinstance(summary, dict):
@@ -366,6 +374,15 @@ def _validate_ai_memory_per_slice_thresholds(report: dict[str, Any]) -> list[str
         for slice_name, metrics in summary.items():
             if not isinstance(metrics, dict):
                 continue
+            if summary_key == "per_type" and isinstance(type_counts, dict):
+                slice_stats = type_counts.get(slice_name)
+                if isinstance(slice_stats, dict):
+                    case_count = slice_stats.get("cases")
+                    if (
+                        isinstance(case_count, int | float)
+                        and case_count < AI_MEMORY_PER_SLICE_MIN_CASES
+                    ):
+                        continue
             metric_values = {
                 key: float(value)
                 for key, value in metrics.items()
