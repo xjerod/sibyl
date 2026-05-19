@@ -12,7 +12,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
 - Graphiti import files: 0
-- Retained legacy term files: 87
+- Retained legacy term files: 88
 - Dependency records: 2
 
 ## API Surface
@@ -123,6 +123,7 @@ must carry an owner and reason here.
 | `docs/api/rest-tasks.md` | `redis` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/architecture/PERMISSION_SYSTEM_AUDIT.md` | `falkor`, `postgres` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_1_0_RC_PLAN.md` | `graphiti`, `redis` | 30 | v1.0 RC evidence freeze | Active RC plan names legacy terms only as blockers, evidence boundaries, and optional coordination risks. |
+| `docs/architecture/SIBYL_1_0_RC_RELEASE_PACKET.md` | `falkor`, `graphiti`, `postgres`, `redis` | 7 | v1.0 RC evidence freeze | Active RC packet cites legacy terms only in release receipts and pending external checks. |
 | `docs/architecture/SIBYL_1_0_ROADMAP.md` | `graphiti`, `redis` | 34 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_NORTHSTAR.md` | `falkor`, `graphiti`, `postgres`, `redis` | 43 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_POST_V010_RELEASE_REMAP_SPEC.md` | `graphiti`, `redis` | 37 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |

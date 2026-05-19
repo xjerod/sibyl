@@ -344,6 +344,8 @@ Verification:
 
 ## 6. Release Packet
 
+The working packet lives in [`SIBYL_1_0_RC_RELEASE_PACKET.md`](SIBYL_1_0_RC_RELEASE_PACKET.md).
+
 The release packet should contain this matrix:
 
 | Claim                                   | Required Receipt                                                    |
