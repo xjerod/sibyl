@@ -565,7 +565,7 @@ class TestReflectRoute:
             None,
             ctx,
             "proj_1",
-            required_role=ProjectRole.VIEWER,
+            required_role=ProjectRole.CONTRIBUTOR,
         )
         assert response.source_title == "Planning"
         assert response.source_id == "session_1"
@@ -713,7 +713,7 @@ class TestReflectRoute:
             None,
             ctx,
             "proj_1",
-            required_role=ProjectRole.VIEWER,
+            required_role=ProjectRole.CONTRIBUTOR,
         )
         assert reflect_memory.await_args.kwargs["related_to"] == ["plan_1", "task_1", "task_2"]
         assert reflect_memory.await_args.kwargs["principal_id"] == "user-123"
