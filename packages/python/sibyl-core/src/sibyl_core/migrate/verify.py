@@ -11,6 +11,7 @@ from sibyl_core.migrate.archive import (
     validate_archive,
 )
 from sibyl_core.services.graph_runtime import get_graph_runtime
+from sibyl_core.services.native_graph import normalize_records
 from sibyl_core.tools.admin import create_backup
 
 
@@ -108,11 +109,23 @@ async def verify_graph_archive(
         episode_id = str(episode_payload.get("uuid") or "")
         if not episode_id:
             continue
+        # Episodes live in the `episode` table, separate from `entity`. The
+        # archive's episode uuid is preserved verbatim in the `uuid` column
+        # on import, but the Surreal record id is assigned fresh — so going
+        # through `entity_manager.get` (which only queries `entity`) misses
+        # every imported episode. Query the episode table directly.
         try:
-            episode = await runtime.entity_manager.get(episode_id)
+            rows = normalize_records(
+                await runtime.client.execute_query(
+                    "SELECT uuid, group_id FROM episode"
+                    " WHERE group_id = $group_id AND uuid = $uuid LIMIT 1;",
+                    group_id=organization_id,
+                    uuid=episode_id,
+                )
+            )
         except Exception:
-            episode = None
-        if episode is None:
+            rows = []
+        if not rows:
             errors.append(f"missing imported episode: {episode_id}")
             continue
         validated_episode_ids.append(episode_id)

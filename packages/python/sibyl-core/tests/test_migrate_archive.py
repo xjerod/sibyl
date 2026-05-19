@@ -460,8 +460,17 @@ async def test_verify_graph_archive_checks_counts_and_samples(
         async def get(self, entity_id: str) -> object | None:
             return {"id": entity_id}
 
+    class FakeClient:
+        async def execute_query(self, query: str, **params: object) -> object:
+            # verify.py queries the episode table by uuid to confirm presence;
+            # return a non-empty row so sampled episodes are validated.
+            if "FROM episode" in query:
+                return [{"uuid": params.get("uuid", ""), "group_id": params.get("group_id", "")}]
+            return []
+
     class FakeRuntime:
         entity_manager = FakeEntityManager()
+        client = FakeClient()
 
     class FakeBackup:
         success = True
