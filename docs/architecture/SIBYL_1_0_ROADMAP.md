@@ -33,6 +33,7 @@ These living docs in `docs/architecture/` remain active planning inputs:
 - [`SIBYL_NORTHSTAR.md`](SIBYL_NORTHSTAR.md): product and architecture truth.
 - [`SIBYL_POST_V010_RELEASE_REMAP_SPEC.md`](SIBYL_POST_V010_RELEASE_REMAP_SPEC.md): current
   post-v0.10 release schedule and RC evidence checklist.
+- [`SIBYL_1_0_RC_PLAN.md`](SIBYL_1_0_RC_PLAN.md): concrete remaining-work plan for the v1.0 RC cut.
 - [`PERMISSION_SYSTEM_AUDIT.md`](PERMISSION_SYSTEM_AUDIT.md): current auth, policy, project RBAC,
   MCP, and trust-surface audit.
 - [`TASKIQ_MIGRATION_PLAN.md`](TASKIQ_MIGRATION_PLAN.md): coordination backend boundary and

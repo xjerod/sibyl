@@ -6,6 +6,7 @@
 - Baseline head at planning time: `v0.10.0-2-g5dc7a398`
 - Tracking task: `12b1fee4-7bdd-45c8-8a6a-b13fd6eab308`
 - Parent roadmap: [`SIBYL_1_0_ROADMAP.md`](SIBYL_1_0_ROADMAP.md)
+- RC plan: [`SIBYL_1_0_RC_PLAN.md`](SIBYL_1_0_RC_PLAN.md)
 - Current focus: v1.0 RC Evidence Freeze
 - RC audit task: `218ca5c5-1920-4689-9ab7-16ac04a73404`
 
