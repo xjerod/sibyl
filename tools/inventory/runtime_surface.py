@@ -405,6 +405,11 @@ LEGACY_TERM_ALLOWLIST = (
         owner="benchmark evidence",
         reason="Benchmark comparison flow names historical migration rehearsal mode.",
     ),
+    LegacyTermAllowlistRecord(
+        path="docs/architecture/SIBYL_1_0_RC_PLAN.md",
+        owner="v1.0 RC evidence freeze",
+        reason="Active RC plan names legacy terms only as blockers, evidence boundaries, and optional coordination risks.",
+    ),
     *legacy_term_allowlist_records(
         PROJECT_INSTRUCTION_LEGACY_TERM_FILES,
         owner="project instructions",

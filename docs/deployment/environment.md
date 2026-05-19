@@ -206,14 +206,16 @@ stored encrypted in the database (using `SIBYL_SETTINGS_KEY`).
 
 ## Native Memory Configuration
 
-| Variable               | Default   | Description                                           |
-| ---------------------- | --------- | ----------------------------------------------------- |
-| `SIBYL_RETRIEVAL_MODE` | `native`  | `graphiti`, `native`, or `compare` context retrieval  |
-| `SIBYL_NATIVE_WRITE`   | `enabled` | Set `disabled` to use compatibility reflection writes |
+| Variable               | Default   | Description                                                       |
+| ---------------------- | --------- | ----------------------------------------------------------------- |
+| `SIBYL_RETRIEVAL_MODE` | `native`  | `native` or `compare` retrieval; `graphiti` is compatibility-only |
+| `SIBYL_NATIVE_WRITE`   | `enabled` | Set `disabled` to use compatibility reflection writes             |
 
 `compare` mode returns native context results while logging policy-safe diffs against the
-compatibility path. Set `SIBYL_RETRIEVAL_MODE=graphiti` only when you need the named compatibility
-fallback for migration or investigation.
+compatibility path. The `graphiti` retrieval mode is retained as a named compatibility shim owned by
+Runtime Compatibility for migration investigation and benchmark parity only. Remove it when the
+release packet no longer needs graph-shaped compatibility comparisons, the compatibility tests are
+deleted, and no supported install docs reference the mode.
 
 ## Compatibility Graphiti Configuration
 
@@ -222,6 +224,10 @@ fallback for migration or investigation.
 | `SIBYL_GRAPHITI_SEMAPHORE_LIMIT` | `10`    | Concurrent LLM operations limit          |
 | `SEMAPHORE_LIMIT`                | (none)  | Alternative for Graphiti semaphore       |
 | `GRAPHITI_TELEMETRY_ENABLED`     | `false` | Graphiti telemetry (disabled by default) |
+
+These variable names are retained compatibility shims, not supported runtime choices for new
+installs. Owner: Runtime Compatibility. Removal condition: delete the variables with the `graphiti`
+retrieval mode once compatibility parity and migration receipts are archived for the 1.0 line.
 
 ## Runtime Telemetry
 

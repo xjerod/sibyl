@@ -12,7 +12,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
 - Graphiti import files: 0
-- Retained legacy term files: 86
+- Retained legacy term files: 87
 - Dependency records: 2
 
 ## API Surface
@@ -122,6 +122,7 @@ must carry an owner and reason here.
 | `docs/api/rest-projects.md` | `postgres`, `redis` | 5 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/api/rest-tasks.md` | `redis` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/architecture/PERMISSION_SYSTEM_AUDIT.md` | `falkor`, `postgres` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_1_0_RC_PLAN.md` | `graphiti`, `redis` | 30 | v1.0 RC evidence freeze | Active RC plan names legacy terms only as blockers, evidence boundaries, and optional coordination risks. |
 | `docs/architecture/SIBYL_1_0_ROADMAP.md` | `graphiti`, `redis` | 34 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_NORTHSTAR.md` | `falkor`, `graphiti`, `postgres`, `redis` | 43 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_POST_V010_RELEASE_REMAP_SPEC.md` | `graphiti`, `redis` | 37 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
@@ -137,7 +138,7 @@ must carry an owner and reason here.
 | `docs/cli/task-create.md` | `redis` | 2 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/cli/task-lifecycle.md` | `postgres`, `redis` | 7 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/deployment/docker-compose.md` | `postgres`, `redis`, `valkey` | 42 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/deployment/environment.md` | `graphiti`, `postgres`, `redis`, `valkey` | 55 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/environment.md` | `graphiti`, `postgres`, `redis`, `valkey` | 56 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/helm-chart.md` | `postgres`, `redis`, `valkey` | 17 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/index.md` | `falkor`, `postgres`, `redis`, `valkey` | 14 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/kubernetes.md` | `falkor`, `postgres`, `redis`, `valkey` | 17 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
