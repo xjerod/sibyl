@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from shutil import which
+from typing import Any, cast
+
+from tools.tests.conftest import REPO_ROOT
+
+RC_GATE_TEST_DEPS = {
+    "root:autonomy-gate-test",
+    "root:reflection-quality-gate-test",
+    "root:auth-session-gate-test",
+    "root:overview-perf-gate-test",
+}
+PUBLISH_ARTIFACT_JOB_COUNT = 2
+
+
+def _root_task(task_id: str) -> dict[str, Any]:
+    moon = which("moon")
+    assert moon is not None
+
+    result = subprocess.run(  # noqa: S603
+        [moon, "query", "tasks", "--project", "root", "--id", task_id],
+        cwd=REPO_ROOT,
+        env={**os.environ, "MOON_COLOR": "false"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = cast(dict[str, Any], json.loads(result.stdout))
+    return cast(dict[str, Any], payload["tasks"]["root"][task_id])
+
+
+def _dep_targets(task_id: str) -> set[str]:
+    return {dep["target"] for dep in _root_task(task_id)["deps"]}
+
+
+def test_root_check_covers_full_rc_gate_test_matrix() -> None:
+    deps = _dep_targets("check")
+
+    assert deps >= RC_GATE_TEST_DEPS
+    assert "root:release-workflow-test" in deps
+
+
+def test_root_test_covers_full_rc_gate_test_matrix() -> None:
+    deps = _dep_targets("test")
+
+    assert deps >= RC_GATE_TEST_DEPS
+    assert "root:release-workflow-test" in deps
+
+
+def test_release_workflow_gates_before_tag_or_publish() -> None:
+    workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    gate_index = workflow.index("moon run :check")
+    assert gate_index < workflow.index('git tag -a "v${{ steps.version.outputs.version }}"')
+    assert gate_index < workflow.index("gh workflow run publish.yml")
+    assert 'git commit -m "🔖' not in workflow
+    assert "chore(release): prepare v${{ steps.version.outputs.version }}" in workflow
+    assert "Release gates run on this exact commit before the tag is pushed." in workflow
+    assert "RC gate bundle passed against the current checkout." in workflow
+    assert "No version commit, tag, release, or publish was created." in workflow
+    assert "Build and checks passed. Ready to release." not in workflow
+    assert "rc-gate-receipt-${{ steps.candidate.outputs.short_sha }}" in workflow
+    assert r"(-[a-zA-Z0-9.]+)?" in workflow
+
+
+def test_publish_workflow_gates_direct_dispatches_before_artifacts() -> None:
+    workflow = (REPO_ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
+
+    assert "rc-gate:" in workflow
+    assert "moon run :check" in workflow
+    assert workflow.index("moon run :check") < workflow.index("uv build --package sibyl-core")
+    assert workflow.index("moon run :check") < workflow.index("docker/build-push-action")
+    assert workflow.count("needs: rc-gate") == PUBLISH_ARTIFACT_JOB_COUNT

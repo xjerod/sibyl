@@ -34,7 +34,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
 
     steps:
       - name: "◆ Checkout"
@@ -47,6 +47,57 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: "◇ Install system dependencies"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxslt-dev
+
+      - name: "◇ Setup moonrepo toolchain"
+        uses: moonrepo/setup-toolchain@v0.6
+        with:
+          auto-install: true
+          auto-setup: true
+          cache-version: release-rc-v1
+
+      - name: "◇ Verify toolchain"
+        run: |
+          chmod +x "$HOME/.proto/shims"/* 2>/dev/null || true
+          chmod +x "$HOME/.proto/bin"/* 2>/dev/null || true
+          moon --version
+          proto --version
+          uv --version
+
+      - name: "◇ Cache moon outputs"
+        uses: actions/cache@v5
+        with:
+          path: |
+            .moon/cache
+            apps/web/.next/cache
+          key:
+            moon-release-${{ runner.os }}-${{ hashFiles('.prototools', 'uv.lock',
+            'apps/web/pnpm-lock.yaml') }}
+          restore-keys: |
+            moon-release-${{ runner.os }}-
+
+      - name: "◇ Cache pnpm store"
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-release-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-release-${{ runner.os }}-
+
+      - name: "◇ Cache uv"
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/uv
+          key: uv-release-${{ runner.os }}-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            uv-release-${{ runner.os }}-
+
+      - name: "◇ Install Node dependencies"
+        run: cd apps/web && pnpm install --frozen-lockfile
 
       - name: "△ Determine version"
         id: version
@@ -81,6 +132,7 @@ jobs:
           echo "Releasing: $CURRENT → $VERSION"
 
       - name: "△ Update version → ${{ steps.version.outputs.version }}"
+        if: ${{ !inputs.dry_run }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           echo "$VERSION" > VERSION
@@ -103,7 +155,47 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           git add VERSION
-          git commit -m "🔖 v${{ steps.version.outputs.version }}"
+          git commit \
+            -m "chore(release): prepare v${{ steps.version.outputs.version }}" \
+            -m "Update the repository version before tagging the release candidate." \
+            -m "Release gates run on this exact commit before the tag is pushed."
+
+      - name: "◇ Validate release commit message"
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git log -1 --format=%B | awk '
+            length($0) > 72 && $0 !~ /^(Co-Authored-By:|https?:\/\/)/ {
+              print "over 72 chars: " $0
+              bad=1
+            }
+            END { exit bad }
+          '
+
+      - name: "◇ Record candidate SHA"
+        id: candidate
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: "◆ Run RC gate bundle"
+        run: |
+          set -euo pipefail
+          mkdir -p .moon/cache/release
+          moon run :check
+          {
+            echo "version=${{ steps.version.outputs.version }}"
+            echo "candidate_sha=${{ steps.candidate.outputs.sha }}"
+            echo "command=moon run :check"
+            echo "dry_run=${{ inputs.dry_run }}"
+            echo "completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > .moon/cache/release/rc-gate-receipt.txt
+
+      - name: "► Upload RC gate receipt"
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-gate-receipt-${{ steps.candidate.outputs.short_sha }}
+          path: .moon/cache/release/rc-gate-receipt.txt
+          if-no-files-found: error
 
       - name: "◆ Create and push tag"
         if: ${{ !inputs.dry_run }}
@@ -130,8 +222,13 @@ jobs:
         run: |
           echo "## Release ${{ inputs.dry_run && '[DRY RUN] ' || '' }}v${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Candidate SHA: \`${{ steps.candidate.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- RC gate bundle: \`moon run :check\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Gate receipt artifact: \`rc-gate-receipt-${{ steps.candidate.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ inputs.dry_run }}" == "true" ]]; then
-            echo "✓ Build and checks passed. Ready to release." >> $GITHUB_STEP_SUMMARY
+            echo "✓ RC gate bundle passed against the current checkout." >> $GITHUB_STEP_SUMMARY
+            echo "No version commit, tag, release, or publish was created." >> $GITHUB_STEP_SUMMARY
           else
             echo "✓ Released: ${{ steps.version.outputs.current }} → ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
