@@ -182,6 +182,8 @@ class DeviceBrowserLogin:
     user: SimpleNamespace
     organization: SimpleNamespace
     access_token: str
+    refresh_token: str
+    refresh_expires: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -1888,6 +1890,8 @@ async def login_device_browser_user(*, email: str, password: str, request):
         user=issued.user,
         organization=issued.organization,
         access_token=issued.access_token,
+        refresh_token=issued.refresh_token,
+        refresh_expires=issued.refresh_expires,
     )
 
 

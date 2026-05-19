@@ -898,19 +898,11 @@ async def device_verify_post(request: Request) -> Response:
             return RedirectResponse(url=verify_url + "&error=invalid_credentials", status_code=302)
 
         response = RedirectResponse(url=verify_url, status_code=302)
-        response.set_cookie(
-            ACCESS_TOKEN_COOKIE,
-            login.access_token,
-            httponly=True,
-            secure=_cookie_secure(),
-            samesite="lax",
-            max_age=int(
-                timedelta(
-                    minutes=config_module.settings.access_token_expire_minutes
-                ).total_seconds()
-            ),
-            domain=config_module.settings.cookie_domain,
-            path="/",
+        _set_auth_cookies(
+            response,
+            access_token=login.access_token,
+            refresh_token=login.refresh_token,
+            refresh_expires=login.refresh_expires,
         )
         return response
 

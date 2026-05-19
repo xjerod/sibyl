@@ -263,7 +263,7 @@ class _OAuthLoginError(RuntimeError):
 
 def _oauth_pkce_login(
     *, api_url: str, no_browser: bool, timeout_seconds: int, insecure: bool = False
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, int | None]:
     issuer_url = _issuer_url_from_api_url(api_url)
     resource = issuer_url.rstrip("/") + "/mcp"
 
@@ -341,6 +341,7 @@ def _oauth_pkce_login(
     access_token = str(tok.get("access_token", "")).strip()
     refresh_token = str(tok.get("refresh_token", "")).strip()
     expires_in = tok.get("expires_in")
+    expires_in_int = int(expires_in) if expires_in else None
     if not access_token:
         raise _OAuthLoginError("Token response missing access_token", tok)
 
@@ -351,7 +352,7 @@ def _oauth_pkce_login(
         api_url,
         access_token,
         refresh_token=refresh_token or None,
-        expires_in=int(expires_in) if expires_in else None,
+        expires_in=expires_in_int,
     )
     # Also store OAuth metadata for potential token refresh
     write_server_credentials(
@@ -362,7 +363,7 @@ def _oauth_pkce_login(
             "issuer_url": issuer_url,
         },
     )
-    return access_token, refresh_token, issuer_url
+    return access_token, refresh_token, issuer_url, expires_in_int
 
 
 def _local_password_login(*, api_url: str, email: str, password: str) -> dict:
@@ -415,13 +416,17 @@ def _login_via_oauth(
     *, api_url: str, no_browser: bool, timeout_seconds: int, insecure: bool = False
 ) -> dict:
     """Execute OAuth PKCE flow. Returns token response dict."""
-    access_token, refresh_token, _issuer = _oauth_pkce_login(
+    access_token, refresh_token, _issuer, expires_in = _oauth_pkce_login(
         api_url=api_url,
         no_browser=no_browser,
         timeout_seconds=timeout_seconds,
         insecure=insecure,
     )
-    return {"access_token": access_token, "refresh_token": refresh_token}
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_in": expires_in,
+    }
 
 
 def _login_via_local_password(*, api_url: str, email: str, password: str) -> dict:

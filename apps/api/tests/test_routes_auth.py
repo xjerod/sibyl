@@ -260,7 +260,13 @@ async def test_device_verify_post_login_uses_runtime_helper(
             "password": "super-secret",
         }
     )
-    login = AsyncMock(return_value=SimpleNamespace(access_token="access-token"))
+    login = AsyncMock(
+        return_value=SimpleNamespace(
+            access_token="access-token",
+            refresh_token="refresh-token",
+            refresh_expires=datetime.now(UTC) + timedelta(days=30),
+        )
+    )
 
     monkeypatch.setattr(auth_routes, "_require_jwt_secret", lambda: "test-jwt-secret-key-for-api-tests")
     monkeypatch.setattr(auth_routes, "login_device_browser_user", login)
@@ -268,7 +274,13 @@ async def test_device_verify_post_login_uses_runtime_helper(
     response = await _call_route(auth_routes.device_verify_post, request=request)
 
     assert response.status_code == 302
-    assert "sibyl_access_token=access-token" in response.headers.get("set-cookie", "")
+    set_cookie_headers = [
+        value.decode()
+        for name, value in response.raw_headers
+        if name.lower() == b"set-cookie"
+    ]
+    assert any("sibyl_access_token=access-token" in header for header in set_cookie_headers)
+    assert any("sibyl_refresh_token=refresh-token" in header for header in set_cookie_headers)
     login.assert_awaited_once_with(
         email="nova@example.com",
         password="super-secret",
