@@ -53,6 +53,15 @@ def _string_set(values: Iterable[str] | None) -> set[str] | None:
     return {str(value) for value in values}
 
 
+def memory_scope_policy_key(memory_scope: MemoryScope | str, scope_key: str | None) -> str:
+    """Canonical policy key for an API-key memory-space grant.
+
+    Must stay byte-identical to the API's api_key_memory_scope_key so native
+    retrieval scope filtering matches the keys minted onto API keys.
+    """
+    return f"{str(memory_scope).strip()}\x1f{'' if scope_key is None else str(scope_key).strip()}"
+
+
 def _deny(
     *,
     action: MemoryPolicyAction = MemoryPolicyAction.READ,

@@ -8,9 +8,14 @@ from dataclasses import dataclass
 from hashlib import pbkdf2_hmac
 from uuid import UUID
 
+from sibyl_core.auth.memory_policy import memory_scope_policy_key
+
 
 def api_key_memory_scope_key(memory_scope: object, scope_key: object | None) -> str:
-    return f"{str(memory_scope).strip()}\x1f{'' if scope_key is None else str(scope_key).strip()}"
+    return memory_scope_policy_key(
+        str(memory_scope),
+        None if scope_key is None else str(scope_key),
+    )
 
 
 class ApiKeyError(ValueError):

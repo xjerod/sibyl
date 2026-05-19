@@ -6,14 +6,18 @@ import asyncio
 import os
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
-from sibyl_core.auth.memory_policy import MemoryPolicyDecision, authorize_memory_read
+from sibyl_core.auth.memory_policy import (
+    MemoryPolicyDecision,
+    authorize_memory_read,
+    memory_scope_policy_key,
+)
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.embeddings.native import NativeEmbeddingMetadata, NativeEmbeddingProvider
 from sibyl_core.models.context import ContextFacet
@@ -167,6 +171,7 @@ def build_native_context_retrieval_plan(
     accessible_projects: Iterable[str] | None,
     agent_id: str | None = None,
     limit: int = 24,
+    allowed_memory_scope_keys: Iterable[str] | None = None,
 ) -> NativeRetrievalPlan:
     scopes: list[NativeScopeSpec] = []
     denied_scopes: list[MemoryPolicyDecision] = []
@@ -175,6 +180,22 @@ def build_native_context_retrieval_plan(
         if accessible_projects is not None
         else None
     )
+    normalized_scope_keys = (
+        frozenset(str(value) for value in allowed_memory_scope_keys)
+        if allowed_memory_scope_keys is not None
+        else None
+    )
+    # accessible_projects gates project graph entities (tasks, epics) that carry
+    # no memory_scope metadata. When an API key narrows memory grants, trim it to
+    # the projects the key actually holds a project grant for, so a key without a
+    # project grant cannot surface project context through an unscoped pack.
+    scoped_accessible_projects = normalized_accessible_projects
+    if normalized_scope_keys is not None and normalized_accessible_projects is not None:
+        scoped_accessible_projects = frozenset(
+            project_id
+            for project_id in normalized_accessible_projects
+            if memory_scope_policy_key(MemoryScope.PROJECT, project_id) in normalized_scope_keys
+        )
 
     for decision, project_id, scoped_agent_id in _scope_decisions(
         principal_id=principal_id,
@@ -186,6 +207,11 @@ def build_native_context_retrieval_plan(
             denied_scopes.append(decision)
             continue
         if principal_id is None:
+            continue
+        if normalized_scope_keys is not None and not _api_key_scope_allowed(
+            decision, principal_id, normalized_scope_keys
+        ):
+            denied_scopes.append(replace(decision, allowed=False, reason="api_key_scope_excluded"))
             continue
         scopes.append(
             NativeScopeSpec(
@@ -217,8 +243,8 @@ def build_native_context_retrieval_plan(
             graph_expansion=per_signal_limit,
         ),
         project=project,
-        accessible_projects=normalized_accessible_projects,
-        filter_selectivity=_project_filter_selectivity(project, normalized_accessible_projects),
+        accessible_projects=scoped_accessible_projects,
+        filter_selectivity=_project_filter_selectivity(project, scoped_accessible_projects),
     )
 
 
@@ -337,6 +363,24 @@ async def native_context_search(
         document_count=0,
         limit=limit,
     )
+
+
+def _api_key_scope_allowed(
+    decision: MemoryPolicyDecision,
+    principal_id: str,
+    allowed_scope_keys: frozenset[str],
+) -> bool:
+    """Check a granted scope against the API key's memory-space grants.
+
+    Private scopes key on the principal that owns them; project and other
+    keyed scopes key on the scope_key, matching how API-key memory spaces
+    are minted.
+    """
+    effective_scope_key = (
+        principal_id if decision.memory_scope is MemoryScope.PRIVATE else decision.scope_key
+    )
+    policy_key = memory_scope_policy_key(decision.memory_scope, effective_scope_key)
+    return policy_key in allowed_scope_keys
 
 
 def _scope_decisions(
@@ -1545,7 +1589,11 @@ def _candidate_scope_allowed(
     plan_principal = plan.scopes[0].principal_id if plan.scopes else None
     if memory_scope is MemoryScope.PRIVATE:
         owner = _string_value(metadata.get("principal_id")) or scope_key
-        return bool(plan_principal) and owner == plan_principal
+        # A private candidate is only authorized if a private scope survived
+        # plan filtering; otherwise an API key without a private memory grant
+        # could still read the principal's own private graph rows.
+        has_private_scope = any(scope.memory_scope is MemoryScope.PRIVATE for scope in plan.scopes)
+        return has_private_scope and bool(plan_principal) and owner == plan_principal
     agent_id = next((scope.agent_id for scope in plan.scopes if scope.agent_id), None)
     decision = authorize_memory_read(
         principal_id=plan_principal,

@@ -140,6 +140,9 @@ async def context_pack(
             limit=request.limit,
             include_related=request.include_related,
             related_limit=request.related_limit,
+            allowed_memory_scope_keys=set(ctx.api_key_memory_scope_keys)
+            if ctx.api_key_memory_scope_keys is not None
+            else None,
         )
         payload = context_pack_to_dict(pack)
         payload["markdown"] = context_pack_to_markdown(pack)

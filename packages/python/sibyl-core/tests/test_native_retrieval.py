@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import sibyl_core.retrieval.native as native_module
+from sibyl_core.auth.memory_policy import memory_scope_policy_key
 from sibyl_core.embeddings.native import (
     DeterministicNativeEmbeddingProvider,
     NativeEmbeddingMetadata,
@@ -104,6 +105,186 @@ def test_build_native_context_retrieval_plan_denies_unverified_project_scope() -
             score=1.0,
             source=None,
             metadata={},
+            project_id="project_123",
+        ),
+        plan=plan,
+        requested_types=set(),
+        facet=None,
+    )
+
+
+def test_memory_scope_policy_key_uses_unit_separator_format() -> None:
+    assert memory_scope_policy_key(MemoryScope.PRIVATE, "user-123") == "private\x1fuser-123"
+    assert memory_scope_policy_key("project", " project_123 ") == "project\x1fproject_123"
+    assert memory_scope_policy_key(MemoryScope.PRIVATE, None) == "private\x1f"
+
+
+def _scoped_plan(allowed_memory_scope_keys: set[str] | None) -> native_module.NativeRetrievalPlan:
+    return build_native_context_retrieval_plan(
+        query="api key scoped retrieval",
+        organization_id="org-123",
+        facets=[ContextFacet.RECENT_MEMORY],
+        facet_types={ContextFacet.RECENT_MEMORY: ["session", "episode", "note"]},
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+        agent_id="nova",
+        limit=12,
+        allowed_memory_scope_keys=allowed_memory_scope_keys,
+    )
+
+
+def test_build_native_context_retrieval_plan_skips_scope_filter_when_unset() -> None:
+    plan = _scoped_plan(None)
+
+    assert [scope.memory_scope for scope in plan.scopes] == [
+        MemoryScope.PRIVATE,
+        MemoryScope.PROJECT,
+        MemoryScope.PRIVATE,
+    ]
+    assert not [d for d in plan.denied_scopes if d.reason == "api_key_scope_excluded"]
+
+
+def test_build_native_context_retrieval_plan_keeps_scopes_within_api_key_grants() -> None:
+    plan = _scoped_plan(
+        {
+            memory_scope_policy_key(MemoryScope.PRIVATE, "user-123"),
+            memory_scope_policy_key(MemoryScope.PROJECT, "project_123"),
+        }
+    )
+
+    assert [scope.memory_scope for scope in plan.scopes] == [
+        MemoryScope.PRIVATE,
+        MemoryScope.PROJECT,
+        MemoryScope.PRIVATE,
+    ]
+    assert not [d for d in plan.denied_scopes if d.reason == "api_key_scope_excluded"]
+
+
+def test_build_native_context_retrieval_plan_excludes_scopes_outside_api_key_grants() -> None:
+    plan = _scoped_plan({memory_scope_policy_key(MemoryScope.PRIVATE, "user-123")})
+
+    assert [scope.memory_scope for scope in plan.scopes] == [
+        MemoryScope.PRIVATE,
+        MemoryScope.PRIVATE,
+    ]
+    excluded = [d for d in plan.denied_scopes if d.reason == "api_key_scope_excluded"]
+    assert [d.memory_scope for d in excluded] == [MemoryScope.PROJECT]
+    assert excluded[0].scope_key == "project_123"
+    assert native_module._search_filter_for_plan(plan).project_ids == ()
+
+
+def test_build_native_context_retrieval_plan_excludes_all_scopes_when_no_grant_matches() -> None:
+    plan = _scoped_plan({memory_scope_policy_key(MemoryScope.PROJECT, "project_other")})
+
+    assert plan.scopes == ()
+    assert {d.reason for d in plan.denied_scopes} == {"api_key_scope_excluded"}
+
+
+def test_build_native_context_retrieval_plan_trims_accessible_projects_to_api_key_grants() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="unscoped pack",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task", "epic", "project"]},
+        principal_id="user-123",
+        project=None,
+        accessible_projects={"project_123", "project_456"},
+        allowed_memory_scope_keys={memory_scope_policy_key(MemoryScope.PRIVATE, "user-123")},
+    )
+
+    assert plan.accessible_projects == frozenset()
+    assert native_module._authorized_project_ids(plan) == ()
+
+
+def test_build_native_context_retrieval_plan_keeps_granted_accessible_projects() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="unscoped pack",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task", "epic", "project"]},
+        principal_id="user-123",
+        project=None,
+        accessible_projects={"project_123", "project_456"},
+        allowed_memory_scope_keys={
+            memory_scope_policy_key(MemoryScope.PRIVATE, "user-123"),
+            memory_scope_policy_key(MemoryScope.PROJECT, "project_123"),
+        },
+    )
+
+    assert plan.accessible_projects == frozenset({"project_123"})
+    assert native_module._authorized_project_ids(plan) == ("project_123",)
+
+
+def test_build_native_context_retrieval_plan_keeps_all_accessible_projects_when_unscoped() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="unscoped pack",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task", "epic", "project"]},
+        principal_id="user-123",
+        project=None,
+        accessible_projects={"project_123", "project_456"},
+        allowed_memory_scope_keys=None,
+    )
+
+    assert plan.accessible_projects == frozenset({"project_123", "project_456"})
+
+
+def test_candidate_allowed_denies_private_candidate_without_private_grant() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="private memory",
+        organization_id="org-123",
+        facets=[ContextFacet.RECENT_MEMORY],
+        facet_types={ContextFacet.RECENT_MEMORY: ["episode", "note"]},
+        principal_id="bob",
+        project="project_123",
+        accessible_projects={"project_123"},
+        allowed_memory_scope_keys={memory_scope_policy_key(MemoryScope.PROJECT, "project_123")},
+    )
+
+    assert MemoryScope.PRIVATE not in [scope.memory_scope for scope in plan.scopes]
+    assert not native_module._candidate_allowed(
+        NativeRetrievalCandidate(
+            id="entity-1",
+            type="note",
+            name="Bob private reflection promoted into project",
+            content="secret",
+            score=1.0,
+            source=None,
+            metadata={"memory_scope": "private", "scope_key": "bob", "principal_id": "bob"},
+            project_id="project_123",
+        ),
+        plan=plan,
+        requested_types=set(),
+        facet=None,
+    )
+
+
+def test_candidate_allowed_allows_private_candidate_with_private_grant() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="private memory",
+        organization_id="org-123",
+        facets=[ContextFacet.RECENT_MEMORY],
+        facet_types={ContextFacet.RECENT_MEMORY: ["episode", "note"]},
+        principal_id="bob",
+        project="project_123",
+        accessible_projects={"project_123"},
+        allowed_memory_scope_keys={
+            memory_scope_policy_key(MemoryScope.PRIVATE, "bob"),
+            memory_scope_policy_key(MemoryScope.PROJECT, "project_123"),
+        },
+    )
+
+    assert native_module._candidate_allowed(
+        NativeRetrievalCandidate(
+            id="entity-2",
+            type="note",
+            name="Bob private reflection promoted into project",
+            content="secret",
+            score=1.0,
+            source=None,
+            metadata={"memory_scope": "private", "scope_key": "bob", "principal_id": "bob"},
             project_id="project_123",
         ),
         plan=plan,

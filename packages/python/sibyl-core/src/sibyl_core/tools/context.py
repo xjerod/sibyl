@@ -882,6 +882,7 @@ async def compile_context(
             accessible_projects=accessible_projects,
             agent_id=agent_id,
             limit=limit,
+            allowed_memory_scope_keys=allowed_memory_scope_keys,
         )
 
         async def selected_search_fn(**kwargs: Any) -> SearchResponse:
@@ -973,10 +974,17 @@ async def compile_context(
             limit,
         )
     if include_related and normalized_layer is not ContextLayer.WAKE:
+        related_projects = accessible_projects
+        if native_plan is not None:
+            related_projects = (
+                set(native_plan.accessible_projects)
+                if native_plan.accessible_projects is not None
+                else None
+            )
         sections = await _attach_related_items(
             sections,
             organization_id=organization_id,
-            accessible_projects=accessible_projects,
+            accessible_projects=related_projects,
             related_limit=related_limit,
             related_fn=related_fn,
         )

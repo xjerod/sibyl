@@ -10,6 +10,7 @@ import pytest
 
 import sibyl_core.retrieval.native as native_module
 import sibyl_core.tools.context as context_module
+from sibyl_core.auth.memory_policy import memory_scope_policy_key
 from sibyl_core.models.context import (
     ContextFacet,
     ContextIntent,
@@ -307,6 +308,46 @@ async def test_compile_context_defaults_to_native_retrieval_mode(
     assert [item.id for item in pack.items] == ["decision-native"]
     assert native_calls[0]["plan"].scopes[1].policy_reason == "project_access_verified"
     assert pack.items[0].metadata["retrieval_signals"] == ["node_fulltext"]
+
+
+@pytest.mark.asyncio
+async def test_compile_context_scopes_related_items_to_api_key_grants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    related_calls: list[dict[str, Any]] = []
+
+    async def fake_native_context_search(**kwargs: Any) -> SearchResponse:
+        if kwargs["facet"] is not ContextFacet.DECISIONS:
+            return SearchResponse(results=[], total=0, query=kwargs["plan"].query, filters={})
+        return SearchResponse(
+            results=[_result("decision-1", "decision", "Granted decision")],
+            total=1,
+            query=kwargs["plan"].query,
+            filters={},
+        )
+
+    async def fake_related(**kwargs: Any) -> list[ContextRelatedItem]:
+        related_calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+
+    await compile_context(
+        "scoped related items",
+        intent="decide",
+        accessible_projects={"project_a", "project_b"},
+        principal_id="user-123",
+        organization_id="org-123",
+        include_related=True,
+        related_fn=fake_related,
+        allowed_memory_scope_keys={
+            memory_scope_policy_key(MemoryScope.PRIVATE, "user-123"),
+            memory_scope_policy_key(MemoryScope.PROJECT, "project_a"),
+        },
+    )
+
+    assert related_calls
+    assert all(call["accessible_projects"] == {"project_a"} for call in related_calls)
 
 
 @pytest.mark.asyncio
