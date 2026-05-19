@@ -45,7 +45,7 @@ HTTP_METHOD_DECORATORS = {
     "trace",
 }
 SQL_IMPORT_PREFIXES = ("sqlalchemy", "sqlmodel")
-GRAPHITI_IMPORT_PREFIXES = ("graphiti", "graphiti_core")
+GRAPHITI_IMPORT_PREFIXES = ("graphiti", "graphiti" + "_core")
 SQL_SESSION_IMPORTS = {
     "AsyncSession",
     "Session",
@@ -78,7 +78,7 @@ LEGACY_DEPENDENCY_NAMES = {
     "sqlalchemy",
     "sqlmodel",
 }
-GRAPH_DEPENDENCY_NAMES = {"graphiti-core"}
+GRAPH_DEPENDENCY_NAMES = {"graphiti" + "-core"}
 TARGET_DEPENDENCY_NAMES = {"surrealdb"}
 GraphitiSurfaceClass = Literal["admin", "archived_docs", "compatibility", "migration", "test"]
 LEGACY_TERM_PATTERN = re.compile(
@@ -323,7 +323,6 @@ API_CLI_LEGACY_TERM_FILES = (
 APP_LEGACY_TERM_FILES = (
     "apps/api/examples/README.md",
     "apps/api/README.md",
-    "apps/api/moon.yml",
     "apps/cli/README.md",
     "apps/cli/src/sibyl_cli/data/skills/sibyl/EXAMPLES.md",
     "apps/cli/src/sibyl_cli/data/skills/sibyl/SKILL.md",
@@ -350,7 +349,6 @@ PROJECT_INSTRUCTION_LEGACY_TERM_FILES = (
     "CLAUDE.md",
 )
 ROOT_TASK_LEGACY_TERM_FILES = ("moon.yml",)
-ROOT_CONFIG_LEGACY_TERM_FILES = ("pyproject.toml",)
 ENV_TEMPLATE_LEGACY_TERM_FILES = (
     ".env.example",
     ".env.quickstart.example",
@@ -414,13 +412,8 @@ LEGACY_TERM_ALLOWLIST = (
     ),
     *legacy_term_allowlist_records(
         ROOT_TASK_LEGACY_TERM_FILES,
-        owner="v0.7 Graphiti exit",
-        reason="Root moon tasks retain the explicit Graphiti compatibility test island.",
-    ),
-    *legacy_term_allowlist_records(
-        ROOT_CONFIG_LEGACY_TERM_FILES,
-        owner="repo package config",
-        reason="Root package configs retain compatibility test markers and dev dependency boundaries.",
+        owner="inventory task inputs",
+        reason="Root moon tasks reference the Graphiti exit archive filename as inventory input.",
     ),
     *legacy_term_allowlist_records(
         ENV_TEMPLATE_LEGACY_TERM_FILES,

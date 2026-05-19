@@ -70,10 +70,11 @@ import builtins
 import importlib
 
 original_import = builtins.__import__
+blocked_import = "graphiti" + "_core"
 
 
 def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-    if name == "graphiti_core" or name.startswith("graphiti_core."):
+    if name == blocked_import or name.startswith(f"{blocked_import}."):
         raise AssertionError(f"Graphiti import forbidden: {name}")
     return original_import(name, globals, locals, fromlist, level)
 

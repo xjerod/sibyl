@@ -650,27 +650,29 @@ class TestCountEntitiesByType:
         entity_manager.list_all.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_prefers_driver_aggregation_when_available(self) -> None:
-        driver = AsyncMock()
-        driver.execute_query = AsyncMock(
-            return_value=[
-                {"entity_type": "pattern", "cnt": 3},
-                {"entity_type": "task", "cnt": 2},
-            ]
-        )
+    async def test_falls_back_to_paged_entity_listing(self) -> None:
         entity_manager = SimpleNamespace(
-            _driver=driver,
-            _group_id=TEST_ORG_ID,
-            list_all=AsyncMock(),
+            list_all=AsyncMock(
+                side_effect=[
+                    [
+                        SimpleNamespace(entity_type=EntityType.PATTERN),
+                        SimpleNamespace(entity_type=EntityType.PATTERN),
+                        SimpleNamespace(entity_type=EntityType.TASK),
+                    ],
+                    [],
+                ]
+            ),
         )
 
         counts = await count_entities_by_type(entity_manager)
 
-        assert counts["pattern"] == 3
-        assert counts["task"] == 2
+        assert counts["pattern"] == 2
+        assert counts["task"] == 1
         assert counts["episode"] == 0
-        driver.execute_query.assert_awaited_once()
-        entity_manager.list_all.assert_not_awaited()
+        assert entity_manager.list_all.await_args_list == [
+            call(limit=1000, offset=0, include_archived=False),
+            call(limit=1000, offset=3, include_archived=False),
+        ]
 
 
 class TestGetStats:

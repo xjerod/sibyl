@@ -11,7 +11,7 @@ def test_entity_type_accepts_guide_alias() -> None:
     assert EntityType("GUIDE") is EntityType.GUIDE
 
 
-@pytest.mark.graphiti_compatibility
+@pytest.mark.legacy_graph_contract
 def test_surreal_entity_type_filters_use_guide_rows() -> None:
     from sibyl_core.graph.entities import _entity_type_filter_values
 

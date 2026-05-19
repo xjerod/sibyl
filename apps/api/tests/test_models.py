@@ -63,7 +63,7 @@ class TestRelationshipModels:
         assert rel.weight == 0.5
 
 
-@pytest.mark.graphiti_compatibility
+@pytest.mark.legacy_graph_contract
 class TestCypherInjectionPrevention:
     """Tests for Cypher injection prevention in relationship queries."""
 

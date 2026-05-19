@@ -279,7 +279,7 @@ filterwarnings = [
     "ignore:unclosed.*:ResourceWarning",
 ]
 markers = [
-    "graphiti_compatibility: compatibility tests for legacy Graphiti-shaped contracts",
+    "legacy_graph_contract: tests for retained legacy graph contracts",
     "integration: marks tests as integration tests",
     "slow: marks tests as slow",
     "stress: marks tests as stress/load tests",

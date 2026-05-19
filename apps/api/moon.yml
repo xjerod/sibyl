@@ -55,7 +55,7 @@ tasks:
   test:
     command:
       uv run pytest
-      -m "not graphiti_compatibility"
+      -m "not legacy_graph_contract"
       --ignore=tests/test_communities.py
       --ignore=tests/test_e2e_workflows.py
       --ignore=tests/test_graph_communities_lod.py
@@ -70,12 +70,12 @@ tasks:
     options:
       envFile: .env
 
-  graphiti-compatibility-test:
+  legacy-graph-contract-test:
     deps:
-      - ~:graphiti-compatibility-file-test
-      - ~:graphiti-compatibility-marked-test
+      - ~:legacy-graph-contract-file-test
+      - ~:legacy-graph-contract-marked-test
 
-  graphiti-compatibility-file-test:
+  legacy-graph-contract-file-test:
     command:
       uv run pytest
       tests/test_communities.py
@@ -310,7 +310,7 @@ tasks:
     options:
       envFile: .env
 
-  graphiti-compatibility-marked-test:
+  legacy-graph-contract-marked-test:
     command:
       uv run pytest
       tests/test_cli_db.py
@@ -318,7 +318,7 @@ tasks:
       tests/test_models.py
       tests/test_settings_api_key_loading.py
       tests/test_tools_manage.py
-      -m graphiti_compatibility
+      -m legacy_graph_contract
       -v
     inputs:
       - "@group(sources)"

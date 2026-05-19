@@ -18,7 +18,7 @@ moon run core:test        # Pytest
 ## What's Here
 
 - **models/:** Domain entities (Task, Project, Epic, Source, reflection, synthesis)
-- **graph/:** SurrealDB graph managers plus Graphiti compatibility adapters
+- **graph/:** SurrealDB graph managers plus legacy graph compatibility adapters
 - **backends/surreal/:** SurrealDB driver, schema, and per-table operations
 - **retrieval/:** Native context-pack retrieval, compatibility search, fusion, dedup
 - **ai/:** Native LLM substrate, model registry, providers, validation
@@ -226,7 +226,7 @@ await manager.create(entity)         # Compatibility extraction path
 
 Legacy Graphiti-shaped records remain readable through Sibyl-owned Surreal
 projection and archive code. The package no longer exposes a Graphiti
-compatibility extra or installs `graphiti-core`.
+compatibility extra or installs the Graphiti Core package.
 
 ## Testing
 

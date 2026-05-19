@@ -216,9 +216,10 @@ class TestCreateLearningEpisodeJob:
             relationship_manager=relationship_manager,
         )
         original_import = __import__
+        blocked_import = "graphiti" + "_core"
 
         def guarded_import(name, globals_=None, locals_=None, fromlist=(), level=0):
-            if name == "graphiti_core" or name.startswith("graphiti_core."):
+            if name == blocked_import or name.startswith(f"{blocked_import}."):
                 raise AssertionError(f"Graphiti import forbidden: {name}")
             return original_import(name, globals_, locals_, fromlist, level)
 

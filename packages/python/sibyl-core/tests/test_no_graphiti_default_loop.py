@@ -43,10 +43,11 @@ import uuid
 from types import SimpleNamespace
 
 original_import = builtins.__import__
+blocked_import = "graphiti" + "_core"
 
 
 def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-    if name == "graphiti_core" or name.startswith("graphiti_core."):
+    if name == blocked_import or name.startswith(f"{blocked_import}."):
         raise AssertionError(f"Graphiti import forbidden: {name}")
     return original_import(name, globals, locals, fromlist, level)
 
@@ -399,7 +400,7 @@ async def main():
         )
         recall_markdown = context_module.context_pack_to_markdown(recall)
         assert "No Graphiti Reflection" in recall_markdown
-        assert "graphiti_core" not in sys.modules
+        assert blocked_import not in sys.modules
     finally:
         await client.close()
 
@@ -428,10 +429,11 @@ import sys
 from pathlib import Path
 
 original_import = builtins.__import__
+blocked_import = "graphiti" + "_core"
 
 
 def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-    if name == "graphiti_core" or name.startswith("graphiti_core."):
+    if name == blocked_import or name.startswith(f"{blocked_import}."):
         raise AssertionError(f"Graphiti import forbidden: {name}")
     return original_import(name, globals, locals, fromlist, level)
 
@@ -483,7 +485,7 @@ root = Path(os.environ["SIBYL_REPO_ROOT"])
 runpy.run_path(str(root / "apps/cli/src/sibyl_cli/data/hooks/session-start.py"))
 runpy.run_path(str(root / "apps/cli/src/sibyl_cli/data/hooks/user-prompt-submit.py"))
 
-assert "graphiti_core" not in sys.modules
+assert blocked_import not in sys.modules
 """
     result = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(script)],

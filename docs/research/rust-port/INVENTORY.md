@@ -12,7 +12,7 @@ Generated from code by `tools/inventory/runtime_surface.py`. Do not hand-edit.
 - Raw SQL query usage files: 0
 - Session-backed storage access files: 0
 - Graphiti import files: 0
-- Retained legacy term files: 88
+- Retained legacy term files: 86
 - Dependency records: 2
 
 ## API Surface
@@ -100,8 +100,7 @@ must carry an owner and reason here.
 | `Tiltfile` | `redis`, `valkey` | 14 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `apps/api/README.md` | `postgres`, `redis` | 12 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/api/examples/README.md` | `valkey` | 1 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
-| `apps/api/moon.yml` | `graphiti` | 7 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
-| `apps/api/pyproject.toml` | `graphiti`, `redis` | 4 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
+| `apps/api/pyproject.toml` | `redis` | 2 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `apps/cli/README.md` | `redis` | 1 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/cli/src/sibyl_cli/data/skills/sibyl/EXAMPLES.md` | `redis` | 3 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/cli/src/sibyl_cli/data/skills/sibyl/SKILL.md` | `redis` | 4 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
@@ -123,9 +122,9 @@ must carry an owner and reason here.
 | `docs/api/rest-projects.md` | `postgres`, `redis` | 5 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/api/rest-tasks.md` | `redis` | 1 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
 | `docs/architecture/PERMISSION_SYSTEM_AUDIT.md` | `falkor`, `postgres` | 23 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_1_0_ROADMAP.md` | `graphiti`, `redis` | 36 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_1_0_ROADMAP.md` | `graphiti`, `redis` | 34 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_NORTHSTAR.md` | `falkor`, `graphiti`, `postgres`, `redis` | 43 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
-| `docs/architecture/SIBYL_POST_V010_RELEASE_REMAP_SPEC.md` | `graphiti`, `redis` | 36 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
+| `docs/architecture/SIBYL_POST_V010_RELEASE_REMAP_SPEC.md` | `graphiti`, `redis` | 37 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/SIBYL_REFLECTION_OS_PLAN.md` | `graphiti` | 4 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/architecture/TASKIQ_MIGRATION_PLAN.md` | `redis` | 57 | v0.8 architecture | Architecture and release plans preserve migration, benchmark, and compatibility history. |
 | `docs/cli/add.md` | `postgres`, `redis` | 3 | v0.8 API/CLI docs | API and CLI docs reference memory history, migration payloads, or optional coordination. |
@@ -142,7 +141,7 @@ must carry an owner and reason here.
 | `docs/deployment/helm-chart.md` | `postgres`, `redis`, `valkey` | 17 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/index.md` | `falkor`, `postgres`, `redis`, `valkey` | 14 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/kubernetes.md` | `falkor`, `postgres`, `redis`, `valkey` | 17 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
-| `docs/deployment/monitoring.md` | `graphiti`, `redis` | 2 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
+| `docs/deployment/monitoring.md` | `redis` | 1 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/tilt-minikube.md` | `falkor`, `postgres`, `redis`, `valkey` | 19 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/deployment/troubleshooting.md` | `graphiti`, `postgres`, `redis` | 14 | v0.8 deployment docs | Deployment docs retain optional Redis/Valkey coordination and historical restore notes. |
 | `docs/guide/capturing-knowledge.md` | `redis` | 10 | v0.8 docs | User guides label legacy services as historical migration or explicit coordination opt-in. |
@@ -168,11 +167,10 @@ must carry an owner and reason here.
 | `infra/local/secrets.yaml.example` | `redis`, `valkey` | 2 | dev env templates | Environment templates keep legacy ports, migration knobs, and optional Redis/Valkey secrets. |
 | `infra/local/sibyl-values.yaml` | `redis`, `valkey` | 4 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `infra/local/valkey-values.yaml` | `redis`, `valkey` | 4 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
-| `moon.yml` | `graphiti` | 6 | v0.7 Graphiti exit | Root moon tasks retain the explicit Graphiti compatibility test island. |
+| `moon.yml` | `graphiti` | 3 | inventory task inputs | Root moon tasks reference the Graphiti exit archive filename as inventory input. |
 | `packages/python/sibyl-core/COVERAGE_PLAN.md` | `falkor` | 3 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
-| `packages/python/sibyl-core/README.md` | `graphiti` | 4 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
-| `packages/python/sibyl-core/moon.yml` | `graphiti` | 9 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
-| `pyproject.toml` | `graphiti` | 2 | repo package config | Root package configs retain compatibility test markers and dev dependency boundaries. |
+| `packages/python/sibyl-core/README.md` | `graphiti` | 3 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
+| `packages/python/sibyl-core/moon.yml` | `graphiti` | 2 | v0.7 Graphiti exit | Core package docs and tasks preserve compatibility coverage and historical Graphiti context. |
 | `setup-dev.sh` | `falkor`, `postgres` | 3 | dev bootstrap | Dev scripts mention legacy migration checks and optional Redis coordination. |
 | `skills/agent-activity-audit/EXAMPLES.md` | `falkor` | 1 | v0.8 skill docs | Source skill docs retain examples that mention Redis as historical troubleshooting context. |
 | `skills/sibyl/EXAMPLES.md` | `redis` | 3 | v0.8 skill docs | Source skill docs retain examples that mention Redis as historical troubleshooting context. |

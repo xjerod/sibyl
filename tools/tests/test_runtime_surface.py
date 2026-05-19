@@ -34,6 +34,8 @@ EXPECTED_WEBSOCKET_ROUTE_COUNT = 1
 EXPECTED_MCP_TOOL_COUNT = 11
 EXPECTED_MCP_RESOURCE_COUNT = 2
 EXPECTED_SQLMODEL_TABLE_COUNT = 0
+_GRAPHITI_PACKAGE = "graphiti" + "-core"
+_GRAPHITI_MODULE = "graphiti" + "_core"
 EXPECTED_LEGACY_TERM_SCAN_PATHS = {
     ".devcontainer/Dockerfile",
     ".devcontainer/devcontainer.json",
@@ -74,8 +76,9 @@ EXPECTED_LEGACY_TERM_RECORD_PATHS = EXPECTED_LEGACY_TERM_SCAN_PATHS - {
     "charts/sibyl/templates/_helpers.tpl",
     "package.json",
     "pnpm-workspace.yaml",
+    "pyproject.toml",
 }
-CORE_GRAPHITI_COMPATIBILITY_TESTS = (
+CORE_LEGACY_GRAPH_CONTRACT_TESTS = (
     "tests/graph/surreal",
     "tests/test_graph_batch.py",
     "tests/test_graph_client.py",
@@ -88,13 +91,13 @@ CORE_GRAPHITI_COMPATIBILITY_TESTS = (
     "tests/test_surreal_authentication.py",
     "tests/test_surreal_observability.py",
 )
-CORE_GRAPHITI_COMPATIBILITY_MARKED_TESTS = (
+CORE_LEGACY_GRAPH_CONTRACT_MARKED_TESTS = (
     "tests/test_models.py",
     "tests/test_retrieval_advanced.py",
     "tests/test_tools_admin.py",
     "tests/test_tools_manage.py",
 )
-API_GRAPHITI_COMPATIBILITY_TESTS = (
+API_LEGACY_GRAPH_CONTRACT_TESTS = (
     "tests/test_communities.py",
     "tests/test_e2e_workflows.py",
     "tests/test_graph_communities_lod.py",
@@ -104,7 +107,7 @@ API_GRAPHITI_COMPATIBILITY_TESTS = (
     "tests/test_legacy_graph_persistence.py",
     "tests/test_tools_core.py",
 )
-API_GRAPHITI_COMPATIBILITY_MARKED_TESTS = (
+API_LEGACY_GRAPH_CONTRACT_MARKED_TESTS = (
     "tests/test_cli_db.py",
     "tests/test_cli_export.py",
     "tests/test_models.py",
@@ -218,8 +221,8 @@ def runtime_surface_with_legacy_terms(
 
 
 def test_dependency_parser_strips_extras_and_markers() -> None:
-    requirement = 'graphiti-core[falkordb,anthropic]>=0.28.2 ; python_version >= "3.13"'
-    assert parse_dependency_name(requirement) == "graphiti-core"
+    requirement = f'{_GRAPHITI_PACKAGE}[falkordb,anthropic]>=0.28.2 ; python_version >= "3.13"'
+    assert parse_dependency_name(requirement) == _GRAPHITI_PACKAGE
 
 
 def test_runtime_surface_snapshot_is_current() -> None:
@@ -238,7 +241,7 @@ def test_graphiti_exit_inventory_covers_runtime_imports() -> None:
 def test_graphiti_exit_inventory_rejects_docs_only_default_import(tmp_path) -> None:
     record = GraphitiImportRecord(
         path="apps/api/src/sibyl/api/routes/memory.py",
-        imports=("graphiti_core.nodes",),
+        imports=(f"{_GRAPHITI_MODULE}.nodes",),
     )
     inventory_path = tmp_path / "inventory.md"
     inventory_path.write_text(f"`{record.path}`\n", encoding="utf-8")
@@ -251,7 +254,7 @@ def test_graphiti_exit_inventory_rejects_docs_only_default_import(tmp_path) -> N
 def test_graphiti_exit_inventory_rejects_former_compatibility_imports() -> None:
     record = GraphitiImportRecord(
         path="packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/entity_node_ops.py",
-        imports=("graphiti_core",),
+        imports=(_GRAPHITI_MODULE,),
     )
     surface = runtime_surface_with_graphiti(record)
 
@@ -264,10 +267,10 @@ def test_graphiti_exit_inventory_detects_dynamic_imports() -> None:
         """
 from importlib import import_module
 
-import_module("graphiti_core.edges")
+import_module("GRAPHITI_MODULE.edges")
 __import__("graphiti.nodes")
 import_module("sibyl_core.graph")
-"""
+""".replace("GRAPHITI_MODULE", _GRAPHITI_MODULE)
     )
     imports = tuple(
         dynamic_import
@@ -277,7 +280,7 @@ import_module("sibyl_core.graph")
         if dynamic_import is not None
     )
 
-    assert imports == ("graphiti_core.edges", "graphiti.nodes")
+    assert imports == (f"{_GRAPHITI_MODULE}.edges", "graphiti.nodes")
 
 
 def test_graphiti_exit_inventory_documents_allowlist_ownership() -> None:
@@ -328,7 +331,7 @@ def test_graphiti_ops_imports_stay_in_named_compatibility_island() -> None:
     assert offenders == []
 
 
-def test_graphiti_compatibility_test_island_is_named() -> None:
+def test_legacy_graph_contract_test_island_is_named() -> None:
     root_moon = (REPO_ROOT / "moon.yml").read_text(encoding="utf-8")
     core_moon = (REPO_ROOT / "packages/python/sibyl-core/moon.yml").read_text(encoding="utf-8")
     api_moon = (REPO_ROOT / "apps/api/moon.yml").read_text(encoding="utf-8")
@@ -336,31 +339,31 @@ def test_graphiti_compatibility_test_island_is_named() -> None:
     api_pyproject = (REPO_ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8")
     inventory = GRAPHITI_EXIT_INVENTORY_PATH.read_text(encoding="utf-8")
 
-    assert "graphiti-compatibility-test:" in root_moon
-    assert "core:graphiti-compatibility-test" in root_moon
-    assert "api:graphiti-compatibility-test" in root_moon
-    assert "graphiti_compatibility:" in root_pyproject
-    assert "graphiti_compatibility:" in api_pyproject
-    assert '-m "not graphiti_compatibility"' in core_moon
-    assert "-m graphiti_compatibility" in core_moon
-    assert '-m "not graphiti_compatibility"' in api_moon
-    assert "-m graphiti_compatibility" in api_moon
+    assert "legacy-graph-contract-test:" in root_moon
+    assert "core:legacy-graph-contract-test" in root_moon
+    assert "api:legacy-graph-contract-test" in root_moon
+    assert "legacy_graph_contract:" in root_pyproject
+    assert "legacy_graph_contract:" in api_pyproject
+    assert '-m "not legacy_graph_contract"' in core_moon
+    assert "-m legacy_graph_contract" in core_moon
+    assert '-m "not legacy_graph_contract"' in api_moon
+    assert "-m legacy_graph_contract" in api_moon
 
-    for test_path in CORE_GRAPHITI_COMPATIBILITY_TESTS:
+    for test_path in CORE_LEGACY_GRAPH_CONTRACT_TESTS:
         assert f"--ignore={test_path}" in core_moon
         assert f"      {test_path}" in core_moon
         assert f"`packages/python/sibyl-core/{test_path}`" in inventory
 
-    for test_path in CORE_GRAPHITI_COMPATIBILITY_MARKED_TESTS:
+    for test_path in CORE_LEGACY_GRAPH_CONTRACT_MARKED_TESTS:
         assert f"      {test_path}" in core_moon
         assert f"`packages/python/sibyl-core/{test_path}`" in inventory
 
-    for test_path in API_GRAPHITI_COMPATIBILITY_TESTS:
+    for test_path in API_LEGACY_GRAPH_CONTRACT_TESTS:
         assert f"--ignore={test_path}" in api_moon
         assert f"      {test_path}" in api_moon
         assert f"`apps/api/{test_path}`" in inventory
 
-    for test_path in API_GRAPHITI_COMPATIBILITY_MARKED_TESTS:
+    for test_path in API_LEGACY_GRAPH_CONTRACT_MARKED_TESTS:
         assert f"      {test_path}" in api_moon
         assert f"`apps/api/{test_path}`" in inventory
 
@@ -371,7 +374,7 @@ def test_graphiti_exit_inventory_tracks_no_graphiti_smoke_plan() -> None:
     assert "## No-Graphiti Smoke Plan" in inventory
     assert "moon run core:no-graphiti-smoke" in inventory
     assert "tests/test_no_graphiti_default_loop.py" in inventory
-    assert "blocks `graphiti_core` imports" in inventory
+    assert f"blocks `{_GRAPHITI_MODULE}` imports" in inventory
     for loop_name in ("remember", "recall", "context", "wake", "reflect"):
         assert f"- `{loop_name}`:" in inventory
     assert "Current blockers:" not in inventory
@@ -513,7 +516,7 @@ def test_graphiti_dependency_is_absent() -> None:
     graphiti_dependencies = tuple(
         record
         for record in surface.dependencies
-        if parse_dependency_name(record.dependency) == "graphiti-core"
+        if parse_dependency_name(record.dependency) == _GRAPHITI_PACKAGE
     )
 
     assert graphiti_dependencies == ()

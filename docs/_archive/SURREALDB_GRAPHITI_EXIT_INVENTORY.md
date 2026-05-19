@@ -42,18 +42,18 @@ None. Supported source code has no Graphiti import allowlist.
 
 ## Compatibility Test Island
 
-Default test tasks avoid collecting the named Graphiti compatibility files and skip mixed-file cases
-marked `graphiti_compatibility`:
+Default test tasks avoid collecting the named legacy graph contract files and skip mixed-file cases
+marked `legacy_graph_contract`:
 
 - `moon run core:test`
 - `moon run api:test`
 - `moon run :check`
 
-The retained Graphiti test surface is opt-in:
+The retained legacy graph contract surface is opt-in:
 
-- `moon run core:graphiti-compatibility-test`
-- `moon run api:graphiti-compatibility-test`
-- `moon run graphiti-compatibility-test`
+- `moon run core:legacy-graph-contract-test`
+- `moon run api:legacy-graph-contract-test`
+- `moon run legacy-graph-contract-test`
 
 Core compatibility tests:
 
@@ -163,7 +163,7 @@ source metadata.
 - Removal condition: native write, exact lookup, semantic search, and entity hydration cover every
   seeded graph behavior without the legacy manager surface.
 - Owner: v0.13 Graphiti runtime import deletion.
-- Verify: `moon run core:graphiti-compatibility-file-test`.
+- Verify: `moon run core:legacy-graph-contract-file-test`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/relationships.py`
 
@@ -172,7 +172,7 @@ source metadata.
 - Status: Graphiti runtime imports removed in v0.13; legacy manager surface remains.
 - Removal condition: native relation manager owns every explicit graph relationship path.
 - Owner: v0.13 Graphiti runtime import deletion.
-- Verify: `moon run core:graphiti-compatibility-file-test`.
+- Verify: `moon run core:legacy-graph-contract-file-test`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/search_interface.py`
 
@@ -182,7 +182,7 @@ source metadata.
 - Removal condition: compare mode no longer calls the legacy search adapter and seeded native
   retrieval is the default path.
 - Owner: v0.13 Graphiti runtime import deletion.
-- Verify: `moon run core:graphiti-compatibility-file-test`.
+- Verify: `moon run core:legacy-graph-contract-file-test`.
 
 ### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/*`
 
@@ -213,7 +213,7 @@ source metadata.
 - Owner: v0.8 Graphiti ops disposition.
 - Removal condition: move with retained compatibility modules or delete when no Graphiti operation
   adapter imports it.
-- Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
+- Verify: `moon run core:legacy-graph-contract-file-test -- tests/graph/surreal`.
 
 #### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/community_edge_ops.py`
 
@@ -222,7 +222,7 @@ source metadata.
 - Owner: v0.8 Graphiti ops disposition.
 - Removal condition: native community membership reads and writes cover admin and compatibility
   callers without Graphiti `CommunityEdge` models.
-- Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
+- Verify: `moon run core:legacy-graph-contract-file-test -- tests/graph/surreal`.
 
 #### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/community_node_ops.py`
 
@@ -231,7 +231,7 @@ source metadata.
 - Owner: v0.8 Graphiti ops disposition.
 - Removal condition: native community services own community node persistence, hydration, and lookup
   without Graphiti `CommunityNode` parsers.
-- Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
+- Verify: `moon run core:legacy-graph-contract-file-test -- tests/graph/surreal`.
 
 #### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/entity_edge_ops.py`
 
@@ -276,7 +276,7 @@ source metadata.
   operation properties.
 - Owner: v0.8 Graphiti ops disposition.
 - Removal condition: no Graphiti node or edge class is constructed against the Surreal driver.
-- Verify: `moon run core:graphiti-compatibility-file-test -- tests/graph/surreal`.
+- Verify: `moon run core:legacy-graph-contract-file-test -- tests/graph/surreal`.
 
 #### `packages/python/sibyl-core/src/sibyl_core/graph/surreal/compat/ops/graph_ops.py`
 

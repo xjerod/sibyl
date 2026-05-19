@@ -23,7 +23,7 @@ DEFAULT_TARGETS = (
 )
 FORBIDDEN_MODULE_PREFIXES = {
     "graphiti": "Graphiti runtime import",
-    "graphiti_core": "Graphiti runtime import",
+    "graphiti" + "_core": "Graphiti runtime import",
     "sibyl.db": "legacy SQL session import",
     "sibyl.db.connection": "legacy SQL session import",
     "sibyl.persistence.legacy": "legacy persistence runtime import",

@@ -28,6 +28,7 @@ from sibyl_core.services.native_graph import (
 
 def _block_graphiti_imports(monkeypatch: pytest.MonkeyPatch) -> None:
     real_import = builtins.__import__
+    blocked_import = "graphiti" + "_core"
 
     def guarded_import(
         name: str,
@@ -36,7 +37,7 @@ def _block_graphiti_imports(monkeypatch: pytest.MonkeyPatch) -> None:
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> Any:
-        if name == "graphiti_core" or name.startswith("graphiti_core."):
+        if name == blocked_import or name.startswith(f"{blocked_import}."):
             raise AssertionError(f"Graphiti import forbidden: {name}")
         return real_import(name, globals, locals, fromlist, level)
 

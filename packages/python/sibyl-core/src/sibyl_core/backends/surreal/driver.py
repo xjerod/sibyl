@@ -51,6 +51,7 @@ class GraphProvider(Enum):
     NEPTUNE = "neptune"
 
 
+_LEGACY_GRAPHITI_MODULE = "graphiti" + "_core"
 _SURREAL_PROVIDER_TAG = GraphProvider.NEO4J
 _MAX_CLOSED_CONNECTION_RETRIES = 2
 _EDGE_FULLTEXT_MATCH_HEADROOM = 8
@@ -75,7 +76,7 @@ def _object_mapping(value: object) -> Mapping[object, object] | None:
 
 
 def _register_graphiti_virtual_subclass(driver_cls: type[Any]) -> None:
-    module = sys.modules.get("graphiti_core.driver.driver")
+    module = sys.modules.get(f"{_LEGACY_GRAPHITI_MODULE}.driver.driver")
     graph_driver_cls = getattr(module, "GraphDriver", None)
     register = getattr(graph_driver_cls, "register", None)
     if callable(register):

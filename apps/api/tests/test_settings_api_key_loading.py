@@ -162,7 +162,7 @@ class TestSettingsHotReload:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     @pytest.mark.asyncio
-    @pytest.mark.graphiti_compatibility
+    @pytest.mark.legacy_graph_contract
     async def test_update_settings_resets_graph_client(self) -> None:
         """Verify GraphClient is reset after API key update."""
         reset_called = False

@@ -193,18 +193,14 @@ class TestCreate:
         sample_relationship: Relationship,
     ) -> None:
         """Should create relationship and return ID."""
-        with patch.object(
-            relationship_manager,
-            "_get_existing_edges_between_nodes",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            relationship_manager._driver.execute_query = AsyncMock()
+        relationship_manager._driver.execute_query = AsyncMock()
 
-            result = await relationship_manager.create(sample_relationship)
+        result = await relationship_manager.create(sample_relationship)
 
-            assert result == "rel_123"
-            relationship_manager._driver.execute_query.assert_called_once()
+        assert result == "rel_123"
+        assert relationship_manager._driver.execute_query.await_count == 2
+        create_query = relationship_manager._driver.execute_query.await_args_list[1].args[0]
+        assert "MERGE (source)-[r:DEPENDS_ON" in create_query
 
     @pytest.mark.asyncio
     async def test_skips_duplicate(
@@ -213,21 +209,25 @@ class TestCreate:
         sample_relationship: Relationship,
     ) -> None:
         """Should skip if relationship already exists."""
-        existing_edge = MagicMock()
-        existing_edge.name = "DEPENDS_ON"
-        existing_edge.uuid = "existing_123"
+        relationship_manager._driver.execute_query = AsyncMock()
+        relationship_manager._client.normalize_result.return_value = [
+            {
+                "uuid": "existing_123",
+                "name": "DEPENDS_ON",
+                "source_id": "source_abc",
+                "target_id": "target_xyz",
+                "weight": 0.9,
+                "fact": "DEPENDS_ON relationship",
+                "properties": {},
+            }
+        ]
 
-        with patch.object(
-            relationship_manager,
-            "_get_existing_edges_between_nodes",
-            new_callable=AsyncMock,
-            return_value=[existing_edge],
-        ):
-            result = await relationship_manager.create(sample_relationship)
+        result = await relationship_manager.create(sample_relationship)
 
-            assert result == "existing_123"
-            # Should not execute query since duplicate exists
-            relationship_manager._driver.execute_query.assert_not_called()
+        assert result == "existing_123"
+        relationship_manager._driver.execute_query.assert_awaited_once()
+        query = relationship_manager._driver.execute_query.await_args.args[0]
+        assert "MERGE" not in query
 
     @pytest.mark.asyncio
     async def test_allows_different_type(
@@ -236,22 +236,24 @@ class TestCreate:
         sample_relationship: Relationship,
     ) -> None:
         """Should create if existing relationship has different type."""
-        existing_edge = MagicMock()
-        existing_edge.name = "RELATED_TO"  # Different from DEPENDS_ON
-        existing_edge.uuid = "existing_123"
+        relationship_manager._driver.execute_query = AsyncMock()
+        relationship_manager._client.normalize_result.return_value = [
+            {
+                "uuid": "existing_123",
+                "name": "RELATED_TO",
+                "source_id": "source_abc",
+                "target_id": "target_xyz",
+                "weight": 0.9,
+                "fact": "RELATED_TO relationship",
+                "properties": {},
+            }
+        ]
 
-        with patch.object(
-            relationship_manager,
-            "_get_existing_edges_between_nodes",
-            new_callable=AsyncMock,
-            return_value=[existing_edge],
-        ):
-            relationship_manager._driver.execute_query = AsyncMock()
+        await relationship_manager.create(sample_relationship)
 
-            await relationship_manager.create(sample_relationship)
-
-            # Should create new relationship since type is different
-            relationship_manager._driver.execute_query.assert_called_once()
+        assert relationship_manager._driver.execute_query.await_count == 2
+        create_query = relationship_manager._driver.execute_query.await_args_list[1].args[0]
+        assert "MERGE (source)-[r:DEPENDS_ON" in create_query
 
     @pytest.mark.asyncio
     async def test_raises_on_failure(
@@ -262,15 +264,11 @@ class TestCreate:
         """Should raise GraphError on failure."""
         from sibyl_core.errors import GraphError
 
-        with (
-            patch.object(
-                relationship_manager,
-                "_get_existing_edges_between_nodes",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("Connection failed"),
-            ),
-            pytest.raises(GraphError),
-        ):
+        relationship_manager._driver.execute_query = AsyncMock(
+            side_effect=RuntimeError("Connection failed")
+        )
+
+        with pytest.raises(GraphError):
             await relationship_manager.create(sample_relationship)
 
 
