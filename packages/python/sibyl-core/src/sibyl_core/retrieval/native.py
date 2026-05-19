@@ -971,15 +971,7 @@ def _edge_filter_clause(
 def _edge_match_filter_clause(
     search_filter: NativeSearchFilter,
 ) -> tuple[list[str], dict[str, Any]]:
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if search_filter.edge_uuids:
-        clauses.append("uuid IN $edge_uuids")
-        params["edge_uuids"] = list(search_filter.edge_uuids)
-    if search_filter.edge_types:
-        clauses.append("name IN $edge_types")
-        params["edge_types"] = list(search_filter.edge_types)
-    return clauses, params
+    return _edge_filter_clause(search_filter)
 
 
 def _edge_select(extra: str | None = None) -> str:
