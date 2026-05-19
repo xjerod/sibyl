@@ -100,10 +100,17 @@ and explicit.
 Offline and live harnesses use the same canonical text per session, or the offline-versus-live delta
 measures corpus shape rather than runtime. Phase 1 extracts one shared loader that emits
 `(session_id, text, timestamp)` tuples. The current offline `_build_corpus` joins user-role turns
-only, one document per session; the shared loader preserves exactly that policy. The live API
-receives that canonical text as entity `content`; any additional fields the API indexes are recorded
-as part of the live runtime contract. The policy string (e.g. `user-turns-only-v1`) is recorded in
-every artifact as `corpus_text_policy` so any future change is visible in the receipts.
+only, one document per session; the shared loader preserves exactly that policy.
+
+The existing `/api/entities` contract caps entity `content` at 50,000 characters. LongMemEval-S has
+one oversized canonical session (`sharegpt_FYhsZ0Q_0`, case 369, 76,560 characters), so the live
+harness projects oversized sessions into multiple API-sized `session` entities with the same
+`longmemeval_session_id`, chunk metadata, and a recorded `entity_content_projection_policy`. Scoring
+deduplicates result chunks back to LongMemEval session IDs. This keeps the app unchanged while
+preserving all canonical text in the target runtime.
+
+The policy string (e.g. `user-turns-only-v1`) is recorded in every artifact as `corpus_text_policy`
+so any future change is visible in the receipts.
 
 ## 8. Metrics
 
@@ -135,10 +142,11 @@ The artifact conforms to the `ai-memory` ledger schema and passes `bench-gate --
 - `runtime`: also `graph_engine: surreal`, `store: surreal`, `retrieval_surface: POST /api/search`,
   `retrieval_semantics: existing API graph hybrid/fulltext; no native vector claim`,
   `embedding_provider: none`, `embedding_model: not-applicable`, `embedding_dimensions: 0`,
-  `tokenizer_estimate_method: not-applicable`.
+  `tokenizer_estimate_method: not-applicable`, `entity_content_projection_policy`,
+  `entity_content_max_chars`.
 - `generated_at`, `command`, `sibyl_commit`, `repeat_count`, `auth_manifest_id`.
 - `dataset`: `name`, `corpus_hash`, `total_entries`, `evaluated_entries`, `limit`, plus
-  `corpus_text_policy`.
+  `corpus_text_policy` and `entity_content_projection_policy`.
 - `overall`: `recall@5`, `recall@10`, `ndcg@5`, `ndcg@10`, `hit@5`, `hit@10`.
 - `per_type`: metrics broken down by LongMemEval question type.
 - `case_results`: per-question records including ranked result IDs, scores, `result_origin`, tenant

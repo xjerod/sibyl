@@ -37,6 +37,8 @@ def test_longmemeval_live_refuses_localhost_without_explicit_allow() -> None:
 
 def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
     module = _load_live_module()
+    expected_created_entities = 3
+    expected_chunked_entities = 2
     data_path = tmp_path / "longmemeval_s_cleaned.json"
     data_path.write_text(
         json.dumps(
@@ -51,7 +53,12 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
                     "haystack_dates": ["2026/01/01", "2026/01/02"],
                     "haystack_sessions": [
                         [{"role": "user", "content": "I bought pencils."}],
-                        [{"role": "user", "content": "I bought markers."}],
+                        [
+                            {
+                                "role": "user",
+                                "content": "I bought markers. " + ("x" * 50_000),
+                            }
+                        ],
                     ],
                 }
             ]
@@ -79,6 +86,7 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
             entity = {
                 "id": f"entity-{len(state['entities'])}",
                 "entity_type": payload["entity_type"],
+                "content": payload["content"],
                 "metadata": payload["metadata"],
             }
             state["entities"].append(entity)
@@ -123,9 +131,32 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
     assert report["mode"] == "hybrid"
     assert report["runtime"]["embedding_provider"] == "none"
     assert report["runtime"]["embedding_dimensions"] == 0
+    assert report["runtime"]["entity_content_projection_policy"] == (
+        module.ENTITY_CONTENT_PROJECTION_POLICY
+    )
     assert report["dataset"]["corpus_text_policy"] == module.CORPUS_TEXT_POLICY
+    assert report["dataset"]["entity_content_projection_policy"] == (
+        module.ENTITY_CONTENT_PROJECTION_POLICY
+    )
     assert report["overall"]["hit@1"] == 1.0
     assert report["overall"]["recall@1"] == 1.0
     assert report["overall"]["cross_question_result_count"] == 0.0
+    assert report["overall"]["created_entity_count"] == float(expected_created_entities)
+    assert report["overall"]["chunked_session_count"] == 1.0
+    assert max(len(entity["content"]) for entity in state["entities"]) <= (
+        module.ENTITY_CONTENT_MAX_CHARS
+    )
+    chunked_entities = [
+        entity
+        for entity in state["entities"]
+        if entity["metadata"]["longmemeval_session_id"] == "s2"
+    ]
+    assert len(chunked_entities) == expected_chunked_entities
+    assert [entity["metadata"]["longmemeval_chunk_index"] for entity in chunked_entities] == [0, 1]
+    assert {entity["metadata"]["longmemeval_chunk_count"] for entity in chunked_entities} == {
+        expected_chunked_entities
+    }
     assert report["case_results"][0]["ranked_session_ids"] == ["s2", "s1"]
+    assert report["case_results"][0]["created_entity_count"] == expected_created_entities
+    assert report["case_results"][0]["chunked_session_count"] == 1
     assert eval_gate.evaluate_report(report, profile="ai-memory") == []

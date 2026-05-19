@@ -34,6 +34,8 @@ DATASET_SHA256 = "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a4
 DEFAULT_K_VALUES = [5, 10]
 LIVE_RETRIEVAL_MODE = "hybrid"
 AUTH_MANIFEST_ID = "ephemeral-local-signup-v1"
+ENTITY_CONTENT_MAX_CHARS = 50_000
+ENTITY_CONTENT_PROJECTION_POLICY = "api-entity-content-chunked-v1"
 
 
 class LongMemEvalLiveError(RuntimeError):
@@ -164,8 +166,27 @@ async def _signup_throwaway_tenant(
     }
 
 
-def _entity_name(*, run_id: str, case_index: int, document_index: int) -> str:
-    return f"LongMemEval {run_id} case {case_index} session {document_index}"[:200]
+def _entity_name(
+    *,
+    run_id: str,
+    case_index: int,
+    document_index: int,
+    chunk_index: int,
+    chunk_count: int,
+) -> str:
+    name = f"LongMemEval {run_id} case {case_index} session {document_index}"
+    if chunk_count > 1:
+        name = f"{name} chunk {chunk_index + 1} of {chunk_count}"
+    return name[:200]
+
+
+def _chunk_entity_content(text: str) -> list[str]:
+    if len(text) <= ENTITY_CONTENT_MAX_CHARS:
+        return [text]
+    return [
+        text[index : index + ENTITY_CONTENT_MAX_CHARS]
+        for index in range(0, len(text), ENTITY_CONTENT_MAX_CHARS)
+    ]
 
 
 async def _ingest_haystack(
@@ -174,40 +195,52 @@ async def _ingest_haystack(
     entry: dict[str, Any],
     run_id: str,
     case_index: int,
-) -> tuple[list[str], float]:
+) -> tuple[list[str], float, int]:
     start = time.perf_counter()
     question_id = str(entry["question_id"])
     created_ids: list[str] = []
+    chunked_session_count = 0
     documents = build_longmemeval_corpus(entry)
     for document_index, document in enumerate(documents):
-        created = await _post_json(
-            client,
-            "/entities",
-            params={"sync": "true"},
-            payload={
-                "name": _entity_name(
-                    run_id=run_id,
-                    case_index=case_index,
-                    document_index=document_index,
-                ),
-                "description": "",
-                "content": document.text,
-                "entity_type": "session",
-                "skip_conflicts": True,
-                "metadata": {
-                    "longmemeval_run_id": run_id,
-                    "longmemeval_case_index": case_index,
-                    "longmemeval_question_id": question_id,
-                    "longmemeval_session_id": document.session_id,
-                    "longmemeval_haystack_index": document_index,
-                    "valid_at": document.timestamp,
-                    "corpus_text_policy": CORPUS_TEXT_POLICY,
-                    "capture_surface": "longmemeval-live",
+        content_chunks = _chunk_entity_content(document.text)
+        if len(content_chunks) > 1:
+            chunked_session_count += 1
+        for chunk_index, content_chunk in enumerate(content_chunks):
+            created = await _post_json(
+                client,
+                "/entities",
+                params={"sync": "true"},
+                payload={
+                    "name": _entity_name(
+                        run_id=run_id,
+                        case_index=case_index,
+                        document_index=document_index,
+                        chunk_index=chunk_index,
+                        chunk_count=len(content_chunks),
+                    ),
+                    "description": "",
+                    "content": content_chunk,
+                    "entity_type": "session",
+                    "skip_conflicts": True,
+                    "metadata": {
+                        "longmemeval_run_id": run_id,
+                        "longmemeval_case_index": case_index,
+                        "longmemeval_question_id": question_id,
+                        "longmemeval_session_id": document.session_id,
+                        "longmemeval_haystack_index": document_index,
+                        "longmemeval_chunk_index": chunk_index,
+                        "longmemeval_chunk_count": len(content_chunks),
+                        "longmemeval_original_content_chars": len(document.text),
+                        "entity_content_max_chars": ENTITY_CONTENT_MAX_CHARS,
+                        "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
+                        "valid_at": document.timestamp,
+                        "corpus_text_policy": CORPUS_TEXT_POLICY,
+                        "capture_surface": "longmemeval-live",
+                    },
                 },
-            },
-        )
-        created_ids.append(str(created.get("id") or ""))
-    return created_ids, (time.perf_counter() - start) * 1000
+            )
+            created_ids.append(str(created.get("id") or ""))
+    return created_ids, (time.perf_counter() - start) * 1000, chunked_session_count
 
 
 async def _verify_namespace_probe(
@@ -330,7 +363,7 @@ async def _run_case(
     ) as client:
         await _get_json(client, "/health")
         tenant = await _signup_throwaway_tenant(client, run_id=run_id, case_index=case_index)
-        created_ids, ingest_ms = await _ingest_haystack(
+        created_ids, ingest_ms, chunked_session_count = await _ingest_haystack(
             client,
             entry=entry,
             run_id=run_id,
@@ -363,6 +396,7 @@ async def _run_case(
         "ranked_results": ranked_results,
         "tenant": tenant,
         "created_entity_count": len(created_ids),
+        "chunked_session_count": chunked_session_count,
         "readiness": readiness,
         "ingest_ms": ingest_ms,
         "latency_ms": (time.perf_counter() - started) * 1000,
@@ -416,6 +450,12 @@ def _aggregate(results: list[dict[str, Any]], k_values: list[int]) -> tuple[dict
     overall = {metric: average_metric(results, metric) for metric in metric_names}
     overall["cross_question_result_count"] = sum(
         float(result["cross_question_result_count"]) for result in results
+    )
+    overall["created_entity_count"] = sum(
+        float(result["created_entity_count"]) for result in results
+    )
+    overall["chunked_session_count"] = sum(
+        float(result["chunked_session_count"]) for result in results
     )
 
     results_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -519,6 +559,8 @@ async def run_benchmark(
             "tokenizer_estimate_method": "not-applicable",
             "readiness_strategy": "sync_write_plus_search_probe",
             "per_question_isolation": "throwaway organization namespace per question",
+            "entity_content_max_chars": ENTITY_CONTENT_MAX_CHARS,
+            "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
         },
         "dataset": {
             "name": dataset_path.stem,
@@ -528,6 +570,7 @@ async def run_benchmark(
             "evaluated_entries": len(entries),
             "limit": limit,
             "corpus_text_policy": CORPUS_TEXT_POLICY,
+            "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
         },
         "metadata": metadata or {},
         "repeat_count": 1,
