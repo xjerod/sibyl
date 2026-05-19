@@ -7,7 +7,8 @@ name: Live Runtime Eval
 # embedder (OpenAI text-embedding-3-small) so the numbers reflect actual
 # semantic retrieval quality. Trigger it before an RC cut for fresh receipts.
 #
-# Requires repo secrets OPENAI_API_KEY and ANTHROPIC_API_KEY.
+# The context-pack job requires OPENAI_API_KEY; LongMemEval live uses the
+# existing graph/full-text API path and does not require embedding secrets.
 
 on:
   workflow_dispatch:
@@ -23,6 +24,18 @@ on:
         description: "Repeat count per case (higher = lower variance)"
         type: string
         default: "20"
+      longmemeval_smoke_limit:
+        description: "LongMemEval live smoke question limit"
+        type: string
+        default: "25"
+      longmemeval_concurrency:
+        description: "LongMemEval live concurrency"
+        type: string
+        default: "2"
+      run_longmemeval_full:
+        description: "Run the full 500-question LongMemEval live job"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -189,6 +202,246 @@ jobs:
         with:
           name: live-context-pack-eval-${{ github.sha }}
           path: ${{ steps.eval.outputs.report }}
+          if-no-files-found: error
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Backend server logs ==="
+          tail -n 200 /tmp/sibyld.log || true
+          echo ""
+          echo "=== Worker logs ==="
+          tail -n 200 /tmp/sibyl-worker.log || true
+          echo ""
+          echo "=== SurrealDB logs ==="
+          docker compose logs surrealdb || true
+
+  longmemeval-live-smoke:
+    name: LongMemEval Live Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SIBYL_ENVIRONMENT: production
+      SIBYL_JWT_SECRET: test-secret-for-eval
+      SIBYL_STORE: surreal
+      SIBYL_AUTH_STORE: surreal
+      SIBYL_COORDINATION_BACKEND: local
+      SIBYL_SURREAL_URL: ws://localhost:8000/rpc
+      SIBYL_SURREAL_USERNAME: sibyl_ci
+      SIBYL_SURREAL_PASSWORD: sibyl_ci_password
+      LONGMEMEVAL_SHA256: d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442
+      LONGMEMEVAL_URL: https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json?download=true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Start SurrealDB
+        uses: ./.github/actions/start-surrealdb
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxslt-dev
+
+      - name: Setup moonrepo toolchain
+        uses: moonrepo/setup-toolchain@v0.6
+        with:
+          auto-install: true
+          auto-setup: true
+          cache-version: surreal-ci-v1
+
+      - name: Cache moon outputs
+        uses: actions/cache@v5
+        with:
+          path: .moon/cache
+          key: moon-longmemeval-${{ runner.os }}-${{ hashFiles('.prototools', 'uv.lock') }}
+          restore-keys: |
+            moon-longmemeval-${{ runner.os }}-
+
+      - name: Cache uv
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/uv
+          key: uv-longmemeval-${{ runner.os }}-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            uv-longmemeval-${{ runner.os }}-
+
+      - name: Fetch LongMemEval-S cleaned
+        run: |
+          mkdir -p .moon/cache/benchmarks
+          dataset=.moon/cache/benchmarks/longmemeval_s_cleaned.json
+          if [[ ! -f "$dataset" ]]; then
+            curl -L --retry 3 --retry-delay 5 "$LONGMEMEVAL_URL" -o "$dataset"
+          fi
+          echo "$LONGMEMEVAL_SHA256  $dataset" | sha256sum -c -
+
+      - name: Start backend server
+        run: |
+          cd apps/api
+          uv run sibyld serve > /tmp/sibyld.log 2>&1 &
+          echo "Waiting for backend to start..."
+          for i in {1..60}; do
+            if curl -fsS http://localhost:3334/api/health > /dev/null; then
+              echo "Backend is ready!"
+              sleep 2
+              break
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 1
+          done
+          curl -fsS http://localhost:3334/api/health | head -c 200
+
+      - name: Start background job worker
+        run: |
+          cd apps/api
+          uv run sibyld worker > /tmp/sibyl-worker.log 2>&1 &
+          echo "Background job worker started"
+          sleep 2
+
+      - name: Run LongMemEval live smoke
+        run: |
+          mkdir -p .moon/cache/evals
+          moon run bench-longmemeval-live -- \
+            .moon/cache/benchmarks/longmemeval_s_cleaned.json \
+            --api-url http://localhost:3334/api \
+            --allow-localhost \
+            --limit "${{ inputs.longmemeval_smoke_limit }}" \
+            --concurrency "${{ inputs.longmemeval_concurrency }}" \
+            --output .moon/cache/evals/longmemeval_live_smoke.json \
+            --label live-smoke \
+            --metadata ci_job=longmemeval-live-smoke
+
+      - name: Gate LongMemEval live smoke
+        run: |
+          moon run bench-gate -- .moon/cache/evals/longmemeval_live_smoke.json \
+            --profile ai-memory
+
+      - name: Upload LongMemEval live smoke artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: longmemeval-live-smoke-${{ github.sha }}
+          path: .moon/cache/evals/longmemeval_live_smoke.json
+          if-no-files-found: error
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Backend server logs ==="
+          tail -n 200 /tmp/sibyld.log || true
+          echo ""
+          echo "=== Worker logs ==="
+          tail -n 200 /tmp/sibyl-worker.log || true
+          echo ""
+          echo "=== SurrealDB logs ==="
+          docker compose logs surrealdb || true
+
+  longmemeval-live-full:
+    name: LongMemEval Live Full
+    if: ${{ inputs.run_longmemeval_full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SIBYL_ENVIRONMENT: production
+      SIBYL_JWT_SECRET: test-secret-for-eval
+      SIBYL_STORE: surreal
+      SIBYL_AUTH_STORE: surreal
+      SIBYL_COORDINATION_BACKEND: local
+      SIBYL_SURREAL_URL: ws://localhost:8000/rpc
+      SIBYL_SURREAL_USERNAME: sibyl_ci
+      SIBYL_SURREAL_PASSWORD: sibyl_ci_password
+      LONGMEMEVAL_SHA256: d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442
+      LONGMEMEVAL_URL: https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json?download=true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Start SurrealDB
+        uses: ./.github/actions/start-surrealdb
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxslt-dev
+
+      - name: Setup moonrepo toolchain
+        uses: moonrepo/setup-toolchain@v0.6
+        with:
+          auto-install: true
+          auto-setup: true
+          cache-version: surreal-ci-v1
+
+      - name: Cache moon outputs
+        uses: actions/cache@v5
+        with:
+          path: .moon/cache
+          key: moon-longmemeval-${{ runner.os }}-${{ hashFiles('.prototools', 'uv.lock') }}
+          restore-keys: |
+            moon-longmemeval-${{ runner.os }}-
+
+      - name: Cache uv
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/uv
+          key: uv-longmemeval-${{ runner.os }}-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            uv-longmemeval-${{ runner.os }}-
+
+      - name: Fetch LongMemEval-S cleaned
+        run: |
+          mkdir -p .moon/cache/benchmarks
+          dataset=.moon/cache/benchmarks/longmemeval_s_cleaned.json
+          if [[ ! -f "$dataset" ]]; then
+            curl -L --retry 3 --retry-delay 5 "$LONGMEMEVAL_URL" -o "$dataset"
+          fi
+          echo "$LONGMEMEVAL_SHA256  $dataset" | sha256sum -c -
+
+      - name: Start backend server
+        run: |
+          cd apps/api
+          uv run sibyld serve > /tmp/sibyld.log 2>&1 &
+          echo "Waiting for backend to start..."
+          for i in {1..60}; do
+            if curl -fsS http://localhost:3334/api/health > /dev/null; then
+              echo "Backend is ready!"
+              sleep 2
+              break
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 1
+          done
+          curl -fsS http://localhost:3334/api/health | head -c 200
+
+      - name: Start background job worker
+        run: |
+          cd apps/api
+          uv run sibyld worker > /tmp/sibyl-worker.log 2>&1 &
+          echo "Background job worker started"
+          sleep 2
+
+      - name: Run LongMemEval live full
+        run: |
+          mkdir -p .moon/cache/evals
+          moon run bench-longmemeval-live -- \
+            .moon/cache/benchmarks/longmemeval_s_cleaned.json \
+            --api-url http://localhost:3334/api \
+            --allow-localhost \
+            --concurrency "${{ inputs.longmemeval_concurrency }}" \
+            --output .moon/cache/evals/longmemeval_live_full.json \
+            --label live-full \
+            --metadata ci_job=longmemeval-live-full
+
+      - name: Gate LongMemEval live full
+        run: |
+          moon run bench-gate -- .moon/cache/evals/longmemeval_live_full.json \
+            --profile ai-memory
+
+      - name: Upload LongMemEval live full artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: longmemeval-live-full-${{ github.sha }}
+          path: .moon/cache/evals/longmemeval_live_full.json
           if-no-files-found: error
 
       - name: Collect diagnostics on failure

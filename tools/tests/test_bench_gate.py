@@ -271,6 +271,27 @@ def test_evaluate_report_ai_memory_profile_accepts_full_records() -> None:
     assert failures == []
 
 
+def test_evaluate_report_ai_memory_profile_accepts_non_embedding_live_path() -> None:
+    report = _ai_memory_report(mode="hybrid")
+    report["schema_version"] = "longmemeval-live-v1"
+    report["suite"] = "LongMemEval-S live API"
+    report["runtime"] = {
+        "runtime_mode": "live-api-ephemeral",
+        "graph_engine": "surreal",
+        "store": "surreal",
+        "retrieval_mode": "hybrid",
+        "embedding_provider": "none",
+        "embedding_model": "not-applicable",
+        "embedding_dimensions": 0,
+        "tokenizer_estimate_method": "not-applicable",
+    }
+    report["auth_manifest_id"] = "ephemeral-local-signup-v1"
+
+    failures = eval_gate.evaluate_report(report, profile="ai-memory")
+
+    assert failures == []
+
+
 def test_evaluate_report_ai_memory_profile_rejects_headline_only_records() -> None:
     report = {
         "suite": "LOCOMO-style long-memory suite",

@@ -195,6 +195,20 @@ def _validate_positive_integer_field(value: Any, *, path: str) -> list[str]:
     return [f"{path} must be a positive integer"]
 
 
+def _validate_embedding_dimensions(
+    runtime: dict[str, Any],
+    *,
+    path: str,
+) -> list[str]:
+    provider = str(runtime.get("embedding_provider") or "").strip().lower()
+    dimensions = runtime.get("embedding_dimensions")
+    if provider in {"none", "not-applicable", "n/a"}:
+        if dimensions == 0 or (isinstance(dimensions, str) and dimensions.strip() == "0"):
+            return []
+        return [f"{path} must be 0 when embedding_provider is {provider!r}"]
+    return _validate_positive_integer_field(dimensions, path=path)
+
+
 def _validate_required_fields(
     mapping: dict[str, Any],
     *,
@@ -278,10 +292,7 @@ def _validate_ai_memory_release_metadata(report: dict[str, Any]) -> list[str]:
             )
         )
         failures.extend(
-            _validate_positive_integer_field(
-                runtime_record.get("embedding_dimensions"),
-                path="runtime['embedding_dimensions']",
-            )
+            _validate_embedding_dimensions(runtime_record, path="runtime['embedding_dimensions']")
         )
 
     if not isinstance(dataset, dict):

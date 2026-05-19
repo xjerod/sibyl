@@ -427,8 +427,8 @@ tasks:
 
   inventory-test:
     command:
-      uv run pytest tools/tests/test_runtime_surface.py
-      tools/tests/test_retrieval_mode_history.py -v
+      uv run pytest tools/tests/test_runtime_surface.py tools/tests/test_retrieval_mode_history.py
+      -v
     inputs:
       - tools/**/*.py
       - docs/_archive/SURREALDB_GRAPHITI_EXIT_INVENTORY.md
@@ -556,7 +556,9 @@ tasks:
       - pyproject.toml
 
   bench-gate-test:
-    command: uv run pytest tools/tests/test_bench_gate.py tools/tests/test_longmemeval_bench.py -v
+    command:
+      uv run pytest tools/tests/test_bench_gate.py tools/tests/test_longmemeval_bench.py
+      tools/tests/test_longmemeval_live.py -v
     inputs:
       - tools/**/*.py
       - benchmarks/longmemeval_bench.py
@@ -937,6 +939,9 @@ tasks:
 
   bench-live:
     command: uv run python benchmarks/live_runtime_eval.py
+
+  bench-longmemeval-live:
+    command: uv run python benchmarks/longmemeval_live.py
 
   bench-live-smoke:
     command: uv run pytest packages/python/sibyl-core/tests/test_retrieval_live.py -v -s
