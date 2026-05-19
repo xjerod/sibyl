@@ -11,11 +11,16 @@ from sibyl_core.auth import AuthOrganization, AuthUser, OrganizationRole
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 
 
-def _auth_context(org: AuthOrganization) -> AuthContext:
+def _auth_context(
+    org: AuthOrganization,
+    *,
+    api_key_memory_scope_keys: set[str] | None = None,
+) -> AuthContext:
     return AuthContext(
         user=AuthUser(id=uuid4(), email="nova@example.test"),
         organization=org,
         org_role=OrganizationRole.MEMBER,
+        api_key_memory_scope_keys=api_key_memory_scope_keys,
     )
 
 
@@ -116,6 +121,65 @@ async def test_resolve_raw_memory_prefix_filters_policy_denied_matches(
 
     async def fake_policy(*, ctx: AuthContext, memory: RawMemory) -> SimpleNamespace:
         return SimpleNamespace(allowed=memory.id == "memory-visible")
+
+    monkeypatch.setattr(resolve_route, "resolve_raw_memory_prefix", fake_resolve_raw)
+    monkeypatch.setattr(resolve_route, "_inspect_content_policy", fake_policy)
+
+    response = await resolve_route.resolve_id_prefix(
+        "memory",
+        org=org,
+        ctx=ctx,
+        entity_type="raw_memory",
+        limit=20,
+    )
+
+    assert response.count == 1
+    assert response.matches[0].id == "memory-visible"
+    assert response.matches[0].entity_type == "raw_memory"
+
+
+@pytest.mark.asyncio
+async def test_resolve_raw_memory_prefix_filters_api_key_memory_scope_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org = AuthOrganization(id=uuid4(), name="Sibyl", slug="sibyl")
+    ctx = _auth_context(org, api_key_memory_scope_keys={"project\x1fproject-visible"})
+    memories = [
+        RawMemory(
+            id="memory-visible",
+            organization_id=str(org.id),
+            source_id="source-visible",
+            principal_id=ctx.user_id or "",
+            memory_scope=MemoryScope.PROJECT,
+            scope_key="project-visible",
+            project_id="project-visible",
+            title="Visible memory",
+        ),
+        RawMemory(
+            id="memory-hidden",
+            organization_id=str(org.id),
+            source_id="source-hidden",
+            principal_id="other-user",
+            memory_scope=MemoryScope.PROJECT,
+            scope_key="project-hidden",
+            project_id="project-hidden",
+            title="Hidden memory",
+        ),
+    ]
+
+    async def fake_resolve_raw(
+        *,
+        organization_id: str,
+        prefix: str,
+        limit: int,
+    ) -> list[RawMemory]:
+        assert organization_id == str(org.id)
+        assert prefix == "memory"
+        assert limit == 20
+        return memories
+
+    async def fake_policy(*, ctx: AuthContext, memory: RawMemory) -> SimpleNamespace:
+        return SimpleNamespace(allowed=True)
 
     monkeypatch.setattr(resolve_route, "resolve_raw_memory_prefix", fake_resolve_raw)
     monkeypatch.setattr(resolve_route, "_inspect_content_policy", fake_policy)
