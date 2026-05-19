@@ -307,6 +307,7 @@ async def _ingest_haystack(
     created_ids: list[str] = []
     chunked_session_count = 0
     documents = build_longmemeval_corpus(entry, text_policy=corpus_text_policy)
+    entities: list[dict[str, Any]] = []
     for document_index, document in enumerate(documents):
         content_chunks = _chunk_entity_content(document.text)
         if len(content_chunks) > 1:
@@ -319,13 +320,10 @@ async def _ingest_haystack(
                 document_count=len(documents),
                 chunk_index=chunk_index + 1,
                 chunk_count=len(content_chunks),
-                path="/entities",
+                path="/entities/bulk",
             )
-            created = await _post_json(
-                client,
-                "/entities",
-                params={"sync": "true"},
-                payload={
+            entities.append(
+                {
                     "name": _entity_name(
                         run_id=run_id,
                         case_index=case_index,
@@ -354,7 +352,19 @@ async def _ingest_haystack(
                     },
                 },
             )
-            created_ids.append(str(created.get("id") or ""))
+    for batch_start in range(0, len(entities), 128):
+        batch = entities[batch_start : batch_start + 128]
+        created = await _post_json(
+            client,
+            "/entities/bulk",
+            payload={"entities": batch},
+        )
+        created_entities = created.get("entities") if isinstance(created.get("entities"), list) else []
+        created_ids.extend(
+            str(entity.get("id") or "")
+            for entity in created_entities
+            if isinstance(entity, dict)
+        )
     return created_ids, (time.perf_counter() - start) * 1000, chunked_session_count, len(documents)
 
 

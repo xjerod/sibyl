@@ -101,7 +101,7 @@ async def main():
         relationship_manager=NativeRelationshipManager(client, group_id=group_id),
     )
 
-    async def runtime_factory(requested_group_id):
+    async def runtime_factory(requested_group_id, **_kwargs):
         assert requested_group_id == group_id
         return runtime
 

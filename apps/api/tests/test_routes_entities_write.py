@@ -6,9 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
+from fastapi import HTTPException
 
-from sibyl.api.routes.entities import create_entity, delete_entity, update_entity
-from sibyl.api.schemas import EntityCreate, EntityUpdate
+from sibyl.api.routes.entities import (
+    create_entities_bulk,
+    create_entity,
+    delete_entity,
+    update_entity,
+)
+from sibyl.api.schemas import EntityBulkCreateRequest, EntityCreate, EntityUpdate
 from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl_core.auth import ProjectRole
 from sibyl_core.models.entities import EntityType
@@ -98,6 +104,91 @@ async def test_create_project_routes_through_runtime_project_record() -> None:
         description="cut postgres loose",
     )
     audit_log.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_entities_bulk_uses_runtime_bulk_create() -> None:
+    org = _org()
+    ctx = _ctx()
+    batch = EntityBulkCreateRequest(
+        entities=[
+            EntityCreate(
+                name="Session one",
+                content="semantic memory content",
+                entity_type=EntityType.SESSION,
+                skip_conflicts=True,
+                metadata={"source": "import"},
+            ),
+            EntityCreate(
+                name="Session two",
+                content="more semantic memory content",
+                entity_type=EntityType.SESSION,
+                skip_conflicts=True,
+                metadata={"source": "import"},
+            ),
+        ]
+    )
+    runtime = SimpleNamespace(
+        entity_manager=SimpleNamespace(
+            create_direct_bulk=AsyncMock(return_value=["session_one", "session_two"])
+        ),
+        relationship_manager=SimpleNamespace(create_bulk=AsyncMock(return_value=(0, 0))),
+    )
+
+    with patch(
+        "sibyl.api.routes.entities.get_entity_graph_runtime",
+        AsyncMock(return_value=runtime),
+    ):
+        response = await create_entities_bulk(
+            batch=batch,
+            org=org,
+            ctx=ctx,
+            content_session=None,
+        )
+
+    assert response.created == 2
+    assert [entity.id for entity in response.entities] == ["session_one", "session_two"]
+    runtime.entity_manager.create_direct_bulk.assert_awaited_once()
+    call = runtime.entity_manager.create_direct_bulk.await_args
+    assert len(call.args[0]) == 2
+    assert call.kwargs == {"generate_embeddings": True}
+
+
+@pytest.mark.asyncio
+async def test_create_entities_bulk_requires_explicit_conflict_skip() -> None:
+    org = _org()
+    ctx = _ctx()
+    batch = EntityBulkCreateRequest(
+        entities=[
+            EntityCreate(
+                name="Session one",
+                content="semantic memory content",
+                entity_type=EntityType.SESSION,
+            )
+        ]
+    )
+    runtime = SimpleNamespace(
+        entity_manager=SimpleNamespace(create_direct_bulk=AsyncMock(return_value=[])),
+        relationship_manager=SimpleNamespace(create_bulk=AsyncMock(return_value=(0, 0))),
+    )
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(return_value=runtime),
+        ),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await create_entities_bulk(
+            batch=batch,
+            org=org,
+            ctx=ctx,
+            content_session=None,
+        )
+
+    assert exc.value.status_code == 400
+    assert "skip_conflicts=true" in str(exc.value.detail)
+    runtime.entity_manager.create_direct_bulk.assert_not_awaited()
 
 
 @pytest.mark.asyncio

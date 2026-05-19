@@ -49,6 +49,17 @@ class EntityCreate(EntityBase):
     )
 
 
+class EntityBulkCreateRequest(BaseModel):
+    """Schema for creating many graph entities in one request."""
+
+    entities: list[EntityCreate] = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Entities to create in one bounded batch",
+    )
+
+
 class EntityUpdate(BaseModel):
     """Schema for updating an entity (all fields optional)."""
 
@@ -94,6 +105,14 @@ class EntityListResponse(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+
+class EntityBulkCreateResponse(BaseModel):
+    """Bulk entity creation response."""
+
+    entities: list[EntityResponse]
+    created: int
+    failed: int = 0
 
 
 class RawCaptureSummary(BaseModel):

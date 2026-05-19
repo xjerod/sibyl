@@ -257,6 +257,43 @@ async def test_native_entity_manager_generates_embeddings_with_native_provider()
 
 
 @pytest.mark.asyncio
+async def test_native_entity_manager_bulk_generates_embeddings_in_batches() -> None:
+    client = _EmbeddingWriteClient()
+    provider = _deterministic_provider()
+    manager = NativeEntityManager(
+        cast(NativeSurrealGraphClient, client),
+        group_id=client.group_id,
+        embedding_provider=provider,
+    )
+
+    created_ids = await manager.create_direct_bulk(
+        [
+            Entity(
+                id="entity_embed_one",
+                entity_type=EntityType.SESSION,
+                name="First session",
+                description="Generated in a batch.",
+                organization_id=client.group_id,
+            ),
+            Entity(
+                id="entity_embed_two",
+                entity_type=EntityType.SESSION,
+                name="Second session",
+                description="Generated in a batch.",
+                organization_id=client.group_id,
+            ),
+        ],
+        generate_embeddings=True,
+        embedding_batch_size=2,
+    )
+
+    assert created_ids == ["entity_embed_one", "entity_embed_two"]
+    write_calls = [params for query, params in client.calls if "UPSERT entity" in query]
+    assert len(write_calls) == 2
+    assert all(len(cast(list[float], params["name_embedding"])) == 4 for params in write_calls)
+
+
+@pytest.mark.asyncio
 async def test_native_relationship_manager_generates_fact_embeddings() -> None:
     client = _EmbeddingWriteClient()
     provider = _deterministic_provider()

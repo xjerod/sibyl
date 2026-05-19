@@ -109,6 +109,29 @@ class NativeEntityManager:
         await _replace_entity(self._client, entity, group_id=self._group_id)
         return entity.id
 
+    async def create_direct_bulk(
+        self,
+        entities: Sequence[Entity],
+        *,
+        generate_embeddings: bool = False,
+        embedding_batch_size: int = 64,
+    ) -> list[str]:
+        prepared_entities = list(entities)
+        if not prepared_entities:
+            return []
+        if generate_embeddings:
+            prepared_entities = await _entities_with_native_embeddings(
+                prepared_entities,
+                self._embedding_provider,
+                batch_size=embedding_batch_size,
+            )
+
+        created_ids: list[str] = []
+        for entity in prepared_entities:
+            await _replace_entity(self._client, entity, group_id=self._group_id)
+            created_ids.append(entity.id)
+        return created_ids
+
     async def create(self, entity: Entity) -> str:
         return await self.create_direct(entity, generate_embedding=True)
 
@@ -2045,6 +2068,46 @@ async def _entity_with_native_embedding(
         "embedding_metadata": provider.metadata.to_dict(),
     }
     return entity.model_copy(update={"embedding": embedding, "metadata": metadata})
+
+
+async def _entities_with_native_embeddings(
+    entities: Sequence[Entity],
+    provider: NativeEmbeddingProvider | None,
+    *,
+    batch_size: int,
+) -> list[Entity]:
+    if provider is None:
+        return list(entities)
+
+    updated_entities = list(entities)
+    pending_indexes = [index for index, entity in enumerate(updated_entities) if not entity.embedding]
+    if not pending_indexes:
+        return updated_entities
+
+    dimensions = provider.metadata.dimensions
+    for start in range(0, len(pending_indexes), max(int(batch_size), 1)):
+        batch_indexes = pending_indexes[start : start + max(int(batch_size), 1)]
+        embeddings = await provider.embed_texts(
+            [native_entity_embedding_text(updated_entities[index]) for index in batch_indexes],
+            input_kind="document",
+        )
+        if len(embeddings) != len(batch_indexes):
+            raise ValueError(
+                "embedding provider returned "
+                f"{len(embeddings)} vectors for {len(batch_indexes)} entities"
+            )
+        for index, embedding_values in zip(batch_indexes, embeddings, strict=True):
+            embedding = _embedding_vector_from_batch([embedding_values], dimensions)
+            entity = updated_entities[index]
+            metadata = {
+                **dict(entity.metadata or {}),
+                "embedding_metadata": provider.metadata.to_dict(),
+            }
+            updated_entities[index] = entity.model_copy(
+                update={"embedding": embedding, "metadata": metadata}
+            )
+
+    return updated_entities
 
 
 async def _relationship_with_native_embedding(

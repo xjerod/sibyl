@@ -17,6 +17,8 @@ from sibyl.api.errors import constraint_violation, sanitize_error_text
 from sibyl.api.event_types import WSEvent
 from sibyl.api.idempotency import replay_idempotent_response, save_idempotent_response
 from sibyl.api.schemas import (
+    EntityBulkCreateRequest,
+    EntityBulkCreateResponse,
     EntityCreate,
     EntityListResponse,
     EntityResponse,
@@ -50,8 +52,9 @@ from sibyl.persistence.content_runtime import (
     save_raw_capture_record,
 )
 from sibyl_core.auth import AuthOrganization, OrganizationRole, ProjectRole
-from sibyl_core.models.entities import EntityType
+from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.services import KnowledgeReadService
+from sibyl_core.tools.helpers import _generate_id
 
 log = structlog.get_logger()
 
@@ -102,6 +105,9 @@ GRAPH_ENTITY_ID_PREFIXES = frozenset(
     {entity_type.value for entity_type in EntityType if entity_type is not EntityType.DOCUMENT}
 )
 LIST_RESPONSE_CONTENT = ""
+BULK_UNSUPPORTED_TYPES = frozenset(
+    {EntityType.DOCUMENT, EntityType.EPIC, EntityType.PROJECT, EntityType.TASK}
+)
 
 _RAW_CAPTURE_METADATA_DENYLIST = frozenset(
     {
@@ -198,6 +204,66 @@ def _serialize_raw_capture(capture: RawCaptureRecord) -> RawCaptureResponse:
     return RawCaptureResponse(
         **_serialize_raw_capture_summary(capture).model_dump(),
         raw_content=capture.raw_content,
+    )
+
+
+def _entity_from_bulk_create(
+    entity: EntityCreate,
+    *,
+    group_id: str,
+    now: datetime,
+) -> Entity:
+    content = entity.content or entity.description or entity.name
+    metadata: dict[str, Any] = {
+        "category": entity.category,
+        "languages": entity.languages or [],
+        "tags": entity.tags or [],
+        "added_at": now.isoformat(),
+        "organization_id": group_id,
+        **dict(entity.metadata or {}),
+    }
+    return Entity(
+        id=_generate_id(entity.entity_type.value, entity.name, entity.category or "general"),
+        entity_type=entity.entity_type,
+        name=entity.name,
+        description=entity.description or content[:500],
+        content=content,
+        organization_id=group_id,
+        metadata=metadata,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _entity_response_from_bulk_create(
+    entity: EntityCreate,
+    *,
+    entity_id: str,
+    group_id: str,
+    now: datetime,
+) -> EntityResponse:
+    content = entity.content or entity.description or entity.name
+    metadata: dict[str, Any] = {
+        "category": entity.category,
+        "languages": entity.languages or [],
+        "tags": entity.tags or [],
+        "added_at": now.isoformat(),
+        "organization_id": group_id,
+        **dict(entity.metadata or {}),
+    }
+    return EntityResponse(
+        id=entity_id,
+        entity_type=entity.entity_type,
+        name=entity.name,
+        description=entity.description or content[:500],
+        content=content,
+        category=entity.category,
+        languages=entity.languages or [],
+        tags=entity.tags or [],
+        metadata=metadata,
+        source_file=None,
+        created_at=now,
+        updated_at=now,
     )
 
 
@@ -1165,6 +1231,85 @@ async def get_entity(
 # =============================================================================
 # Create
 # =============================================================================
+
+
+@router.post(
+    "/bulk",
+    response_model=EntityBulkCreateResponse,
+    status_code=201,
+    dependencies=[Depends(require_org_role(*_WRITE_ROLES))],
+)
+async def create_entities_bulk(
+    batch: EntityBulkCreateRequest,
+    org: AuthOrganization = Depends(get_current_organization),
+    ctx: AuthContext = Depends(get_auth_context),
+    content_session: Any = Depends(get_content_read_session_dependency),
+) -> EntityBulkCreateResponse:
+    group_id = str(org.id)
+    runtime = await get_entity_graph_runtime(group_id)
+
+    for entity in batch.entities:
+        if entity.entity_type in BULK_UNSUPPORTED_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{entity.entity_type.value} entities are not supported by bulk create",
+            )
+        if not entity.skip_conflicts:
+            raise HTTPException(
+                status_code=400,
+                detail="bulk create requires skip_conflicts=true; use POST /entities for conflict detection",
+            )
+        project = entity.metadata.get("project_id") if entity.metadata else None
+        if project:
+            await verify_entity_project_access(
+                content_session,
+                ctx,
+                str(project),
+                required_role=ProjectRole.CONTRIBUTOR,
+                require_existing_project=True,
+            )
+        await _validate_related_to_targets_for_write(
+            ctx=ctx,
+            entity_manager=runtime.entity_manager,
+            related_to=entity.related_to,
+        )
+
+    now = datetime.now(UTC)
+    entities = [
+        _entity_from_bulk_create(entity, group_id=group_id, now=now) for entity in batch.entities
+    ]
+    created_ids = await runtime.entity_manager.create_direct_bulk(
+        entities,
+        generate_embeddings=True,
+    )
+
+    relationships: list[Relationship] = []
+    for created_id, entity in zip(created_ids, batch.entities, strict=True):
+        relationships.extend(
+            [
+                Relationship(
+                    id=f"rel_{created_id}_related_to_{related_id}",
+                    source_id=created_id,
+                    target_id=related_id,
+                    relationship_type=RelationshipType.RELATED_TO,
+                    metadata={"created_at": now.isoformat()},
+                )
+                for related_id in entity.related_to or ()
+            ]
+        )
+    if relationships:
+        await runtime.relationship_manager.create_bulk(relationships)
+
+    responses = [
+        _entity_response_from_bulk_create(
+            entity,
+            entity_id=entity_id,
+            group_id=group_id,
+            now=now,
+        )
+        for entity_id, entity in zip(created_ids, batch.entities, strict=True)
+    ]
+    return EntityBulkCreateResponse(entities=responses, created=len(responses), failed=0)
 
 
 @router.post(
