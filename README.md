@@ -3,16 +3,15 @@
 </p>
 
 <p align="center">
-  <strong>Build With Memory That Compounds</strong><br>
-  <sub>✦ Knowledge Graph + Agent Memory + Task Workflow ✦</sub>
+  <strong>Persistent memory for the AI you build with</strong><br>
+  <sub>✦ Yours alone · In your projects · In the systems you share ✦</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Memory-SurrealDB_Native-e135ff?style=for-the-badge&logo=surrealdb&logoColor=white" alt="SurrealDB-native memory">
-  <img src="https://img.shields.io/badge/Python-3.13-3776ab?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13">
-  <img src="https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/Next.js_16-Frontend-000000?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js">
-  <img src="https://img.shields.io/badge/moon-Monorepo-af63d3?style=for-the-badge&logo=moonrepo&logoColor=white" alt="moon">
+  <img src="https://img.shields.io/badge/Self--hostable-Yes-e135ff?style=for-the-badge" alt="Self-hostable">
+  <img src="https://img.shields.io/badge/Graph-Bi--temporal-80ffea?style=for-the-badge" alt="Bi-temporal graph">
+  <img src="https://img.shields.io/badge/Storage-SurrealDB-ff6ac1?style=for-the-badge&logo=surrealdb&logoColor=white" alt="SurrealDB">
+  <img src="https://img.shields.io/badge/Agents-MCP_%2B_Skills-50fa7b?style=for-the-badge" alt="MCP + Skills">
 </p>
 
 <p align="center">
@@ -40,20 +39,24 @@
 
 ## 🔮 Why Sibyl
 
-Persistent memory for your projects, tasks, and research. A collective intelligence
-that compounds with every session and makes your graph more useful over time.
+Sibyl is the persistent memory layer for the AI you build with — yours alone, in your
+projects, and in the systems you share with others. One self-hostable knowledge graph,
+scoped by context. Yours.
 
-Most coding sessions start cold. No memory of what worked, what failed, or what you
-learned yesterday. Notes drift. Tasks scatter. Useful context disappears.
+Most AI sessions start cold. Coding agents forget yesterday's decisions. Voice
+assistants don't know your preferences. Personal copilots lose the thread between
+conversations. Notes drift. Tasks scatter. Useful context evaporates.
 
 **Sibyl changes that.**
 
-A SurrealDB-native knowledge graph gives your work durable memory. Epics and tasks
-structure execution. A built-in agent memory loop (`recall → act → remember → reflect`)
-keeps hard-won context close at hand for humans and AI tools alike. Source-grounded
-synthesis turns what you already know into verified documents.
+A durable knowledge graph holds the things that matter — personal context, project
+work, shared spaces, source documents, decisions, agent state — each in its own scope,
+tied together when context calls for it. A built-in memory loop
+(`recall → act → remember → reflect`) keeps hard-won context close at hand for humans
+and AI alike. Source-grounded synthesis turns what you already know into verified
+documents.
 
-**The whole becomes greater than the sum of its parts.**
+**Every session adds up instead of starting over.**
 
 ## ✦ What You Get
 
