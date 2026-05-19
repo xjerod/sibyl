@@ -14,6 +14,9 @@ runs:
         mkdir -p "$SURREAL_DATA_DIR"
         chmod 777 "$SURREAL_DATA_DIR"
 
+        echo "SurrealDB data dir: $SURREAL_DATA_DIR"
+        echo "SurrealDB path: $SIBYL_SURREAL_PATH"
+
         docker compose up -d surrealdb
 
         for i in {1..30}; do

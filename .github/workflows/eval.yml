@@ -362,6 +362,7 @@ jobs:
       SIBYL_SURREAL_URL: ws://localhost:8000/rpc
       SIBYL_SURREAL_USERNAME: sibyl_ci
       SIBYL_SURREAL_PASSWORD: sibyl_ci_password
+      SIBYL_SURREAL_PATH: rocksdb:///data/sibyl-longmemeval-full.db
       PYTHONUNBUFFERED: "1"
       LONGMEMEVAL_SHA256: d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442
       LONGMEMEVAL_URL: https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json?download=true
@@ -454,11 +455,12 @@ jobs:
             --profile ai-memory
 
       - name: Upload LongMemEval live full artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: longmemeval-live-full-${{ github.sha }}
           path: .moon/cache/evals/longmemeval_live_full.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Collect diagnostics on failure
         if: failure()
@@ -468,6 +470,18 @@ jobs:
           echo ""
           echo "=== Worker logs ==="
           tail -n 200 /tmp/sibyl-worker.log || true
+          echo ""
+          echo "=== Docker status ==="
+          docker compose ps -a || true
+          echo ""
+          echo "=== SurrealDB container state ==="
+          container_id="$(docker compose ps -q surrealdb || true)"
+          if [[ -n "$container_id" ]]; then
+            docker inspect "$container_id" \
+              --format 'restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} error={{.State.Error}} startedAt={{.State.StartedAt}} finishedAt={{.State.FinishedAt}}' \
+              || true
+            docker stats --no-stream "$container_id" || true
+          fi
           echo ""
           echo "=== SurrealDB logs ==="
           docker compose logs surrealdb || true
