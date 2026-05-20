@@ -159,6 +159,12 @@ def test_graph_schema_version_table_is_schemafull() -> None:
     assert "DEFINE FIELD IF NOT EXISTS migrations ON schema_version TYPE array<object>" in (
         SCHEMA_VERSION_DEFINITIONS
     )
+    assert "DEFINE FIELD IF NOT EXISTS migrations.*.version ON schema_version TYPE int;" in (
+        SCHEMA_VERSION_DEFINITIONS
+    )
+    assert "DEFINE FIELD IF NOT EXISTS migrations.*.name ON schema_version TYPE string;" in (
+        SCHEMA_VERSION_DEFINITIONS
+    )
 
 
 @pytest.mark.asyncio

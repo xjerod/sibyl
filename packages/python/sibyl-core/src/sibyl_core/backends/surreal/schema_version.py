@@ -21,6 +21,8 @@ ALTER TABLE IF EXISTS schema_version SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS name ON schema_version TYPE string;
 DEFINE FIELD IF NOT EXISTS version ON schema_version TYPE int;
 DEFINE FIELD IF NOT EXISTS migrations ON schema_version TYPE array<object> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS migrations.*.version ON schema_version TYPE int;
+DEFINE FIELD IF NOT EXISTS migrations.*.name ON schema_version TYPE string;
 DEFINE FIELD IF NOT EXISTS created_at ON schema_version TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON schema_version TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_schema_version_name ON schema_version FIELDS name UNIQUE;
