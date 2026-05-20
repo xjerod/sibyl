@@ -30,6 +30,7 @@ __all__ = [
     "enqueue_create_entity",
     "enqueue_create_learning_episode",
     "enqueue_create_learning_procedure",
+    "enqueue_memory_extraction",
     "enqueue_memory_projection",
     "enqueue_priority_decay",
     "enqueue_reflection_dream_cycle",
@@ -129,6 +130,28 @@ async def enqueue_memory_projection(
         sources_data,
         group_id,
         created_source_ids=created_source_ids,
+    )
+
+
+async def enqueue_memory_extraction(
+    sources_data: list[dict[str, Any]],
+    group_id: str,
+    *,
+    created_source_ids: list[str] | None = None,
+    max_entities_per_source: int = 8,
+    max_source_chars: int = 12_000,
+    max_concurrent: int = 2,
+    max_tokens: int = 2048,
+) -> str:
+    """Enqueue LLM entity extraction for prose-bearing memory sources."""
+    return await get_queue().enqueue_memory_extraction(
+        sources_data,
+        group_id,
+        created_source_ids=created_source_ids,
+        max_entities_per_source=max_entities_per_source,
+        max_source_chars=max_source_chars,
+        max_concurrent=max_concurrent,
+        max_tokens=max_tokens,
     )
 
 

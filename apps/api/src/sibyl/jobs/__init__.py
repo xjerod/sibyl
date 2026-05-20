@@ -25,6 +25,10 @@ from sibyl.jobs.entities import (
     update_entity,
     update_task,
 )
+from sibyl.jobs.memory_extraction import (
+    enqueue_memory_extraction_batches,
+    extract_memory_entities,
+)
 from sibyl.jobs.pending import (
     clear_pending,
     clear_pending_operations,
@@ -43,6 +47,7 @@ from sibyl.jobs.queue import (
     enqueue_create_entity,
     enqueue_create_learning_episode,
     enqueue_create_learning_procedure,
+    enqueue_memory_extraction,
     enqueue_memory_projection,
     enqueue_priority_decay,
     enqueue_reflection_dream_cycle,
@@ -71,6 +76,8 @@ __all__ = [
     "enqueue_create_entity",
     "enqueue_create_learning_episode",
     "enqueue_create_learning_procedure",
+    "enqueue_memory_extraction",
+    "enqueue_memory_extraction_batches",
     "enqueue_memory_projection",
     "enqueue_update_entity",
     "enqueue_update_task",
@@ -96,6 +103,7 @@ __all__ = [
     "create_entity",
     "create_learning_episode",
     "create_learning_procedure",
+    "extract_memory_entities",
     "project_memory_batch",
     "update_entity",
     "update_task",

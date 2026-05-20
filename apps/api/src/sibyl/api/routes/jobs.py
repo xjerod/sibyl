@@ -47,6 +47,8 @@ async def _job_visible_to_org(
         return str(args[2]) == str(org.id)
     if fn == "update_entity" and len(args) >= 4:
         return str(args[3]) == str(org.id)
+    if fn in {"project_memory_batch", "extract_memory_entities"} and len(args) >= 2:
+        return str(args[1]) == str(org.id)
     if fn in {"consolidate_org", "priority_decay", "run_reflection_dream_cycle"} and args:
         return str(args[0]) == str(org.id)
 

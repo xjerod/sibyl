@@ -5,6 +5,7 @@ Run with: uv run arq sibyl.jobs.WorkerSettings
 This is the worker entrypoint. Job implementations are in:
 - crawl.py: crawl_source, sync_source, sync_all_sources
 - entities.py: create_entity, create_learning_episode, create_learning_procedure, update_entity
+- memory_extraction.py: extract_memory_entities
 - backup.py: run_backup, cleanup_old_backups
 - source_imports.py: import_source_archive
 """
@@ -33,6 +34,7 @@ from sibyl.jobs.entities import (
     update_entity,
     update_task,
 )
+from sibyl.jobs.memory_extraction import extract_memory_entities
 from sibyl.jobs.reflection import run_reflection_dream_cycle, run_reflection_dream_cycle_all_orgs
 from sibyl.jobs.source_imports import import_source_archive
 from sibyl_core.observability import elapsed_ms, telemetry_registry
@@ -238,6 +240,7 @@ class WorkerSettings:
         # Entity jobs
         create_entity,
         project_memory_batch,
+        extract_memory_entities,
         create_learning_episode,
         create_learning_procedure,
         update_entity,

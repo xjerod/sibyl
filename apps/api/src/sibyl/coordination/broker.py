@@ -57,6 +57,19 @@ def memory_projection_job_id(
     return f"project_memory:{digest}"
 
 
+def memory_extraction_job_id(
+    sources_data: list[dict[str, Any]],
+    group_id: str,
+    *,
+    created_source_ids: list[str] | None = None,
+) -> str:
+    source_ids = list(created_source_ids or [])
+    if not source_ids:
+        source_ids = [str(source.get("id") or "") for source in sources_data]
+    digest = sha256("|".join([group_id, *source_ids]).encode()).hexdigest()[:16]
+    return f"extract_memory:{digest}"
+
+
 class QueueBroker(Protocol):
     """Backend contract for job queue coordination."""
 
@@ -114,6 +127,18 @@ class QueueBroker(Protocol):
         group_id: str,
         *,
         created_source_ids: list[str] | None = None,
+    ) -> str: ...
+
+    async def enqueue_memory_extraction(
+        self,
+        sources_data: list[dict[str, Any]],
+        group_id: str,
+        *,
+        created_source_ids: list[str] | None = None,
+        max_entities_per_source: int = 8,
+        max_source_chars: int = 12_000,
+        max_concurrent: int = 2,
+        max_tokens: int = 2048,
     ) -> str: ...
 
     async def enqueue_create_learning_episode(

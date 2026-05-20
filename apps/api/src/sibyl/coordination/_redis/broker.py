@@ -21,6 +21,7 @@ from sibyl.coordination.broker import (
     RECENT_JOB_INDEX_LIMIT,
     JobInfo,
     JobStatus,
+    memory_extraction_job_id,
     memory_projection_job_id,
 )
 from sibyl_core.observability import telemetry_registry
@@ -263,6 +264,46 @@ class RedisQueueBroker:
 
         log.info(
             "Enqueued memory projection job",
+            job_id=result.job_id,
+            sources=len(sources_data),
+        )
+        return result.job_id
+
+    async def enqueue_memory_extraction(
+        self,
+        sources_data: list[dict[str, Any]],
+        group_id: str,
+        *,
+        created_source_ids: list[str] | None = None,
+        max_entities_per_source: int = 8,
+        max_source_chars: int = 12_000,
+        max_concurrent: int = 2,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Enqueue LLM entity extraction for created source entities."""
+        job_id = memory_extraction_job_id(
+            sources_data,
+            group_id,
+            created_source_ids=created_source_ids,
+        )
+        result = await self._enqueue_unique(
+            "extract_memory_entities",
+            sources_data,
+            group_id,
+            job_id=job_id,
+            created_source_ids=created_source_ids,
+            max_entities_per_source=max_entities_per_source,
+            max_source_chars=max_source_chars,
+            max_concurrent=max_concurrent,
+            max_tokens=max_tokens,
+        )
+
+        if not result.created:
+            log.info("Memory extraction job already exists", job_id=job_id)
+            return result.job_id
+
+        log.info(
+            "Enqueued memory extraction job",
             job_id=result.job_id,
             sources=len(sources_data),
         )

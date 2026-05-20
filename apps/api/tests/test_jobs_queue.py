@@ -358,6 +358,35 @@ async def test_enqueue_create_learning_jobs_include_policy_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_enqueue_memory_extraction_uses_source_scoped_job_id() -> None:
+    pool = RecordingEnqueuePool()
+    broker = make_broker(pool)
+
+    job_id = await broker.enqueue_memory_extraction(
+        [{"id": "session-original", "entity_type": "session", "content": "memory"}],
+        "org-123",
+        created_source_ids=["session-created"],
+        max_entities_per_source=4,
+        max_source_chars=2000,
+        max_concurrent=1,
+        max_tokens=512,
+    )
+
+    assert job_id.startswith("extract_memory:")
+    assert pool.calls[0][0] == "extract_memory_entities"
+    assert pool.calls[0][1] == [
+        {"id": "session-original", "entity_type": "session", "content": "memory"}
+    ]
+    assert pool.calls[0][2]["created_source_ids"] == ["session-created"]
+    assert pool.calls[0][2]["max_entities_per_source"] == 4
+    assert pool.calls[0][2]["max_source_chars"] == 2000
+    assert pool.calls[0][2]["max_concurrent"] == 1
+    assert pool.calls[0][2]["max_tokens"] == 512
+    assert pool.extra_args[0] == ("org-123",)
+    assert_recent_job_indexed(pool, job_id)
+
+
+@pytest.mark.asyncio
 async def test_enqueue_consolidation_uses_org_scoped_job_id() -> None:
     pool = RecordingEnqueuePool()
     broker = make_broker(pool)

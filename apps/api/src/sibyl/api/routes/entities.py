@@ -1329,6 +1329,35 @@ async def create_entities_bulk(
                 error=str(exc),
             )
 
+    try:
+        from sibyl.jobs.memory_extraction import enqueue_memory_extraction_batches
+
+        extraction_enqueue = await enqueue_memory_extraction_batches(
+            [source.model_dump(mode="json") for source in entities],
+            group_id,
+            created_source_ids=list(created_ids),
+        )
+        if extraction_enqueue.status == "queued":
+            log.info(
+                "bulk_entity_memory_extraction_enqueued",
+                jobs=len(extraction_enqueue.job_ids),
+                queued_sources=extraction_enqueue.queued_sources,
+                skipped_sources=extraction_enqueue.skipped_sources,
+            )
+        elif extraction_enqueue.reason != "disabled":
+            log.info(
+                "bulk_entity_memory_extraction_skipped",
+                status=extraction_enqueue.status,
+                reason=extraction_enqueue.reason,
+                skipped_sources=extraction_enqueue.skipped_sources,
+            )
+    except Exception as exc:
+        log.warning(
+            "bulk_entity_memory_extraction_enqueue_failed",
+            sources=len(entities),
+            error=str(exc),
+        )
+
     responses = [
         _entity_response_from_bulk_create(
             entity,

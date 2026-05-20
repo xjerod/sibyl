@@ -502,6 +502,35 @@ async def create_entity(  # noqa: PLR0915
                 errors=len(projection_result.errors),
             )
 
+        try:
+            from sibyl.jobs.memory_extraction import enqueue_memory_extraction_batches
+
+            extraction_enqueue = await enqueue_memory_extraction_batches(
+                [entity.model_dump(mode="json")],
+                group_id,
+                created_source_ids=[created_id],
+            )
+            if extraction_enqueue.status == "queued":
+                log.info(
+                    "create_entity_memory_extraction_enqueued",
+                    entity_id=created_id,
+                    jobs=len(extraction_enqueue.job_ids),
+                    queued_sources=extraction_enqueue.queued_sources,
+                )
+            elif extraction_enqueue.reason != "disabled":
+                log.info(
+                    "create_entity_memory_extraction_skipped",
+                    entity_id=created_id,
+                    status=extraction_enqueue.status,
+                    reason=extraction_enqueue.reason,
+                )
+        except Exception as exc:
+            log.warning(
+                "create_entity_memory_extraction_enqueue_failed",
+                entity_id=created_id,
+                error=str(exc),
+            )
+
         # Clear pending status and process any queued operations
         from sibyl.jobs.pending import clear_pending, process_pending_operations
 

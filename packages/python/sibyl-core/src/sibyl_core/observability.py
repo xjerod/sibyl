@@ -29,7 +29,9 @@ _NON_ERROR_STATUSES = {
     "ended",
     "ok",
     "partial",
+    "queued",
     "slow",
+    "skipped",
     "sync",
     "valid",
 }
@@ -324,6 +326,58 @@ class TelemetryRegistry:
             self.increment("sibyl_llm_output_tokens_total", output_tokens, labels=labels)
         self.record_event("llm", status=status, duration_ms=duration_ms, labels=labels)
 
+    def record_memory_extraction_enqueue(
+        self,
+        *,
+        status: str,
+        sources: int,
+        batches: int = 0,
+        queue_depth: int | None = None,
+    ) -> None:
+        labels = {"status": status}
+        self.increment("sibyl_memory_extraction_enqueue_total", labels=labels)
+        self.observe("sibyl_memory_extraction_enqueue_sources", sources, labels=labels)
+        self.observe("sibyl_memory_extraction_enqueue_batches", batches, labels=labels)
+        if queue_depth is not None:
+            self.set_gauge("sibyl_memory_extraction_queue_depth", queue_depth, labels=labels)
+        self.record_event(
+            "memory_extraction",
+            status=status,
+            value=sources,
+            labels={**labels, "batches": batches, "queue_depth": queue_depth},
+        )
+
+    def record_memory_extraction_run(
+        self,
+        *,
+        status: str,
+        duration_ms: float,
+        sources: int,
+        extracted_entities: int,
+        estimated_input_tokens: int,
+    ) -> None:
+        labels = {"status": status}
+        self.increment("sibyl_memory_extraction_runs_total", labels=labels)
+        self.observe("sibyl_memory_extraction_duration_ms", duration_ms, labels=labels)
+        self.observe("sibyl_memory_extraction_sources", sources, labels=labels)
+        self.observe(
+            "sibyl_memory_extraction_entities",
+            extracted_entities,
+            labels=labels,
+        )
+        self.observe(
+            "sibyl_memory_extraction_estimated_input_tokens",
+            estimated_input_tokens,
+            labels=labels,
+        )
+        self.record_event(
+            "memory_extraction",
+            status=status,
+            duration_ms=duration_ms,
+            value=extracted_entities,
+            labels={**labels, "sources": sources},
+        )
+
     def record_queue_health(
         self,
         *,
@@ -546,6 +600,7 @@ def _summaries(events: list[TelemetryEvent]) -> dict[str, dict[str, float | int]
         "jobs",
         "crawler",
         "llm",
+        "memory_extraction",
         "queue",
         "websocket",
     )

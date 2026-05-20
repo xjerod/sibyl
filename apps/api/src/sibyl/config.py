@@ -445,6 +445,51 @@ class Settings(BaseSettings):
         le=50,
         description="Compatibility Graphiti operation limit (controls SEMAPHORE_LIMIT when enabled)",
     )
+    auto_extract_entities: bool = Field(
+        default=False,
+        description="Queue LLM-powered entity extraction for prose-bearing memories",
+    )
+    memory_extraction_max_queue_depth: int = Field(
+        default=250,
+        ge=1,
+        description="Maximum pending job depth before memory extraction enqueue backpressure",
+    )
+    memory_extraction_max_sources_per_job: int = Field(
+        default=8,
+        ge=1,
+        le=100,
+        description="Maximum memory sources in one LLM extraction job",
+    )
+    memory_extraction_max_source_chars: int = Field(
+        default=12_000,
+        ge=500,
+        le=50_000,
+        description="Maximum characters sent to extraction from a single memory source",
+    )
+    memory_extraction_max_job_chars: int = Field(
+        default=48_000,
+        ge=1_000,
+        le=500_000,
+        description="Maximum source characters in one memory extraction job",
+    )
+    memory_extraction_max_entities_per_source: int = Field(
+        default=8,
+        ge=1,
+        le=12,
+        description="Maximum extracted graph entities requested per memory source",
+    )
+    memory_extraction_max_concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Maximum concurrent LLM calls inside one memory extraction job",
+    )
+    memory_extraction_max_tokens: int = Field(
+        default=2048,
+        ge=256,
+        le=8192,
+        description="Maximum output tokens for one memory extraction LLM call",
+    )
 
     # Knowledge repository configuration
     knowledge_repo_path: Path = Field(
