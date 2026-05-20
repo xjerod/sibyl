@@ -40,10 +40,13 @@ from sibyl_cli.context import app as context_app
 from sibyl_cli.crawl import app as crawl_app
 from sibyl_cli.debug import app as debug_app
 from sibyl_cli.dev import app as dev_app
+from sibyl_cli.docker import app as docker_app
 from sibyl_cli.doctor import doctor as doctor_cmd
 from sibyl_cli.entity import app as entity_app
 from sibyl_cli.epic import app as epic_app
 from sibyl_cli.explore import app as explore_app
+from sibyl_cli.host import serve as serve_cmd
+from sibyl_cli.host import stop as stop_cmd
 from sibyl_cli.id_resolution import resolve_id_prefix, resolve_raw_memory_id_prefix
 from sibyl_cli.local import app as local_app
 from sibyl_cli.logs import app as logs_app
@@ -103,6 +106,7 @@ app.add_typer(auth_app, name="auth")
 app.add_typer(org_app, name="org")
 app.add_typer(config_app, name="config")
 app.add_typer(context_app, name="context")
+app.add_typer(docker_app, name="docker")
 app.add_typer(local_app, name="local")
 app.add_typer(logs_app, name="logs")
 app.add_typer(update_app, name="update")
@@ -113,6 +117,8 @@ app.add_typer(memory_review_app, name="memory-review")
 app.add_typer(synthesis_app, name="synthesis")
 app.command("tasks", hidden=True)(list_tasks)
 app.command("doctor")(doctor_cmd)
+app.command("serve")(serve_cmd)
+app.command("stop")(stop_cmd)
 
 
 SEARCH_PREVIEW_CHARS = 220
