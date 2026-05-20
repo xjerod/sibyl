@@ -190,6 +190,7 @@ jobs:
             --cases benchmarks/context_pack_cases.json \
             --auth-manifest .moon/cache/baseline-runtime-manifest.json \
             --label "retrieval-${{ inputs.retrieval_mode }}" \
+            --timeout 30 \
             --repeat "${{ inputs.repeat }}" \
             --metadata "retrieval_mode=${{ inputs.retrieval_mode }}"
           bench_status="$?"

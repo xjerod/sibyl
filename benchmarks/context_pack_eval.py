@@ -218,7 +218,7 @@ def main() -> None:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=10.0,
+        default=30.0,
         help="HTTP timeout in seconds.",
     )
     parser.add_argument(
