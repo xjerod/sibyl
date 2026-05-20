@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Sibyl Installer
-# Usage: curl -fsSL https://sibyl.dev/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/hyperb1iss/sibyl/main/install.sh | sh
 #
 # This script:
 #   1. Installs uv (if not present)
-#   2. Installs sibyl-cli via uv
-#   3. Starts Sibyl (prompts for API keys on first run)
+#   2. Installs the Sibyl CLI via uv
+#   3. Prints explicit local, remote, and Docker next steps
 
 set -eu
 
@@ -109,6 +109,25 @@ install_sibyl() {
     fi
 }
 
+install_sibyld() {
+    info "Installing sibyld..."
+
+    if uv tool list 2>/dev/null | grep -q "sibyld"; then
+        warn "sibyld is already installed, upgrading..."
+        uv tool upgrade sibyld
+    else
+        uv tool install sibyld
+    fi
+
+    export PATH="$HOME/.local/bin:$PATH"
+
+    if command -v sibyld >/dev/null 2>&1; then
+        success "sibyld installed successfully"
+    else
+        error "Failed to install sibyld"
+    fi
+}
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -121,27 +140,50 @@ setup_agent_integration() {
     fi
 }
 
+print_next_steps() {
+    echo
+    printf '%s\n' "${GREEN}${BOLD}Installation complete!${RESET}"
+    echo
+    printf '%s\n' "${BOLD}Local embedded daemon:${RESET}"
+    printf '%s\n' "  sibyl init --local"
+    printf '%s\n' "  sibyl serve"
+    echo
+    printf '%s\n' "${BOLD}Remote server:${RESET}"
+    printf '%s\n' "  sibyl init --remote https://sibyl.example.com"
+    printf '%s\n' "  sibyl auth login"
+    echo
+    printf '%s\n' "${BOLD}Docker self-host:${RESET}"
+    printf '%s\n' "  sibyl docker init"
+    printf '%s\n' "  sibyl docker up"
+}
+
 main() {
     banner
+    MODE="${SIBYL_INSTALL_MODE:-${1:-cli}}"
 
     check_os
-    check_docker
 
     echo
     install_uv
     install_sibyl
 
+    case "$MODE" in
+        cli|remote)
+            ;;
+        local)
+            install_sibyld
+            ;;
+        docker)
+            check_docker
+            ;;
+        *)
+            error "Unknown install mode: $MODE (use cli, remote, local, or docker)"
+            ;;
+    esac
+
     echo
     setup_agent_integration
-
-    echo
-    printf '%s\n' "${GREEN}${BOLD}Installation complete!${RESET}"
-    echo
-    printf '%s\n' "Starting Sibyl..."
-    echo
-
-    # Start Sibyl (will prompt for API keys on first run)
-    sibyl local start
+    print_next_steps
 }
 
 main "$@"

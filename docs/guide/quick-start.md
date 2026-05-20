@@ -13,26 +13,34 @@ development, see [Installation](./installation.md). :::
 
 ## Step 1: Install the CLI
 
-The one-line installer sets up uv if needed, installs the `sibyl` CLI, and gets you ready to start.
+Homebrew installs the CLI and the local daemon:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hyperb1iss/sibyl/main/install.sh | sh
+brew install hyperb1iss/tap/sibyl
 ```
 
 Already manage Python tools with uv? Install it directly:
 
 ```bash
 uv tool install sibyl-dev
+uv tool install sibyld
 ```
 
-## Step 2: Start the local stack
+## Step 2: Start Sibyl
+
+For a terminal-first local daemon:
 
 ```bash
-sibyl local start
+sibyl init --local
+sibyl serve
 ```
 
-This launches Sibyl in Docker: the API, the web UI, a background worker, and SurrealDB. On first run
-it generates local secrets and then opens the web UI at `http://localhost:3337`.
+For the full API + web self-host stack:
+
+```bash
+sibyl docker init
+sibyl docker up
+```
 
 | Service   | URL                   |
 | --------- | --------------------- |

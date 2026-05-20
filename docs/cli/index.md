@@ -109,7 +109,10 @@ Auth, organizations, configuration, and operations.
 | `sibyl version`           | Show version information                          |
 | `sibyl logs`              | View server logs (requires OWNER role)            |
 | `sibyl debug`             | Debug tools for development (requires OWNER role) |
-| `sibyl local`             | Manage a local Docker-based Sibyl instance        |
+| `sibyl serve`             | Start the local embedded daemon                   |
+| `sibyl stop`              | Stop the background local daemon                  |
+| `sibyl docker`            | Manage a self-hosted Docker deployment            |
+| `sibyl local`             | Legacy local Docker stack commands                |
 | `sibyl dev`               | Devcontainer shell and lifecycle commands         |
 | `sibyl update`            | Update Sibyl components                           |
 | `sibyl skill`             | Print or install the canonical Sibyl skill        |

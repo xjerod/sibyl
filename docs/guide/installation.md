@@ -5,14 +5,16 @@ description: Installing Sibyl and its dependencies
 
 # Installation
 
-This guide covers the two main ways to run Sibyl:
+This guide covers the main ways to run Sibyl:
 
-- install the published CLI and daemon packages, then run a local instance with `sibyl local ...`
+- install the Homebrew formula and run the embedded local daemon
+- install the published CLI for a remote server
+- run a self-hosted Docker stack with `sibyl docker ...`
 - work on the monorepo in development mode with `moon run ...`
 
 ## Prerequisites
 
-Sibyl requires the following:
+Sibyl requires the following for development:
 
 - **Python 3.13+** - Core backend language
 - **Node.js 24** - For the web frontend
@@ -32,20 +34,32 @@ curl -fsSL https://moonrepo.dev/install/proto.sh | bash
 
 ## Quick Install
 
-### Published CLI
+### Homebrew Local
 
-The fastest way to run Sibyl locally:
+The recommended local install bundles the CLI and daemon:
 
 ```bash
-# Install the published CLI
+brew install hyperb1iss/tap/sibyl
+sibyl init --local
+sibyl serve
+```
+
+### Remote CLI
+
+```bash
 uv tool install sibyl-dev
-uv tool install sibyld
+sibyl init --remote https://sibyl.example.com
+sibyl auth login
+sibyl doctor
+```
 
-# Start local services
-sibyl local start
+### Docker Self-Host
 
-# Install Claude/Codex skills and hooks
-sibyl local setup
+```bash
+uv tool install sibyl-dev
+sibyl docker init
+sibyl docker up
+sibyl docker logs
 ```
 
 ### Monorepo Development
@@ -145,14 +159,14 @@ SIBYL_ANTHROPIC_API_KEY=...        # For LLM operations
 
 ## Running Sibyl
 
-### Local CLI Mode
+### Local Host Mode
 
-Run the published CLI's local stack:
+Run the embedded daemon for the active local context:
 
 ```bash
-sibyl local start
-sibyl local status
-sibyl local logs
+sibyl init --local
+sibyl serve
+sibyl doctor
 ```
 
 ### Development Mode
@@ -202,8 +216,7 @@ sibyld serve -t stdio
 
 ```bash
 # If you installed the published CLI
-sibyl local status
-sibyl local setup --status
+sibyl doctor
 
 # Basic health check
 curl http://localhost:3334/api/health
@@ -263,8 +276,13 @@ echo $SIBYL_OPENAI_API_KEY
 
 ## Docker Deployment
 
-A production Docker Compose configuration is planned. For now, use the individual Docker commands
-above.
+The CLI writes a pinned compose bundle and generated secrets under `~/.sibyl/docker`:
+
+```bash
+sibyl docker init --with-worker
+sibyl docker up --pull
+sibyl docker upgrade --tag 1.0.0-rc.1
+```
 
 ### Legacy Runtime Notes
 

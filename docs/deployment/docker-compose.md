@@ -141,18 +141,16 @@ cp apps/api/.env.example .env
 #   SIBYL_JWT_SECRET=<generate with: openssl rand -hex 32>
 #   SIBYL_OPENAI_API_KEY=sk-...
 
-# Start the default Surreal-only stack
-docker compose -f docker-compose.prod.yml up -d
+# Generate ~/.sibyl/docker/.env and a pinned compose file
+sibyl docker init
 
 # Optional: run a separate worker with Redis/Valkey coordination
-SIBYL_COORDINATION_BACKEND=redis \
-  docker compose -f docker-compose.prod.yml --profile redis up -d
+sibyl docker init --force --with-worker
 
-# View logs
-docker compose -f docker-compose.prod.yml logs -f
-
-# Stop all services
-docker compose -f docker-compose.prod.yml down
+# Start, follow logs, and stop
+sibyl docker up
+sibyl docker logs
+sibyl docker down
 ```
 
 ### Production Compose Services
@@ -270,7 +268,7 @@ The production and quickstart compose files persist SurrealDB to named Docker vo
 docker volume ls | grep sibyl
 
 # Remove volumes (DESTROYS DATA)
-docker compose -f docker-compose.prod.yml down -v
+sibyl docker down --volumes
 ```
 
 ## Connecting to Databases

@@ -1,0 +1,45 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "sibyl.fullname" . }}
+  labels:
+    {{- include "sibyl.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                {{- if eq (.service | default "frontend") "backend" }}
+                name: {{ include "sibyl.fullname" $ }}-backend
+                port:
+                  number: {{ $.Values.backend.service.port }}
+                {{- else if eq (.service | default "frontend") "frontend" }}
+                name: {{ include "sibyl.fullname" $ }}-frontend
+                port:
+                  number: {{ $.Values.frontend.service.port }}
+                {{- else }}
+                name: {{ .service }}
+                port:
+                  number: {{ required "ingress custom service paths require port" .port }}
+                {{- end }}
+          {{- end }}
+    {{- end }}
+{{- end }}

@@ -73,7 +73,7 @@ backend:
 
   image:
     repository: ghcr.io/hyperb1iss/sibyl-api
-    tag: "0.9.0"
+    tag: "1.0.0-rc.1"
     pullPolicy: Always
 
   # Reference pre-created secrets
@@ -137,7 +137,9 @@ frontend:
 
   image:
     repository: ghcr.io/hyperb1iss/sibyl-web
-    tag: "0.9.0"
+    tag: "1.0.0-rc.1"
+
+  apiUrl: "http://sibyl-backend:3334/api"
 
   autoscaling:
     enabled: true
@@ -162,12 +164,9 @@ worker:
     minAvailable: 1
 
 # Ingress (adjust for your ingress controller)
-# NOTE: The Helm chart does not include an ingress template.
-# Ingress must be created separately (see examples below) or
-# an ingress template must be added to the chart.
 ingress:
   enabled: true
-  className: "nginx"
+  className: "kong"
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
   hosts:
@@ -263,6 +262,9 @@ Sibyl bootstraps SurrealDB schema inline at startup. The Helm chart no longer ru
 pre-upgrade hook for the active runtime.
 
 ## Ingress Configuration
+
+The chart can render a standard Kubernetes Ingress from `values.yaml`. For Gateway API deployments,
+leave `ingress.enabled=false` and apply an HTTPRoute like the Kong example below.
 
 ### Kong Gateway
 

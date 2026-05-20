@@ -265,20 +265,32 @@ jobs:
 
             ## Install
 
-            **CLI (recommended)**
+            **Homebrew local**
             ```bash
-            uv tool install sibyl-dev
+            brew install hyperb1iss/tap/sibyl
+            sibyl init --local
+            sibyl serve
             ```
 
-            **Daemon**
+            **Remote CLI**
             ```bash
+            uv tool install sibyl-dev
+            sibyl init --remote https://sibyl.example.com
+            sibyl auth login
+            ```
+
+            **Python local**
+            ```bash
+            uv tool install sibyl-dev
             uv tool install sibyld
+            sibyl init --local
+            sibyl serve
             ```
 
             **Docker**
             ```bash
-            docker pull ghcr.io/hyperb1iss/sibyl-api:${{ steps.version.outputs.version }}
-            docker pull ghcr.io/hyperb1iss/sibyl-web:${{ steps.version.outputs.version }}
+            sibyl docker init --tag ${{ steps.version.outputs.version }}
+            sibyl docker up --pull
             ```
 
       - name: "► Summary"

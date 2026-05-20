@@ -285,6 +285,13 @@ frontend:
     NODE_ENV: "production"
     NEXT_TELEMETRY_DISABLED: "1"
 
+  # -- Server-side API URL for Next.js server components.
+  # Defaults to http://<release>-backend:<backend.service.port>/api when empty.
+  apiUrl: ""
+
+  # -- Optional browser-visible API URL. Leave empty for same-origin ingress.
+  publicApiUrl: ""
+
   # -- Pod annotations
   podAnnotations: {}
 
@@ -406,6 +413,9 @@ ingress:
     - host: sibyl.local
       paths:
         - path: /api
+          pathType: Prefix
+          service: backend
+        - path: /mcp
           pathType: Prefix
           service: backend
         - path: /

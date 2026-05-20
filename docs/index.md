@@ -118,8 +118,9 @@ before you have to go looking for it.
 ## Quick Start
 
 ```bash
-# Start the stack
-sibyl local start
+# Start a local daemon
+sibyl init --local
+sibyl serve
 
 # Capture a learning
 sibyl remember "Redis insight" "Pool size must be >= concurrent requests" --kind pattern

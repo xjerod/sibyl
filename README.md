@@ -99,31 +99,41 @@ it; the depth lives in the CLI.
 
 ## ⚡ Quickstart
 
-### One-Liner Install
+### Homebrew
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hyperb1iss/sibyl/main/install.sh | sh
+brew install hyperb1iss/tap/sibyl
+sibyl init --local
+sibyl serve
 ```
 
-Installs uv (if needed), installs the `sibyl` CLI, and starts Sibyl. Done.
+Homebrew installs both `sibyl` and `sibyld`. The local context runs an embedded SurrealDB store
+under `~/.sibyl/data/surreal`; use `sibyl stop` when you start it in the background.
 
-### Manual Install
+### Python Tools
 
 ```bash
-uv tool install sibyl-dev      # or: pipx install sibyl-dev
-uv tool install sibyld         # optional direct daemon CLI
-sibyl local start
+uv tool install sibyl-dev
+sibyl init --remote https://sibyl.example.com
+sibyl auth login
 ```
 
-### Lifecycle Commands
+For a Python-only local install, add the daemon package:
 
 ```bash
-sibyl local start    # Start all services
-sibyl local stop     # Stop services
-sibyl local status   # Show running services
-sibyl local logs     # Follow logs
-sibyl local reset    # Nuke and start fresh
-sibyl local setup    # Install Claude/Codex skills + hooks
+uv tool install sibyld
+sibyl init --local
+sibyl serve
+```
+
+### Docker Self-Host
+
+```bash
+sibyl docker init       # Generate ~/.sibyl/docker/.env + compose
+sibyl docker up         # Start API, web, and SurrealDB
+sibyl docker logs       # Follow logs
+sibyl docker down       # Stop services
+sibyl docker upgrade    # Pull and recreate
 ```
 
 ### First Five Minutes
@@ -411,7 +421,8 @@ MCP endpoints enforce Bearer auth when a JWT secret is set
 ### Docker Compose
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+sibyl docker init
+sibyl docker up
 ```
 
 ### Kubernetes (Helm)
@@ -419,7 +430,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 helm install sibyl ./charts/sibyl \
   --set backend.existingSecret=sibyl-secrets \
-  --set backend.surreal.existingSecret=sibyl-surreal
+  --set backend.surreal.existingSecret=sibyl-surreal \
+  --set ingress.enabled=true
 ```
 
 See [`docs/deployment/`](docs/deployment/) for detailed guides:

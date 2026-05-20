@@ -9,9 +9,11 @@ apiVersion: v2
 name: sibyl
 description: Knowledge graph and task workflow for durable development memory
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 1.0.0-rc.1
+appVersion: "1.0.0-rc.1"
 ```
+
+Release builds update `version` and `appVersion` from the repository `VERSION` file.
 
 ## Installation
 
@@ -332,6 +334,11 @@ frontend:
     NODE_ENV: "production"
     NEXT_TELEMETRY_DISABLED: "1"
 
+  # Defaults to http://<release>-backend:<port>/api when empty
+  apiUrl: ""
+  # Optional browser-visible API URL. Leave empty for same-origin ingress.
+  publicApiUrl: ""
+
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 1000
@@ -424,6 +431,9 @@ ingress:
         - path: /api
           pathType: Prefix
           service: backend
+        - path: /mcp
+          pathType: Prefix
+          service: backend
         - path: /
           pathType: Prefix
           service: frontend
@@ -457,7 +467,7 @@ backend:
   replicaCount: 3
   image:
     repository: ghcr.io/hyperb1iss/sibyl-api
-    tag: "0.9.0"
+    tag: "1.0.0-rc.1"
     pullPolicy: Always
   existingSecret: sibyl-secrets
   surreal:
@@ -490,6 +500,7 @@ backend:
 frontend:
   enabled: true
   replicaCount: 2
+  apiUrl: "http://sibyl-backend:3334/api"
   autoscaling:
     enabled: true
     minReplicas: 2

@@ -91,7 +91,9 @@ sibyl task complete <id> --learnings "..."   # Complete with learnings
 | `org`            | Organization switching and member management            |
 | `context`        | Multi-server context bundles                             |
 | `config`         | CLI configuration                                        |
-| `local`          | Manage a local Docker-based Sibyl instance               |
+| `serve` / `stop` | Start or stop the local embedded daemon                  |
+| `docker`         | Manage a self-hosted Docker deployment                   |
+| `local`          | Legacy local Docker stack commands                       |
 | `pending-writes` | Inspect and replay locally buffered writes               |
 | `logs`           | Tail server logs (requires OWNER role)                   |
 | `debug`          | Debug tools for development (requires OWNER role)        |

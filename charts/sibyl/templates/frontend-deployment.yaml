@@ -65,6 +65,14 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if not (hasKey .Values.frontend.env "SIBYL_API_URL") }}
+            - name: SIBYL_API_URL
+              value: {{ .Values.frontend.apiUrl | default (printf "http://%s-backend:%v/api" (include "sibyl.fullname" .) .Values.backend.service.port) | quote }}
+            {{- end }}
+            {{- if .Values.frontend.publicApiUrl }}
+            - name: NEXT_PUBLIC_API_URL
+              value: {{ .Values.frontend.publicApiUrl | quote }}
+            {{- end }}
             # WebSocket derives URL from window.location when accessed via Kong
             - name: HOSTNAME
               value: "0.0.0.0"
