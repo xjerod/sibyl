@@ -14,13 +14,24 @@ from sibyl_core.models.memory_extraction import (
 )
 
 MEMORY_ENTITY_EXTRACTION_SYSTEM_PROMPT = """\
-Extract durable graph handles from Sibyl memory prose.
+Extract durable graph handles and atomic memory claims from Sibyl memory prose.
 
-Return only entities that future retrieval can use as stable anchors.
-Prefer specific tools, languages, named domains, reusable patterns, and procedures.
-Skip throwaway wording, generic nouns, people names without durable technical context,
-and anything not directly supported by the provided text.
-Keep names short, canonical, and reusable across sessions.
+Support both personal and technical memory. Future retrieval should be able to
+find the original source through the entities you return.
+
+Prefer answer-bearing facts and anchors: people and relationships, places,
+objects, purchases, preferences, habits, limits, goals, dated events, tools,
+languages, domains, reusable patterns, and procedures.
+
+Use claim for concrete facts, preference for likes/dislikes/habits/limits,
+person for named people, place for locations, event for dated activities or
+milestones, artifact for objects/media/files/systems, and the technical types
+when they are the most specific fit.
+
+Keep names short and canonical, but preserve the answer-bearing detail: for
+example, "Instagram screen time average", "coffee limit decreased",
+"Air Fryer purchase", or "Rachel's birthday". Evidence should be a short source
+span. Skip generic assistant advice unless it is tied to a user-specific fact.
 """
 
 _ENTITY_TYPES = ", ".join(item.value for item in MemoryExtractionEntityType)

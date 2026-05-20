@@ -50,6 +50,10 @@ class EntityType(StrEnum):
     PLAN = "plan"  # Intentional sequence of work, milestones, or strategy
     IDEA = "idea"  # Brainstormed concept, possibility, or unresolved option
     CLAIM = "claim"  # Atomic fact or assertion with provenance/confidence
+    PREFERENCE = "preference"  # Like, dislike, habit, limit, or stable personal constraint
+    PERSON = "person"  # Named person or relationship anchor
+    PLACE = "place"  # Location, venue, home, workplace, or travel destination
+    EVENT = "event"  # Dated activity, milestone, purchase, or other temporal occurrence
     SESSION = "session"  # Work session or conversation checkpoint
 
     @classmethod

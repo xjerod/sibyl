@@ -32,6 +32,22 @@ def test_extracted_memory_entity_normalizes_text_and_maps_entity_type() -> None:
     assert entity.to_entity_type() is EntityType.TOOL
 
 
+def test_extracted_personal_memory_entity_types_map_to_graph_types() -> None:
+    cases = {
+        "claim": EntityType.CLAIM,
+        "preference": EntityType.PREFERENCE,
+        "person": EntityType.PERSON,
+        "place": EntityType.PLACE,
+        "event": EntityType.EVENT,
+        "artifact": EntityType.ARTIFACT,
+    }
+
+    for raw_type, entity_type in cases.items():
+        entity = ExtractedMemoryEntity(name=f"{raw_type} memory", entity_type=raw_type)
+
+        assert entity.to_entity_type() is entity_type
+
+
 def test_memory_entity_extraction_rejects_unbounded_entity_types() -> None:
     with pytest.raises(ValidationError):
         ExtractedMemoryEntity(name="Ship task", entity_type="task")
@@ -65,5 +81,5 @@ def test_memory_entity_prompt_bounds_requested_entities() -> None:
     )
 
     assert "Source type: episode" in prompt
-    assert "Allowed entity types: topic, tool, language, pattern, procedure, domain" in prompt
+    assert "Allowed entity types: topic, claim, preference, person, place, event" in prompt
     assert "Extract up to 12 entities." in prompt

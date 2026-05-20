@@ -13,6 +13,12 @@ MAX_MEMORY_EXTRACTED_ENTITIES = 12
 
 class MemoryExtractionEntityType(StrEnum):
     TOPIC = "topic"
+    CLAIM = "claim"
+    PREFERENCE = "preference"
+    PERSON = "person"
+    PLACE = "place"
+    EVENT = "event"
+    ARTIFACT = "artifact"
     TOOL = "tool"
     LANGUAGE = "language"
     PATTERN = "pattern"
