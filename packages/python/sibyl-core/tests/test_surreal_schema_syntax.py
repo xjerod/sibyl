@@ -20,6 +20,7 @@ from sibyl_core.backends.surreal.schema import (
     RELATION_EDGE_CLEANUP_DEFINITIONS,
     render_fulltext_compatible_sql,
 )
+from sibyl_core.backends.surreal.schema_version import SCHEMA_VERSION_DEFINITIONS
 
 
 class _RecordingSchemaClient:
@@ -118,6 +119,16 @@ def test_graph_relation_cleanup_covers_all_relation_tables() -> None:
     assert "SELECT VALUE id FROM episode" in RELATION_EDGE_CLEANUP_DEFINITIONS
     assert "SELECT VALUE id FROM saga" in RELATION_EDGE_CLEANUP_DEFINITIONS
     assert "SELECT VALUE id FROM community" in RELATION_EDGE_CLEANUP_DEFINITIONS
+
+
+def test_graph_schema_version_table_is_schemafull() -> None:
+    assert "DEFINE TABLE IF NOT EXISTS schema_version SCHEMAFULL;" in SCHEMA_VERSION_DEFINITIONS
+    assert "DEFINE FIELD IF NOT EXISTS version ON schema_version TYPE int;" in (
+        SCHEMA_VERSION_DEFINITIONS
+    )
+    assert "DEFINE FIELD IF NOT EXISTS migrations ON schema_version TYPE array<object>" in (
+        SCHEMA_VERSION_DEFINITIONS
+    )
 
 
 @pytest.mark.asyncio

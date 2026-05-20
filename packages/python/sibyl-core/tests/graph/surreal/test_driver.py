@@ -16,7 +16,12 @@ from sibyl_core.backends.surreal.connection import (
     _is_transient_connection_error,
 )
 from sibyl_core.backends.surreal.driver import SurrealQueryError, _namespace_for_group
-from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES, bootstrap_schema
+from sibyl_core.backends.surreal.schema import (
+    GRAPH_EDGES,
+    GRAPH_SCHEMA_MIGRATIONS,
+    GRAPH_TABLES,
+    bootstrap_schema,
+)
 from sibyl_core.graph.surreal.compat.ops.community_edge_ops import SurrealCommunityEdgeOperations
 from sibyl_core.graph.surreal.compat.ops.community_node_ops import SurrealCommunityNodeOperations
 from sibyl_core.graph.surreal.compat.ops.entity_edge_ops import SurrealEntityEdgeOperations
@@ -1173,12 +1178,15 @@ class TestSchemaBootstrap:
             def __init__(self) -> None:
                 self.statements: list[str] = []
 
-            async def execute_query(self, statement: str) -> None:
+            async def execute_query(self, statement: str, **params: object) -> list[dict]:
                 self.statements.append(statement)
                 if "idx_episode_uuid" in statement:
                     raise RuntimeError(
                         "Database index `idx_episode_uuid` already contains 'episode-1'"
                     )
+                if statement.startswith("SELECT version FROM schema_version"):
+                    return []
+                return []
 
         driver = FakeDriver()
         await bootstrap_schema(driver)  # type: ignore[arg-type]
@@ -1190,6 +1198,23 @@ class TestSchemaBootstrap:
 
         with pytest.raises(ValueError, match="group_id"):
             await bootstrap_schema(d)
+
+    async def test_bootstrap_records_graph_schema_version(
+        self, surreal_schema: SurrealDriver
+    ) -> None:
+        rows = await surreal_schema.execute_query(
+            'SELECT name, version, migrations FROM schema_version WHERE name = "graph";'
+        )
+
+        assert isinstance(rows, list) and len(rows) == 1
+        assert rows[0]["version"] == GRAPH_SCHEMA_MIGRATIONS[-1].version
+        assert rows[0]["migrations"] == [
+            {
+                "version": migration.version,
+                "name": migration.name,
+            }
+            for migration in GRAPH_SCHEMA_MIGRATIONS
+        ]
 
     async def test_relation_tables_reject_dangling_edges(
         self, surreal_schema: SurrealDriver

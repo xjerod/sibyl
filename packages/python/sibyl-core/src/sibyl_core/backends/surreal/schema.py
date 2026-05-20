@@ -6,6 +6,12 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
 from sibyl_core.backends.surreal.schema_helpers import execute_schema_statement, split_statements
+from sibyl_core.backends.surreal.schema_version import (
+    GRAPH_SCHEMA_CURRENT_VERSION,
+    SCHEMA_VERSION_TABLE,
+    SchemaMigration,
+    apply_schema_migrations,
+)
 from sibyl_core.config import core_config
 
 if TYPE_CHECKING:
@@ -238,6 +244,12 @@ DEFINE INDEX IF NOT EXISTS idx_has_member_uuid ON has_member FIELDS uuid UNIQUE;
 
 GRAPH_TABLES = ("entity", "episode", "community", "saga")
 GRAPH_EDGES = ("relates_to", "mentions", "has_episode", "next_episode", "has_member")
+GRAPH_SCHEMA_MIGRATIONS = (
+    SchemaMigration(
+        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        name="native_graph_schema_bootstrap",
+    ),
+)
 
 
 def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
@@ -252,7 +264,7 @@ async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> Non
         raise ValueError(msg)
 
     if reset:
-        for table in (*GRAPH_EDGES, *GRAPH_TABLES):
+        for table in (*GRAPH_EDGES, *GRAPH_TABLES, SCHEMA_VERSION_TABLE):
             await driver.execute_query(f"REMOVE TABLE IF EXISTS {table};")
 
     compatible_blocks = (
@@ -269,6 +281,11 @@ async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> Non
                 scope="graph",
                 group_id=driver.group_id,
             )
+    await apply_schema_migrations(
+        driver.execute_query,
+        GRAPH_SCHEMA_MIGRATIONS,
+        group_id=driver.group_id,
+    )
 
 
 async def drop_all_indexes(driver: SurrealDriver) -> None:
@@ -290,6 +307,7 @@ __all__ = [
     "EDGE_DEFINITIONS",
     "EMBEDDING_DIM",
     "GRAPH_EDGES",
+    "GRAPH_SCHEMA_MIGRATIONS",
     "GRAPH_TABLES",
     "NODE_DEFINITIONS",
     "RELATION_EDGE_CLEANUP_DEFINITIONS",
