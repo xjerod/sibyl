@@ -36,8 +36,7 @@ def fetch_package_artifact(package: str, version: str) -> PackageArtifact:
         candidates = [
             artifact
             for artifact in artifacts
-            if artifact.get("python_version") == "py3"
-            and artifact.get("digests", {}).get("sha256")
+            if artifact.get("python_version") == "py3" and artifact.get("digests", {}).get("sha256")
         ]
     if not candidates:
         raise RuntimeError(f"No usable PyPI artifact found for {package} {version}")
@@ -116,10 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     python_version = pep440_version(args.version)
-    artifacts = {
-        package: fetch_package_artifact(package, python_version)
-        for package in PACKAGES
-    }
+    artifacts = {package: fetch_package_artifact(package, python_version) for package in PACKAGES}
     formula = render_formula(
         release_version=args.version,
         python_version=python_version,

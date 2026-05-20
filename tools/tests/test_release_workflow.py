@@ -143,7 +143,7 @@ def test_homebrew_formula_renders_cli_and_daemon_formula() -> None:
         artifacts=artifacts,
     )
 
-    assert 'class Sibyl < Formula' in formula
+    assert "class Sibyl < Formula" in formula
     assert 'version "1.0.0-rc.1"' in formula
     assert 'PYTHON_PACKAGE_VERSION = "1.0.0rc1"' in formula
     assert 'resource "sibyl-core"' in formula
