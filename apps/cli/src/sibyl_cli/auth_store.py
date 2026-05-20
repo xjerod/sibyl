@@ -1,7 +1,8 @@
 """Auth token storage for the CLI.
 
-All tokens are stored per-server under `servers[api_url]` in ~/.sibyl/auth.json.
-The context system determines which server URL to use.
+Tokens are stored under `servers[api_url]` in ~/.sibyl/auth.json. Context-aware
+tokens live below `servers[api_url].scopes[context/org]`, with legacy
+server-level tokens kept as a fallback for older installs.
 
 Security:
 - File permissions are enforced at 0600 (user read/write only)
@@ -21,6 +22,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+
+SCOPES_KEY = "scopes"
+DEFAULT_SCOPE_PART = "default"
 
 
 def auth_path() -> Path:
@@ -142,29 +146,88 @@ def normalize_api_url(api_url: str) -> str:
     return urlunsplit((scheme, netloc, path, "", ""))
 
 
-def read_server_credentials(api_url: str, path: Path | None = None) -> dict[str, Any]:
-    """Read stored credentials for a specific server API URL."""
-    data = read_auth_data(path)
-    key = normalize_api_url(api_url)
-    servers = data.get("servers")
-    if isinstance(servers, dict) and key and isinstance(servers.get(key), dict):
-        return dict(servers[key])
-    return {}
+def credential_scope(context_name: str | None, org_slug: str | None = None) -> str:
+    context = (context_name or "").strip() or DEFAULT_SCOPE_PART
+    org = (org_slug or "").strip() or DEFAULT_SCOPE_PART
+    return f"context:{context}:org:{org}"
 
 
-def write_server_credentials(api_url: str, creds: dict[str, Any], path: Path | None = None) -> None:
-    """Write/merge credentials for a specific server API URL."""
-    data = read_auth_data(path)
+def _split_path_and_scope(
+    path: Path | None = None,
+    credential_scope: str | None = None,
+) -> tuple[Path | None, str | None]:
+    if isinstance(path, str):
+        return None, path
+    return path, credential_scope
+
+
+def _server_credentials_container(
+    data: dict[str, Any],
+    api_url: str,
+) -> tuple[dict[str, Any], str] | tuple[None, str]:
     servers = data.get("servers")
     if not isinstance(servers, dict):
         servers = {}
     key = normalize_api_url(api_url)
     if not key:
-        return
+        return None, key
     existing = servers.get(key)
-    merged = {**(existing if isinstance(existing, dict) else {}), **creds}
-    servers[key] = merged
+    if not isinstance(existing, dict):
+        existing = {}
+    servers[key] = existing
     data["servers"] = servers
+    return existing, key
+
+
+def _strip_scopes(creds: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in creds.items() if key != SCOPES_KEY}
+
+
+def read_server_credentials(
+    api_url: str,
+    path: Path | None = None,
+    *,
+    credential_scope: str | None = None,
+    fallback_to_server: bool = True,
+) -> dict[str, Any]:
+    """Read stored credentials for a specific server API URL."""
+    path, credential_scope = _split_path_and_scope(path, credential_scope)
+    data = read_auth_data(path)
+    key = normalize_api_url(api_url)
+    servers = data.get("servers")
+    if not isinstance(servers, dict) or not key or not isinstance(servers.get(key), dict):
+        return {}
+    server_creds = dict(servers[key])
+    if credential_scope:
+        scopes = server_creds.get(SCOPES_KEY)
+        if isinstance(scopes, dict) and isinstance(scopes.get(credential_scope), dict):
+            return dict(scopes[credential_scope])
+        return _strip_scopes(server_creds) if fallback_to_server else {}
+    return _strip_scopes(server_creds)
+
+
+def write_server_credentials(
+    api_url: str,
+    creds: dict[str, Any],
+    path: Path | None = None,
+    *,
+    credential_scope: str | None = None,
+) -> None:
+    """Write/merge credentials for a specific server API URL."""
+    path, credential_scope = _split_path_and_scope(path, credential_scope)
+    data = read_auth_data(path)
+    container, _key = _server_credentials_container(data, api_url)
+    if container is None:
+        return
+    if credential_scope:
+        scopes = container.get(SCOPES_KEY)
+        if not isinstance(scopes, dict):
+            scopes = {}
+        existing = scopes.get(credential_scope)
+        scopes[credential_scope] = {**(existing if isinstance(existing, dict) else {}), **creds}
+        container[SCOPES_KEY] = scopes
+    else:
+        container.update(creds)
     write_auth_data(data, path)
 
 
@@ -174,50 +237,76 @@ def _replace_server_credentials(
     *,
     remove_keys: tuple[str, ...] = (),
     path: Path | None = None,
+    credential_scope: str | None = None,
 ) -> None:
+    path, credential_scope = _split_path_and_scope(path, credential_scope)
     data = read_auth_data(path)
-    servers = data.get("servers")
-    if not isinstance(servers, dict):
-        servers = {}
-    key = normalize_api_url(api_url)
-    if not key:
+    container, _key = _server_credentials_container(data, api_url)
+    if container is None:
         return
-    existing = servers.get(key)
-    merged = dict(existing if isinstance(existing, dict) else {})
-    for remove_key in remove_keys:
-        merged.pop(remove_key, None)
-    merged.update(creds)
-    servers[key] = merged
-    data["servers"] = servers
+    if credential_scope:
+        scopes = container.get(SCOPES_KEY)
+        if not isinstance(scopes, dict):
+            scopes = {}
+        existing = scopes.get(credential_scope)
+        merged = dict(existing if isinstance(existing, dict) else {})
+        for remove_key in remove_keys:
+            merged.pop(remove_key, None)
+        merged.update(creds)
+        scopes[credential_scope] = merged
+        container[SCOPES_KEY] = scopes
+    else:
+        for remove_key in remove_keys:
+            container.pop(remove_key, None)
+        container.update(creds)
     write_auth_data(data, path)
 
 
-def get_access_token(api_url: str, path: Path | None = None) -> str | None:
+def get_access_token(
+    api_url: str,
+    path: Path | None = None,
+    *,
+    credential_scope: str | None = None,
+) -> str | None:
     """Get stored access token for a server."""
-    creds = read_server_credentials(api_url, path)
+    creds = read_server_credentials(api_url, path, credential_scope=credential_scope)
     token = creds.get("access_token")
     return str(token) if token else None
 
 
-def get_refresh_token(api_url: str, path: Path | None = None) -> str | None:
+def get_refresh_token(
+    api_url: str,
+    path: Path | None = None,
+    *,
+    credential_scope: str | None = None,
+) -> str | None:
     """Get stored refresh token for a server."""
-    creds = read_server_credentials(api_url, path)
+    creds = read_server_credentials(api_url, path, credential_scope=credential_scope)
     token = creds.get("refresh_token")
     return str(token) if token else None
 
 
-def get_access_token_expires_at(api_url: str, path: Path | None = None) -> int | None:
+def get_access_token_expires_at(
+    api_url: str,
+    path: Path | None = None,
+    *,
+    credential_scope: str | None = None,
+) -> int | None:
     """Get access token expiry timestamp for a server."""
-    creds = read_server_credentials(api_url, path)
+    creds = read_server_credentials(api_url, path, credential_scope=credential_scope)
     expires_at = creds.get("access_token_expires_at")
     return int(expires_at) if expires_at is not None else None
 
 
 def is_access_token_expired(
-    api_url: str, path: Path | None = None, buffer_seconds: int = 60
+    api_url: str,
+    path: Path | None = None,
+    buffer_seconds: int = 60,
+    *,
+    credential_scope: str | None = None,
 ) -> bool:
     """Check if access token is expired or about to expire."""
-    expires_at = get_access_token_expires_at(api_url, path)
+    expires_at = get_access_token_expires_at(api_url, path, credential_scope=credential_scope)
     if expires_at is None:
         return False  # Assume not expired if no expiry stored
     return time.time() >= (expires_at - buffer_seconds)
@@ -231,8 +320,10 @@ def set_tokens(
     path: Path | None = None,
     *,
     lock: bool = True,
+    credential_scope: str | None = None,
 ) -> None:
     """Store tokens for a specific server."""
+    path, credential_scope = _split_path_and_scope(path, credential_scope)
     creds: dict[str, Any] = {"access_token": access_token}
     remove_keys: list[str] = []
     if refresh_token is not None and refresh_token:
@@ -250,23 +341,45 @@ def set_tokens(
                 creds,
                 remove_keys=tuple(remove_keys),
                 path=path,
+                credential_scope=credential_scope,
             )
         return
-    _replace_server_credentials(api_url, creds, remove_keys=tuple(remove_keys), path=path)
+    _replace_server_credentials(
+        api_url,
+        creds,
+        remove_keys=tuple(remove_keys),
+        path=path,
+        credential_scope=credential_scope,
+    )
 
 
-def clear_tokens(api_url: str, path: Path | None = None) -> None:
-    """Clear all tokens for a specific server."""
+def clear_tokens(
+    api_url: str,
+    path: Path | None = None,
+    *,
+    credential_scope: str | None = None,
+) -> None:
+    """Clear tokens for a server or a specific credential scope."""
+    path, credential_scope = _split_path_and_scope(path, credential_scope)
     with auth_file_lock(path):
         data = read_auth_data(path)
         servers = data.get("servers")
         if not isinstance(servers, dict):
             return
         key = normalize_api_url(api_url)
-        if key and key in servers:
-            del servers[key]
-            data["servers"] = servers
-            write_auth_data(data, path)
+        if not key or key not in servers:
+            return
+        if credential_scope and isinstance(servers[key], dict):
+            scopes = servers[key].get(SCOPES_KEY)
+            if isinstance(scopes, dict):
+                scopes.pop(credential_scope, None)
+                servers[key][SCOPES_KEY] = scopes
+                data["servers"] = servers
+                write_auth_data(data, path)
+            return
+        del servers[key]
+        data["servers"] = servers
+        write_auth_data(data, path)
 
 
 def clear_all_tokens(path: Path | None = None) -> None:

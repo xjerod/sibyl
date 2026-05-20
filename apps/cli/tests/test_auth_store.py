@@ -207,6 +207,42 @@ class TestServerCredentials:
         assert creds["access_token"] == "old"
         assert creds["refresh_token"] == "refresh123"
 
+    def test_scoped_credentials_do_not_bleed_between_orgs(self, tmp_path: Path) -> None:
+        """Context/org scoped credentials are isolated under the same API URL."""
+        test_file = tmp_path / "auth.json"
+        personal = auth_store.credential_scope("prod", "personal")
+        work = auth_store.credential_scope("prod", "work")
+
+        auth_store.set_tokens(
+            "https://sibyl.example.com/api",
+            access_token="personal-token",
+            path=test_file,
+            credential_scope=personal,
+        )
+        auth_store.set_tokens(
+            "https://sibyl.example.com/api",
+            access_token="work-token",
+            path=test_file,
+            credential_scope=work,
+        )
+
+        assert (
+            auth_store.get_access_token(
+                "https://sibyl.example.com/api",
+                test_file,
+                credential_scope=personal,
+            )
+            == "personal-token"
+        )
+        assert (
+            auth_store.get_access_token(
+                "https://sibyl.example.com/api",
+                test_file,
+                credential_scope=work,
+            )
+            == "work-token"
+        )
+
 
 class TestTokenOperations:
     """Tests for token get/set/clear operations."""

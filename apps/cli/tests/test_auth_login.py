@@ -104,5 +104,6 @@ def test_login_auto_oauth_preserves_access_token_expiry(
             "access_token": "access-token",
             "refresh_token": "refresh-token",
             "expires_in": 3600,
+            "credential_scope_name": None,
         }
     ]

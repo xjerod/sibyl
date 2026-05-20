@@ -17,6 +17,7 @@ import httpx
 
 from sibyl_cli.auth_store import (
     auth_file_lock,
+    credential_scope,
     get_access_token,
     get_refresh_token,
     is_access_token_expired,
@@ -88,7 +89,23 @@ def _get_default_api_url(context_name: str | None = None) -> str:
     return f"http://localhost:{DEFAULT_SERVER_PORT}/api"
 
 
-def _load_default_auth_token(api_base_url: str) -> str | None:
+def _auth_credential_scope(context_name: str | None = None) -> str | None:
+    from sibyl_cli import config_store
+
+    ctx = (
+        config_store.get_context(context_name)
+        if context_name
+        else config_store.get_active_context()
+    )
+    if ctx is None:
+        return None
+    return credential_scope(ctx.name, ctx.org_slug)
+
+
+def _load_default_auth_token(
+    api_base_url: str,
+    credential_scope_name: str | None = None,
+) -> str | None:
     """Load auth token for the given API URL.
 
     Priority:
@@ -99,7 +116,7 @@ def _load_default_auth_token(api_base_url: str) -> str | None:
     if env_token:
         return env_token
 
-    return get_access_token(api_base_url)
+    return get_access_token(api_base_url, credential_scope=credential_scope_name)
 
 
 class SibylClientError(Exception):
@@ -261,12 +278,19 @@ class SibylClient:
         self.context_name = context_name
         self._explicit_base_url = base_url is not None
         self.base_url = normalize_api_url(base_url or _get_default_api_url(context_name))
+        self.credential_scope = (
+            _auth_credential_scope(context_name)
+            if context_name or not self._explicit_base_url
+            else None
+        )
         self.timeout = timeout
         self._uses_stored_auth = (
             auth_token is None and not os.environ.get("SIBYL_AUTH_TOKEN", "").strip()
         )
         self.auth_token = (
-            auth_token if auth_token is not None else _load_default_auth_token(self.base_url)
+            auth_token
+            if auth_token is not None
+            else _load_default_auth_token(self.base_url, self.credential_scope)
         )
         self._client: httpx.AsyncClient | None = None
         # Load insecure setting from context
@@ -324,6 +348,7 @@ class SibylClient:
             refresh_token=str(data.get("refresh_token") or "").strip() or None,
             expires_in=int(data["expires_in"]) if data.get("expires_in") else None,
             lock=False,
+            credential_scope=self.credential_scope,
         )
         self.auth_token = new_access_token
         if self._client and not self._client.is_closed:
@@ -367,13 +392,19 @@ class SibylClient:
 
         try:
             with auth_file_lock():
-                creds = read_server_credentials(self.base_url)
+                creds = read_server_credentials(
+                    self.base_url,
+                    credential_scope=self.credential_scope,
+                )
                 stored_access_token = str(creds.get("access_token") or "").strip()
                 expires_at = creds.get("access_token_expires_at")
                 if (
                     stored_access_token
                     and stored_access_token != self.auth_token
-                    and not is_access_token_expired(self.base_url)
+                    and not is_access_token_expired(
+                        self.base_url,
+                        credential_scope=self.credential_scope,
+                    )
                 ):
                     self.auth_token = stored_access_token
                     if self._client and not self._client.is_closed:
@@ -381,7 +412,10 @@ class SibylClient:
                     self._client = None
                     return True, None
 
-                refresh_token = get_refresh_token(self.base_url)
+                refresh_token = get_refresh_token(
+                    self.base_url,
+                    credential_scope=self.credential_scope,
+                )
                 if not refresh_token:
                     return False, "No refresh token is available for automatic renewal."
 
@@ -438,6 +472,7 @@ class SibylClient:
                         refresh_token=new_refresh_token,
                         expires_in=expires_in,
                         lock=False,
+                        credential_scope=self.credential_scope,
                     )
 
                     self.auth_token = new_access_token
@@ -481,7 +516,10 @@ class SibylClient:
         refresh_failure: str | None = None
 
         # Proactively refresh if token is about to expire
-        if self.auth_token and is_access_token_expired(self.base_url):
+        if self.auth_token and is_access_token_expired(
+            self.base_url,
+            credential_scope=self.credential_scope,
+        ):
             _, refresh_failure = await self._refresh_token()
 
         method = method.upper()

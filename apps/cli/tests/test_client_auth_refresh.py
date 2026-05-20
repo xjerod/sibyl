@@ -16,7 +16,9 @@ def _noop_lock():
 
 
 def test_empty_auth_token_disables_stored_auth(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(client_module, "_load_default_auth_token", lambda _api_url: "stored")
+    monkeypatch.setattr(
+        client_module, "_load_default_auth_token", lambda _api_url, _scope=None: "stored"
+    )
 
     client = SibylClient(base_url="http://example.test/api", auth_token="")
 
@@ -39,18 +41,20 @@ async def test_refresh_uses_newer_token_written_by_another_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("SIBYL_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr(client_module, "_load_default_auth_token", lambda _api_url: "old-access")
+    monkeypatch.setattr(
+        client_module, "_load_default_auth_token", lambda _api_url, _scope=None: "old-access"
+    )
     monkeypatch.setattr(client_module, "auth_file_lock", lambda: _noop_lock())
     monkeypatch.setattr(
         client_module,
         "read_server_credentials",
-        lambda _api_url: {
+        lambda _api_url, **_kwargs: {
             "access_token": "new-access",
             "refresh_token": "new-refresh",
             "access_token_expires_at": int(time.time()) + 3600,
         },
     )
-    monkeypatch.setattr(client_module, "is_access_token_expired", lambda _api_url: False)
+    monkeypatch.setattr(client_module, "is_access_token_expired", lambda _api_url, **_kwargs: False)
 
     class UnexpectedAsyncClient:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -71,19 +75,21 @@ async def test_refresh_rotates_and_writes_tokens_under_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("SIBYL_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr(client_module, "_load_default_auth_token", lambda _api_url: "old-access")
+    monkeypatch.setattr(
+        client_module, "_load_default_auth_token", lambda _api_url, _scope=None: "old-access"
+    )
     monkeypatch.setattr(client_module, "auth_file_lock", lambda: _noop_lock())
     monkeypatch.setattr(
         client_module,
         "read_server_credentials",
-        lambda _api_url: {
+        lambda _api_url, **_kwargs: {
             "access_token": "old-access",
             "refresh_token": "old-refresh",
             "access_token_expires_at": 1,
         },
     )
-    monkeypatch.setattr(client_module, "get_refresh_token", lambda _api_url: "old-refresh")
-    monkeypatch.setattr(client_module, "is_access_token_expired", lambda _api_url: True)
+    monkeypatch.setattr(client_module, "get_refresh_token", lambda _api_url, **_kwargs: "old-refresh")
+    monkeypatch.setattr(client_module, "is_access_token_expired", lambda _api_url, **_kwargs: True)
 
     writes: list[dict[str, Any]] = []
 
@@ -94,6 +100,7 @@ async def test_refresh_rotates_and_writes_tokens_under_lock(
         refresh_token: str | None = None,
         expires_in: int | None = None,
         lock: bool = True,
+        credential_scope: str | None = None,
     ) -> None:
         writes.append(
             {
@@ -102,6 +109,7 @@ async def test_refresh_rotates_and_writes_tokens_under_lock(
                 "refresh_token": refresh_token,
                 "expires_in": expires_in,
                 "lock": lock,
+                "credential_scope": credential_scope,
             }
         )
 
@@ -148,5 +156,6 @@ async def test_refresh_rotates_and_writes_tokens_under_lock(
             "refresh_token": "new-refresh",
             "expires_in": 3600,
             "lock": False,
+            "credential_scope": None,
         }
     ]

@@ -96,7 +96,10 @@ def test_context_quick_json_returns_flat_local_status(
     assert payload["auth_expires_in"] > 0
     mock_get_active_context.assert_called_once_with()
     mock_resolve_project_from_cwd.assert_called_once_with()
-    mock_read_server_credentials.assert_called_once_with("http://localhost:3334/api")
+    mock_read_server_credentials.assert_called_once_with(
+        "http://localhost:3334/api",
+        credential_scope="context:local:org:default",
+    )
 
 
 @patch("sibyl_cli.context_quick.read_server_credentials", return_value={})
@@ -119,7 +122,10 @@ def test_context_quick_without_context_reports_missing_auth(
     mock_get_active_context.assert_called_once_with()
     mock_get_effective_server_url.assert_called_once_with()
     mock_resolve_project_from_cwd.assert_called_once_with()
-    mock_read_server_credentials.assert_called_once_with("http://localhost:3334/api")
+    mock_read_server_credentials.assert_called_once_with(
+        "http://localhost:3334/api",
+        credential_scope=None,
+    )
 
 
 @patch("sibyl_cli.context.get_client")

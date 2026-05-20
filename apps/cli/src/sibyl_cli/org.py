@@ -9,7 +9,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from sibyl_cli.auth_store import set_tokens
+from sibyl_cli import config_store
+from sibyl_cli.auth_store import credential_scope, set_tokens
 from sibyl_cli.client import SibylClientError, get_client
 from sibyl_cli.common import error, print_json, run_async, success
 
@@ -18,6 +19,13 @@ members_app = typer.Typer(help="Manage organization members")
 app.add_typer(members_app, name="members")
 
 console = Console()
+
+
+def _org_credential_scope(org_slug: str | None) -> str | None:
+    ctx = config_store.get_active_context()
+    if ctx is None:
+        return None
+    return credential_scope(ctx.name, org_slug or ctx.org_slug)
 
 
 class OrgRole(StrEnum):
@@ -64,7 +72,13 @@ def create_cmd(
             expires_raw = result.get("expires_in")
             expires_in = int(expires_raw) if expires_raw is not None else None
             if token:
-                set_tokens(client.base_url, token, refresh_token=refresh, expires_in=expires_in)
+                set_tokens(
+                    client.base_url,
+                    token,
+                    refresh_token=refresh,
+                    expires_in=expires_in,
+                    credential_scope=_org_credential_scope(str(result.get("slug") or slug or "")),
+                )
                 success("Switched org (tokens saved to ~/.sibyl/auth.json)")
         print_json(result)
     except SibylClientError as e:
@@ -86,7 +100,13 @@ def switch_cmd(slug: str) -> None:
         expires_raw = result.get("expires_in")
         expires_in = int(expires_raw) if expires_raw is not None else None
         if token:
-            set_tokens(client.base_url, token, refresh_token=refresh, expires_in=expires_in)
+            set_tokens(
+                client.base_url,
+                token,
+                refresh_token=refresh,
+                expires_in=expires_in,
+                credential_scope=_org_credential_scope(slug),
+            )
             success("Org switched (tokens saved to ~/.sibyl/auth.json)")
         print_json(result)
     except SibylClientError as e:

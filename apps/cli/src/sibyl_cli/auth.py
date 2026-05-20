@@ -16,6 +16,7 @@ import typer
 
 from sibyl_cli.auth_store import (
     clear_tokens,
+    credential_scope,
     normalize_api_url,
     read_server_credentials,
     set_tokens,
@@ -50,6 +51,19 @@ def _compute_api_url(server: str | None) -> str:
         return normalize_api_url(env_api_url)
 
     return normalize_api_url(SibylClient().base_url)
+
+
+def _current_credential_scope(context_name: str | None = None) -> str | None:
+    from sibyl_cli import config_store
+
+    ctx = (
+        config_store.get_context(context_name)
+        if context_name
+        else config_store.get_active_context()
+    )
+    if ctx is None:
+        return None
+    return credential_scope(ctx.name, ctx.org_slug)
 
 
 def _load_oauth_metadata(*, issuer_url: str, insecure: bool = False) -> dict:
@@ -170,9 +184,16 @@ def _persist_tokens(
     access_token: str,
     refresh_token: str | None = None,
     expires_in: int | None = None,
+    credential_scope_name: str | None = None,
 ) -> None:
     """Persist access token and optionally refresh token for the server."""
-    set_tokens(api_url, access_token, refresh_token=refresh_token, expires_in=expires_in)
+    set_tokens(
+        api_url,
+        access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+        credential_scope=credential_scope_name,
+    )
 
 
 class _DeviceLoginError(RuntimeError):
@@ -262,7 +283,12 @@ class _OAuthLoginError(RuntimeError):
 
 
 def _oauth_pkce_login(
-    *, api_url: str, no_browser: bool, timeout_seconds: int, insecure: bool = False
+    *,
+    api_url: str,
+    no_browser: bool,
+    timeout_seconds: int,
+    insecure: bool = False,
+    credential_scope_name: str | None = None,
 ) -> tuple[str, str, str, int | None]:
     issuer_url = _issuer_url_from_api_url(api_url)
     resource = issuer_url.rstrip("/") + "/mcp"
@@ -353,6 +379,7 @@ def _oauth_pkce_login(
         access_token,
         refresh_token=refresh_token or None,
         expires_in=expires_in_int,
+        credential_scope=credential_scope_name,
     )
     # Also store OAuth metadata for potential token refresh
     write_server_credentials(
@@ -362,6 +389,7 @@ def _oauth_pkce_login(
             "oauth_client_secret": client_secret,
             "issuer_url": issuer_url,
         },
+        credential_scope=credential_scope_name,
     )
     return access_token, refresh_token, issuer_url, expires_in_int
 
@@ -413,7 +441,12 @@ def _login_via_device_flow(
 
 
 def _login_via_oauth(
-    *, api_url: str, no_browser: bool, timeout_seconds: int, insecure: bool = False
+    *,
+    api_url: str,
+    no_browser: bool,
+    timeout_seconds: int,
+    insecure: bool = False,
+    credential_scope_name: str | None = None,
 ) -> dict:
     """Execute OAuth PKCE flow. Returns token response dict."""
     access_token, refresh_token, _issuer, expires_in = _oauth_pkce_login(
@@ -421,6 +454,7 @@ def _login_via_oauth(
         no_browser=no_browser,
         timeout_seconds=timeout_seconds,
         insecure=insecure,
+        credential_scope_name=credential_scope_name,
     )
     return {
         "access_token": access_token,
@@ -446,6 +480,7 @@ def _login_auto(
     email: str | None,
     password: str | None,
     insecure: bool = False,
+    credential_scope_name: str | None = None,
 ) -> None:
     """Single login entrypoint.
 
@@ -469,6 +504,7 @@ def _login_auto(
             access_token=tok["access_token"],
             refresh_token=tok.get("refresh_token"),
             expires_in=tok.get("expires_in"),
+            credential_scope_name=credential_scope_name,
         )
         success(f"Login complete (saved credentials for {api_url})")
         return
@@ -499,12 +535,14 @@ def _login_auto(
             no_browser=no_browser,
             timeout_seconds=timeout_seconds,
             insecure=insecure,
+            credential_scope_name=credential_scope_name,
         )
         _persist_tokens(
             api_url=api_url,
             access_token=tok["access_token"],
             refresh_token=tok.get("refresh_token"),
             expires_in=tok.get("expires_in"),
+            credential_scope_name=credential_scope_name,
         )
         success(f"Login complete (saved credentials for {api_url})")
         return
@@ -552,6 +590,7 @@ def _login_auto(
         access_token=tok["access_token"],
         refresh_token=tok.get("refresh_token"),
         expires_in=tok.get("expires_in"),
+        credential_scope_name=credential_scope_name,
     )
     success(f"Login complete (saved credentials for {api_url})")
     return
@@ -560,8 +599,12 @@ def _login_auto(
 @app.command("status")
 def status_cmd() -> None:
     """Show auth status for the current context."""
+    from sibyl_cli import config_store
+
+    ctx = config_store.get_active_context()
     api_url = _compute_api_url(None)
-    creds = read_server_credentials(api_url)
+    scope = _current_credential_scope()
+    creds = read_server_credentials(api_url, credential_scope=scope)
     token = str(creds.get("access_token") or "").strip()
     refresh = str(creds.get("refresh_token") or "").strip()
     expires_at = creds.get("access_token_expires_at")
@@ -583,7 +626,7 @@ def status_cmd() -> None:
     else:
         info("No refresh token saved; automatic renewal is unavailable")
 
-    client = SibylClient(base_url=api_url)
+    client = SibylClient(base_url=api_url, context_name=ctx.name if ctx else None)
 
     @run_async
     async def _run() -> dict:
@@ -613,7 +656,7 @@ def set_token_cmd(
 ) -> None:
     """Set an auth token for a server."""
     api_url = _compute_api_url(server)
-    set_tokens(api_url, token.strip())
+    set_tokens(api_url, token.strip(), credential_scope=_current_credential_scope())
     success(f"Auth token saved for {api_url}; refresh credentials cleared")
 
 
@@ -640,7 +683,7 @@ def clear_token_cmd(
         success("All auth tokens cleared")
     else:
         api_url = _compute_api_url(server)
-        clear_tokens(api_url)
+        clear_tokens(api_url, credential_scope=_current_credential_scope())
         success(f"Auth tokens cleared for {api_url}")
 
 
@@ -689,6 +732,7 @@ def login_cmd(
     # Positional URL takes precedence over --server option
     effective_server = url.strip() if url.strip() else server
     api_url = _compute_api_url(effective_server)
+    scope = credential_scope(context, None) if context else _current_credential_scope()
 
     # Perform login
     _login_auto(
@@ -698,6 +742,7 @@ def login_cmd(
         email=email,
         password=password,
         insecure=insecure,
+        credential_scope_name=scope,
     )
 
     # Create/update context if requested
@@ -747,6 +792,7 @@ def local_signup_cmd(
                 access_token=token,
                 refresh_token=result.get("refresh_token"),
                 expires_in=result.get("expires_in"),
+                credential_scope_name=_current_credential_scope(),
             )
             success("Auth tokens saved to ~/.sibyl/auth.json")
         print_json(result)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from time import time
 
-from sibyl_cli.auth_store import read_server_credentials
+from sibyl_cli.auth_store import credential_scope, read_server_credentials
 from sibyl_cli.config_store import (
     get_active_context,
     get_effective_server_url,
@@ -13,9 +13,15 @@ from sibyl_cli.config_store import (
 )
 
 
-def _auth_status(server_url: str) -> tuple[str, str | None, int | None]:
+def _auth_status(
+    server_url: str,
+    *,
+    context_name: str | None = None,
+    org_slug: str | None = None,
+) -> tuple[str, str | None, int | None]:
     api_url = f"{server_url.rstrip('/')}/api"
-    creds = read_server_credentials(api_url)
+    scope = credential_scope(context_name, org_slug) if context_name else None
+    creds = read_server_credentials(api_url, credential_scope=scope)
     token = str(creds.get("access_token") or "").strip()
     refresh = str(creds.get("refresh_token") or "").strip()
     expires_at = creds.get("access_token_expires_at")
@@ -36,7 +42,11 @@ def quick_context_payload() -> dict[str, object]:
     linked_project = resolve_project_from_cwd()
     server_url = active.server_url if active else get_effective_server_url()
     effective_project = linked_project or (active.default_project if active else None)
-    auth_state, auth_label, auth_expires_in = _auth_status(server_url)
+    auth_state, auth_label, auth_expires_in = _auth_status(
+        server_url,
+        context_name=active.name if active else None,
+        org_slug=active.org_slug if active else None,
+    )
 
     payload: dict[str, object] = {
         "server": server_url,
