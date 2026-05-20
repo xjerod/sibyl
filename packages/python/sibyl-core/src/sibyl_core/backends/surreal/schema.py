@@ -272,8 +272,8 @@ async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> Non
     compatible_blocks = (
         ANALYZER_DEFINITIONS,
         render_fulltext_compatible_sql(NODE_DEFINITIONS, url=driver._url),
-        RELATION_EDGE_CLEANUP_DEFINITIONS,
         render_fulltext_compatible_sql(EDGE_DEFINITIONS, url=driver._url),
+        RELATION_EDGE_CLEANUP_DEFINITIONS,
     )
     for block in compatible_blocks:
         for statement in split_statements(block):

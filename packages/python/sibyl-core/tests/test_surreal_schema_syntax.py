@@ -18,23 +18,28 @@ from sibyl_core.backends.surreal.schema import (
     EDGE_DEFINITIONS,
     NODE_DEFINITIONS,
     RELATION_EDGE_CLEANUP_DEFINITIONS,
+    bootstrap_schema,
     render_fulltext_compatible_sql,
 )
 from sibyl_core.backends.surreal.schema_version import SCHEMA_VERSION_DEFINITIONS
 
 
 class _RecordingSchemaClient:
-    def __init__(self, duplicate_index_name: str) -> None:
+    def __init__(self, duplicate_index_name: str = "") -> None:
         self.duplicate_index_name = duplicate_index_name
         self.calls: list[str] = []
         self._url = ""
+        self.group_id = "org_123"
 
-    async def execute_query(self, statement: str) -> None:
+    async def execute_query(self, statement: str, **_params: object) -> object:
         self.calls.append(statement)
-        if self.duplicate_index_name in statement:
+        if statement.strip().startswith("SELECT version FROM schema_version"):
+            return [{"version": 0}]
+        if self.duplicate_index_name and self.duplicate_index_name in statement:
             raise RuntimeError(
                 f"Database index `{self.duplicate_index_name}` already contains 'dirty-row'"
             )
+        return None
 
 
 def test_flexible_object_fields_keep_server_accepted_token_order() -> None:
@@ -127,6 +132,23 @@ def test_graph_relation_cleanup_covers_all_relation_tables() -> None:
     assert "SELECT VALUE id FROM episode" in RELATION_EDGE_CLEANUP_DEFINITIONS
     assert "SELECT VALUE id FROM saga" in RELATION_EDGE_CLEANUP_DEFINITIONS
     assert "SELECT VALUE id FROM community" in RELATION_EDGE_CLEANUP_DEFINITIONS
+
+
+@pytest.mark.asyncio
+async def test_graph_bootstrap_defines_relations_before_cleanup() -> None:
+    client = _RecordingSchemaClient()
+
+    await bootstrap_schema(client)  # type: ignore[arg-type]
+
+    relation_define_index = next(
+        index
+        for index, statement in enumerate(client.calls)
+        if "DEFINE TABLE OVERWRITE relates_to" in statement
+    )
+    cleanup_index = next(
+        index for index, statement in enumerate(client.calls) if "DELETE FROM relates_to" in statement
+    )
+    assert relation_define_index < cleanup_index
 
 
 def test_graph_schema_version_table_is_schemafull() -> None:
