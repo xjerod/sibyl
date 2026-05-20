@@ -398,6 +398,7 @@ jobs:
         run: |
           diagnostics=.moon/cache/evals/longmemeval_live_smoke_diagnostics
           mkdir -p "$diagnostics"
+          cp .moon/cache/evals/longmemeval_live_smoke.json "$diagnostics/longmemeval_live_smoke.json" || true
           cp /tmp/sibyld.log "$diagnostics/sibyld.log" || true
           cp /tmp/sibyl-worker.log "$diagnostics/sibyl-worker.log" || true
           docker compose ps -a > "$diagnostics/docker-compose-ps.txt" 2>&1 || true
@@ -580,6 +581,7 @@ jobs:
         run: |
           diagnostics=.moon/cache/evals/longmemeval_live_full_diagnostics
           mkdir -p "$diagnostics"
+          cp .moon/cache/evals/longmemeval_live_full.json "$diagnostics/longmemeval_live_full.json" || true
           cp /tmp/sibyld.log "$diagnostics/sibyld.log" || true
           cp /tmp/sibyl-worker.log "$diagnostics/sibyl-worker.log" || true
           docker compose ps -a > "$diagnostics/docker-compose-ps.txt" 2>&1 || true

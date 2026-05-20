@@ -15,7 +15,7 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -934,6 +934,7 @@ async def _run_cases(
     diagnostic_search_limit: int,
     wait_for_memory_extraction: bool,
     memory_extraction_timeout_seconds: float,
+    on_progress: Callable[[list[dict[str, Any]]], Awaitable[None]] | None = None,
 ) -> list[dict[str, Any]]:
     worker_count = max(1, concurrency)
     queue: asyncio.Queue[tuple[int, dict[str, Any]]] = asyncio.Queue()
@@ -986,6 +987,8 @@ async def _run_cases(
                 results.append(result)
                 completed_count += 1
                 last_progress_at = time.monotonic()
+                if on_progress is not None:
+                    await on_progress(sorted(results, key=lambda record: int(record["case_index"])))
                 progress_k = 5 if 5 in k_values else min(k_values)
                 progress_key = f"recall@{progress_k}"
                 recall = average_metric(results, progress_key) * 100
@@ -1131,6 +1134,115 @@ def _aggregate(results: list[dict[str, Any]], k_values: list[int]) -> tuple[dict
     return overall, per_type
 
 
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _build_live_report(
+    *,
+    dataset_path: Path,
+    total_entries: int,
+    selected_entries_count: int,
+    selected_indices: list[int],
+    entries_by_case_index: dict[int, dict[str, Any]],
+    k_values: list[int],
+    case_results: list[dict[str, Any]],
+    command: list[str] | None,
+    metadata: dict[str, str] | None,
+    sample_strategy: str,
+    corpus_text_policy: str,
+    limit: int | None,
+    diagnostic_search_limit: int,
+    heartbeat_interval_seconds: float,
+    stall_timeout_seconds: float,
+    wait_for_memory_extraction: bool,
+    memory_extraction_timeout_seconds: float,
+    elapsed_seconds: float,
+    completion_status: str,
+) -> dict[str, Any]:
+    sorted_results = sorted(case_results, key=lambda record: int(record["case_index"]))
+    overall, per_type = _aggregate(sorted_results, k_values)
+    diagnostics = _build_diagnostics(
+        results=sorted_results,
+        entries_by_case_index=entries_by_case_index,
+        corpus_text_policy=corpus_text_policy,
+        k_values=k_values,
+    )
+    embedding_runtime = _graph_embedding_runtime_metadata()
+
+    return {
+        "schema_version": "longmemeval-live-v1",
+        "suite": "LongMemEval-S live API",
+        "suite_version": "live-api-search-v1",
+        "generated_at": _now(),
+        "sibyl_commit": _git_commit(),
+        "command": command,
+        "mode": LIVE_RETRIEVAL_MODE,
+        "runtime": {
+            "runtime_mode": "live-api-ephemeral",
+            "graph_engine": "surreal",
+            "store": "surreal",
+            "retrieval_mode": LIVE_RETRIEVAL_MODE,
+            "retrieval_surface": "POST /api/search",
+            "retrieval_contract": "sync entity writes plus /api/search graph results",
+            **embedding_runtime,
+            "readiness_strategy": "sync_write_plus_search_probe",
+            "per_question_isolation": "throwaway organization namespace per question",
+            "entity_content_max_chars": ENTITY_CONTENT_MAX_CHARS,
+            "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
+            "sample_strategy": sample_strategy,
+            "corpus_text_policy": corpus_text_policy,
+            "diagnostic_search_limit": diagnostic_search_limit,
+            "heartbeat_interval_seconds": heartbeat_interval_seconds,
+            "stall_timeout_seconds": stall_timeout_seconds,
+            "auto_extract_entities_env": _env_flag("SIBYL_AUTO_EXTRACT_ENTITIES"),
+            "wait_for_memory_extraction": wait_for_memory_extraction,
+            "memory_extraction_timeout_seconds": memory_extraction_timeout_seconds,
+            "graph_hnsw_efc_env": os.environ.get("SIBYL_GRAPH_HNSW_EFC", ""),
+            "graph_hnsw_m_env": os.environ.get("SIBYL_GRAPH_HNSW_M", ""),
+            "graph_knn_ef_env": os.environ.get("SIBYL_GRAPH_KNN_EF", ""),
+            "native_fusion_backend_env": os.environ.get("SIBYL_NATIVE_FUSION_BACKEND", ""),
+        },
+        "dataset": {
+            "name": dataset_path.stem,
+            "path": str(dataset_path),
+            "corpus_hash": _corpus_hash(dataset_path),
+            "total_entries": total_entries,
+            "evaluated_entries": selected_entries_count,
+            "completed_entries": len(sorted_results),
+            "limit": limit,
+            "sample_strategy": sample_strategy,
+            "selected_case_indices": selected_indices,
+            "corpus_text_policy": corpus_text_policy,
+            "diagnostic_search_limit": diagnostic_search_limit,
+            "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
+            "wait_for_memory_extraction": wait_for_memory_extraction,
+        },
+        "metadata": metadata or {},
+        "repeat_count": 1,
+        "auth_manifest_id": AUTH_MANIFEST_ID,
+        "k_values": k_values,
+        "total_questions": selected_entries_count,
+        "completed_questions": len(sorted_results),
+        "completion_status": completion_status,
+        "overall": overall,
+        "per_type": per_type,
+        "diagnostics": diagnostics,
+        "case_results": sorted_results,
+        "elapsed_seconds": elapsed_seconds,
+        "claim_boundary": (
+            "Live API runtime evidence for /api/search against an ephemeral "
+            "Sibyl stack with per-question throwaway org namespaces. This "
+            "artifact measures the production graph hybrid search path, "
+            "including native graph vector search when embedding config is "
+            "enabled."
+        ),
+    }
+
+
 async def run_benchmark(
     data_path: str | Path,
     *,
@@ -1151,6 +1263,7 @@ async def run_benchmark(
     wait_for_memory_extraction: bool = False,
     memory_extraction_timeout_seconds: float = DEFAULT_MEMORY_EXTRACTION_TIMEOUT_SECONDS,
     verify_sha256: bool = True,
+    output_path: Path | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
     validate_target(api_url, allow_localhost=allow_localhost)
@@ -1210,6 +1323,34 @@ async def run_benchmark(
     )
     print("============================================================\n", flush=True)
 
+    async def checkpoint(partial_results: list[dict[str, Any]]) -> None:
+        if output_path is None:
+            return
+        report = _build_live_report(
+            dataset_path=dataset_path,
+            total_entries=total_entries,
+            selected_entries_count=len(selected_entries),
+            selected_indices=selected_indices,
+            entries_by_case_index=entries_by_case_index,
+            k_values=k_values,
+            case_results=partial_results,
+            command=command,
+            metadata=metadata,
+            sample_strategy=sample_strategy,
+            corpus_text_policy=corpus_text_policy,
+            limit=limit,
+            diagnostic_search_limit=diagnostic_search_limit,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+            stall_timeout_seconds=stall_timeout_seconds,
+            wait_for_memory_extraction=wait_for_memory_extraction,
+            memory_extraction_timeout_seconds=memory_extraction_timeout_seconds,
+            elapsed_seconds=time.perf_counter() - started,
+            completion_status="partial",
+        )
+        _write_report(output_path, report)
+
+    await checkpoint([])
+
     case_results = await _run_cases(
         selected_cases,
         api_url=api_url,
@@ -1225,16 +1366,33 @@ async def run_benchmark(
         diagnostic_search_limit=diagnostic_search_limit,
         wait_for_memory_extraction=wait_for_memory_extraction,
         memory_extraction_timeout_seconds=memory_extraction_timeout_seconds,
+        on_progress=checkpoint,
     )
     elapsed = time.perf_counter() - started
-    overall, per_type = _aggregate(case_results, k_values)
-    diagnostics = _build_diagnostics(
-        results=case_results,
+    report = _build_live_report(
+        dataset_path=dataset_path,
+        total_entries=total_entries,
+        selected_entries_count=len(selected_entries),
+        selected_indices=selected_indices,
         entries_by_case_index=entries_by_case_index,
-        corpus_text_policy=corpus_text_policy,
         k_values=k_values,
+        case_results=case_results,
+        command=command,
+        metadata=metadata,
+        sample_strategy=sample_strategy,
+        corpus_text_policy=corpus_text_policy,
+        limit=limit,
+        diagnostic_search_limit=diagnostic_search_limit,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
+        stall_timeout_seconds=stall_timeout_seconds,
+        wait_for_memory_extraction=wait_for_memory_extraction,
+        memory_extraction_timeout_seconds=memory_extraction_timeout_seconds,
+        elapsed_seconds=elapsed,
+        completion_status="complete",
     )
-    embedding_runtime = _graph_embedding_runtime_metadata()
+    if output_path is not None:
+        _write_report(output_path, report)
+    overall = report["overall"]
 
     print("\n============================================================", flush=True)
     print("  RESULTS - live /api/search", flush=True)
@@ -1250,71 +1408,7 @@ async def run_benchmark(
     print(f"  Time: {elapsed:.1f}s", flush=True)
     print("============================================================\n", flush=True)
 
-    return {
-        "schema_version": "longmemeval-live-v1",
-        "suite": "LongMemEval-S live API",
-        "suite_version": "live-api-search-v1",
-        "generated_at": _now(),
-        "sibyl_commit": _git_commit(),
-        "command": command,
-        "mode": LIVE_RETRIEVAL_MODE,
-        "runtime": {
-            "runtime_mode": "live-api-ephemeral",
-            "graph_engine": "surreal",
-            "store": "surreal",
-            "retrieval_mode": LIVE_RETRIEVAL_MODE,
-            "retrieval_surface": "POST /api/search",
-            "retrieval_contract": "sync entity writes plus /api/search graph results",
-            **embedding_runtime,
-            "readiness_strategy": "sync_write_plus_search_probe",
-            "per_question_isolation": "throwaway organization namespace per question",
-            "entity_content_max_chars": ENTITY_CONTENT_MAX_CHARS,
-            "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
-            "sample_strategy": sample_strategy,
-            "corpus_text_policy": corpus_text_policy,
-            "diagnostic_search_limit": diagnostic_search_limit,
-            "heartbeat_interval_seconds": heartbeat_interval_seconds,
-            "stall_timeout_seconds": stall_timeout_seconds,
-            "auto_extract_entities_env": _env_flag("SIBYL_AUTO_EXTRACT_ENTITIES"),
-            "wait_for_memory_extraction": wait_for_memory_extraction,
-            "memory_extraction_timeout_seconds": memory_extraction_timeout_seconds,
-            "graph_hnsw_efc_env": os.environ.get("SIBYL_GRAPH_HNSW_EFC", ""),
-            "graph_hnsw_m_env": os.environ.get("SIBYL_GRAPH_HNSW_M", ""),
-            "graph_knn_ef_env": os.environ.get("SIBYL_GRAPH_KNN_EF", ""),
-            "native_fusion_backend_env": os.environ.get("SIBYL_NATIVE_FUSION_BACKEND", ""),
-        },
-        "dataset": {
-            "name": dataset_path.stem,
-            "path": str(dataset_path),
-            "corpus_hash": _corpus_hash(dataset_path),
-            "total_entries": total_entries,
-            "evaluated_entries": len(selected_entries),
-            "limit": limit,
-            "sample_strategy": sample_strategy,
-            "selected_case_indices": selected_indices,
-            "corpus_text_policy": corpus_text_policy,
-            "diagnostic_search_limit": diagnostic_search_limit,
-            "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
-            "wait_for_memory_extraction": wait_for_memory_extraction,
-        },
-        "metadata": metadata or {},
-        "repeat_count": 1,
-        "auth_manifest_id": AUTH_MANIFEST_ID,
-        "k_values": k_values,
-        "total_questions": len(selected_entries),
-        "overall": overall,
-        "per_type": per_type,
-        "diagnostics": diagnostics,
-        "case_results": case_results,
-        "elapsed_seconds": elapsed,
-        "claim_boundary": (
-            "Live API runtime evidence for /api/search against an ephemeral "
-            "Sibyl stack with per-question throwaway org namespaces. This "
-            "artifact measures the production graph hybrid search path, "
-            "including native graph vector search when embedding config is "
-            "enabled."
-        ),
-    }
+    return report
 
 
 def main() -> None:
@@ -1382,8 +1476,12 @@ def main() -> None:
     if args.label:
         metadata["label"] = args.label
 
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    out_path = args.output or ROOT / "benchmarks" / "results" / "ai-memory" / (
+        f"longmemeval_live_api_{timestamp}.json"
+    )
     try:
-        report = asyncio.run(
+        asyncio.run(
             run_benchmark(
                 args.data,
                 api_url=args.api_url,
@@ -1403,18 +1501,13 @@ def main() -> None:
                 wait_for_memory_extraction=args.wait_for_memory_extraction,
                 memory_extraction_timeout_seconds=args.memory_extraction_timeout,
                 verify_sha256=not args.skip_sha256_check,
+                output_path=out_path,
             )
         )
     except LongMemEvalLiveError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    out_path = args.output or ROOT / "benchmarks" / "results" / "ai-memory" / (
-        f"longmemeval_live_api_{timestamp}.json"
-    )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"  Results saved to {out_path}", flush=True)
 
 
