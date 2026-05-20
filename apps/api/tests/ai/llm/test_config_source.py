@@ -75,6 +75,29 @@ async def test_db_config_source_marks_env_overrides_as_locked() -> None:
 
 
 @pytest.mark.asyncio
+async def test_db_config_source_supports_memory_surface_db_values() -> None:
+    source = DBSettingsConfigSource(
+        FakeSettingsService(
+            {
+                "llm.memory.provider": "anthropic",
+                "llm.memory.model": "claude-haiku-4-5",
+                "llm.memory.temperature": "0",
+            }
+        ),
+        environ={},
+    )
+
+    resolved = await source.resolve(LLMSurface.MEMORY)
+
+    assert resolved.surface is LLMSurface.MEMORY
+    assert resolved.provider.value == "anthropic"
+    assert resolved.provider.source == "db"
+    assert resolved.model.value == "claude-haiku-4-5"
+    assert resolved.model.source == "db"
+    assert resolved.temperature.value == 0.0
+
+
+@pytest.mark.asyncio
 async def test_db_config_source_caches_until_invalidated() -> None:
     settings = FakeSettingsService({"llm.default.model": "claude-haiku-4-5"})
     source = DBSettingsConfigSource(settings, environ={})

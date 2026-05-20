@@ -63,6 +63,27 @@ async def test_env_config_source_surface_env_wins_over_global_env() -> None:
 
 
 @pytest.mark.asyncio
+async def test_env_config_source_supports_memory_surface_env() -> None:
+    source = EnvConfigSource(
+        {
+            "SIBYL_LLM_MEMORY_PROVIDER": "openai",
+            "SIBYL_LLM_MEMORY_MODEL": "gpt-5.4-mini",
+            "SIBYL_OPENAI_API_KEY": "openai-key",
+        }
+    )
+
+    resolved = await source.resolve(LLMSurface.MEMORY)
+
+    assert resolved.surface is LLMSurface.MEMORY
+    assert resolved.provider.value == "openai"
+    assert resolved.provider.env_var == "SIBYL_LLM_MEMORY_PROVIDER"
+    assert resolved.model.value == "gpt-5.4-mini"
+    assert resolved.model.env_var == "SIBYL_LLM_MEMORY_MODEL"
+    assert resolved.api_key.value is not None
+    assert resolved.api_key.value.get_secret_value() == "openai-key"
+
+
+@pytest.mark.asyncio
 async def test_env_config_source_uses_google_api_key_fallback_for_gemini() -> None:
     source = EnvConfigSource({"SIBYL_LLM_PROVIDER": "gemini", "GOOGLE_API_KEY": "google-key"})
 

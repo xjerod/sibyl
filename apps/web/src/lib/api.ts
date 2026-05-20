@@ -896,7 +896,7 @@ export interface DeleteSettingResponse {
 }
 
 export type LLMProviderName = 'anthropic' | 'gemini' | 'openai';
-export type LLMSurface = 'default' | 'crawler' | 'synthesis';
+export type LLMSurface = 'default' | 'crawler' | 'memory' | 'synthesis';
 export type AIModelKind = 'llm' | 'embedding';
 export type LLMConfigSource = 'env' | 'db' | 'default';
 export type LLMValidationStatus =

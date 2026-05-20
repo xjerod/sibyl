@@ -93,7 +93,7 @@ async def get_llm_settings(request: Request) -> LLMSettingsResponse:
     source = get_config_source()
     surfaces = {
         surface: _surface_settings(await source.resolve(surface))
-        for surface in (LLMSurface.DEFAULT, LLMSurface.CRAWLER, LLMSurface.SYNTHESIS)
+        for surface in LLMSurface
     }
     return LLMSettingsResponse(surfaces=surfaces)
 

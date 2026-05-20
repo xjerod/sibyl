@@ -18,6 +18,7 @@ LLMProviderName = Literal["anthropic", "gemini", "openai"]
 class LLMSurface(StrEnum):
     DEFAULT = "default"
     CRAWLER = "crawler"
+    MEMORY = "memory"
     SYNTHESIS = "synthesis"
 
 

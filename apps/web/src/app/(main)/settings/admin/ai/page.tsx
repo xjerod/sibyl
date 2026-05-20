@@ -86,6 +86,12 @@ const SURFACES: Array<{
     useCase: 'extraction',
   },
   {
+    id: 'memory',
+    label: 'Memory',
+    description: 'Entity extraction from live memory and session prose.',
+    useCase: 'extraction',
+  },
+  {
     id: 'synthesis',
     label: 'Synthesis',
     description: 'Long-form generation and memory synthesis.',
@@ -646,7 +652,7 @@ export default function AIServicesPage() {
         flush
       >
         {isLLMLoading || !llmSettings ? (
-          <SettingsSectionSkeleton rows={3} rowHeight={120} showHeader={false} />
+          <SettingsSectionSkeleton rows={4} rowHeight={120} showHeader={false} />
         ) : (
           SURFACES.map(surface => (
             <LLMSurfaceRow

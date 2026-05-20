@@ -41,6 +41,7 @@ async def test_get_llm_settings_returns_instance_wide_shape(
     assert set(response.surfaces) == {
         LLMSurface.DEFAULT,
         LLMSurface.CRAWLER,
+        LLMSurface.MEMORY,
         LLMSurface.SYNTHESIS,
     }
     assert response.surfaces[LLMSurface.CRAWLER].api_key.configured is True

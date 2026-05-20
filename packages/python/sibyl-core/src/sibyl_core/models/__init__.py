@@ -27,6 +27,11 @@ from sibyl_core.models.entities import (
     Tool,
     Topic,
 )
+from sibyl_core.models.memory_extraction import (
+    ExtractedMemoryEntity,
+    MemoryEntityExtractionResult,
+    MemoryExtractionEntityType,
+)
 from sibyl_core.models.projects import (
     SHARED_PROJECT_DESCRIPTION,
     SHARED_PROJECT_NAME,
@@ -131,6 +136,7 @@ __all__ = [
     "EpicStatus",
     "Episode",
     "ErrorPattern",
+    "ExtractedMemoryEntity",
     "GetLanguageGuideInput",
     "GetRelatedInput",
     "GetTemplateInput",
@@ -139,6 +145,8 @@ __all__ = [
     "Language",
     "ListEntitiesInput",
     "ListResponse",
+    "MemoryEntityExtractionResult",
+    "MemoryExtractionEntityType",
     "Milestone",
     "MutationResponse",
     "Note",
