@@ -20,6 +20,12 @@ from sibyl_core.evals.longmemeval import (
 )
 
 ReplayStrategy = Literal["identity", "heuristic", "coverage", "oracle"]
+EVIDENCE_SET_QUERY_PATTERN = re.compile(
+    r"\b(how many|how much|total number|number of|count of)\b",
+)
+EVIDENCE_SET_WINDOW = 6
+EVIDENCE_SET_MIN_OVERLAP = 0.25
+EVIDENCE_SET_INSERT_MARGIN = 0.08
 
 STOP_WORDS = {
     "a",
@@ -286,13 +292,15 @@ def rerank_longmemeval_case(
     strategy: ReplayStrategy,
     corpus_text_policy: str,
 ) -> list[str]:
-    ranked_session_ids = [str(session_id) for session_id in case_result.get("ranked_session_ids", [])]
+    ranked_session_ids = [
+        str(session_id) for session_id in case_result.get("ranked_session_ids", [])
+    ]
     if strategy == "identity" or not ranked_session_ids:
         return ranked_session_ids
 
     if strategy == "oracle":
         answers = {str(session_id) for session_id in case_result.get("answer_session_ids", [])}
-        return sorted(ranked_session_ids, key=lambda session_id: (session_id not in answers))
+        return sorted(ranked_session_ids, key=lambda session_id: session_id not in answers)
 
     text_by_session_id = {
         document.session_id: (document.text, document.timestamp)
@@ -369,7 +377,9 @@ def _answer_ranks(
 ) -> list[dict[str, int | str | None]]:
     ranks: list[dict[str, int | str | None]] = []
     for session_id in answer_session_ids:
-        rank = ranked_session_ids.index(session_id) + 1 if session_id in ranked_session_ids else None
+        rank = (
+            ranked_session_ids.index(session_id) + 1 if session_id in ranked_session_ids else None
+        )
         ranks.append({"session_id": session_id, "rank": rank})
     return ranks
 
@@ -399,8 +409,10 @@ def _detect_intents(
     temporal = question_type in {"knowledge-update", "temporal-reasoning"} or bool(
         words & (RECENCY_TERMS | TEMPORAL_TERMS)
     )
-    recent = question_type == "knowledge-update" or "most recently" in query.lower() or bool(
-        words & RECENCY_TERMS
+    recent = (
+        question_type == "knowledge-update"
+        or "most recently" in query.lower()
+        or bool(words & RECENCY_TERMS)
     )
     multi_evidence = question_type in {"multi-session", "temporal-reasoning"} or bool(
         words & MULTI_EVIDENCE_TERMS
@@ -471,7 +483,7 @@ def _score_query_coverage(
             for candidate in candidates
         ]
 
-    scored: list[tuple[float, _Candidate]] = []
+    scored: list[tuple[float, _Candidate, float]] = []
     total = max(1, len(candidates) - 1)
     for candidate in candidates:
         original_rank_score = 1.0 - ((candidate.original_rank - 1) / total)
@@ -481,9 +493,44 @@ def _score_query_coverage(
             math.sqrt(len(candidate.tokens)),
         )
         score = (0.75 * original_rank_score) + (0.30 * overlap) + (0.08 * density)
-        scored.append((score, candidate))
+        scored.append((score, candidate, overlap))
 
-    return sorted(scored, key=lambda item: (-item[0], item[1].original_rank))
+    if EVIDENCE_SET_QUERY_PATTERN.search(query.lower()):
+        scored = _stabilize_evidence_set_scores(scored)
+    else:
+        scored = sorted(scored, key=lambda item: (-item[0], item[1].original_rank))
+
+    return [(score, candidate) for score, candidate, _overlap in scored]
+
+
+def _stabilize_evidence_set_scores(
+    scores: list[tuple[float, _Candidate, float]],
+) -> list[tuple[float, _Candidate, float]]:
+    window_size = min(EVIDENCE_SET_WINDOW, len(scores))
+    selected = list(scores[:window_size])
+    selected_ids = {candidate.session_id for _score, candidate, _overlap in selected}
+    ranked_by_coverage = sorted(scores, key=lambda item: (-item[0], item[1].original_rank))
+
+    for candidate_score, candidate, overlap in ranked_by_coverage:
+        if candidate.session_id in selected_ids or overlap < EVIDENCE_SET_MIN_OVERLAP:
+            continue
+
+        worst_index, worst = min(
+            enumerate(selected),
+            key=lambda item: (item[1][0], -item[1][1].original_rank),
+        )
+        worst_score, worst_candidate, _worst_overlap = worst
+        if candidate_score <= worst_score + EVIDENCE_SET_INSERT_MARGIN:
+            continue
+
+        selected[worst_index] = (candidate_score, candidate, overlap)
+        selected_ids.remove(worst_candidate.session_id)
+        selected_ids.add(candidate.session_id)
+
+    selected = sorted(selected, key=lambda item: (-item[0], item[1].original_rank))
+    return selected + [
+        candidate for candidate in ranked_by_coverage if candidate[1].session_id not in selected_ids
+    ]
 
 
 def _diversify_ranking(scored: Sequence[tuple[float, _Candidate]]) -> list[str]:
@@ -496,7 +543,9 @@ def _diversify_ranking(scored: Sequence[tuple[float, _Candidate]]) -> list[str]:
         best_index = 0
         best_value = float("-inf")
         for index, (score, candidate) in enumerate(remaining):
-            novelty = _novelty(candidate, [selected_candidate for _, selected_candidate in selected])
+            novelty = _novelty(
+                candidate, [selected_candidate for _, selected_candidate in selected]
+            )
             value = (0.86 * score) + (0.14 * novelty)
             if value > best_value:
                 best_value = value

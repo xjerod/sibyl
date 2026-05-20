@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -104,7 +104,7 @@ def score_longmemeval_ranking(
     return metrics
 
 
-def average_metric(results: list[Mapping[str, Any]], metric: str) -> float:
+def average_metric(results: Sequence[Mapping[str, Any]], metric: str) -> float:
     if not results:
         return 0.0
     return sum(float(result[metric]) for result in results) / len(results)

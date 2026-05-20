@@ -70,6 +70,12 @@ _KEYWORD_STOPWORDS = {
 _QUERY_COVERAGE_RANK_WEIGHT = 0.75
 _QUERY_COVERAGE_OVERLAP_WEIGHT = 0.30
 _QUERY_COVERAGE_DENSITY_WEIGHT = 0.08
+_EVIDENCE_SET_QUERY_PATTERN = re.compile(
+    r"\b(how many|how much|total number|number of|count of)\b",
+)
+_EVIDENCE_SET_WINDOW = 6
+_EVIDENCE_SET_MIN_OVERLAP = 0.25
+_EVIDENCE_SET_INSERT_MARGIN = 0.08
 
 
 def _require_group_id(group_id: str | None, operation: str) -> str:
@@ -166,7 +172,7 @@ def _apply_query_coverage_rerank(
 
     query_terms = set(keywords)
     rank_span = max(1, len(results) - 1)
-    reranked: list[tuple[Any, float, int]] = []
+    reranked: list[tuple[Any, float, int, float]] = []
     has_text_signal = False
     for index, (entity, _score) in enumerate(results):
         tokens = _entity_keyword_tokens(entity)
@@ -183,17 +189,54 @@ def _apply_query_coverage_rerank(
             + (_QUERY_COVERAGE_DENSITY_WEIGHT * density)
         )
         has_text_signal = has_text_signal or overlap > 0.0 or density > 0.0
-        reranked.append((entity, score, index))
+        reranked.append((entity, score, index, overlap))
 
     if not has_text_signal:
         return results, False
 
-    reranked.sort(key=lambda item: (-item[1], item[2]))
+    if _EVIDENCE_SET_QUERY_PATTERN.search(query.lower()):
+        reranked = _stabilize_evidence_set_ranking(reranked)
+    else:
+        reranked.sort(key=lambda item: (-item[1], item[2]))
     changed = any(
         entity is not results[index][0]
-        for index, (entity, _score, _rank) in enumerate(reranked)
+        for index, (entity, _score, _rank, _overlap) in enumerate(reranked)
     )
-    return [(entity, score) for entity, score, _rank in reranked], changed
+    return [(entity, score) for entity, score, _rank, _overlap in reranked], changed
+
+
+def _stabilize_evidence_set_ranking(
+    scores: list[tuple[Any, float, int, float]],
+) -> list[tuple[Any, float, int, float]]:
+    window_size = min(_EVIDENCE_SET_WINDOW, len(scores))
+    selected = list(scores[:window_size])
+    selected_ids = {_entity_id(entity) for entity, _score, _rank, _overlap in selected}
+    ranked_by_coverage = sorted(scores, key=lambda item: (-item[1], item[2]))
+
+    for candidate in ranked_by_coverage:
+        entity, score, _rank, overlap = candidate
+        entity_id = _entity_id(entity)
+        if entity_id in selected_ids or overlap < _EVIDENCE_SET_MIN_OVERLAP:
+            continue
+
+        worst_index, worst = min(
+            enumerate(selected),
+            key=lambda item: (item[1][1], -item[1][2]),
+        )
+        worst_entity, worst_score, _worst_rank, _worst_overlap = worst
+        if score <= worst_score + _EVIDENCE_SET_INSERT_MARGIN:
+            continue
+
+        selected[worst_index] = candidate
+        selected_ids.remove(_entity_id(worst_entity))
+        selected_ids.add(entity_id)
+
+    selected = sorted(selected, key=lambda item: (-item[1], item[2]))
+    return selected + [
+        candidate
+        for candidate in ranked_by_coverage
+        if _entity_id(candidate[0]) not in selected_ids
+    ]
 
 
 @dataclass
