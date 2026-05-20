@@ -161,6 +161,11 @@ DELETE FROM relates_to
 WHERE in NOT IN (SELECT VALUE id FROM entity)
    OR out NOT IN (SELECT VALUE id FROM entity);
 
+UPDATE relates_to SET
+    episodes = episodes ?? [],
+    attributes = attributes ?? {}
+WHERE episodes = NONE OR attributes = NONE;
+
 DELETE FROM mentions
 WHERE in NOT IN (SELECT VALUE id FROM episode)
    OR out NOT IN (SELECT VALUE id FROM entity);
@@ -246,6 +251,14 @@ DEFINE INDEX IF NOT EXISTS idx_has_member_uuid ON has_member FIELDS uuid UNIQUE;
 """
 
 
+CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS = """
+UPDATE entity SET
+    description = description ?? attributes.description,
+    content = content ?? attributes.content
+WHERE description = NONE OR content = NONE;
+""" + RELATION_EDGE_CLEANUP_DEFINITIONS
+
+
 GRAPH_TABLES = ("entity", "episode", "community", "saga")
 GRAPH_EDGES = ("relates_to", "mentions", "has_episode", "next_episode", "has_member")
 GRAPH_SCHEMA_MIGRATIONS = (
@@ -262,7 +275,12 @@ def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
     return sql
 
 
-async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> None:
+async def bootstrap_schema(
+    driver: SurrealDriver,
+    *,
+    reset: bool = False,
+    force: bool = False,
+) -> None:
     if not driver.group_id:
         msg = "bootstrap_schema requires driver.clone(group_id) first"
         raise ValueError(msg)
@@ -273,27 +291,33 @@ async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> Non
     else:
         await ensure_schema_version_table(driver.execute_query, group_id=driver.group_id)
         if await get_schema_version(driver.execute_query) >= GRAPH_SCHEMA_CURRENT_VERSION:
-            return
+            await _execute_graph_schema_block(driver, CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS)
+            if not force:
+                return
 
     compatible_blocks = (
         ANALYZER_DEFINITIONS,
         render_fulltext_compatible_sql(NODE_DEFINITIONS, url=driver._url),
-        render_fulltext_compatible_sql(EDGE_DEFINITIONS, url=driver._url),
         RELATION_EDGE_CLEANUP_DEFINITIONS,
+        render_fulltext_compatible_sql(EDGE_DEFINITIONS, url=driver._url),
     )
     for block in compatible_blocks:
-        for statement in split_statements(block):
-            await execute_schema_statement(
-                driver.execute_query,
-                statement,
-                scope="graph",
-                group_id=driver.group_id,
-            )
+        await _execute_graph_schema_block(driver, block)
     await apply_schema_migrations(
         driver.execute_query,
         GRAPH_SCHEMA_MIGRATIONS,
         group_id=driver.group_id,
     )
+
+
+async def _execute_graph_schema_block(driver: SurrealDriver, block: str) -> None:
+    for statement in split_statements(block):
+        await execute_schema_statement(
+            driver.execute_query,
+            statement,
+            scope="graph",
+            group_id=driver.group_id,
+        )
 
 
 async def drop_all_indexes(driver: SurrealDriver) -> None:

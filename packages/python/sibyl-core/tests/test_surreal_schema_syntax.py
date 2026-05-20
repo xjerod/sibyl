@@ -15,6 +15,7 @@ from sibyl_core.backends.surreal.content_schema import (
     bootstrap_content_schema,
 )
 from sibyl_core.backends.surreal.schema import (
+    CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
     EDGE_DEFINITIONS,
     NODE_DEFINITIONS,
     RELATION_EDGE_CLEANUP_DEFINITIONS,
@@ -141,7 +142,7 @@ def test_graph_relation_cleanup_covers_all_relation_tables() -> None:
 
 
 @pytest.mark.asyncio
-async def test_graph_bootstrap_defines_relations_before_cleanup() -> None:
+async def test_graph_bootstrap_cleans_relations_before_enforcement() -> None:
     client = _RecordingSchemaClient()
 
     await bootstrap_schema(client)  # type: ignore[arg-type]
@@ -154,18 +155,21 @@ async def test_graph_bootstrap_defines_relations_before_cleanup() -> None:
     cleanup_index = next(
         index for index, statement in enumerate(client.calls) if "DELETE FROM relates_to" in statement
     )
-    assert relation_define_index < cleanup_index
+    assert cleanup_index < relation_define_index
 
 
 @pytest.mark.asyncio
-async def test_graph_bootstrap_skips_heavy_schema_when_version_is_current() -> None:
+async def test_graph_bootstrap_runs_light_maintenance_when_version_is_current() -> None:
     client = _RecordingSchemaClient(schema_version=GRAPH_SCHEMA_CURRENT_VERSION)
 
     await bootstrap_schema(client)  # type: ignore[arg-type]
 
     assert not any("REMOVE INDEX" in statement for statement in client.calls)
-    assert not any("UPDATE entity SET" in statement for statement in client.calls)
+    assert any("UPDATE entity SET" in statement for statement in client.calls)
     assert not any("DEFINE TABLE IF NOT EXISTS entity" in statement for statement in client.calls)
+    assert "description = description ?? attributes.description" in (
+        CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
+    )
 
 
 def test_graph_schema_version_table_is_schemafull() -> None:

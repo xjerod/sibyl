@@ -75,10 +75,14 @@ async def get_graph_client(group_id: str = "default") -> NativeSurrealGraphClien
 async def get_graph_runtime(group_id: str) -> ActiveGraphRuntime:
     """Bind the native graph managers for a single organization."""
 
-    runtime = await get_native_graph_runtime(
-        str(group_id),
-        embedding_provider=configured_native_embedding_provider(),
-    )
+    embedding_provider = configured_native_embedding_provider()
+    if embedding_provider is None:
+        runtime = await get_native_graph_runtime(str(group_id))
+    else:
+        runtime = await get_native_graph_runtime(
+            str(group_id),
+            embedding_provider=embedding_provider,
+        )
     return ActiveGraphRuntime(
         client=runtime.client,
         entity_manager=runtime.entity_manager,

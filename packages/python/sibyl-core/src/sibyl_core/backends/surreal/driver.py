@@ -1010,7 +1010,7 @@ class SurrealDriver:
 
         from sibyl_core.backends.surreal.schema import bootstrap_schema
 
-        await bootstrap_schema(self, reset=delete_existing)
+        await bootstrap_schema(self, reset=delete_existing, force=not delete_existing)
 
     def build_fulltext_query(
         self,
