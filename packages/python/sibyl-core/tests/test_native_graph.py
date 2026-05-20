@@ -386,6 +386,47 @@ async def test_native_entity_manager_bulk_writes_entities_in_one_surreal_batch()
 
 
 @pytest.mark.asyncio
+async def test_native_project_summary_sorts_critical_tasks_by_priority() -> None:
+    entity_manager = NativeEntityManager(cast(Any, object()), group_id="org-native-graph")
+    entity_manager.list_by_type = AsyncMock(  # type: ignore[method-assign]
+        return_value=[
+            Entity(
+                id="task-high",
+                entity_type=EntityType.TASK,
+                name="High task",
+                description="",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "status": "todo",
+                    "priority": "high",
+                },
+            ),
+            Entity(
+                id="task-critical",
+                entity_type=EntityType.TASK,
+                name="Critical task",
+                description="",
+                organization_id="org-native-graph",
+                metadata={
+                    "project_id": "project_native",
+                    "status": "todo",
+                    "priority": "critical",
+                },
+            ),
+        ]
+    )
+    entity_manager.list_epics_for_project = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    summary = await entity_manager.get_project_summary("project_native")
+
+    assert [task["id"] for task in summary["critical_tasks"]] == [
+        "task-critical",
+        "task-high",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_native_relationship_manager_generates_fact_embeddings() -> None:
     client = _EmbeddingWriteClient()
     provider = _deterministic_provider()

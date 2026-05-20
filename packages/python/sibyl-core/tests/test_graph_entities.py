@@ -3329,6 +3329,7 @@ class TestGetProjectSummary:
         assert result["status_counts"]["blocked"] == 1
         assert result["status_counts"]["done"] == 1
         assert result["progress_pct"] == round(1 / 3 * 100, 1)
+        assert [task["id"] for task in result["critical_tasks"]] == ["task-001", "task-002"]
         assert result["epics"][0]["progress_pct"] == round(1 / 3 * 100, 1)
         list_by_type.assert_awaited_once_with(
             EntityType.TASK,
@@ -3441,7 +3442,7 @@ class TestGetProjectSummary:
         # Should have actionable tasks prioritized: doing > blocked
         assert len(result["actionable_tasks"]) > 0
         # Critical task should be in critical_tasks
-        assert len(result["critical_tasks"]) > 0
+        assert [task["id"] for task in result["critical_tasks"]] == ["task-001", "task-003"]
         assert result["epics"][0]["progress_pct"] == 25.0
         assert result["epics"][0]["total_tasks"] == 4
         assert mock_driver.execute_query.await_count == 2

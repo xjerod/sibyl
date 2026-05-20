@@ -70,6 +70,17 @@ _SEARCH_STOP_WORDS = {
     "with",
 }
 _MAX_TASK_FILTER_VALUES = 25
+_TASK_PRIORITY_ORDER = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "someday": 4,
+}
+
+
+def _task_priority_rank(task_info: dict[str, Any]) -> int:
+    return _TASK_PRIORITY_ORDER.get(str(task_info.get("priority") or "").lower(), 99)
 
 
 class EpisodeType(StrEnum):
@@ -2707,7 +2718,7 @@ class EntityManager:
                     is_critical = (
                         priority.lower() in ("critical", "high") or "CRITICAL" in task.name.upper()
                     ) and status_value not in ("done", "archived")
-                    if is_critical and len(critical_tasks) < critical_limit:
+                    if is_critical:
                         critical_tasks.append(task_info)
                     if status_value == "doing" and len(doing_tasks) < actionable_limit:
                         doing_tasks.append(task_info)
@@ -2718,6 +2729,7 @@ class EntityManager:
                     elif len(recent_tasks) < actionable_limit:
                         recent_tasks.append(task_info)
 
+                critical_tasks = sorted(critical_tasks, key=_task_priority_rank)[:critical_limit]
                 actionable: list[dict[str, Any]] = []
                 for pool in [doing_tasks, blocked_tasks, review_tasks, recent_tasks]:
                     for task_info in pool:
@@ -2847,7 +2859,7 @@ class EntityManager:
                     priority.lower() in ("critical", "high") or "CRITICAL" in name.upper()
                 ) and status not in ("done", "archived")
 
-                if is_critical and len(critical_tasks) < critical_limit:
+                if is_critical:
                     critical_tasks.append(task_info)
 
                 # Collect actionable tasks by priority
@@ -2861,6 +2873,7 @@ class EntityManager:
                     recent_tasks.append(task_info)
 
             # Build prioritized actionable list: doing > blocked > review > recent
+            critical_tasks = sorted(critical_tasks, key=_task_priority_rank)[:critical_limit]
             actionable: list[dict[str, Any]] = []
             for pool in [doing_tasks, blocked_tasks, review_tasks, recent_tasks]:
                 for task in pool:

@@ -214,6 +214,22 @@ sibyl recall "plan the launch" --intent plan --json
 
 ---
 
+### Context Pack - Structured Agent Context
+
+```bash
+# Markdown for agent injection
+sibyl context pack "evaluate launch readiness" --intent plan --domain sibyl --markdown
+
+# JSON for auditing sections, IDs, source quality, and noisy retrieval
+sibyl context pack "debug memory retrieval" --intent debug --json
+```
+
+**When to use:** When you need the structured context that hooks and agents consume directly. Audit
+the pack when context feels off. Relationship-edge records such as `BELONGS_TO` with `rel_*` IDs are
+projection noise, not domain knowledge.
+
+---
+
 ### Remember - Agent Memory Capture
 
 ```bash

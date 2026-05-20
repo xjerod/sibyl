@@ -510,6 +510,38 @@ async def test_compile_context_supports_non_software_ideation_domains(
 
 
 @pytest.mark.asyncio
+async def test_compile_context_filters_synthetic_relationship_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.DOMAIN: [
+            _result(
+                "rel_pattern_123_belongs_to_project_456",
+                "claim",
+                "BELONGS_TO",
+                metadata={
+                    "relationship": "BELONGS_TO",
+                    "source_id": "rel_pattern_123_belongs_to_project_456",
+                    "source_node_uuid": "pattern_123",
+                    "target_node_uuid": "project_456",
+                },
+            ),
+            _result("claim-1", "claim", "LongMemEval receipts are required"),
+        ],
+    }
+    monkeypatch.setattr(context_module, "native_context_search", _facet_native_search(responses))
+
+    pack = await compile_context(
+        "evaluate 1.0 readiness",
+        intent="plan",
+        domain="sibyl",
+        organization_id="org-123",
+    )
+
+    assert [item.id for item in pack.items] == ["claim-1"]
+
+
+@pytest.mark.asyncio
 async def test_compile_context_dedupes_results_across_facets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

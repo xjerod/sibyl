@@ -47,6 +47,13 @@ _prepared_groups: set[str] = set()
 _prepare_lock = asyncio.Lock()
 _client_lock = asyncio.Lock()
 _clients: OrderedDict[str, NativeSurrealGraphClient] = OrderedDict()
+_TASK_PRIORITY_ORDER = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "someday": 4,
+}
 _ENTITY_LIST_FIELDS = "* OMIT content, embedding, name_embedding, attributes.content"
 _ENTITY_BULK_UPSERT_QUERY = """
 INSERT INTO entity $rows ON DUPLICATE KEY UPDATE
@@ -539,7 +546,7 @@ class NativeEntityManager:
             is_critical = (
                 priority.lower() in ("critical", "high") or "CRITICAL" in task.name.upper()
             ) and status_value not in ("done", "archived")
-            if is_critical and len(critical_tasks) < critical_limit:
+            if is_critical:
                 critical_tasks.append(task_info)
             if status_value == "doing" and len(doing_tasks) < actionable_limit:
                 doing_tasks.append(task_info)
@@ -551,6 +558,7 @@ class NativeEntityManager:
                 recent_tasks.append(task_info)
 
         actionable: list[dict[str, Any]] = []
+        critical_tasks = sorted(critical_tasks, key=_task_priority_rank)[:critical_limit]
         for pool in (doing_tasks, blocked_tasks, review_tasks, recent_tasks):
             for task_info in pool:
                 if len(actionable) >= actionable_limit:
@@ -1873,6 +1881,10 @@ def _lower_filter_values(value: str | None) -> list[str]:
     if not value:
         return []
     return [part.strip().lower() for part in value.split(",") if part.strip()]
+
+
+def _task_priority_rank(task_info: dict[str, Any]) -> int:
+    return _TASK_PRIORITY_ORDER.get(str(task_info.get("priority") or "").lower(), 99)
 
 
 def _lower_sequence_values(values: Sequence[str] | None) -> list[str]:

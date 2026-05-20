@@ -295,6 +295,17 @@ def _quality_metadata_from_result(result: SearchResult) -> Any:
     return ContextItemQualityMetadata(**values)
 
 
+def _is_synthetic_relationship_result(result: SearchResult) -> bool:
+    metadata = result.metadata or {}
+    source_id = str(metadata.get("source_id") or result.id)
+    return bool(
+        metadata.get("relationship")
+        and metadata.get("source_node_uuid")
+        and metadata.get("target_node_uuid")
+        and source_id.startswith("rel_")
+    )
+
+
 async def _default_related_items(
     *,
     entity_id: str,
@@ -560,6 +571,8 @@ async def _compile_fallback_sections(
 
     grouped: dict[ContextFacet, list[ContextItem]] = {facet: [] for facet in facets}
     for result in response.results:
+        if _is_synthetic_relationship_result(result):
+            continue
         facet = _facet_for_type(result.type or "", facets)
         grouped[facet].append(_item_from_result(result, facet))
 
@@ -593,7 +606,11 @@ async def _compile_facet_section(
         include_graph=True,
         organization_id=organization_id,
     )
-    items = [_item_from_result(result, facet) for result in response.results]
+    items = [
+        _item_from_result(result, facet)
+        for result in response.results
+        if not _is_synthetic_relationship_result(result)
+    ]
     if not items:
         return None
     return ContextSection(facet=facet, title=FACET_TITLES[facet], items=items)
