@@ -49,7 +49,7 @@ sibyl serve
 ```bash
 uv tool install sibyl-dev
 sibyl init --remote https://sibyl.example.com
-sibyl auth login
+sibyl login
 sibyl doctor
 ```
 
@@ -168,6 +168,9 @@ sibyl init --local
 sibyl serve
 sibyl doctor
 ```
+
+Use `sibyl start`/`sibyl stop` for a background daemon. To install a native user-service file without
+starting it automatically, run `sibyl service install`.
 
 ### Development Mode
 

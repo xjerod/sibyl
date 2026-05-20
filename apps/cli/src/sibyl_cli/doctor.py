@@ -134,9 +134,7 @@ def _load_config_context() -> tuple[list[DoctorCheck], DoctorContext | None]:
     config = config_store.load_config()
     active_name = str(config.get("active_context") or "").strip()
     contexts = raw_config.get("contexts", {})
-    checks: list[DoctorCheck] = [
-        DoctorCheck("config", "pass", f"Config file is readable: {path}")
-    ]
+    checks: list[DoctorCheck] = [DoctorCheck("config", "pass", f"Config file is readable: {path}")]
 
     if active_name:
         ctx = config_store.get_context(active_name)

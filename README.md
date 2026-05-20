@@ -108,14 +108,15 @@ sibyl serve
 ```
 
 Homebrew installs both `sibyl` and `sibyld`. The local context runs an embedded SurrealDB store
-under `~/.sibyl/data/surreal`; use `sibyl stop` when you start it in the background.
+under `~/.sibyl/data/surreal`; use `sibyl start`/`sibyl stop` for a background daemon or
+`sibyl service install` to write a launchd/systemd user service.
 
 ### Python Tools
 
 ```bash
 uv tool install sibyl-dev
 sibyl init --remote https://sibyl.example.com
-sibyl auth login
+sibyl login
 ```
 
 For a Python-only local install, add the daemon package:

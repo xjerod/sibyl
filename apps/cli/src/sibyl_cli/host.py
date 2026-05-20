@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import os
+import platform
+import plistlib
+import shlex
+import shutil
 import signal
 import subprocess
 import time
@@ -21,6 +25,9 @@ SIBYL_RUN_DIR = Path.home() / ".sibyl" / "run"
 SIBYLD_PID_FILE = SIBYL_RUN_DIR / "sibyld.pid"
 SIBYLD_LOG_FILE = SIBYL_RUN_DIR / "sibyld.log"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+SERVICE_LABEL = "tech.hyperbliss.sibyl"
+
+service_app = typer.Typer(help="Install local daemon service files")
 
 
 @dataclass(frozen=True)
@@ -43,7 +50,11 @@ def pid_alive(pid: int) -> bool:
 
 def resolve_host_context() -> HostContext | None:
     context_name = get_context_override()
-    ctx = config_store.get_context(context_name) if context_name else config_store.get_active_context()
+    ctx = (
+        config_store.get_context(context_name)
+        if context_name
+        else config_store.get_active_context()
+    )
     if ctx is None:
         return None
     return HostContext(name=ctx.name, server_url=ctx.server_url)
@@ -75,9 +86,15 @@ def read_pid(path: Path | None = None) -> int | None:
         return None
 
 
-def daemon_command(host: str, port: int, transport: str) -> list[str]:
+def daemon_command(
+    host: str,
+    port: int,
+    transport: str,
+    *,
+    executable: str = "sibyld",
+) -> list[str]:
     return [
-        "sibyld",
+        executable,
         "serve",
         "--embedded",
         "--host",
@@ -89,15 +106,68 @@ def daemon_command(host: str, port: int, transport: str) -> list[str]:
     ]
 
 
+def resolve_sibyld_executable() -> str:
+    return shutil.which("sibyld") or "sibyld"
+
+
+def launchd_plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
+
+
+def systemd_unit_path() -> Path:
+    return Path.home() / ".config" / "systemd" / "user" / "sibyl.service"
+
+
+def service_log_file() -> Path:
+    return SIBYL_RUN_DIR / "sibyld.service.log"
+
+
+def render_launchd_plist(command: list[str]) -> str:
+    log_path = service_log_file()
+    payload = {
+        "Label": SERVICE_LABEL,
+        "ProgramArguments": command,
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "WorkingDirectory": str(Path.home()),
+        "StandardOutPath": str(log_path),
+        "StandardErrorPath": str(log_path),
+    }
+    return plistlib.dumps(payload, sort_keys=True).decode("utf-8")
+
+
+def render_systemd_unit(command: list[str]) -> str:
+    return "\n".join(
+        [
+            "[Unit]",
+            "Description=Sibyl local embedded daemon",
+            "After=network-online.target",
+            "",
+            "[Service]",
+            "Type=simple",
+            f"ExecStart={shlex.join(command)}",
+            "Restart=on-failure",
+            "RestartSec=5",
+            "WorkingDirectory=%h",
+            f"StandardOutput=append:{service_log_file()}",
+            f"StandardError=append:{service_log_file()}",
+            "",
+            "[Install]",
+            "WantedBy=default.target",
+            "",
+        ]
+    )
+
+
 def serve(
     host: Annotated[str, typer.Option("--host", help="Host to bind")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 3334,
     transport: Annotated[str, typer.Option("--transport", "-t", help="MCP transport")] = (
         "streamable-http"
     ),
-    background: Annotated[bool, typer.Option("--background", "-d", help="Run in the background")] = (
-        False
-    ),
+    background: Annotated[
+        bool, typer.Option("--background", "-d", help="Run in the background")
+    ] = (False),
     web: Annotated[bool, typer.Option("--web", help="Also start the web UI when bundled")] = False,
 ) -> None:
     """Start the local embedded Sibyl daemon for the active local context."""
@@ -135,8 +205,22 @@ def serve(
     console.print(f"  [{NEON_CYAN}]Logs:[/{NEON_CYAN}]    {SIBYLD_LOG_FILE}")
 
 
+def start(
+    host: Annotated[str, typer.Option("--host", help="Host to bind")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 3334,
+    transport: Annotated[str, typer.Option("--transport", "-t", help="MCP transport")] = (
+        "streamable-http"
+    ),
+    web: Annotated[bool, typer.Option("--web", help="Also start the web UI when bundled")] = False,
+) -> None:
+    """Start the local embedded Sibyl daemon in the background."""
+    serve(host=host, port=port, transport=transport, background=True, web=web)
+
+
 def stop(
-    timeout: Annotated[float, typer.Option("--timeout", help="Seconds to wait before failing")] = 5.0,
+    timeout: Annotated[
+        float, typer.Option("--timeout", help="Seconds to wait before failing")
+    ] = 5.0,
 ) -> None:
     """Stop the background local embedded daemon."""
     pid = read_pid()
@@ -159,3 +243,64 @@ def stop(
 
     error(f"sibyld pid {pid} did not stop within {timeout:g}s.")
     raise typer.Exit(1)
+
+
+@service_app.command("install")
+def install_service(
+    host: Annotated[str, typer.Option("--host", help="Host to bind")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 3334,
+    transport: Annotated[str, typer.Option("--transport", "-t", help="MCP transport")] = (
+        "streamable-http"
+    ),
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Overwrite an existing service file")
+    ] = (False),
+) -> None:
+    """Write a native user-service file for the active local context."""
+    ctx = require_local_context()
+    system = platform.system()
+    command = daemon_command(
+        host,
+        port,
+        transport,
+        executable=resolve_sibyld_executable(),
+    )
+
+    if system == "Darwin":
+        path = launchd_plist_path()
+        content = render_launchd_plist(command)
+        start_command = f"launchctl bootstrap gui/$(id -u) {shlex.quote(str(path))}"
+    elif system == "Linux":
+        path = systemd_unit_path()
+        content = render_systemd_unit(command)
+        start_command = "systemctl --user enable --now sibyl.service"
+    else:
+        error(f"Native service install is not supported on {system or 'this platform'}.")
+        raise typer.Exit(1)
+
+    if path.exists() and not force:
+        error(f"{path} already exists. Use --force to overwrite it.")
+        raise typer.Exit(1)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    SIBYL_RUN_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+    success(f"Installed Sibyl service file for context '{ctx.name}'")
+    console.print(f"  [{NEON_CYAN}]File:[/{NEON_CYAN}]  {path}")
+    console.print(f"  [{NEON_CYAN}]Logs:[/{NEON_CYAN}]  {service_log_file()}")
+    info("The service was not started automatically.")
+    info(f"Start it with: {start_command}")
+
+
+@service_app.command("path")
+def service_path() -> None:
+    """Print the native service file path for this platform."""
+    system = platform.system()
+    if system == "Darwin":
+        console.print(str(launchd_plist_path()))
+    elif system == "Linux":
+        console.print(str(systemd_unit_path()))
+    else:
+        error(f"Native service files are not supported on {system or 'this platform'}.")
+        raise typer.Exit(1)

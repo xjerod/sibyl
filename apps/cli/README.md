@@ -11,8 +11,8 @@ designed for humans, external assistants, and scripts. The package is published 
 uv tool install sibyl-dev     # or: moon run cli:install
 
 # Configure
-sibyl config set server.url http://localhost:3334/api
-sibyl auth login
+sibyl init --remote https://sibyl.example.com
+sibyl login
 
 # Link to project (scopes all commands)
 sibyl project link <project_id>

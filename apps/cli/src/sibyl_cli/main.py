@@ -19,6 +19,9 @@ import typer
 from sibyl_cli import config_store
 from sibyl_cli.archive import app as archive_app
 from sibyl_cli.auth import app as auth_app
+from sibyl_cli.auth import clear_token_cmd as logout_cmd
+from sibyl_cli.auth import login_cmd
+from sibyl_cli.auth import status_cmd as whoami_cmd
 from sibyl_cli.client import SibylClientError, get_client
 from sibyl_cli.common import (
     CORAL,
@@ -46,6 +49,8 @@ from sibyl_cli.entity import app as entity_app
 from sibyl_cli.epic import app as epic_app
 from sibyl_cli.explore import app as explore_app
 from sibyl_cli.host import serve as serve_cmd
+from sibyl_cli.host import service_app
+from sibyl_cli.host import start as start_cmd
 from sibyl_cli.host import stop as stop_cmd
 from sibyl_cli.id_resolution import resolve_id_prefix, resolve_raw_memory_id_prefix
 from sibyl_cli.local import app as local_app
@@ -107,6 +112,7 @@ app.add_typer(org_app, name="org")
 app.add_typer(config_app, name="config")
 app.add_typer(context_app, name="context")
 app.add_typer(docker_app, name="docker")
+app.add_typer(service_app, name="service")
 app.add_typer(local_app, name="local")
 app.add_typer(logs_app, name="logs")
 app.add_typer(update_app, name="update")
@@ -117,8 +123,12 @@ app.add_typer(memory_review_app, name="memory-review")
 app.add_typer(synthesis_app, name="synthesis")
 app.command("tasks", hidden=True)(list_tasks)
 app.command("doctor")(doctor_cmd)
+app.command("login")(login_cmd)
+app.command("logout")(logout_cmd)
 app.command("serve")(serve_cmd)
+app.command("start")(start_cmd)
 app.command("stop")(stop_cmd)
+app.command("whoami")(whoami_cmd)
 
 
 SEARCH_PREVIEW_CHARS = 220
@@ -1217,7 +1227,9 @@ def init_cmd(
     insecure: Annotated[
         bool, typer.Option("--insecure", "-k", help="Skip SSL verification for this context")
     ] = False,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Update an existing context")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Update an existing context")
+    ] = False,
     json_output: Annotated[bool, typer.Option("--json", "-j", help="Output as JSON")] = False,
 ) -> None:
     """Create an explicit local or remote context for first-run setup."""

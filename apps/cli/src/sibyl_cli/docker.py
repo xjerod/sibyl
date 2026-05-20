@@ -191,7 +191,9 @@ def init_docker(
     web_port: Annotated[int, typer.Option("--web-port", help="Host web port")] = 3337,
     surreal_port: Annotated[int, typer.Option("--surreal-port", help="Host SurrealDB port")] = 8000,
     image_tag: Annotated[str, typer.Option("--tag", help="Sibyl image tag")] = DEFAULT_IMAGE_TAG,
-    with_worker: Annotated[bool, typer.Option("--with-worker", help="Add Valkey and worker")] = False,
+    with_worker: Annotated[
+        bool, typer.Option("--with-worker", help="Add Valkey and worker")
+    ] = False,
     with_crawler: Annotated[
         bool,
         typer.Option("--with-crawler", help="Use the crawler-enabled API image"),
@@ -199,9 +201,9 @@ def init_docker(
     context_name: Annotated[str, typer.Option("--context", help="Context name to create")] = (
         "docker"
     ),
-    activate: Annotated[bool, typer.Option("--activate/--no-activate", help="Set context active")] = (
-        True
-    ),
+    activate: Annotated[
+        bool, typer.Option("--activate/--no-activate", help="Set context active")
+    ] = (True),
     force: Annotated[bool, typer.Option("--force", "-f", help="Overwrite existing files")] = False,
 ) -> None:
     """Generate pinned Docker compose files under ~/.sibyl/docker."""

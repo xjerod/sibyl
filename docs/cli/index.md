@@ -101,6 +101,9 @@ Auth, organizations, configuration, and operations.
 | Command                   | Description                                       |
 | ------------------------- | ------------------------------------------------- |
 | [`sibyl auth`](./auth.md) | Authentication, tokens, and API keys              |
+| `sibyl login`             | Log in to the active or provided server           |
+| `sibyl logout`            | Clear stored auth credentials                     |
+| `sibyl whoami`            | Check auth status for the active context          |
 | [`sibyl org`](./org.md)   | Organizations and member management               |
 | `sibyl context`           | Server/org/project context bundles (see above)    |
 | `sibyl config`            | Manage CLI configuration                          |
@@ -110,7 +113,9 @@ Auth, organizations, configuration, and operations.
 | `sibyl logs`              | View server logs (requires OWNER role)            |
 | `sibyl debug`             | Debug tools for development (requires OWNER role) |
 | `sibyl serve`             | Start the local embedded daemon                   |
+| `sibyl start`             | Start the local embedded daemon in the background |
 | `sibyl stop`              | Stop the background local daemon                  |
+| `sibyl service`           | Install native local daemon service files         |
 | `sibyl docker`            | Manage a self-hosted Docker deployment            |
 | `sibyl local`             | Legacy local Docker stack commands                |
 | `sibyl dev`               | Devcontainer shell and lifecycle commands         |

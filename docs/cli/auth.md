@@ -3,6 +3,9 @@
 Authentication and credentials. `auth` logs the CLI into a Sibyl server, manages stored tokens, and
 creates API keys for MCP clients and scripts.
 
+Top-level aliases are available for the common path: `sibyl login`, `sibyl logout`, and
+`sibyl whoami`.
+
 ## Commands
 
 | Command                                         | Description                              |
@@ -26,6 +29,8 @@ pass `--email` and `--password` for local login.
 
 ```bash
 sibyl auth login [url] [options]
+# Alias:
+sibyl login [url] [options]
 ```
 
 ### Arguments
@@ -50,10 +55,10 @@ sibyl auth login [url] [options]
 
 ```bash
 # Log in to the active context or default server
-sibyl auth login
+sibyl login
 
 # Log in to a specific server
-sibyl auth login https://sibyl.example.com
+sibyl login https://sibyl.example.com
 
 # Log in and create a named context in one step
 sibyl auth login https://prod.example.com -c prod

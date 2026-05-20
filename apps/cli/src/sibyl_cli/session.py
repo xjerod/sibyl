@@ -45,7 +45,9 @@ SESSION_TASK_LIMIT = 5
 SESSION_MEMORY_LIMIT = 3
 
 
-def _append_unique_memory(memories: list[dict[str, Any]], memory: dict[str, Any], limit: int) -> None:
+def _append_unique_memory(
+    memories: list[dict[str, Any]], memory: dict[str, Any], limit: int
+) -> None:
     if len(memories) >= limit:
         return
     memory_id = memory.get("id")
@@ -157,9 +159,7 @@ async def _build_session_bundle(
                 for result in search_response.get("results", []):
                     if result.get("id") in task_ids:
                         continue
-                    entity_type = str(
-                        result.get("entity_type") or result.get("type") or ""
-                    ).lower()
+                    entity_type = str(result.get("entity_type") or result.get("type") or "").lower()
                     if entity_type in {"task", "project", "epic"}:
                         continue
                     _append_unique_memory(relevant_entities, summarize_memory(result), memory_limit)
