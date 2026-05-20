@@ -1,10 +1,13 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import {
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  safeRelativePath,
+  shouldRefreshAuthCookies,
+} from '@/lib/auth-refresh';
 import { log } from '@/lib/logger';
-
-const ACCESS_TOKEN_COOKIE = 'sibyl_access_token';
-const REFRESH_TOKEN_COOKIE = 'sibyl_refresh_token';
 
 /**
  * Check if request has valid auth cookies.
@@ -20,6 +23,13 @@ function hasAuthCookie(request: NextRequest): boolean {
   const hasAccess = !!request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   const hasRefresh = !!request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
   return hasAccess || hasRefresh;
+}
+
+function refreshResponse(request: NextRequest): NextResponse {
+  const { pathname, search } = request.nextUrl;
+  const url = new URL('/api/auth/refresh', request.url);
+  url.searchParams.set('next', safeRelativePath(`${pathname}${search}`));
+  return NextResponse.redirect(url);
 }
 
 export function proxy(request: NextRequest) {
@@ -40,6 +50,13 @@ export function proxy(request: NextRequest) {
     url.searchParams.set('next', `${pathname}${search}`);
     log.info('proxy', { path: pathname, action: 'redirect_login', ms: Date.now() - start });
     return NextResponse.redirect(url);
+  }
+
+  const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+  if (shouldRefreshAuthCookies({ accessToken, refreshToken })) {
+    log.info('proxy', { path: pathname, action: 'refresh_auth', ms: Date.now() - start });
+    return refreshResponse(request);
   }
 
   log.debug('proxy', { path: pathname, action: 'allow', ms: Date.now() - start });
