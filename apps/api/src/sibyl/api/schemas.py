@@ -113,6 +113,7 @@ class EntityBulkCreateResponse(BaseModel):
     entities: list[EntityResponse]
     created: int
     failed: int = 0
+    background_jobs: dict[str, Any] = Field(default_factory=dict)
 
 
 class RawCaptureSummary(BaseModel):

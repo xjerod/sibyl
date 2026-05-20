@@ -196,6 +196,59 @@ async def test_create_entities_bulk_enqueues_memory_projection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_entities_bulk_returns_memory_extraction_jobs() -> None:
+    org = _org()
+    ctx = _ctx()
+    batch = EntityBulkCreateRequest(
+        entities=[
+            EntityCreate(
+                name="Session one",
+                content="semantic memory content",
+                entity_type=EntityType.SESSION,
+                skip_conflicts=True,
+                metadata={"source": "import"},
+            )
+        ]
+    )
+    runtime = SimpleNamespace(
+        entity_manager=SimpleNamespace(create_direct_bulk=AsyncMock(return_value=["session_one"])),
+        relationship_manager=SimpleNamespace(create_bulk=AsyncMock(return_value=(0, 0))),
+    )
+    enqueue_result = SimpleNamespace(
+        status="queued",
+        job_ids=("extract-memory-1",),
+        queued_sources=1,
+        skipped_sources=0,
+        queue_depth=3,
+        reason=None,
+    )
+
+    with (
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(return_value=runtime),
+        ),
+        patch(
+            "sibyl.jobs.memory_extraction.enqueue_memory_extraction_batches",
+            AsyncMock(return_value=enqueue_result),
+        ) as enqueue_extraction,
+    ):
+        response = await create_entities_bulk(
+            batch=batch,
+            org=org,
+            ctx=ctx,
+            content_session=None,
+        )
+
+    enqueue_extraction.assert_awaited_once()
+    jobs = response.background_jobs["memory_extraction"]
+    assert jobs["status"] == "queued"
+    assert jobs["job_ids"] == ["extract-memory-1"]
+    assert jobs["queued_sources"] == 1
+    assert jobs["queue_depth"] == 3
+
+
+@pytest.mark.asyncio
 async def test_create_entities_bulk_requires_explicit_conflict_skip() -> None:
     org = _org()
     ctx = _ctx()

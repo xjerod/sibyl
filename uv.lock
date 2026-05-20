@@ -2934,8 +2934,8 @@ requires-dist = [
     { name = "python-louvain", marker = "extra == 'graphrag'", specifier = ">=0.16" },
     { name = "python-louvain", marker = "extra == 'runtime'", specifier = ">=0.16" },
     { name = "structlog", specifier = ">=24.0" },
-    { name = "surrealdb", marker = "extra == 'graph'", specifier = ">=1.0.8,<3.0" },
-    { name = "surrealdb", marker = "extra == 'runtime'", specifier = ">=1.0.8,<3.0" },
+    { name = "surrealdb", marker = "extra == 'graph'", specifier = ">=2.0.0,<3.0" },
+    { name = "surrealdb", marker = "extra == 'runtime'", specifier = ">=2.0.0,<3.0" },
 ]
 provides-extras = ["crawler", "embeddings", "graph", "graphrag", "llm", "runtime"]
 
@@ -3064,7 +3064,7 @@ requires-dist = [
     { name = "sibyl-core", extras = ["crawler", "embeddings", "graph", "graphrag", "llm"], editable = "packages/python/sibyl-core" },
     { name = "slowapi", specifier = ">=0.1.9" },
     { name = "starlette", specifier = ">=0.41.0" },
-    { name = "surrealdb", specifier = ">=1.0.8,<3.0" },
+    { name = "surrealdb", specifier = ">=2.0.0,<3.0" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.20.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38" },

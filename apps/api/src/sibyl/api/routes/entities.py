@@ -1301,6 +1301,7 @@ async def create_entities_bulk(
     if relationships:
         await runtime.relationship_manager.create_bulk(relationships)
 
+    background_jobs: dict[str, Any] = {}
     projection_sources: list[Entity] = []
     projection_source_ids: list[str] = []
     for source, created_id in zip(entities, created_ids, strict=True):
@@ -1322,6 +1323,12 @@ async def create_entities_bulk(
                 job_id=projection_job_id,
                 sources=len(projection_sources),
             )
+            background_jobs["memory_projection"] = {
+                "status": "queued",
+                "job_ids": [projection_job_id],
+                "queued_sources": len(projection_sources),
+                "skipped_sources": 0,
+            }
         except Exception as exc:
             log.warning(
                 "bulk_entity_projection_enqueue_failed",
@@ -1344,6 +1351,13 @@ async def create_entities_bulk(
                 queued_sources=extraction_enqueue.queued_sources,
                 skipped_sources=extraction_enqueue.skipped_sources,
             )
+            background_jobs["memory_extraction"] = {
+                "status": extraction_enqueue.status,
+                "job_ids": list(extraction_enqueue.job_ids),
+                "queued_sources": extraction_enqueue.queued_sources,
+                "skipped_sources": extraction_enqueue.skipped_sources,
+                "queue_depth": extraction_enqueue.queue_depth,
+            }
         elif extraction_enqueue.reason != "disabled":
             log.info(
                 "bulk_entity_memory_extraction_skipped",
@@ -1351,6 +1365,14 @@ async def create_entities_bulk(
                 reason=extraction_enqueue.reason,
                 skipped_sources=extraction_enqueue.skipped_sources,
             )
+            background_jobs["memory_extraction"] = {
+                "status": extraction_enqueue.status,
+                "job_ids": list(extraction_enqueue.job_ids),
+                "queued_sources": extraction_enqueue.queued_sources,
+                "skipped_sources": extraction_enqueue.skipped_sources,
+                "queue_depth": extraction_enqueue.queue_depth,
+                "reason": extraction_enqueue.reason,
+            }
     except Exception as exc:
         log.warning(
             "bulk_entity_memory_extraction_enqueue_failed",
@@ -1367,7 +1389,12 @@ async def create_entities_bulk(
         )
         for entity_id, entity in zip(created_ids, batch.entities, strict=True)
     ]
-    return EntityBulkCreateResponse(entities=responses, created=len(responses), failed=0)
+    return EntityBulkCreateResponse(
+        entities=responses,
+        created=len(responses),
+        failed=0,
+        background_jobs=background_jobs,
+    )
 
 
 @router.post(

@@ -39,6 +39,14 @@ on:
           - user-and-assistant-turns-v1
           - user-turns-only-v1
         default: user-and-assistant-turns-v1
+      longmemeval_auto_extract_entities:
+        description: "Enable queued LLM memory extraction during LongMemEval"
+        type: boolean
+        default: false
+      longmemeval_wait_for_memory_extraction:
+        description: "Wait for memory extraction jobs before each LongMemEval search"
+        type: boolean
+        default: false
       run_longmemeval_full:
         description: "Run the full 500-question LongMemEval live job"
         type: boolean
@@ -237,6 +245,9 @@ jobs:
       SIBYL_SURREAL_USERNAME: sibyl_ci
       SIBYL_SURREAL_PASSWORD: sibyl_ci_password
       SIBYL_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SIBYL_AUTO_EXTRACT_ENTITIES: ${{ inputs.longmemeval_auto_extract_entities }}
+      SIBYL_LLM_MEMORY_PROVIDER: openai
+      SIBYL_LLM_MEMORY_MODEL: gpt-5.4-nano
       PYTHONUNBUFFERED: "1"
       LONGMEMEVAL_SHA256: d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442
       LONGMEMEVAL_URL: https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json?download=true
@@ -318,6 +329,14 @@ jobs:
       - name: Run LongMemEval live smoke
         run: |
           mkdir -p .moon/cache/evals
+          wait_for_extraction="${{ inputs.longmemeval_wait_for_memory_extraction }}"
+          if [[ "${SIBYL_AUTO_EXTRACT_ENTITIES}" == "true" ]]; then
+            wait_for_extraction="true"
+          fi
+          extraction_args=()
+          if [[ "$wait_for_extraction" == "true" ]]; then
+            extraction_args+=(--wait-for-memory-extraction --memory-extraction-timeout 600)
+          fi
           moon run bench-longmemeval-live -- \
             .moon/cache/benchmarks/longmemeval_s_cleaned.json \
             --api-url http://localhost:3334/api \
@@ -330,7 +349,10 @@ jobs:
             --stall-timeout 300 \
             --output .moon/cache/evals/longmemeval_live_smoke.json \
             --label live-smoke \
-            --metadata ci_job=longmemeval-live-smoke
+            --metadata ci_job=longmemeval-live-smoke \
+            --metadata auto_extract_entities="${SIBYL_AUTO_EXTRACT_ENTITIES}" \
+            --metadata wait_for_memory_extraction="$wait_for_extraction" \
+            "${extraction_args[@]}"
 
       - name: Gate LongMemEval live smoke
         run: |
@@ -372,6 +394,9 @@ jobs:
       SIBYL_SURREAL_PASSWORD: sibyl_ci_password
       SIBYL_SURREAL_PATH: rocksdb:///data/sibyl-longmemeval-full.db
       SIBYL_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SIBYL_AUTO_EXTRACT_ENTITIES: ${{ inputs.longmemeval_auto_extract_entities }}
+      SIBYL_LLM_MEMORY_PROVIDER: openai
+      SIBYL_LLM_MEMORY_MODEL: gpt-5.4-nano
       PYTHONUNBUFFERED: "1"
       LONGMEMEVAL_SHA256: d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442
       LONGMEMEVAL_URL: https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json?download=true
@@ -453,6 +478,14 @@ jobs:
       - name: Run LongMemEval live full
         run: |
           mkdir -p .moon/cache/evals
+          wait_for_extraction="${{ inputs.longmemeval_wait_for_memory_extraction }}"
+          if [[ "${SIBYL_AUTO_EXTRACT_ENTITIES}" == "true" ]]; then
+            wait_for_extraction="true"
+          fi
+          extraction_args=()
+          if [[ "$wait_for_extraction" == "true" ]]; then
+            extraction_args+=(--wait-for-memory-extraction --memory-extraction-timeout 600)
+          fi
           moon run bench-longmemeval-live -- \
             .moon/cache/benchmarks/longmemeval_s_cleaned.json \
             --api-url http://localhost:3334/api \
@@ -463,7 +496,10 @@ jobs:
             --stall-timeout 300 \
             --output .moon/cache/evals/longmemeval_live_full.json \
             --label live-full \
-            --metadata ci_job=longmemeval-live-full
+            --metadata ci_job=longmemeval-live-full \
+            --metadata auto_extract_entities="${SIBYL_AUTO_EXTRACT_ENTITIES}" \
+            --metadata wait_for_memory_extraction="$wait_for_extraction" \
+            "${extraction_args[@]}"
 
       - name: Gate LongMemEval live full
         run: |

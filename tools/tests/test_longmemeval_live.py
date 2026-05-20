@@ -88,7 +88,7 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    state: dict[str, Any] = {"token": None, "entities": []}
+    state: dict[str, Any] = {"token": None, "entities": [], "jobs": {}}
 
     async def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -107,7 +107,32 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
         if path == "/api/entities/bulk":
             payload = json.loads(request.content)
             created = _bulk_create_fixture_entities(state, payload)
-            return _json_response(request, {"entities": created}, status_code=201)
+            job_id = f"extract-{len(state['jobs'])}"
+            state["jobs"][job_id] = {
+                "job_id": job_id,
+                "function": "extract_memory_entities",
+                "status": "complete",
+                "result": {"projected_entities": 1, "relationships": 1},
+                "error": None,
+            }
+            return _json_response(
+                request,
+                {
+                    "entities": created,
+                    "background_jobs": {
+                        "memory_extraction": {
+                            "status": "queued",
+                            "job_ids": [job_id],
+                            "queued_sources": len(created),
+                            "skipped_sources": 0,
+                        }
+                    },
+                },
+                status_code=201,
+            )
+        if path.startswith("/api/jobs/"):
+            job_id = path.rsplit("/", 1)[-1]
+            return _json_response(request, state["jobs"][job_id])
         if path == "/api/search":
             payload = json.loads(request.content)
             query = payload["query"]
@@ -141,6 +166,8 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
             k_values=[1, 2],
             command=["longmemeval_live.py", "fixture.json"],
             verify_sha256=False,
+            wait_for_memory_extraction=True,
+            memory_extraction_timeout_seconds=1,
             transport=httpx.MockTransport(handler),
         )
     )
@@ -154,9 +181,11 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
     )
     assert report["runtime"]["sample_strategy"] == module.DEFAULT_SAMPLE_STRATEGY
     assert report["runtime"]["diagnostic_search_limit"] == module.DEFAULT_DIAGNOSTIC_SEARCH_LIMIT
+    assert report["runtime"]["wait_for_memory_extraction"] is True
     assert report["dataset"]["corpus_text_policy"] == module.CORPUS_TEXT_POLICY
     assert report["dataset"]["sample_strategy"] == module.DEFAULT_SAMPLE_STRATEGY
     assert report["dataset"]["diagnostic_search_limit"] == module.DEFAULT_DIAGNOSTIC_SEARCH_LIMIT
+    assert report["dataset"]["wait_for_memory_extraction"] is True
     assert report["dataset"]["selected_case_indices"] == [0]
     assert report["dataset"]["entity_content_projection_policy"] == (
         module.ENTITY_CONTENT_PROJECTION_POLICY
@@ -166,6 +195,7 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
     assert report["overall"]["cross_question_result_count"] == 0.0
     assert report["overall"]["created_entity_count"] == float(EXPECTED_CREATED_ENTITIES)
     assert report["overall"]["chunked_session_count"] == 1.0
+    assert report["overall"]["memory_extraction_job_count"] == 1.0
     assert max(len(entity["content"]) for entity in state["entities"]) <= (
         module.ENTITY_CONTENT_MAX_CHARS
     )

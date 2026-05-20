@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -44,6 +45,7 @@ DIAGNOSTIC_SNIPPET_CHARS = 360
 DEFAULT_DIAGNOSTIC_SEARCH_LIMIT = 50
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0
 DEFAULT_STALL_TIMEOUT_SECONDS = 300.0
+DEFAULT_MEMORY_EXTRACTION_TIMEOUT_SECONDS = 180.0
 
 
 class LongMemEvalLiveError(RuntimeError):
@@ -194,6 +196,63 @@ async def _get_json(client: httpx.AsyncClient, path: str) -> dict[str, Any]:
     return data
 
 
+def _env_flag(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _background_job_ids(response: dict[str, Any], key: str) -> list[str]:
+    background_jobs = response.get("background_jobs")
+    if not isinstance(background_jobs, dict):
+        return []
+    job_info = background_jobs.get(key)
+    if not isinstance(job_info, dict):
+        return []
+    job_ids = job_info.get("job_ids")
+    if not isinstance(job_ids, list):
+        return []
+    return [str(job_id) for job_id in job_ids if str(job_id)]
+
+
+async def _wait_for_jobs(
+    client: httpx.AsyncClient,
+    job_ids: list[str],
+    *,
+    timeout_seconds: float,
+) -> list[dict[str, Any]]:
+    if not job_ids:
+        return []
+
+    deadline = time.monotonic() + timeout_seconds
+    pending = set(job_ids)
+    completed: list[dict[str, Any]] = []
+    last_statuses: dict[str, str] = {}
+    while pending:
+        for job_id in list(pending):
+            status = await _get_json(client, f"/jobs/{job_id}")
+            status_value = str(status.get("status") or "unknown")
+            last_statuses[job_id] = status_value
+            if status_value == "complete":
+                if status.get("error"):
+                    raise LongMemEvalLiveError(
+                        f"job {job_id} failed during memory extraction: {status['error']}"
+                    )
+                pending.remove(job_id)
+                completed.append(status)
+            elif status_value == "not_found":
+                raise LongMemEvalLiveError(f"job {job_id} disappeared during wait")
+
+        if not pending:
+            break
+        if time.monotonic() >= deadline:
+            raise LongMemEvalLiveError(
+                "timed out waiting for memory extraction jobs: "
+                + ", ".join(f"{job_id}={last_statuses.get(job_id)}" for job_id in sorted(pending))
+            )
+        await asyncio.sleep(0.5)
+
+    return completed
+
+
 async def _signup_throwaway_tenant(
     client: httpx.AsyncClient,
     *,
@@ -301,11 +360,14 @@ async def _ingest_haystack(
     run_id: str,
     case_index: int,
     corpus_text_policy: str,
+    wait_for_memory_extraction: bool,
+    memory_extraction_timeout_seconds: float,
     active_case: dict[str, Any] | None = None,
-) -> tuple[list[str], float, int, int]:
+) -> tuple[list[str], float, int, int, int, float]:
     start = time.perf_counter()
     question_id = str(entry["question_id"])
     created_ids: list[str] = []
+    memory_extraction_job_ids: list[str] = []
     chunked_session_count = 0
     documents = build_longmemeval_corpus(entry, text_policy=corpus_text_policy)
     entities: list[dict[str, Any]] = []
@@ -366,7 +428,32 @@ async def _ingest_haystack(
             for entity in created_entities
             if isinstance(entity, dict)
         )
-    return created_ids, (time.perf_counter() - start) * 1000, chunked_session_count, len(documents)
+        memory_extraction_job_ids.extend(_background_job_ids(created, "memory_extraction"))
+
+    ingest_ms = (time.perf_counter() - start) * 1000
+    memory_extraction_wait_ms = 0.0
+    if wait_for_memory_extraction and memory_extraction_job_ids:
+        _set_active_phase(
+            active_case,
+            "memory_extraction",
+            path="/jobs",
+        )
+        wait_start = time.perf_counter()
+        await _wait_for_jobs(
+            client,
+            memory_extraction_job_ids,
+            timeout_seconds=memory_extraction_timeout_seconds,
+        )
+        memory_extraction_wait_ms = (time.perf_counter() - wait_start) * 1000
+
+    return (
+        created_ids,
+        ingest_ms,
+        chunked_session_count,
+        len(documents),
+        len(memory_extraction_job_ids),
+        memory_extraction_wait_ms,
+    )
 
 
 async def _verify_namespace_probe(
@@ -592,6 +679,8 @@ async def _run_case(
     timeout_seconds: float,
     corpus_text_policy: str,
     diagnostic_search_limit: int,
+    wait_for_memory_extraction: bool,
+    memory_extraction_timeout_seconds: float,
     transport: httpx.AsyncBaseTransport | None = None,
     active_case: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -612,15 +701,26 @@ async def _run_case(
         tenant = await _signup_throwaway_tenant(client, run_id=run_id, case_index=case_index)
         timings_ms["signup"] = (time.perf_counter() - phase_started) * 1000
         _set_active_phase(active_case, "ingest")
-        created_ids, ingest_ms, chunked_session_count, document_count = await _ingest_haystack(
+        (
+            created_ids,
+            ingest_ms,
+            chunked_session_count,
+            document_count,
+            memory_extraction_job_count,
+            memory_extraction_wait_ms,
+        ) = await _ingest_haystack(
             client,
             entry=entry,
             run_id=run_id,
             case_index=case_index,
             corpus_text_policy=corpus_text_policy,
+            wait_for_memory_extraction=wait_for_memory_extraction,
+            memory_extraction_timeout_seconds=memory_extraction_timeout_seconds,
             active_case=active_case,
         )
         timings_ms["ingest"] = ingest_ms
+        if memory_extraction_wait_ms:
+            timings_ms["memory_extraction"] = memory_extraction_wait_ms
         _set_active_phase(active_case, "readiness", path="/search")
         phase_started = time.perf_counter()
         readiness = await _verify_namespace_probe(
@@ -665,6 +765,8 @@ async def _run_case(
         "document_count": document_count,
         "created_entity_count": len(created_ids),
         "chunked_session_count": chunked_session_count,
+        "memory_extraction_job_count": memory_extraction_job_count,
+        "memory_extraction_wait_ms": memory_extraction_wait_ms,
         "readiness": readiness,
         "ingest_ms": ingest_ms,
         "latency_ms": (time.perf_counter() - started) * 1000,
@@ -688,6 +790,8 @@ async def _run_cases(
     heartbeat_interval_seconds: float,
     stall_timeout_seconds: float,
     diagnostic_search_limit: int,
+    wait_for_memory_extraction: bool,
+    memory_extraction_timeout_seconds: float,
 ) -> list[dict[str, Any]]:
     worker_count = max(1, concurrency)
     queue: asyncio.Queue[tuple[int, dict[str, Any]]] = asyncio.Queue()
@@ -726,6 +830,8 @@ async def _run_cases(
                     timeout_seconds=timeout_seconds,
                     corpus_text_policy=corpus_text_policy,
                     diagnostic_search_limit=diagnostic_search_limit,
+                    wait_for_memory_extraction=wait_for_memory_extraction,
+                    memory_extraction_timeout_seconds=memory_extraction_timeout_seconds,
                     transport=transport,
                     active_case=active_cases[case_index],
                 )
@@ -756,7 +862,8 @@ async def _run_cases(
                     f"{readiness.get('attempts', 'n/a')} "
                     f"search={_format_ms(timings.get('search'))} "
                     f"docs={result.get('document_count')} "
-                    f"entities={result.get('created_entity_count')}",
+                    f"entities={result.get('created_entity_count')} "
+                    f"extract_jobs={result.get('memory_extraction_job_count')}",
                     flush=True,
                 )
 
@@ -839,6 +946,12 @@ def _aggregate(results: list[dict[str, Any]], k_values: list[int]) -> tuple[dict
     overall["chunked_session_count"] = sum(
         float(result["chunked_session_count"]) for result in results
     )
+    overall["memory_extraction_job_count"] = sum(
+        float(result.get("memory_extraction_job_count", 0)) for result in results
+    )
+    overall["memory_extraction_wait_ms"] = sum(
+        float(result.get("memory_extraction_wait_ms", 0.0)) for result in results
+    )
 
     results_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for result in results:
@@ -867,6 +980,8 @@ async def run_benchmark(
     heartbeat_interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     stall_timeout_seconds: float = DEFAULT_STALL_TIMEOUT_SECONDS,
     diagnostic_search_limit: int = DEFAULT_DIAGNOSTIC_SEARCH_LIMIT,
+    wait_for_memory_extraction: bool = False,
+    memory_extraction_timeout_seconds: float = DEFAULT_MEMORY_EXTRACTION_TIMEOUT_SECONDS,
     verify_sha256: bool = True,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
@@ -907,6 +1022,7 @@ async def run_benchmark(
     print(f"  Concurrency: {concurrency}", flush=True)
     print(f"  K values: {k_values}", flush=True)
     print(f"  Diagnostic search limit: {diagnostic_search_limit}", flush=True)
+    print(f"  Wait for memory extraction: {wait_for_memory_extraction}", flush=True)
     print(
         f"  Heartbeat: {heartbeat_interval_seconds:.1f}s; "
         f"stall timeout: {stall_timeout_seconds:.1f}s",
@@ -927,6 +1043,8 @@ async def run_benchmark(
         heartbeat_interval_seconds=heartbeat_interval_seconds,
         stall_timeout_seconds=stall_timeout_seconds,
         diagnostic_search_limit=diagnostic_search_limit,
+        wait_for_memory_extraction=wait_for_memory_extraction,
+        memory_extraction_timeout_seconds=memory_extraction_timeout_seconds,
     )
     elapsed = time.perf_counter() - started
     overall, per_type = _aggregate(case_results, k_values)
@@ -980,6 +1098,9 @@ async def run_benchmark(
             "diagnostic_search_limit": diagnostic_search_limit,
             "heartbeat_interval_seconds": heartbeat_interval_seconds,
             "stall_timeout_seconds": stall_timeout_seconds,
+            "auto_extract_entities_env": _env_flag("SIBYL_AUTO_EXTRACT_ENTITIES"),
+            "wait_for_memory_extraction": wait_for_memory_extraction,
+            "memory_extraction_timeout_seconds": memory_extraction_timeout_seconds,
         },
         "dataset": {
             "name": dataset_path.stem,
@@ -993,6 +1114,7 @@ async def run_benchmark(
             "corpus_text_policy": corpus_text_policy,
             "diagnostic_search_limit": diagnostic_search_limit,
             "entity_content_projection_policy": ENTITY_CONTENT_PROJECTION_POLICY,
+            "wait_for_memory_extraction": wait_for_memory_extraction,
         },
         "metadata": metadata or {},
         "repeat_count": 1,
@@ -1049,6 +1171,17 @@ def main() -> None:
         help="Search result count to request while still scoring configured k values.",
     )
     parser.add_argument(
+        "--wait-for-memory-extraction",
+        action="store_true",
+        help="Wait for queued memory extraction jobs before scoring each case.",
+    )
+    parser.add_argument(
+        "--memory-extraction-timeout",
+        type=float,
+        default=DEFAULT_MEMORY_EXTRACTION_TIMEOUT_SECONDS,
+        help="Seconds to wait for each case's memory extraction jobs.",
+    )
+    parser.add_argument(
         "--sample-strategy",
         choices=SAMPLE_STRATEGIES,
         default=DEFAULT_SAMPLE_STRATEGY,
@@ -1085,6 +1218,8 @@ def main() -> None:
                 heartbeat_interval_seconds=args.heartbeat_interval,
                 stall_timeout_seconds=args.stall_timeout,
                 diagnostic_search_limit=args.diagnostic_search_limit,
+                wait_for_memory_extraction=args.wait_for_memory_extraction,
+                memory_extraction_timeout_seconds=args.memory_extraction_timeout,
                 verify_sha256=not args.skip_sha256_check,
             )
         )
