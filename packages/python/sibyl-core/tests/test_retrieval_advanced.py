@@ -1294,6 +1294,51 @@ class TestHybridSearch:
         assert result.metadata["query_coverage_rerank_applied"] is True
 
     @pytest.mark.asyncio
+    async def test_hybrid_search_query_coverage_uses_best_local_segment(self) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        filler = " ".join(f"filler{index}" for index in range(24))
+        distractors = [
+            make_entity_for_test(
+                f"distractor-{index}",
+                description=f"favorite {filler} short {filler} grain {filler} rice",
+            )
+            for index in range(5)
+        ]
+        answer = make_entity_for_test(
+            "answer",
+            description=(
+                f"{filler} {filler} I was making dinner with my favorite "
+                "Japanese short grain rice."
+            ),
+        )
+        tail = [
+            make_entity_for_test(f"tail-{index}", description="unrelated cookbook note")
+            for index in range(4)
+        ]
+        manager.search_results = [
+            *[(entity, 1.0 - (index * 0.01)) for index, entity in enumerate(distractors)],
+            (answer, 0.94),
+            *[(entity, 0.8 - (index * 0.01)) for index, entity in enumerate(tail)],
+        ]
+
+        result = await hybrid_search(
+            "What is my favorite short grain rice?",
+            client,  # type: ignore[arg-type]
+            manager,  # type: ignore[arg-type]
+            limit=5,
+            config=HybridConfig(
+                graph_weight=0,
+                apply_temporal=False,
+                apply_keyword_boost=False,
+            ),
+        )
+
+        assert "answer" in [entity.id for entity in result.entities]
+        assert result.metadata["query_coverage_rerank_applied"] is True
+
+    @pytest.mark.asyncio
     async def test_hybrid_search_evidence_set_rerank_promotes_count_evidence(
         self,
     ) -> None:
@@ -1332,6 +1377,43 @@ class TestHybridSearch:
 
         assert "answer" in [entity.id for entity in result.entities]
         assert result.metadata["query_coverage_rerank_applied"] is True
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_evidence_set_keeps_partial_segment_from_evicting_top_evidence(
+        self,
+    ) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        answers = [
+            make_entity_for_test(
+                f"answer-{index}",
+                description=f"museum visit February evidence {index}",
+            )
+            for index in range(5)
+        ]
+        tail = make_entity_for_test(
+            "tail",
+            description="museum clustered with otherwise unrelated notes",
+        )
+        manager.search_results = [
+            *[(entity, 1.0 - (index * 0.01)) for index, entity in enumerate(answers)],
+            (tail, 0.94),
+        ]
+
+        result = await hybrid_search(
+            "How many museum visits did I make in February?",
+            client,  # type: ignore[arg-type]
+            manager,  # type: ignore[arg-type]
+            limit=5,
+            config=HybridConfig(
+                graph_weight=0,
+                apply_temporal=False,
+                apply_keyword_boost=False,
+            ),
+        )
+
+        assert {entity.id for entity in result.entities} == {entity.id for entity in answers}
 
     @pytest.mark.asyncio
     async def test_hybrid_search_uses_unfiltered_link_seeds_for_typed_results(

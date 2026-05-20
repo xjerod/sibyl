@@ -192,6 +192,126 @@ def test_coverage_rerank_demotes_generic_assistant_advice() -> None:
     assert reranked[0] == "answer-session"
 
 
+def test_coverage_rerank_uses_best_local_segment() -> None:
+    filler = " ".join(f"filler{index}" for index in range(24))
+    haystack_ids = [
+        *(f"distractor-{index}" for index in range(5)),
+        "answer-session",
+        *(f"tail-{index}" for index in range(4)),
+    ]
+    haystack_sessions = [
+        [
+            {
+                "role": "user",
+                "content": f"favorite {filler} short {filler} grain {filler} rice",
+            }
+        ]
+        for _index in range(5)
+    ]
+    haystack_sessions.append(
+        [
+            {
+                "role": "user",
+                "content": (
+                    f"{filler} {filler} I was making dinner with my favorite "
+                    "Japanese short grain rice."
+                ),
+            }
+        ]
+    )
+    haystack_sessions.extend(
+        [{"role": "user", "content": "I saved an unrelated cookbook note."}]
+        for _index in range(4)
+    )
+    entry = {
+        "question_id": "q1",
+        "question_type": "single-session-user",
+        "question": "What is my favorite short grain rice?",
+        "question_date": "2026/01/20 12:00",
+        "answer_session_ids": ["answer-session"],
+        "haystack_session_ids": haystack_ids,
+        "haystack_dates": ["2026/01/19"] * len(haystack_ids),
+        "haystack_sessions": haystack_sessions,
+    }
+    case = {
+        "case_index": 0,
+        "question_id": "q1",
+        "question_type": entry["question_type"],
+        "question": entry["question"],
+        "question_date": entry["question_date"],
+        "answer_session_ids": ["answer-session"],
+        "ranked_session_ids": haystack_ids,
+        "ranked_results": [
+            {"longmemeval_session_id": session_id, "score": 1.0 - (index * 0.01)}
+            for index, session_id in enumerate(haystack_ids)
+        ],
+    }
+
+    reranked = rerank_longmemeval_case(
+        case,
+        entry,
+        strategy="coverage",
+        corpus_text_policy="user-and-assistant-turns-v1",
+    )
+
+    assert reranked.index("answer-session") < 5
+
+
+def test_coverage_rerank_keeps_partial_segment_from_evicting_count_evidence() -> None:
+    haystack_ids = [
+        *(f"answer-{index}" for index in range(5)),
+        "tail-session",
+    ]
+    entry = {
+        "question_id": "q1",
+        "question_type": "multi-session",
+        "question": "How many museum visits did I make in February?",
+        "question_date": "2026/01/20 12:00",
+        "answer_session_ids": [f"answer-{index}" for index in range(5)],
+        "haystack_session_ids": haystack_ids,
+        "haystack_dates": ["2026/01/19"] * len(haystack_ids),
+        "haystack_sessions": [
+            [
+                {
+                    "role": "user",
+                    "content": f"museum visit February evidence {index}",
+                }
+            ]
+            for index in range(5)
+        ]
+        + [
+            [
+                {
+                    "role": "user",
+                    "content": "museum clustered with otherwise unrelated notes",
+                }
+            ]
+        ],
+    }
+    case = {
+        "case_index": 0,
+        "question_id": "q1",
+        "question_type": entry["question_type"],
+        "question": entry["question"],
+        "question_date": entry["question_date"],
+        "answer_session_ids": entry["answer_session_ids"],
+        "ranked_session_ids": haystack_ids,
+        "ranked_results": [
+            {"longmemeval_session_id": session_id, "score": 1.0 - (index * 0.01)}
+            for index, session_id in enumerate(haystack_ids)
+        ],
+    }
+
+    reranked = rerank_longmemeval_case(
+        case,
+        entry,
+        strategy="coverage",
+        corpus_text_policy="user-and-assistant-turns-v1",
+    )
+
+    assert set(reranked[:5]) == set(entry["answer_session_ids"])
+
+
 def test_oracle_rerank_is_explicit_upper_bound() -> None:
     reranked = rerank_longmemeval_case(
         _case_result(),

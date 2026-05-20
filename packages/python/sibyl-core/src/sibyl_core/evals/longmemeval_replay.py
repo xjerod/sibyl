@@ -30,6 +30,9 @@ QUERY_COVERAGE_RANK_WEIGHT = 0.75
 QUERY_COVERAGE_PRIOR_WEIGHT = 0.04
 QUERY_COVERAGE_OVERLAP_WEIGHT = 0.30
 QUERY_COVERAGE_DENSITY_WEIGHT = 0.08
+QUERY_COVERAGE_SEGMENT_OVERLAP_WEIGHT = 0.20
+QUERY_COVERAGE_SEGMENT_WINDOW = 18
+QUERY_COVERAGE_SEGMENT_STRIDE = 6
 QUERY_COVERAGE_GENERIC_ASSISTANT_PENALTY = 0.04
 
 STOP_WORDS = {
@@ -502,12 +505,14 @@ def _score_query_coverage(
             1.0,
             math.sqrt(len(candidate.tokens)),
         )
+        segment_overlap = _best_segment_overlap(candidate.tokens, query_tokens)
         provider_score = candidate.score / max_candidate_score if candidate.score > 0 else 0.0
         score = (
             (QUERY_COVERAGE_RANK_WEIGHT * original_rank_score)
             + (QUERY_COVERAGE_PRIOR_WEIGHT * provider_score)
             + (QUERY_COVERAGE_OVERLAP_WEIGHT * overlap)
             + (QUERY_COVERAGE_DENSITY_WEIGHT * density)
+            + (QUERY_COVERAGE_SEGMENT_OVERLAP_WEIGHT * segment_overlap)
         )
         if is_preference_query:
             score -= (
@@ -553,6 +558,23 @@ def _stabilize_evidence_set_scores(
     return selected + [
         candidate for candidate in ranked_by_coverage if candidate[1].session_id not in selected_ids
     ]
+
+
+def _best_segment_overlap(tokens: Sequence[str], query_tokens: set[str]) -> float:
+    if not tokens or not query_tokens:
+        return 0.0
+    if len(tokens) <= QUERY_COVERAGE_SEGMENT_WINDOW:
+        return len(query_tokens & set(tokens)) / len(query_tokens)
+
+    best = 0.0
+    last_start = max(0, len(tokens) - QUERY_COVERAGE_SEGMENT_WINDOW)
+    starts = list(range(0, last_start + 1, QUERY_COVERAGE_SEGMENT_STRIDE))
+    if starts[-1] != last_start:
+        starts.append(last_start)
+    for start in starts:
+        segment = tokens[start : start + QUERY_COVERAGE_SEGMENT_WINDOW]
+        best = max(best, len(query_tokens & set(segment)) / len(query_tokens))
+    return best
 
 
 def _diversify_ranking(scored: Sequence[tuple[float, _Candidate]]) -> list[str]:

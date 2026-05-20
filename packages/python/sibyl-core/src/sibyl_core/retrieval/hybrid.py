@@ -71,6 +71,9 @@ _QUERY_COVERAGE_RANK_WEIGHT = 0.75
 _QUERY_COVERAGE_PRIOR_WEIGHT = 0.04
 _QUERY_COVERAGE_OVERLAP_WEIGHT = 0.30
 _QUERY_COVERAGE_DENSITY_WEIGHT = 0.08
+_QUERY_COVERAGE_SEGMENT_OVERLAP_WEIGHT = 0.20
+_QUERY_COVERAGE_SEGMENT_WINDOW = 18
+_QUERY_COVERAGE_SEGMENT_STRIDE = 6
 _QUERY_COVERAGE_GENERIC_ASSISTANT_PENALTY = 0.04
 _EVIDENCE_SET_QUERY_PATTERN = re.compile(
     r"\b(how many|how much|total number|number of|count of)\b",
@@ -158,6 +161,29 @@ def _entity_keyword_tokens(entity: Any) -> list[str]:
     ]
 
 
+def _best_segment_overlap(tokens: list[str], query_terms: set[str]) -> float:
+    if not tokens or not query_terms:
+        return 0.0
+    if len(tokens) <= _QUERY_COVERAGE_SEGMENT_WINDOW:
+        return len(query_terms & set(tokens)) / len(query_terms)
+
+    best = 0.0
+    last_start = max(0, len(tokens) - _QUERY_COVERAGE_SEGMENT_WINDOW)
+    starts = list(
+        range(
+            0,
+            last_start + 1,
+            _QUERY_COVERAGE_SEGMENT_STRIDE,
+        )
+    )
+    if starts[-1] != last_start:
+        starts.append(last_start)
+    for start in starts:
+        segment = tokens[start : start + _QUERY_COVERAGE_SEGMENT_WINDOW]
+        best = max(best, len(query_terms & set(segment)) / len(query_terms))
+    return best
+
+
 def _apply_keyword_boost(
     query: str,
     results: list[tuple[Any, float]],
@@ -202,6 +228,7 @@ def _apply_query_coverage_rerank(
             1.0,
             len(tokens) ** 0.5,
         )
+        segment_overlap = _best_segment_overlap(tokens, query_terms)
         rank_score = 1.0 - (index / rank_span)
         normalized_prior_score = prior_score / max_prior_score if prior_score > 0 else 0.0
         score = (
@@ -209,6 +236,7 @@ def _apply_query_coverage_rerank(
             + (_QUERY_COVERAGE_PRIOR_WEIGHT * normalized_prior_score)
             + (_QUERY_COVERAGE_OVERLAP_WEIGHT * overlap)
             + (_QUERY_COVERAGE_DENSITY_WEIGHT * density)
+            + (_QUERY_COVERAGE_SEGMENT_OVERLAP_WEIGHT * segment_overlap)
         )
         if is_preference_query:
             score -= (
