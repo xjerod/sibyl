@@ -1756,7 +1756,7 @@ async def _surreal_rrf_scores(
         candidate_id = _string_value(row.get("id") or row.get("uuid") or row.get("record_id"))
         if not candidate_id:
             continue
-        raw_score = row.get("rrf_score", row.get("fuse_score"))
+        raw_score = row.get("rrf_score", row.get("rff_score", row.get("fuse_score")))
         if isinstance(raw_score, int | float):
             scores[candidate_id] = float(raw_score)
     return scores

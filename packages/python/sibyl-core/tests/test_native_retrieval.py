@@ -556,7 +556,7 @@ class _RrfClient:
         self.calls.append((query, params))
         return [
             {"id": "shared", "rrf_score": 0.05},
-            {"id": "lexical", "rrf_score": 0.01},
+            {"id": "lexical", "rff_score": 0.01},
         ]
 
 
