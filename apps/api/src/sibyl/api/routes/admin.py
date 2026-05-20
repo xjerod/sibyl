@@ -2,7 +2,7 @@
 
 from time import perf_counter
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -105,6 +105,43 @@ async def health(
             entity_counts={},
             errors=[str(e)],
         )
+
+
+@router.post(
+    "/write-test",
+    dependencies=[Depends(require_org_role(*_READ_ROLES))],
+)
+async def write_test(
+    org: AuthOrganization = Depends(get_current_organization),
+    user: AuthUser = Depends(get_current_user),
+) -> dict[str, str]:
+    """Perform a short-lived graph write used by `sibyl doctor`."""
+    probe_id = f"doctor_{uuid4().hex}"
+    try:
+        from sibyl.persistence.graph_runtime import execute_surreal_graph_query
+
+        rows = await execute_surreal_graph_query(
+            str(org.id),
+            """
+            CREATE sibyl_doctor_probe SET
+                probe_id = $probe_id,
+                group_id = $group_id,
+                user_id = $user_id,
+                created_at = time::now();
+            DELETE sibyl_doctor_probe
+                WHERE probe_id = $probe_id AND group_id = $org_group_id
+                RETURN BEFORE;
+            """,
+            probe_id=probe_id,
+            org_group_id=str(org.id),
+            user_id=str(user.id),
+        )
+        if rows is None:
+            raise RuntimeError("active graph runtime does not expose SurrealDB writes")
+        return {"status": "ok", "probe_id": probe_id}
+    except Exception as exc:
+        log.exception("doctor_write_test_failed", org_id=str(org.id), error=str(exc))
+        raise HTTPException(status_code=503, detail="Write probe failed") from exc
 
 
 @router.get(

@@ -39,6 +39,7 @@ from sibyl_cli.context import app as context_app
 from sibyl_cli.crawl import app as crawl_app
 from sibyl_cli.debug import app as debug_app
 from sibyl_cli.dev import app as dev_app
+from sibyl_cli.doctor import doctor as doctor_cmd
 from sibyl_cli.entity import app as entity_app
 from sibyl_cli.epic import app as epic_app
 from sibyl_cli.explore import app as explore_app
@@ -110,6 +111,7 @@ app.add_typer(memory_space_app, name="memory-space")
 app.add_typer(memory_review_app, name="memory-review")
 app.add_typer(synthesis_app, name="synthesis")
 app.command("tasks", hidden=True)(list_tasks)
+app.command("doctor")(doctor_cmd)
 
 
 SEARCH_PREVIEW_CHARS = 220
