@@ -28,7 +28,7 @@ def _parse_scopes(claims: dict[str, object]) -> list[str]:
     scope = claims.get("scope")
     if isinstance(scope, str) and scope.strip():
         return scope.split()
-    return ["mcp"]
+    return []
 
 
 class SibylMcpTokenVerifier:
@@ -66,6 +66,9 @@ class SibylMcpTokenVerifier:
             user_id = UUID(sub)
         except ValueError:
             return None
+        scopes = _parse_scopes(claims)
+        if "mcp" not in scopes:
+            return None
 
         exp = claims.get("exp")
         expires_at = exp if isinstance(exp, int) else None
@@ -73,6 +76,6 @@ class SibylMcpTokenVerifier:
         return AccessToken(
             token=token,
             client_id=f"user:{user_id}",
-            scopes=_parse_scopes(claims),
+            scopes=scopes,
             expires_at=expires_at,
         )

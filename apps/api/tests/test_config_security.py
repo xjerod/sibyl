@@ -126,6 +126,42 @@ class TestProductionPasswordSecurity:
                 surreal_password="sibyl_dev",
             )
 
+    def test_surreal_kv_forbidden_in_production_without_single_writer_opt_in(self) -> None:
+        with pytest.raises(ValueError, match="Embedded SurrealDB requires explicit single-writer"):
+            Settings(
+                environment="production",
+                store="surreal",
+                auth_store="surreal",
+                surreal_data_dir="/var/lib/sibyl/surreal",
+                surreal_username="sibyl_admin",
+                surreal_password="really_secure_password",
+            )
+
+    def test_surreal_kv_allowed_in_production_with_single_writer_opt_in(self) -> None:
+        settings = Settings(
+            environment="production",
+            store="surreal",
+            auth_store="surreal",
+            surreal_data_dir="/var/lib/sibyl/surreal",
+            surreal_username="sibyl_admin",
+            surreal_password="really_secure_password",
+            allow_embedded_single_writer=True,
+        )
+
+        assert settings.resolved_surreal_url == "surrealkv:///var/lib/sibyl/surreal"
+
+    def test_insecure_cookies_forbidden_in_production(self) -> None:
+        with pytest.raises(ValueError, match="cookie_secure=False is forbidden"):
+            Settings(
+                environment="production",
+                store="surreal",
+                auth_store="surreal",
+                surreal_url="ws://surrealdb:8000/rpc",
+                surreal_username="sibyl_admin",
+                surreal_password="really_secure_password",
+                cookie_secure=False,
+            )
+
 
     def test_placeholder_surreal_credentials_forbidden_in_production(self) -> None:
         with pytest.raises(ValueError, match="Default SurrealDB credentials are forbidden"):

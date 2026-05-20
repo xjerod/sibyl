@@ -128,6 +128,21 @@ class Settings(BaseSettings):
                     "CRITICAL: In-memory SurrealDB is forbidden in production. "
                     "Set SIBYL_SURREAL_URL or SIBYL_SURREAL_DATA_DIR."
                 )
+            if (
+                self.auth_store == "surreal"
+                and self.resolved_surreal_url.startswith("surrealkv://")
+                and not self.allow_embedded_single_writer
+            ):
+                raise ValueError(
+                    "CRITICAL: Embedded SurrealDB requires explicit single-writer opt-in in "
+                    "production. Set SIBYL_ALLOW_EMBEDDED_SINGLE_WRITER=1 only when one "
+                    "daemon owns the database."
+                )
+            if self.cookie_secure is False:
+                raise ValueError(
+                    "CRITICAL: cookie_secure=False is forbidden in production. "
+                    "Use Secure cookies for production auth sessions."
+                )
             if self.auth_store == "surreal":
                 insecure_pairs = {
                     ("root", "sibyl_dev"),
@@ -200,6 +215,10 @@ class Settings(BaseSettings):
     cookie_secure: bool | None = Field(
         default=None,
         description="Force Secure cookies on/off (default: auto based on server_url https)",
+    )
+    allow_embedded_single_writer: bool = Field(
+        default=False,
+        description="Allow embedded SurrealDB storage in production for explicit single-writer mode",
     )
 
     password_pepper: SecretStr = Field(

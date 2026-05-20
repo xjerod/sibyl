@@ -84,6 +84,8 @@ class MeUpdateRequest(BaseModel):
 def _cookie_secure() -> bool:
     if config_module.settings.cookie_secure is not None:
         return bool(config_module.settings.cookie_secure)
+    if config_module.settings.environment == "production":
+        return True
     return config_module.settings.server_url.startswith("https://")
 
 
