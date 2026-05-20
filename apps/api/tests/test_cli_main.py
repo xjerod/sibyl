@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from importlib import import_module
 from types import SimpleNamespace
@@ -74,6 +75,26 @@ def test_serve_with_reload_enables_dev_diagnostics(monkeypatch) -> None:
     assert "--factory" in args
     assert "--timeout-graceful-shutdown" in args
     assert args[args.index("--reload-dir") + 1].endswith("apps/api/src")
+
+
+def test_configure_embedded_environment(monkeypatch, tmp_path) -> None:
+    for key in (
+        "SIBYL_STORE",
+        "SIBYL_AUTH_STORE",
+        "SIBYL_COORDINATION_BACKEND",
+        "SIBYL_ALLOW_EMBEDDED_SINGLE_WRITER",
+        "SIBYL_SURREAL_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    data_dir = cli_main._configure_embedded_environment(tmp_path / "surreal")
+
+    assert data_dir == tmp_path / "surreal"
+    assert os.environ["SIBYL_STORE"] == "surreal"
+    assert os.environ["SIBYL_AUTH_STORE"] == "surreal"
+    assert os.environ["SIBYL_COORDINATION_BACKEND"] == "local"
+    assert os.environ["SIBYL_ALLOW_EMBEDDED_SINGLE_WRITER"] == "1"
+    assert os.environ["SIBYL_SURREAL_URL"] == f"surrealkv://{data_dir}"
 
 
 def test_setup_surreal_services_skips_redis_for_local_coordination(monkeypatch) -> None:

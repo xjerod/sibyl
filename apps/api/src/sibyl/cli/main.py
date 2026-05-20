@@ -8,6 +8,7 @@ For client commands (task, search, add, etc.), use the `sibyl` CLI.
 
 import asyncio
 import contextlib
+import os
 import shutil
 import socket
 from importlib.metadata import PackageNotFoundError, version as pkg_version
@@ -111,6 +112,13 @@ def serve(
     reload: Annotated[
         bool, typer.Option("--reload", "-r", help="Enable hot reload (dev mode)")
     ] = False,
+    embedded: Annotated[
+        bool,
+        typer.Option(
+            "--embedded",
+            help="Run single-writer embedded SurrealDB from ~/.sibyl/data/surreal",
+        ),
+    ] = False,
 ) -> None:
     """Start the Sibyl MCP server daemon.
 
@@ -120,6 +128,20 @@ def serve(
         sibyld serve -p 9000           # Custom port
         sibyld serve -t stdio          # Legacy subprocess mode
     """
+    if embedded and reload:
+        from sibyl.cli.common import error
+
+        error("--embedded cannot be combined with --reload")
+        raise typer.Exit(1)
+
+    embedded_data_dir: Path | None = None
+    embedded_lock = None
+    if embedded:
+        embedded_data_dir = _configure_embedded_environment()
+        from sibyl.embedded import EmbeddedSurrealLock
+
+        embedded_lock = EmbeddedSurrealLock(embedded_data_dir)
+
     from sibyl.config import settings
 
     # Use settings defaults if not specified
@@ -128,13 +150,36 @@ def serve(
 
     if reload:
         _serve_with_reload(host, port)
-    else:
-        from sibyl.main import run_server
+        return
 
-        try:
+    from sibyl.main import run_server
+
+    try:
+        if embedded_lock is None:
             run_server(host=host, port=port, transport=transport)
-        except KeyboardInterrupt:
-            console.print(f"\n[{NEON_CYAN}]Shutting down...[/{NEON_CYAN}]")
+        else:
+            with embedded_lock:
+                console.print(
+                    f"[{NEON_CYAN}]Embedded SurrealDB:[/{NEON_CYAN}] {embedded_data_dir}"
+                )
+                run_server(host=host, port=port, transport=transport)
+    except KeyboardInterrupt:
+        console.print(f"\n[{NEON_CYAN}]Shutting down...[/{NEON_CYAN}]")
+
+
+def _configure_embedded_environment(data_dir: Path | None = None) -> Path:
+    from sibyl.embedded import default_embedded_data_dir
+
+    resolved_data_dir = data_dir or Path(
+        os.environ.get("SIBYL_EMBEDDED_DATA_DIR", "") or default_embedded_data_dir()
+    )
+    resolved_data_dir = resolved_data_dir.expanduser()
+    os.environ.setdefault("SIBYL_STORE", "surreal")
+    os.environ.setdefault("SIBYL_AUTH_STORE", "surreal")
+    os.environ.setdefault("SIBYL_COORDINATION_BACKEND", "local")
+    os.environ.setdefault("SIBYL_ALLOW_EMBEDDED_SINGLE_WRITER", "1")
+    os.environ.setdefault("SIBYL_SURREAL_URL", f"surrealkv://{resolved_data_dir}")
+    return resolved_data_dir
 
 
 def _serve_with_reload(host: str, port: int) -> None:
