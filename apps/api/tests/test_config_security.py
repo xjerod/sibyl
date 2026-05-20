@@ -98,10 +98,12 @@ class TestProductionPasswordSecurity:
     def test_in_memory_surreal_forbidden_when_auth_uses_surreal_in_production(self) -> None:
         with pytest.raises(ValueError, match="In-memory SurrealDB is forbidden in production"):
             Settings(
+                _env_file=None,
                 environment="production",
                 store="legacy",
                 auth_store="surreal",
                 postgres_password="sibyl_dev",
+                surreal_url="",
             )
 
     def test_legacy_password_defaults_do_not_block_fully_surreal_production(self) -> None:
@@ -129,19 +131,24 @@ class TestProductionPasswordSecurity:
     def test_surreal_kv_forbidden_in_production_without_single_writer_opt_in(self) -> None:
         with pytest.raises(ValueError, match="Embedded SurrealDB requires explicit single-writer"):
             Settings(
+                _env_file=None,
                 environment="production",
                 store="surreal",
                 auth_store="surreal",
+                surreal_url="",
                 surreal_data_dir="/var/lib/sibyl/surreal",
                 surreal_username="sibyl_admin",
                 surreal_password="really_secure_password",
+                allow_embedded_single_writer=False,
             )
 
     def test_surreal_kv_allowed_in_production_with_single_writer_opt_in(self) -> None:
         settings = Settings(
+            _env_file=None,
             environment="production",
             store="surreal",
             auth_store="surreal",
+            surreal_url="",
             surreal_data_dir="/var/lib/sibyl/surreal",
             surreal_username="sibyl_admin",
             surreal_password="really_secure_password",

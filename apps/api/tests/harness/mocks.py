@@ -116,8 +116,9 @@ class MockEntityManager:
         self._entities[entity_id] = entity
         return entity_id
 
-    async def create_direct(self, entity: Entity) -> str:
+    async def create_direct(self, entity: Entity, *, generate_embedding: bool = True) -> str:
         """Create entity directly (same as create for mock)."""
+        _ = generate_embedding
         return await self.create(entity)
 
     async def get(self, entity_id: str) -> Entity:

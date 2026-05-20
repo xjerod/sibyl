@@ -350,8 +350,9 @@ class _FakeEntityManager:
         # Accept creation of derived episodes; return provided id
         return entity.id
 
-    async def create_direct(self, entity) -> str:  # type: ignore[override]
+    async def create_direct(self, entity, *, generate_embedding: bool = True) -> str:  # type: ignore[override]
         # Mirror real EntityManager API used by TaskWorkflowEngine
+        _ = generate_embedding
         return await self.create(entity)
 
     async def update(self, entity_id: str, updates: dict) -> Task:
@@ -725,7 +726,8 @@ async def test_complete_task_with_learnings_creates_episode() -> None:
             self.created_entities.append(entity)
             return entity.id
 
-        async def create_direct(self, entity) -> str:
+        async def create_direct(self, entity, *, generate_embedding: bool = True) -> str:
+            _ = generate_embedding
             self.created_entities.append(entity)
             return entity.id
 
