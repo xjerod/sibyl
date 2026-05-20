@@ -64,7 +64,7 @@ def build_memory_entity_extraction_prompt(
 def build_memory_batch_entity_extraction_prompt(
     *,
     sources: Sequence[Mapping[str, str]],
-    max_entities_per_source: int = 8,
+    max_entities_per_source: int = 4,
 ) -> str:
     bounded_max = max(1, min(max_entities_per_source, MAX_MEMORY_EXTRACTED_ENTITIES))
     source_blocks: list[str] = []
@@ -120,7 +120,7 @@ def memory_batch_entity_extractor(
     *,
     agent: Agent[Any, Any] | None = None,
     model_override: str | None = None,
-    max_tokens: int | None = 2048,
+    max_tokens: int | None = 8192,
     output_retries: int | None = 2,
 ) -> Extractor[MemoryBatchEntityExtractionResult]:
     return Extractor(

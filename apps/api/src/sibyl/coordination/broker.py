@@ -135,10 +135,10 @@ class QueueBroker(Protocol):
         group_id: str,
         *,
         created_source_ids: list[str] | None = None,
-        max_entities_per_source: int = 8,
+        max_entities_per_source: int = 4,
         max_source_chars: int = 12_000,
         max_concurrent: int = 2,
-        max_tokens: int = 2048,
+        max_tokens: int = 8192,
     ) -> str: ...
 
     async def enqueue_create_learning_episode(

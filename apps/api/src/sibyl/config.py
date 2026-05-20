@@ -455,7 +455,7 @@ class Settings(BaseSettings):
         description="Maximum pending job depth before memory extraction enqueue backpressure",
     )
     memory_extraction_max_sources_per_job: int = Field(
-        default=8,
+        default=24,
         ge=1,
         le=100,
         description="Maximum memory sources in one LLM extraction job",
@@ -467,13 +467,13 @@ class Settings(BaseSettings):
         description="Maximum characters sent to extraction from a single memory source",
     )
     memory_extraction_max_job_chars: int = Field(
-        default=48_000,
+        default=192_000,
         ge=1_000,
         le=500_000,
         description="Maximum source characters in one memory extraction job",
     )
     memory_extraction_max_entities_per_source: int = Field(
-        default=8,
+        default=4,
         ge=1,
         le=12,
         description="Maximum extracted graph entities requested per memory source",
@@ -485,7 +485,7 @@ class Settings(BaseSettings):
         description="Maximum concurrent LLM calls inside one memory extraction job",
     )
     memory_extraction_max_tokens: int = Field(
-        default=2048,
+        default=8192,
         ge=256,
         le=8192,
         description="Maximum output tokens for one memory extraction LLM call",
