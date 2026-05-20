@@ -32,8 +32,8 @@ classifiers = [
 ]
 
 dependencies = [
-    # Sibyl Core Library (shared models, graph, tools)
-    "sibyl-core",
+    # Sibyl Core Library with daemon/runtime extras
+    "sibyl-core[crawler,embeddings,graph,graphrag,llm]",
     # Core Framework
     "fastapi>=0.115.0",
     "mcp>=1.25",

@@ -1,31 +1,32 @@
 """Language-model substrate."""
 
-from sibyl_core.ai.llm.config import (
-    ConfigField,
-    EnvConfigSource,
-    LLMConfig,
-    LLMConfigSource,
-    LLMSurface,
-    ResolvedLLMConfig,
-    get_config_source,
-    invalidate_llm_config,
-    resolve_llm_config,
-    set_config_source,
-)
-from sibyl_core.ai.llm.extractor import Extractor
-from sibyl_core.ai.llm.generator import Generator
+from importlib import import_module
+from typing import Any
 
-__all__ = [
-    "ConfigField",
-    "EnvConfigSource",
-    "Extractor",
-    "Generator",
-    "LLMConfig",
-    "LLMConfigSource",
-    "LLMSurface",
-    "ResolvedLLMConfig",
-    "get_config_source",
-    "invalidate_llm_config",
-    "resolve_llm_config",
-    "set_config_source",
-]
+_EXPORTS = {
+    "ConfigField": ("sibyl_core.ai.llm.config", "ConfigField"),
+    "EnvConfigSource": ("sibyl_core.ai.llm.config", "EnvConfigSource"),
+    "Extractor": ("sibyl_core.ai.llm.extractor", "Extractor"),
+    "Generator": ("sibyl_core.ai.llm.generator", "Generator"),
+    "LLMConfig": ("sibyl_core.ai.llm.config", "LLMConfig"),
+    "LLMConfigSource": ("sibyl_core.ai.llm.config", "LLMConfigSource"),
+    "LLMSurface": ("sibyl_core.ai.llm.config", "LLMSurface"),
+    "ResolvedLLMConfig": ("sibyl_core.ai.llm.config", "ResolvedLLMConfig"),
+    "get_config_source": ("sibyl_core.ai.llm.config", "get_config_source"),
+    "invalidate_llm_config": ("sibyl_core.ai.llm.config", "invalidate_llm_config"),
+    "resolve_llm_config": ("sibyl_core.ai.llm.config", "resolve_llm_config"),
+    "set_config_source": ("sibyl_core.ai.llm.config", "set_config_source"),
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attr_name = _EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    module = import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value

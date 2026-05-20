@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
-
-from pydantic_ai.exceptions import ModelHTTPError, ModelRetry, UnexpectedModelBehavior
 
 from sibyl_core.errors import SibylError
 
@@ -58,6 +57,19 @@ class LLMTimeoutError(LLMError):
     """Raised when a provider request times out."""
 
 
+@lru_cache(maxsize=1)
+def _pydantic_ai_error_types() -> tuple[type[Exception] | None, tuple[type[Exception], ...]]:
+    try:
+        from pydantic_ai.exceptions import (
+            ModelHTTPError,
+            ModelRetry,
+            UnexpectedModelBehavior,
+        )
+    except ImportError:
+        return None, ()
+    return ModelHTTPError, (ModelRetry, UnexpectedModelBehavior)
+
+
 def classify_llm_exception(
     exc: Exception,
     *,
@@ -78,25 +90,29 @@ def classify_llm_exception(
             details={"cause": str(exc)},
         )
 
-    if isinstance(exc, ModelHTTPError):
-        details = {"status_code": exc.status_code, "body": exc.body}
-        if exc.status_code == 429:
+    model_http_error, validation_error_types = _pydantic_ai_error_types()
+    if model_http_error is not None and isinstance(exc, model_http_error):
+        status_code = getattr(exc, "status_code", None)
+        body = getattr(exc, "body", None)
+        model_name = getattr(exc, "model_name", None)
+        details = {"status_code": status_code, "body": body}
+        if status_code == 429:
             return LLMRateLimitError(
                 "LLM provider rate limit exceeded",
                 provider=provider,
-                model=exc.model_name or model,
+                model=model_name or model,
                 surface=surface,
                 details=details,
             )
         return LLMProviderError(
-            f"LLM provider request failed with HTTP {exc.status_code}",
+            f"LLM provider request failed with HTTP {status_code}",
             provider=provider,
-            model=exc.model_name or model,
+            model=model_name or model,
             surface=surface,
             details=details,
         )
 
-    if isinstance(exc, (ModelRetry, UnexpectedModelBehavior)):
+    if validation_error_types and isinstance(exc, validation_error_types):
         return LLMValidationError(
             "LLM output could not be validated",
             provider=provider,

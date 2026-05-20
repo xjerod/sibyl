@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from google.genai import types
+if TYPE_CHECKING:
+    from google.genai import types
 
 GeminiInputKind = Literal["query", "document", "similarity", "classification", "clustering"]
 
@@ -37,7 +38,6 @@ def format_gemini_embedding_text(
 
 
 def build_gemini_contents(texts: list[str]) -> list[types.Content]:
-    return [
-        types.Content(role="user", parts=[types.Part.from_text(text=text)])
-        for text in texts
-    ]
+    from google.genai import types
+
+    return [types.Content(role="user", parts=[types.Part.from_text(text=text)]) for text in texts]
