@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, TypeVar
@@ -192,6 +193,7 @@ async def _vector_search_attempt(
     entity_manager: Any,
     entity_types: list[Any] | None = None,
     limit: int = 20,
+    result_filter: Callable[[Any], bool] | None = None,
 ) -> _VectorSearchAttempt:
     try:
         results = await entity_manager.search(
@@ -199,6 +201,7 @@ async def _vector_search_attempt(
             entity_types=entity_types,
             limit=limit,
         )
+        results = _filter_entity_results(results, result_filter)
         log.debug("vector_search_complete", **query_log_fields(query), results=len(results))
         return _VectorSearchAttempt(results=results, completed=True)
     except Exception as e:
@@ -224,6 +227,15 @@ def _entity_matches_types(entity: Any, entity_types: list[Any] | None) -> bool:
 
 def _entity_id(entity: Any) -> str:
     return str(entity.get("id", "") if isinstance(entity, dict) else getattr(entity, "id", ""))
+
+
+def _filter_entity_results(
+    results: list[tuple[Any, float]],
+    result_filter: Callable[[Any], bool] | None,
+) -> list[tuple[Any, float]]:
+    if result_filter is None:
+        return results
+    return [(entity, score) for entity, score in results if result_filter(entity)]
 
 
 async def vector_search(
@@ -385,6 +397,7 @@ async def hybrid_search(
     config: HybridConfig | None = None,
     include_metadata: bool = False,
     group_id: str | None = None,
+    result_filter: Callable[[Any], bool] | None = None,
 ) -> HybridResult:
     """Perform hybrid search combining multiple retrieval strategies.
 
@@ -415,12 +428,24 @@ async def hybrid_search(
 
     # Phase 1: native vector/fulltext seed search
     vector_task = asyncio.create_task(
-        _vector_search_attempt(query, entity_manager, entity_types, limit=limit * 2)
+        _vector_search_attempt(
+            query,
+            entity_manager,
+            entity_types,
+            limit=limit * 2,
+            result_filter=result_filter,
+        )
     )
     link_task: asyncio.Task[_VectorSearchAttempt] | None = None
     if entity_types and config.apply_query_entity_linking and config.graph_weight > 0:
         link_task = asyncio.create_task(
-            _vector_search_attempt(query, entity_manager, None, limit=limit * 2)
+            _vector_search_attempt(
+                query,
+                entity_manager,
+                None,
+                limit=limit * 2,
+                result_filter=result_filter,
+            )
         )
 
     # Get vector results first (we need them for graph seeds)
@@ -448,6 +473,7 @@ async def hybrid_search(
                 limit=limit * 2,
                 group_id=resolved_group_id,
             )
+            graph_results = _filter_entity_results(graph_results, result_filter)
             if entity_types:
                 graph_results = [
                     (entity, score)

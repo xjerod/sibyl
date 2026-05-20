@@ -7,6 +7,7 @@ from typing import Any
 
 import structlog
 
+from sibyl_core.auth.memory_policy import memory_scope_policy_key
 from sibyl_core.embeddings.native import configured_native_embedding_provider
 from sibyl_core.models.entities import EntityType
 from sibyl_core.retrieval import HybridConfig, hybrid_search, temporal_boost
@@ -145,6 +146,8 @@ async def _list_graph_entities_for_filters(
     assignee: str | None,
     since_date: datetime | None,
     accessible_projects: set[str] | None,
+    principal_id: str | None,
+    allowed_memory_scope_keys: set[str] | None,
 ) -> list[tuple[Any, float]]:
     target_count = max(limit + offset, limit)
     page_size = min(max(target_count, 1), 500)
@@ -157,6 +160,8 @@ async def _list_graph_entities_for_filters(
             category=category,
             status=status,
             project=project,
+            principal_id=principal_id,
+            allowed_memory_scope_keys=allowed_memory_scope_keys,
             source=source,
             assignee=assignee,
             since_date=since_date,
@@ -202,11 +207,22 @@ def _matches_graph_filters(
     category: str | None,
     status: str | None,
     project: str | None,
+    principal_id: str | None,
+    allowed_memory_scope_keys: set[str] | None,
     source: str | None,
     assignee: str | None,
     since_date: datetime | None,
     accessible_projects: set[str] | None,
 ) -> bool:
+    if not _matches_memory_scope_policy(
+        entity,
+        project=project,
+        principal_id=principal_id,
+        allowed_memory_scope_keys=allowed_memory_scope_keys,
+        accessible_projects=accessible_projects,
+    ):
+        return False
+
     if language:
         entity_langs = _get_field(entity, "languages", [])
         if language.lower() not in [lang.lower() for lang in entity_langs]:
@@ -255,6 +271,42 @@ def _matches_graph_filters(
                     return False
             except (ValueError, TypeError):
                 pass
+
+    return True
+
+
+def _matches_memory_scope_policy(
+    entity: Any,
+    *,
+    project: str | None,
+    principal_id: str | None,
+    allowed_memory_scope_keys: set[str] | None,
+    accessible_projects: set[str] | None,
+) -> bool:
+    metadata = getattr(entity, "metadata", {}) or {}
+    raw_scope = metadata.get("memory_scope")
+    if raw_scope is None:
+        return True
+
+    memory_scope = str(raw_scope).strip()
+    scope_key = metadata.get("scope_key")
+    effective_scope_key = principal_id if memory_scope == "private" else scope_key
+
+    if allowed_memory_scope_keys is not None:
+        return (
+            memory_scope_policy_key(memory_scope, effective_scope_key) in allowed_memory_scope_keys
+        )
+
+    if memory_scope == "private":
+        owner = metadata.get("principal_id") or scope_key
+        return bool(principal_id) and str(owner) == str(principal_id)
+
+    if memory_scope == "project":
+        scoped_project = str(scope_key or metadata.get("project_id") or "")
+        if project:
+            return scoped_project == project
+        if accessible_projects is not None:
+            return scoped_project in accessible_projects
 
     return True
 
@@ -344,6 +396,8 @@ async def search(
     temporal_decay_days: float | None = None,
     reference_time: str | datetime | None = None,
     organization_id: str | None = None,
+    principal_id: str | None = None,
+    allowed_memory_scope_keys: set[str] | None = None,
 ) -> SearchResponse:
     """Unified semantic search across knowledge graph AND documentation.
 
@@ -544,6 +598,21 @@ async def search(
                 except ValueError:
                     log.warning("invalid_since_date", since=since)
 
+            def graph_result_allowed(entity: Any) -> bool:
+                return _matches_graph_filters(
+                    entity,
+                    language=language,
+                    category=category,
+                    status=status,
+                    project=project,
+                    principal_id=principal_id,
+                    allowed_memory_scope_keys=allowed_memory_scope_keys,
+                    source=source,
+                    assignee=assignee,
+                    since_date=since_date,
+                    accessible_projects=accessible_projects,
+                )
+
             # Perform search - try enhanced hybrid first, then fall back to
             # the entity manager's direct search path.
             raw_results: list[tuple[Any, float]] = []
@@ -574,6 +643,7 @@ async def search(
                             limit=limit * 3,
                             config=hybrid_config,
                             group_id=organization_id,
+                            result_filter=graph_result_allowed,
                         ),
                         timeout_seconds=TIMEOUTS["search"],
                         operation_name="hybrid_search",
@@ -652,7 +722,13 @@ async def search(
                     assignee=assignee,
                     since_date=since_date,
                     accessible_projects=accessible_projects,
+                    principal_id=principal_id,
+                    allowed_memory_scope_keys=allowed_memory_scope_keys,
                 )
+
+            raw_results = [
+                (entity, score) for entity, score in raw_results if graph_result_allowed(entity)
+            ]
 
             if requested_graph_types:
                 typed_results = [
@@ -681,23 +757,14 @@ async def search(
                     (entity, score)
                     for entity, score in fallback_results
                     if _matches_requested_graph_type(entity, requested_graph_types)
+                    and graph_result_allowed(entity)
                 ]
 
             raw_results = typed_results
 
             # Filter and convert to SearchResult
             for entity, score in raw_results:
-                if not _matches_graph_filters(
-                    entity,
-                    language=language,
-                    category=category,
-                    status=status,
-                    project=project,
-                    source=source,
-                    assignee=assignee,
-                    since_date=since_date,
-                    accessible_projects=accessible_projects,
-                ):
+                if not graph_result_allowed(entity):
                     continue
 
                 content = ""

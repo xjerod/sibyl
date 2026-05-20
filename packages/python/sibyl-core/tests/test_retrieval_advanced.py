@@ -1261,6 +1261,59 @@ class TestHybridSearch:
         assert None in search_types
 
     @pytest.mark.asyncio
+    async def test_hybrid_search_filters_untyped_link_seeds_before_traversal(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        hidden_projected = make_entity_for_test(
+            "topic_hidden",
+            name="Hidden TV",
+            entity_type=EntityType.TOPIC,
+            metadata={"project_id": "project_hidden"},
+        )
+        visible_projected = make_entity_for_test(
+            "topic_visible",
+            name="Visible TV",
+            entity_type=EntityType.TOPIC,
+            metadata={"project_id": "project_visible"},
+        )
+        answer = make_entity_for_test(
+            "session_answer",
+            name="Visible source session",
+            entity_type=EntityType.SESSION,
+            metadata={"project_id": "project_visible"},
+        )
+        manager.search_results = [(hidden_projected, 0.99), (visible_projected, 0.9)]
+
+        async def fake_graph_traversal(
+            seed_ids: list[str],
+            client: Any,
+            depth: int = 2,
+            limit: int = 20,
+            group_id: str | None = None,
+        ) -> list[tuple[Entity, float]]:
+            del client, depth, limit, group_id
+            assert seed_ids == ["topic_visible"]
+            return [(answer, 0.5)]
+
+        monkeypatch.setattr(hybrid_module, "graph_traversal", fake_graph_traversal)
+
+        result = await hybrid_search(
+            "what did I buy?",
+            client,  # type: ignore[arg-type]
+            manager,  # type: ignore[arg-type]
+            entity_types=[EntityType.SESSION],
+            config=HybridConfig(apply_temporal=False, apply_keyword_boost=False),
+            result_filter=lambda entity: entity.metadata.get("project_id") == "project_visible",
+        )
+
+        assert [entity.id for entity in result.entities] == ["session_answer"]
+        assert result.metadata["link_count"] == 1
+
+    @pytest.mark.asyncio
     async def test_hybrid_search_temporal_reference_promotes_near_match(self) -> None:
         """Relative time in the query uses the supplied as-of timestamp."""
         client = MockGraphClientForHybrid()

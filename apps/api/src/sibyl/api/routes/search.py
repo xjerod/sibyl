@@ -81,6 +81,8 @@ async def search(
         else:
             accessible_projects = await list_accessible_project_graph_ids(ctx)
 
+        api_key_memory_scope_keys = getattr(ctx, "api_key_memory_scope_keys", None)
+
         # Pass accessible projects to filter results
         # If a specific project is requested, use that; otherwise use accessible set
         result = await core_search(
@@ -105,6 +107,12 @@ async def search(
             use_enhanced=request.use_enhanced,
             boost_recent=request.boost_recent,
             organization_id=group_id,
+            principal_id=getattr(ctx, "user_id", None),
+            allowed_memory_scope_keys=(
+                set(api_key_memory_scope_keys)
+                if api_key_memory_scope_keys is not None
+                else None
+            ),
         )
 
         response = SearchResponse(**asdict(result))

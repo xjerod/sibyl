@@ -1161,6 +1161,7 @@ def _register_tools(mcp: FastMCP) -> None:
         # Get full context from authenticated MCP session
         ctx = await _require_mcp_context()
         accessible_projects = await _get_accessible_projects(ctx)
+        api_key_memory_scope_keys = getattr(ctx, "api_key_memory_scope_keys", None)
 
         result = await _search(
             query=query,
@@ -1183,6 +1184,12 @@ def _register_tools(mcp: FastMCP) -> None:
             boost_recent=boost_recent,
             temporal_decay_days=temporal_decay_days,
             organization_id=ctx.org_id,
+            principal_id=getattr(ctx, "user_id", None),
+            allowed_memory_scope_keys=(
+                set(api_key_memory_scope_keys)
+                if api_key_memory_scope_keys is not None
+                else None
+            ),
         )
         return _to_dict(result)
 

@@ -62,7 +62,9 @@ def _as_mapping(value: Any) -> dict[str, Any]:
     return dict(getattr(value, "__dict__", {}))
 
 
-def _append_unique_memory(memories: list[dict[str, Any]], memory: dict[str, Any], limit: int) -> None:
+def _append_unique_memory(
+    memories: list[dict[str, Any]], memory: dict[str, Any], limit: int
+) -> None:
     if len(memories) >= limit:
         return
     memory_id = memory.get("id")
@@ -178,6 +180,7 @@ async def get_session_bundle(
         effective_query = derive_query(query, tasks, project_name=None)
         relevant_entities: list[dict[str, Any]] = []
         if effective_query and memory_limit > 0:
+            api_key_memory_scope_keys = getattr(ctx, "api_key_memory_scope_keys", None)
             await _append_raw_memories(
                 memories=relevant_entities,
                 query=effective_query,
@@ -212,6 +215,12 @@ async def get_session_bundle(
                     use_enhanced=True,
                     boost_recent=True,
                     organization_id=organization_id,
+                    principal_id=getattr(ctx, "user_id", None),
+                    allowed_memory_scope_keys=(
+                        set(api_key_memory_scope_keys)
+                        if api_key_memory_scope_keys is not None
+                        else None
+                    ),
                 )
                 task_ids = {task["id"] for task in tasks}
                 for result in search_result.results:

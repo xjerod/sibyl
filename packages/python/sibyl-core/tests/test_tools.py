@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from sibyl_core.auth.memory_policy import memory_scope_policy_key
 from sibyl_core.models.context import (
     ContextFacet,
     ContextIntent,
@@ -917,6 +918,77 @@ class TestSearchTool:
         assert response.filters["status"] == "todo"
         assert response.filters["project"] == "proj_123"
 
+    def test_search_graph_filters_reject_private_scope_mismatch(self) -> None:
+        """Projected private memories require the owning principal."""
+        from sibyl_core.tools.search import _matches_graph_filters
+
+        entity = MockEntity(
+            id="private_projection",
+            entity_type=EntityType.TOPIC,
+            name="Private projection",
+            metadata={
+                "memory_scope": "private",
+                "scope_key": "alice",
+                "principal_id": "alice",
+            },
+        )
+
+        assert not _matches_graph_filters(
+            entity,
+            language=None,
+            category=None,
+            status=None,
+            project=None,
+            principal_id="bob",
+            allowed_memory_scope_keys=None,
+            source=None,
+            assignee=None,
+            since_date=None,
+            accessible_projects=None,
+        )
+        assert _matches_graph_filters(
+            entity,
+            language=None,
+            category=None,
+            status=None,
+            project=None,
+            principal_id="alice",
+            allowed_memory_scope_keys=None,
+            source=None,
+            assignee=None,
+            since_date=None,
+            accessible_projects=None,
+        )
+
+    def test_search_graph_filters_require_api_key_memory_scope_grant(self) -> None:
+        """API-key memory grants narrow projected project memories."""
+        from sibyl_core.tools.search import _matches_graph_filters
+
+        entity = MockEntity(
+            id="project_projection",
+            entity_type=EntityType.TOPIC,
+            name="Project projection",
+            metadata={
+                "memory_scope": "project",
+                "scope_key": "project_hidden",
+                "project_id": "project_hidden",
+            },
+        )
+
+        assert not _matches_graph_filters(
+            entity,
+            language=None,
+            category=None,
+            status=None,
+            project=None,
+            principal_id="bob",
+            allowed_memory_scope_keys={memory_scope_policy_key("project", "project_visible")},
+            source=None,
+            assignee=None,
+            since_date=None,
+            accessible_projects={"project_hidden", "project_visible"},
+        )
+
     @pytest.mark.asyncio
     async def test_search_passes_reference_time_to_hybrid_config(self) -> None:
         """Search forwards as-of time into enhanced graph ranking."""
@@ -947,6 +1019,61 @@ class TestSearchTool:
         config = hybrid_search.await_args.kwargs["config"]
         assert response.filters["reference_time"] == "2026/01/20 00:00"
         assert config.reference_time == datetime(2026, 1, 20, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_search_filters_projected_memory_scope_from_enhanced_results(self) -> None:
+        """Enhanced graph results respect projected-memory scope metadata."""
+        from sibyl_core.retrieval.hybrid import HybridResult
+
+        search_module = import_module("sibyl_core.tools.search")
+        hidden = MockEntity(
+            id="hidden_session",
+            entity_type=EntityType.SESSION,
+            name="Hidden session",
+            content="Private session",
+            metadata={
+                "memory_scope": "private",
+                "scope_key": "alice",
+                "principal_id": "alice",
+            },
+        )
+        owned = MockEntity(
+            id="owned_session",
+            entity_type=EntityType.SESSION,
+            name="Owned session",
+            content="Owned session",
+            metadata={
+                "memory_scope": "private",
+                "scope_key": "bob",
+                "principal_id": "bob",
+            },
+        )
+        hybrid_search = AsyncMock(
+            return_value=HybridResult(
+                results=[(hidden, 0.99), (owned, 0.9)],
+                metadata={"entity_manager_search_completed": True},
+            )
+        )
+
+        with (
+            patch(
+                "sibyl_core.tools.search.get_graph_runtime",
+                AsyncMock(return_value=make_graph_runtime(entity_manager=AsyncMock())),
+            ),
+            patch("sibyl_core.tools.search.hybrid_search", hybrid_search),
+        ):
+            response = await search_module.search(
+                query="private",
+                types=["session"],
+                organization_id="org_123",
+                include_documents=False,
+                principal_id="bob",
+            )
+
+        assert [result.id for result in response.results] == ["owned_session"]
+        result_filter = hybrid_search.await_args.kwargs["result_filter"]
+        assert not result_filter(hidden)
+        assert result_filter(owned)
 
     @pytest.mark.asyncio
     async def test_search_document_only_mode(self) -> None:
