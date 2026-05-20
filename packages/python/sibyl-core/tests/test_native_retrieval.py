@@ -55,6 +55,27 @@ def test_native_fusion_backend_accepts_surreal_rrf() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_read_only_graph_runtime_supports_legacy_runtime_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Runtime:
+        client = object()
+
+    calls: list[str] = []
+
+    async def fake_runtime(organization_id: str) -> Runtime:
+        calls.append(organization_id)
+        return Runtime()
+
+    monkeypatch.setattr(native_module, "get_native_graph_runtime", fake_runtime)
+
+    runtime = await native_module._get_read_only_graph_runtime("org-123")
+
+    assert isinstance(runtime, Runtime)
+    assert calls == ["org-123"]
+
+
 def test_build_native_context_retrieval_plan_records_scopes_and_weights() -> None:
     plan = build_native_context_retrieval_plan(
         query="ship native retrieval",

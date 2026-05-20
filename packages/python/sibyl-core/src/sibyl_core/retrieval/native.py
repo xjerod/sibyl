@@ -43,6 +43,15 @@ _RAW_MEMORY_CONTEXT_TYPES = {"raw_memory", "session", "episode", "note"}
 log = structlog.get_logger()
 
 
+async def _get_read_only_graph_runtime(organization_id: str) -> Any:
+    try:
+        return await get_native_graph_runtime(organization_id, ensure_schema=False)
+    except TypeError as error:
+        if "unexpected keyword argument 'ensure_schema'" not in str(error):
+            raise
+        return await get_native_graph_runtime(organization_id)
+
+
 class NativeRetrievalMode(StrEnum):
     NATIVE = "native"
     COMPARE = "compare"
@@ -292,7 +301,7 @@ async def native_context_search(
     from sibyl_core.tools.responses import SearchResponse
 
     limit = max(1, min(limit, 50))
-    runtime = await get_native_graph_runtime(plan.organization_id, ensure_schema=False)
+    runtime = await _get_read_only_graph_runtime(plan.organization_id)
     client = runtime.client
     search_filter = _search_filter_for_plan(plan)
     requested_types = {value.lower() for value in types or ()}
