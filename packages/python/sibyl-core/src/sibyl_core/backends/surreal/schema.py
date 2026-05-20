@@ -11,6 +11,8 @@ from sibyl_core.backends.surreal.schema_version import (
     SCHEMA_VERSION_TABLE,
     SchemaMigration,
     apply_schema_migrations,
+    ensure_schema_version_table,
+    get_schema_version,
 )
 from sibyl_core.config import core_config
 
@@ -268,6 +270,10 @@ async def bootstrap_schema(driver: SurrealDriver, *, reset: bool = False) -> Non
     if reset:
         for table in (*GRAPH_EDGES, *GRAPH_TABLES, SCHEMA_VERSION_TABLE):
             await driver.execute_query(f"REMOVE TABLE IF EXISTS {table};")
+    else:
+        await ensure_schema_version_table(driver.execute_query, group_id=driver.group_id)
+        if await get_schema_version(driver.execute_query) >= GRAPH_SCHEMA_CURRENT_VERSION:
+            return
 
     compatible_blocks = (
         ANALYZER_DEFINITIONS,

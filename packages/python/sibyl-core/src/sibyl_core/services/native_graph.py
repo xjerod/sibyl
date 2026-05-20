@@ -1318,9 +1318,11 @@ async def get_native_graph_runtime(
     group_id: str,
     *,
     embedding_provider: NativeEmbeddingProvider | None = None,
+    ensure_schema: bool = True,
 ) -> NativeGraphRuntime:
     client = await get_native_graph_client(group_id)
-    await prepare_native_graph_schema(client)
+    if ensure_schema:
+        await prepare_native_graph_schema(client)
     _validate_native_embedding_dimensions(embedding_provider)
     return NativeGraphRuntime(
         client=client,

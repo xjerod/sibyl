@@ -774,7 +774,7 @@ async def test_compile_context_native_ranks_agent_diary_by_relevance(
     class EmptyNativeRuntime:
         client = EmptyNativeClient()
 
-    async def fake_native_runtime(_organization_id: str) -> EmptyNativeRuntime:
+    async def fake_native_runtime(_organization_id: str, **_kwargs: object) -> EmptyNativeRuntime:
         return EmptyNativeRuntime()
 
     async def fake_raw_recall(**kwargs: Any) -> list[RawMemory]:

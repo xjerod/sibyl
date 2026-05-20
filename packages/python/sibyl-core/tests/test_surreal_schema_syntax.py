@@ -21,12 +21,16 @@ from sibyl_core.backends.surreal.schema import (
     bootstrap_schema,
     render_fulltext_compatible_sql,
 )
-from sibyl_core.backends.surreal.schema_version import SCHEMA_VERSION_DEFINITIONS
+from sibyl_core.backends.surreal.schema_version import (
+    GRAPH_SCHEMA_CURRENT_VERSION,
+    SCHEMA_VERSION_DEFINITIONS,
+)
 
 
 class _RecordingSchemaClient:
-    def __init__(self, duplicate_index_name: str = "") -> None:
+    def __init__(self, duplicate_index_name: str = "", schema_version: int = 0) -> None:
         self.duplicate_index_name = duplicate_index_name
+        self.schema_version = schema_version
         self.calls: list[str] = []
         self._url = ""
         self.group_id = "org_123"
@@ -34,7 +38,9 @@ class _RecordingSchemaClient:
     async def execute_query(self, statement: str, **_params: object) -> object:
         self.calls.append(statement)
         if statement.strip().startswith("SELECT version FROM schema_version"):
-            return [{"version": 0}]
+            return [{"version": self.schema_version}]
+        if statement.strip().startswith("UPSERT schema_version:graph"):
+            self.schema_version = GRAPH_SCHEMA_CURRENT_VERSION
         if self.duplicate_index_name and self.duplicate_index_name in statement:
             raise RuntimeError(
                 f"Database index `{self.duplicate_index_name}` already contains 'dirty-row'"
@@ -149,6 +155,17 @@ async def test_graph_bootstrap_defines_relations_before_cleanup() -> None:
         index for index, statement in enumerate(client.calls) if "DELETE FROM relates_to" in statement
     )
     assert relation_define_index < cleanup_index
+
+
+@pytest.mark.asyncio
+async def test_graph_bootstrap_skips_heavy_schema_when_version_is_current() -> None:
+    client = _RecordingSchemaClient(schema_version=GRAPH_SCHEMA_CURRENT_VERSION)
+
+    await bootstrap_schema(client)  # type: ignore[arg-type]
+
+    assert not any("REMOVE INDEX" in statement for statement in client.calls)
+    assert not any("UPDATE entity SET" in statement for statement in client.calls)
+    assert not any("DEFINE TABLE IF NOT EXISTS entity" in statement for statement in client.calls)
 
 
 def test_graph_schema_version_table_is_schemafull() -> None:

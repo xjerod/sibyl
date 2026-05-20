@@ -37,6 +37,7 @@ async def get_graph_runtime(group_id: str):
     return await get_native_graph_runtime(
         group_id,
         embedding_provider=configured_native_embedding_provider(),
+        ensure_schema=False,
     )
 
 

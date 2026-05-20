@@ -22,6 +22,7 @@ from sibyl_core.services.native_graph import (
     NativeSurrealGraphClient,
     _validate_native_embedding_dimensions,
     entity_from_surreal_row,
+    get_native_graph_runtime,
     normalize_records,
     prepare_native_graph_schema,
     relationship_from_surreal_row,
@@ -128,6 +129,25 @@ async def test_replace_entity_retries_transient_surreal_query_id_keyerror(
     assert row["uuid"] == "entity-retry"
     assert client.calls == 2
     bootstrap_schema.assert_awaited_once_with(client)
+
+
+@pytest.mark.asyncio
+async def test_native_graph_runtime_can_skip_schema_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _EmbeddingWriteClient()
+    bootstrap_schema = AsyncMock()
+    monkeypatch.setattr(native_graph_module, "bootstrap_schema", bootstrap_schema)
+    monkeypatch.setattr(
+        native_graph_module,
+        "get_native_graph_client",
+        AsyncMock(return_value=client),
+    )
+
+    runtime = await get_native_graph_runtime(client.group_id, ensure_schema=False)
+
+    assert runtime.client is client
+    bootstrap_schema.assert_not_awaited()
 
 
 class _TransientEntityWriteClient:

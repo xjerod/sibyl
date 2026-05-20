@@ -292,7 +292,7 @@ async def native_context_search(
     from sibyl_core.tools.responses import SearchResponse
 
     limit = max(1, min(limit, 50))
-    runtime = await get_native_graph_runtime(plan.organization_id)
+    runtime = await get_native_graph_runtime(plan.organization_id, ensure_schema=False)
     client = runtime.client
     search_filter = _search_filter_for_plan(plan)
     requested_types = {value.lower() for value in types or ()}

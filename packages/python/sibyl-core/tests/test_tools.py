@@ -897,6 +897,29 @@ class TestSearchTool:
         assert response.offset == 0
 
     @pytest.mark.asyncio
+    async def test_search_graph_runtime_skips_schema_preparation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Search should not run schema bootstrap on the read path."""
+        from sibyl_core.services import native_graph as native_graph_module
+        from sibyl_core.tools.search import get_graph_runtime
+
+        seen: dict[str, object] = {}
+
+        async def fake_runtime(group_id: str, **kwargs: object) -> object:
+            seen["group_id"] = group_id
+            seen.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(native_graph_module, "get_native_graph_runtime", fake_runtime)
+
+        await get_graph_runtime("org_123")
+
+        assert seen["group_id"] == "org_123"
+        assert seen["ensure_schema"] is False
+
+    @pytest.mark.asyncio
     async def test_search_builds_filters_dict(self) -> None:
         """Search builds filters dict from parameters."""
         from sibyl_core.tools.search import search
