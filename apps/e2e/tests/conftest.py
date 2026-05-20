@@ -86,6 +86,8 @@ class CLIRunner:
         """
         cmd = [*CLI_COMMAND, *args]
         env = os.environ.copy()
+        if not env.get("SIBYL_API_URL", "").strip():
+            env["SIBYL_API_URL"] = API_BASE_URL
         if self.auth_token:
             env["SIBYL_AUTH_TOKEN"] = self.auth_token
         result = subprocess.run(  # noqa: S603

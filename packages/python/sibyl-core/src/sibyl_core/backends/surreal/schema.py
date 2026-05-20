@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
+import structlog
+
 from sibyl_core.backends.surreal.schema_helpers import execute_schema_statement, split_statements
 from sibyl_core.backends.surreal.schema_version import (
     GRAPH_SCHEMA_CURRENT_VERSION,
@@ -18,6 +20,8 @@ from sibyl_core.config import core_config
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.driver import SurrealDriver
+
+logger = structlog.get_logger()
 
 
 def _object_mapping(value: object) -> Mapping[object, object] | None:
@@ -269,6 +273,20 @@ GRAPH_SCHEMA_MIGRATIONS = (
 )
 
 
+def _is_relation_cleanup_statement(statement: str) -> bool:
+    normalized = statement.lstrip().lower()
+    return any(
+        normalized.startswith(f"delete from {table}")
+        or normalized.startswith(f"update {table}")
+        for table in GRAPH_EDGES
+    )
+
+
+def _is_missing_table_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return "the table" in message and "does not exist" in message
+
+
 def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
     if url.startswith(("memory://", "surrealkv://")):
         return sql.replace("FULLTEXT ANALYZER", "SEARCH ANALYZER")
@@ -291,7 +309,13 @@ async def bootstrap_schema(
     else:
         await ensure_schema_version_table(driver.execute_query, group_id=driver.group_id)
         if await get_schema_version(driver.execute_query) >= GRAPH_SCHEMA_CURRENT_VERSION:
-            await _execute_graph_schema_block(driver, CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS)
+            missing_relation_table = await _execute_graph_schema_block(
+                driver,
+                CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
+                ignore_missing_relation_tables=True,
+            )
+            if missing_relation_table:
+                force = True
             if not force:
                 return
 
@@ -302,7 +326,11 @@ async def bootstrap_schema(
         render_fulltext_compatible_sql(EDGE_DEFINITIONS, url=driver._url),
     )
     for block in compatible_blocks:
-        await _execute_graph_schema_block(driver, block)
+        await _execute_graph_schema_block(
+            driver,
+            block,
+            ignore_missing_relation_tables=block == RELATION_EDGE_CLEANUP_DEFINITIONS,
+        )
     await apply_schema_migrations(
         driver.execute_query,
         GRAPH_SCHEMA_MIGRATIONS,
@@ -310,14 +338,35 @@ async def bootstrap_schema(
     )
 
 
-async def _execute_graph_schema_block(driver: SurrealDriver, block: str) -> None:
+async def _execute_graph_schema_block(
+    driver: SurrealDriver,
+    block: str,
+    *,
+    ignore_missing_relation_tables: bool = False,
+) -> bool:
+    skipped_missing_relation_table = False
     for statement in split_statements(block):
-        await execute_schema_statement(
-            driver.execute_query,
-            statement,
-            scope="graph",
-            group_id=driver.group_id,
-        )
+        try:
+            await execute_schema_statement(
+                driver.execute_query,
+                statement,
+                scope="graph",
+                group_id=driver.group_id,
+            )
+        except Exception as exc:
+            if not (
+                ignore_missing_relation_tables
+                and _is_relation_cleanup_statement(statement)
+                and _is_missing_table_error(exc)
+            ):
+                raise
+            skipped_missing_relation_table = True
+            logger.debug(
+                "surreal_schema_relation_cleanup_skipped",
+                group_id=driver.group_id,
+                error_type=type(exc).__name__,
+            )
+    return skipped_missing_relation_table
 
 
 async def drop_all_indexes(driver: SurrealDriver) -> None:

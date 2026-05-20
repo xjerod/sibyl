@@ -29,19 +29,33 @@ from sibyl_core.backends.surreal.schema_version import (
 
 
 class _RecordingSchemaClient:
-    def __init__(self, duplicate_index_name: str = "", schema_version: int = 0) -> None:
+    def __init__(
+        self,
+        duplicate_index_name: str = "",
+        schema_version: int = 0,
+        missing_tables: set[str] | None = None,
+    ) -> None:
         self.duplicate_index_name = duplicate_index_name
         self.schema_version = schema_version
+        self.missing_tables = missing_tables or set()
         self.calls: list[str] = []
         self._url = ""
         self.group_id = "org_123"
 
     async def execute_query(self, statement: str, **_params: object) -> object:
         self.calls.append(statement)
+        stripped = statement.strip()
         if statement.strip().startswith("SELECT version FROM schema_version"):
             return [{"version": self.schema_version}]
         if statement.strip().startswith("UPSERT schema_version:graph"):
             self.schema_version = GRAPH_SCHEMA_CURRENT_VERSION
+        for table in tuple(self.missing_tables):
+            if stripped.startswith(f"DELETE FROM {table}") or stripped.startswith(
+                f"UPDATE {table}"
+            ):
+                raise RuntimeError(f"The table '{table}' does not exist")
+            if stripped.startswith(f"DEFINE TABLE OVERWRITE {table}"):
+                self.missing_tables.discard(table)
         if self.duplicate_index_name and self.duplicate_index_name in statement:
             raise RuntimeError(
                 f"Database index `{self.duplicate_index_name}` already contains 'dirty-row'"
@@ -159,6 +173,15 @@ async def test_graph_bootstrap_cleans_relations_before_enforcement() -> None:
 
 
 @pytest.mark.asyncio
+async def test_graph_bootstrap_skips_missing_relation_cleanup_on_new_schema() -> None:
+    client = _RecordingSchemaClient(missing_tables={"relates_to"})
+
+    await bootstrap_schema(client)  # type: ignore[arg-type]
+
+    assert any("DEFINE TABLE OVERWRITE relates_to" in statement for statement in client.calls)
+
+
+@pytest.mark.asyncio
 async def test_graph_bootstrap_runs_light_maintenance_when_version_is_current() -> None:
     client = _RecordingSchemaClient(schema_version=GRAPH_SCHEMA_CURRENT_VERSION)
 
@@ -170,6 +193,19 @@ async def test_graph_bootstrap_runs_light_maintenance_when_version_is_current() 
     assert "description = description ?? attributes.description" in (
         CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
     )
+
+
+@pytest.mark.asyncio
+async def test_graph_bootstrap_rebuilds_when_current_schema_is_missing_relation() -> None:
+    client = _RecordingSchemaClient(
+        schema_version=GRAPH_SCHEMA_CURRENT_VERSION,
+        missing_tables={"relates_to"},
+    )
+
+    await bootstrap_schema(client)  # type: ignore[arg-type]
+
+    assert any("DEFINE TABLE IF NOT EXISTS entity" in statement for statement in client.calls)
+    assert any("DEFINE TABLE OVERWRITE relates_to" in statement for statement in client.calls)
 
 
 def test_graph_schema_version_table_is_schemafull() -> None:
