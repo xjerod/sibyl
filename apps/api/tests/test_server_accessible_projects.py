@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -577,6 +577,47 @@ async def test_add_mcp_entity_scopes_project_metadata() -> None:
         check_conflicts=True,
         skip_conflicts=False,
         conflict_threshold=0.85,
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_mcp_entity_creates_project_record_for_projects() -> None:
+    ctx = McpContext(org_id=str(uuid4()), user_id=str(uuid4()), scopes=["mcp"])
+    add = AsyncMock(return_value={"success": True, "id": "project_123"})
+
+    with (
+        patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
+        patch("sibyl.server._get_accessible_projects", AsyncMock(return_value=None)),
+        patch("sibyl_core.tools.core.add", add),
+        patch("sibyl.server.create_project_record", AsyncMock()) as create_project,
+    ):
+        result = await _add_mcp_entity(
+            title="Sibyl",
+            content="Memory runtime",
+            entity_type="project",
+            category=None,
+            languages=None,
+            tags=None,
+            related_to=None,
+            metadata=None,
+            project=None,
+            priority=None,
+            assignees=None,
+            due_date=None,
+            technologies=None,
+            depends_on=None,
+            repository_url="https://github.com/hyperb1iss/sibyl",
+        )
+
+    assert result["success"] is True
+    assert result["id"] == "project_123"
+    assert add.await_args.kwargs["sync"] is True
+    create_project.assert_awaited_once_with(
+        organization_id=UUID(ctx.org_id),
+        owner_user_id=UUID(ctx.user_id),
+        graph_project_id="project_123",
+        name="Sibyl",
+        description="Memory runtime",
     )
 
 

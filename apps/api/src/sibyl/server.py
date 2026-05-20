@@ -8,6 +8,7 @@ Exposes 5 tools and 2 resources:
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
+from uuid import UUID
 
 import structlog
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -18,6 +19,7 @@ from sibyl.auth.api_key_common import api_key_memory_scope_key
 from sibyl.config import settings
 from sibyl.persistence.auth_runtime import (
     authenticate_api_key,
+    create_project_record,
     has_owner_membership,
     resolve_accessible_project_graph_ids,
 )
@@ -803,6 +805,7 @@ async def _add_mcp_entity(
     from sibyl_core.tools.core import add
 
     ctx = await _require_mcp_context()
+    normalized_entity_type = entity_type.strip().lower()
     accessible_projects = await _resolve_mcp_project_scope(
         ctx,
         project,
@@ -823,30 +826,41 @@ async def _add_mcp_entity(
     if ctx.user_id:
         full_metadata["created_by"] = ctx.user_id
 
-    result = await add(
-        title=title,
-        content=content,
-        entity_type=entity_type,
-        category=category,
-        languages=languages,
-        tags=tags,
-        related_to=related_to,
-        metadata=full_metadata,
-        project=project,
-        priority=priority,
-        assignees=assignees,
-        due_date=due_date,
-        technologies=technologies,
-        depends_on=depends_on,
-        repository_url=repository_url,
-        check_conflicts=check_conflicts,
-        skip_conflicts=skip_conflicts,
-        # Remote MCP callers may relax conflict detection but must not drop
-        # below the baseline: a near-zero threshold turns every add into a
-        # low-similarity probe of organization entities.
-        conflict_threshold=max(conflict_threshold, 0.85),
-    )
+    add_kwargs = {
+        "title": title,
+        "content": content,
+        "entity_type": entity_type,
+        "category": category,
+        "languages": languages,
+        "tags": tags,
+        "related_to": related_to,
+        "metadata": full_metadata,
+        "project": project,
+        "priority": priority,
+        "assignees": assignees,
+        "due_date": due_date,
+        "technologies": technologies,
+        "depends_on": depends_on,
+        "repository_url": repository_url,
+        "check_conflicts": check_conflicts,
+        "skip_conflicts": skip_conflicts,
+        "conflict_threshold": max(conflict_threshold, 0.85),
+    }
+    if normalized_entity_type == "project":
+        add_kwargs["sync"] = True
+
+    result = await add(**add_kwargs)
     payload = _to_dict(result)
+    if normalized_entity_type == "project" and payload.get("success") and payload.get("id"):
+        if not ctx.user_id:
+            raise ValueError("user_context_required")
+        await create_project_record(
+            organization_id=UUID(ctx.org_id),
+            owner_user_id=UUID(ctx.user_id),
+            graph_project_id=str(payload["id"]),
+            name=title,
+            description=content,
+        )
     payload["policy_reason"] = write_decision.reason
     return payload
 
