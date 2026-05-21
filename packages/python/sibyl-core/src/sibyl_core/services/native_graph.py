@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM, bootstrap_schema
 from sibyl_core.config import settings
 from sibyl_core.embeddings.native import (
+    NativeEmbeddingInputKind,
     NativeEmbeddingProvider,
     native_entity_embedding_text,
     native_relationship_embedding_text,
@@ -356,9 +358,11 @@ class NativeEntityManager:
         type_clause = "AND entity_type IN $entity_types" if type_values else ""
         candidate_limit = min(max(int(limit) * 4, 32), 200)
         try:
-            embeddings = await self._embedding_provider.embed_texts(
+            embeddings = await _embed_texts_with_timeout(
+                self._embedding_provider,
                 [query],
                 input_kind="query",
+                operation="entity_vector_search",
             )
             query_embedding = _embedding_vector_from_batch(
                 embeddings,
@@ -2197,10 +2201,13 @@ async def _entity_with_native_embedding(
 ) -> Entity:
     if provider is None or entity.embedding:
         return entity
-    embeddings = await provider.embed_texts(
+    embeddings = await _embed_texts_for_write(
+        provider,
         [native_entity_embedding_text(entity)],
-        input_kind="document",
+        operation="entity_create",
     )
+    if embeddings is None:
+        return entity
     embedding = _embedding_vector_from_batch(embeddings, provider.metadata.dimensions)
     metadata = {
         **dict(entity.metadata or {}),
@@ -2226,10 +2233,13 @@ async def _entities_with_native_embeddings(
     dimensions = provider.metadata.dimensions
     for start in range(0, len(pending_indexes), max(int(batch_size), 1)):
         batch_indexes = pending_indexes[start : start + max(int(batch_size), 1)]
-        embeddings = await provider.embed_texts(
+        embeddings = await _embed_texts_for_write(
+            provider,
             [native_entity_embedding_text(updated_entities[index]) for index in batch_indexes],
-            input_kind="document",
+            operation="entity_bulk_create",
         )
+        if embeddings is None:
+            continue
         if len(embeddings) != len(batch_indexes):
             raise ValueError(
                 "embedding provider returned "
@@ -2256,16 +2266,75 @@ async def _relationship_with_native_embedding(
     metadata = dict(relationship.metadata or {})
     if provider is None or _metadata_float_list(metadata.get("fact_embedding")):
         return relationship
-    embeddings = await provider.embed_texts(
+    embeddings = await _embed_texts_for_write(
+        provider,
         [native_relationship_embedding_text(relationship)],
-        input_kind="document",
+        operation="relationship_create",
     )
+    if embeddings is None:
+        return relationship
     metadata["fact_embedding"] = _embedding_vector_from_batch(
         embeddings,
         provider.metadata.dimensions,
     )
     metadata["embedding_metadata"] = provider.metadata.to_dict()
     return relationship.model_copy(update={"metadata": metadata})
+
+
+async def _embed_texts_for_write(
+    provider: NativeEmbeddingProvider,
+    texts: Sequence[str],
+    *,
+    operation: str,
+) -> list[list[float]] | None:
+    started = time.perf_counter()
+    try:
+        return await _embed_texts_with_timeout(
+            provider,
+            texts,
+            input_kind="document",
+            operation=operation,
+        )
+    except Exception as exc:
+        log.warning(
+            "native_graph_embedding_failed",
+            operation=operation,
+            provider=provider.metadata.provider,
+            model=provider.metadata.model,
+            items=len(texts),
+            timeout_seconds=settings.graph_embedding_timeout_seconds,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
+            error_type=type(exc).__name__,
+        )
+        return None
+
+
+async def _embed_texts_with_timeout(
+    provider: NativeEmbeddingProvider,
+    texts: Sequence[str],
+    *,
+    input_kind: NativeEmbeddingInputKind,
+    operation: str,
+) -> list[list[float]]:
+    timeout_seconds = settings.graph_embedding_timeout_seconds
+    started = time.perf_counter()
+    if timeout_seconds > 0:
+        embeddings = await asyncio.wait_for(
+            provider.embed_texts(texts, input_kind=input_kind),
+            timeout=timeout_seconds,
+        )
+    else:
+        embeddings = await provider.embed_texts(texts, input_kind=input_kind)
+
+    log.info(
+        "native_graph_embedding_complete",
+        operation=operation,
+        provider=provider.metadata.provider,
+        model=provider.metadata.model,
+        items=len(texts),
+        elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
+    )
+    return embeddings
 
 
 def _embedding_vector_from_batch(

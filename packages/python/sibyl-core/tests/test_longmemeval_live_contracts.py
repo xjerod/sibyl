@@ -31,6 +31,7 @@ def test_longmemeval_report_uses_graph_embedding_runtime(monkeypatch) -> None:
     assert metadata["embedding_provider"] == "openai"
     assert metadata["embedding_model"] == "text-embedding-3-small"
     assert metadata["embedding_dimensions"] == 1024
+    assert metadata["embedding_timeout_seconds"] == 20.0
     assert metadata["embedding_provider_status"] == "enabled"
     assert "native vector" in metadata["retrieval_semantics"]
     assert metadata["vector_search_surface"] == (

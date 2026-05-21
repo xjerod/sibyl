@@ -45,6 +45,7 @@ _SETTING_ENV_VARS: dict[str, list[str]] = {
     "graph_embedding_provider": ["SIBYL_GRAPH_EMBEDDING_PROVIDER"],
     "graph_embedding_model": ["SIBYL_GRAPH_EMBEDDING_MODEL"],
     "graph_embedding_dimensions": ["SIBYL_GRAPH_EMBEDDING_DIMENSIONS"],
+    "graph_embedding_timeout_seconds": ["SIBYL_GRAPH_EMBEDDING_TIMEOUT_SECONDS"],
 }
 
 # Settings that should be encrypted
@@ -415,6 +416,7 @@ async def load_runtime_settings_from_db() -> list[str]:
         ("graph_embedding_provider", ["SIBYL_GRAPH_EMBEDDING_PROVIDER"]),
         ("graph_embedding_model", ["SIBYL_GRAPH_EMBEDDING_MODEL"]),
         ("graph_embedding_dimensions", ["SIBYL_GRAPH_EMBEDDING_DIMENSIONS"]),
+        ("graph_embedding_timeout_seconds", ["SIBYL_GRAPH_EMBEDDING_TIMEOUT_SECONDS"]),
     ]:
         try:
             if not any(os.environ.get(env_var) for env_var in env_vars):

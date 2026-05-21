@@ -79,6 +79,25 @@ def _deterministic_provider() -> DeterministicNativeEmbeddingProvider:
     )
 
 
+class _FailingEmbeddingProvider:
+    metadata = NativeEmbeddingMetadata(
+        provider="deterministic",
+        model="failing-unit-test",
+        dimensions=4,
+        cache_namespace="native-graph-test",
+        tokenizer_estimate_method="unit-test",
+    )
+
+    async def embed_texts(
+        self,
+        texts: list[str],
+        *,
+        input_kind: str = "document",
+    ) -> list[list[float]]:
+        del texts, input_kind
+        raise TimeoutError("embedding provider stalled")
+
+
 @pytest.mark.asyncio
 async def test_native_graph_client_cache_evicts_oldest_client(
     monkeypatch: pytest.MonkeyPatch,
@@ -320,6 +339,41 @@ async def test_native_entity_manager_bulk_generates_embeddings_in_batches() -> N
     rows = cast("list[dict[str, object]]", write_calls[0]["rows"])
     assert [row["uuid"] for row in rows] == ["entity_embed_one", "entity_embed_two"]
     assert all(len(cast("list[float]", row["name_embedding"])) == 4 for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_native_entity_manager_bulk_writes_without_embedding_on_provider_failure() -> None:
+    client = _EmbeddingWriteClient()
+    manager = NativeEntityManager(
+        cast(NativeSurrealGraphClient, client),
+        group_id=client.group_id,
+        embedding_provider=_FailingEmbeddingProvider(),
+    )
+
+    created_ids = await manager.create_direct_bulk(
+        [
+            Entity(
+                id="entity_embed_failure",
+                entity_type=EntityType.SESSION,
+                name="Bulk session without embedding",
+                description="The durable write should still land.",
+                organization_id=client.group_id,
+            ),
+        ],
+        generate_embeddings=True,
+    )
+
+    assert created_ids == ["entity_embed_failure"]
+    write_calls = [
+        params
+        for query, params in client.calls
+        if "INSERT INTO entity $rows ON DUPLICATE KEY UPDATE" in query
+    ]
+    rows = cast("list[dict[str, object]]", write_calls[0]["rows"])
+    assert rows[0]["uuid"] == "entity_embed_failure"
+    assert rows[0]["name_embedding"] is None
+    attributes = cast(dict[str, object], rows[0]["attributes"])
+    assert "embedding_metadata" not in attributes
 
 
 @pytest.mark.asyncio
