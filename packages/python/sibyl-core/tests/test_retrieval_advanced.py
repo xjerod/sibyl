@@ -1746,6 +1746,55 @@ class TestHybridSearch:
         assert None in search_types
 
     @pytest.mark.asyncio
+    async def test_hybrid_search_skips_linking_when_typed_seeds_are_sufficient(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        sessions = [
+            make_entity_for_test(
+                f"session_{index}",
+                name=f"Session {index}",
+                entity_type=EntityType.SESSION,
+            )
+            for index in range(6)
+        ]
+        manager.search_results = [
+            (session, 1.0 - index * 0.01) for index, session in enumerate(sessions)
+        ]
+
+        async def fake_graph_traversal(
+            seed_ids: list[str],
+            client: Any,
+            depth: int = 2,
+            limit: int = 20,
+            group_id: str | None = None,
+        ) -> list[tuple[Entity, float]]:
+            del client, depth, limit, group_id
+            assert seed_ids == [session.id for session in sessions[:5]]
+            return []
+
+        monkeypatch.setattr(hybrid_module, "graph_traversal", fake_graph_traversal)
+
+        result = await hybrid_search(
+            "shift rotation",
+            client,  # type: ignore[arg-type]
+            manager,  # type: ignore[arg-type]
+            entity_types=[EntityType.SESSION],
+            limit=5,
+            config=HybridConfig(apply_temporal=False, apply_keyword_boost=False),
+        )
+
+        assert [entity.id for entity in result.entities] == [
+            session.id for session in sessions[:5]
+        ]
+        assert result.metadata["link_count"] == 0
+        assert result.metadata["link_search_skipped"] is True
+        assert [call["entity_types"] for call in manager.search_calls] == [[EntityType.SESSION]]
+
+    @pytest.mark.asyncio
     async def test_hybrid_search_demotes_graph_expansion_only_results(
         self,
         monkeypatch: pytest.MonkeyPatch,

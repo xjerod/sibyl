@@ -8,7 +8,6 @@ Implements a two-phase retrieval strategy:
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -35,6 +34,7 @@ from sibyl_core.utils.log_safety import query_log_fields
 log = structlog.get_logger()
 
 T = TypeVar("T")
+MIN_PRIMARY_SEEDS_BEFORE_LINKING = 5
 
 
 def _require_group_id(group_id: str | None, operation: str) -> str:
@@ -429,31 +429,32 @@ async def hybrid_search(
     log.info("hybrid_search_start", **query_log_fields(query), limit=limit)
 
     # Phase 1: native vector/fulltext seed search
-    vector_task = asyncio.create_task(
-        _vector_search_attempt(
-            query,
-            entity_manager,
-            entity_types,
-            limit=limit * 2,
-            result_filter=result_filter,
-        )
+    vector_attempt = await _vector_search_attempt(
+        query,
+        entity_manager,
+        entity_types,
+        limit=limit * 2,
+        result_filter=result_filter,
     )
-    link_task: asyncio.Task[_VectorSearchAttempt] | None = None
-    if entity_types and config.apply_query_entity_linking and config.graph_weight > 0:
-        link_task = asyncio.create_task(
-            _vector_search_attempt(
+    vector_results = vector_attempt.results
+    link_search_skipped = False
+    link_attempt = _VectorSearchAttempt([], True)
+    should_link_entities = (
+        entity_types
+        and config.apply_query_entity_linking
+        and config.graph_weight > 0
+    )
+    if should_link_entities:
+        if len(vector_results) >= MIN_PRIMARY_SEEDS_BEFORE_LINKING:
+            link_search_skipped = True
+        else:
+            link_attempt = await _vector_search_attempt(
                 query,
                 entity_manager,
                 None,
                 limit=limit * 2,
                 result_filter=result_filter,
             )
-        )
-
-    # Get vector results first (we need them for graph seeds)
-    vector_attempt = await vector_task
-    vector_results = vector_attempt.results
-    link_attempt = await link_task if link_task is not None else _VectorSearchAttempt([], True)
     vector_ids = {_entity_id(entity) for entity, _score in vector_results}
     link_results = [
         result for result in link_attempt.results if _entity_id(result[0]) not in vector_ids
@@ -506,6 +507,7 @@ async def hybrid_search(
                 "query": query,
                 "entity_manager_search_completed": vector_attempt.completed,
                 "link_search_completed": link_attempt.completed,
+                "link_search_skipped": link_search_skipped,
                 "vector_count": len(vector_results),
                 "link_count": len(link_results),
                 "graph_count": len(graph_results),
@@ -588,6 +590,7 @@ async def hybrid_search(
         "sources": list_names,
         "entity_manager_search_completed": vector_attempt.completed,
         "link_search_completed": link_attempt.completed,
+        "link_search_skipped": link_search_skipped,
         "vector_count": len(vector_results),
         "link_count": len(link_results),
         "graph_count": len(graph_results),
