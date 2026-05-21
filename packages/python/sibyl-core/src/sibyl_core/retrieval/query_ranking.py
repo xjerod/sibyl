@@ -9,32 +9,54 @@ from dataclasses import dataclass
 from itertools import pairwise
 
 _KEYWORD_STOPWORDS = {
+    "any",
     "about",
     "also",
     "and",
     "are",
+    "back",
+    "can",
+    "checking",
+    "conversation",
+    "conversations",
     "could",
     "did",
     "does",
+    "discussed",
     "doing",
+    "earlier",
     "during",
     "from",
     "for",
+    "going",
     "have",
     "having",
     "how",
+    "i'm",
     "into",
+    "kind",
     "like",
     "many",
+    "mentioned",
     "more",
     "much",
     "need",
+    "our",
     "please",
+    "previous",
+    "provided",
+    "recommended",
+    "referring",
+    "remind",
     "should",
+    "some",
     "that",
     "the",
+    "think",
+    "thinking",
     "there",
     "they",
+    "those",
     "this",
     "what",
     "when",
@@ -43,6 +65,9 @@ _KEYWORD_STOPWORDS = {
     "while",
     "with",
     "would",
+    "were",
+    "was",
+    "you",
     "your",
 }
 _RANK_WEIGHT = 0.95
@@ -62,7 +87,7 @@ _PRIMARY_PERSONAL_WEIGHT = 0.04
 _CONCEPT_OVERLAP_WEIGHT = 0.08
 _PRIMARY_CONCEPT_WEIGHT = 0.06
 _PREFERENCE_EVIDENCE_WEIGHT = 0.05
-_EVIDENCE_SET_WINDOW = 6
+_EVIDENCE_SET_WINDOW = 5
 _EVIDENCE_SET_MIN_OVERLAP = 0.25
 _EVIDENCE_SET_INSERT_MARGIN = 0.08
 
@@ -225,9 +250,15 @@ def extract_keywords(query: str) -> list[str]:
 def normalize_keyword_token(token: str) -> str:
     if len(token) > 4 and token.endswith("ies"):
         return f"{token[:-3]}y"
-    if len(token) > 4 and token.endswith("es"):
+    if len(token) > 4 and token.endswith(("ches", "shes", "xes", "zes")):
         return token[:-2]
-    if len(token) > 3 and token.endswith("s"):
+    if len(token) > 4 and token.endswith(("ces", "ses")):
+        return token[:-1]
+    if (
+        len(token) > 3
+        and token.endswith("s")
+        and not token.endswith(("is", "ous", "ss", "us"))
+    ):
         return token[:-1]
     return token
 

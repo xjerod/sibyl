@@ -34,11 +34,31 @@ from sibyl_core.retrieval.hybrid import (
     simple_hybrid_search,
     vector_search,
 )
+from sibyl_core.retrieval.query_ranking import extract_keywords
 from sibyl_core.services.native_graph import NativeSurrealGraphClient
 
 # =============================================================================
 # Test Fixtures and Mock Infrastructure
 # =============================================================================
+
+
+def test_query_coverage_keywords_drop_conversational_scaffolding() -> None:
+    keywords = extract_keywords(
+        "I was thinking about our previous conversation. "
+        "Can you remind me what two-factor authentication methods you mentioned?"
+    )
+
+    assert keywords == ["two-factor", "authentication", "method"]
+    assert "thi" not in keywords
+    assert "previou" not in keywords
+
+
+def test_query_coverage_keywords_keep_real_singulars() -> None:
+    keywords = extract_keywords(
+        "I'm checking this previous data privacy exercise used resources from companies."
+    )
+
+    assert keywords == ["data", "privacy", "exercise", "used", "resource", "company"]
 
 
 @dataclass
