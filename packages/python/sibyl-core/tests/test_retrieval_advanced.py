@@ -87,21 +87,40 @@ def test_query_coverage_promotes_favorite_fact_over_shape_words() -> None:
     assert ranked[0] == "5"
 
 
-def test_query_coverage_preserves_preference_top_five_candidates() -> None:
+def test_query_coverage_rescues_strong_preference_tail_candidate() -> None:
     ranked = _rank_query_ids(
-        "Can you recommend recent publications or conferences I might find interesting?",
+        "Any tips for better phone battery life?",
         [
-            "User: I asked for reading advice about machine learning.",
-            "User: I compared conference travel budgets.",
-            "User: I saved a reminder about journals.",
-            "User: I asked about papers in biology.",
-            "User: Recent advances in medical image analysis are relevant to my work.",
-            "User: Recent publications and conferences might be interesting.",
+            "User: I saved a general app organization note.",
+            "User: I compared laptop sleeves and desk accessories.",
+            "User: I asked for travel tips about packing light.",
+            "User: I organized photos on my phone.",
+            "User: I updated calendar reminders.",
+            "User: My phone battery lasts longer when I carry a portable power bank "
+            "and wireless charging pad.",
         ],
     )
 
-    assert "4" in ranked[:5]
-    assert "5" not in ranked[:5]
+    assert "5" in ranked[:5]
+
+
+def test_query_coverage_preserves_sparse_preference_top_five_candidate() -> None:
+    ranked = _rank_query_ids(
+        "Can you recommend a show or movie for me to watch tonight?",
+        [
+            "User: I asked for book recommendations about ancient civilizations tonight.",
+            "User: I finished a true crime podcast tonight and wanted more episodes.",
+            "User: As an aspiring stand-up comedian, I'm looking for advice about "
+            "Netflix specials with strong storytelling.",
+            "User: I saved train-themed board game recommendations.",
+            "User: I wrote a travel note about Denver tonight.",
+            "User: Here are generic movie ideas to watch tonight.",
+            "User: I compared TV show release schedules tonight.",
+            "User: I tracked movie theater listings tonight.",
+        ],
+    )
+
+    assert "2" in ranked[:5]
 
 
 def test_query_coverage_preserves_temporal_top_five_candidates() -> None:

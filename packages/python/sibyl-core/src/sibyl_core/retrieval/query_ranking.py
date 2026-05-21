@@ -106,6 +106,8 @@ _MEMORY_EVIDENCE_WEIGHT = 0.08
 _EVIDENCE_SET_WINDOW = 5
 _EVIDENCE_SET_MIN_OVERLAP = 0.25
 _EVIDENCE_SET_INSERT_MARGIN = 0.10
+_PREFERENCE_MIN_OVERLAP = 0.25
+_PREFERENCE_INSERT_MARGIN = 0.10
 
 _EVIDENCE_SET_QUERY_PATTERN = re.compile(
     r"\b(how many|how much|total number|number of|count of)\b",
@@ -141,6 +143,38 @@ _PREFERENCE_QUERY_TERMS = {
     "suggestion",
     "tip",
     "watch",
+}
+_PREFERENCE_QUERY_SCAFFOLDING_TERMS = {
+    "advice",
+    "advic",
+    "choose",
+    "excited",
+    "extra",
+    "feel",
+    "feeling",
+    "find",
+    "getting",
+    "good",
+    "having",
+    "idea",
+    "interesting",
+    "look",
+    "looking",
+    "lately",
+    "might",
+    "new",
+    "recommend",
+    "recommendation",
+    "serve",
+    "something",
+    "suggest",
+    "suggestion",
+    "think",
+    "tip",
+    "trouble",
+    "visit",
+    "watch",
+    "weekend",
 }
 _GENERIC_ASSISTANT_PATTERNS = (
     re.compile(r"\bas an ai\b"),
@@ -385,6 +419,15 @@ def rank_by_query_coverage[T](
     candidates: Sequence[QueryCoverageCandidate[T]],
 ) -> QueryCoverageResult[T]:
     keywords = extract_keywords(query)
+    is_preference_query = _is_preference_query(query, set(keywords))
+    if is_preference_query:
+        focused_keywords = [
+            keyword
+            for keyword in keywords
+            if keyword not in _PREFERENCE_QUERY_SCAFFOLDING_TERMS
+        ]
+        if len(focused_keywords) >= 3:
+            keywords = focused_keywords
     if len(keywords) < 2 or len(candidates) < 2:
         return QueryCoverageResult(
             ranked=[
@@ -446,7 +489,6 @@ def rank_by_query_coverage[T](
     )
     rank_span = max(1, len(candidates) - 1)
     max_prior_score = max((candidate.prior_score for candidate in candidates), default=0.0) or 1.0
-    is_preference_query = _is_preference_query(query, query_terms)
     scored: list[tuple[QueryCoverageRankedCandidate[T], int]] = []
     has_text_signal = False
     for index, (
@@ -586,7 +628,7 @@ def rank_by_query_coverage[T](
         )
 
     if is_preference_query:
-        ranked = _rank_preserving_window(scored)
+        ranked = _stabilize_preference_ranking(scored)
     elif _EVIDENCE_SET_QUERY_PATTERN.search(query.lower()):
         ranked = _stabilize_evidence_set_ranking(scored)
     elif _is_temporal_instruction_query(query):
@@ -732,8 +774,31 @@ def _rank_preserving_window[T](
     return [ranked for ranked, _index in selected + tail]
 
 
+def _stabilize_preference_ranking[T](
+    scores: list[tuple[QueryCoverageRankedCandidate[T], int]],
+) -> list[QueryCoverageRankedCandidate[T]]:
+    return _stabilize_top_window_ranking(
+        scores,
+        min_overlap=_PREFERENCE_MIN_OVERLAP,
+        insert_margin=_PREFERENCE_INSERT_MARGIN,
+    )
+
+
 def _stabilize_evidence_set_ranking[T](
     scores: list[tuple[QueryCoverageRankedCandidate[T], int]],
+) -> list[QueryCoverageRankedCandidate[T]]:
+    return _stabilize_top_window_ranking(
+        scores,
+        min_overlap=_EVIDENCE_SET_MIN_OVERLAP,
+        insert_margin=_EVIDENCE_SET_INSERT_MARGIN,
+    )
+
+
+def _stabilize_top_window_ranking[T](
+    scores: list[tuple[QueryCoverageRankedCandidate[T], int]],
+    *,
+    min_overlap: float,
+    insert_margin: float,
 ) -> list[QueryCoverageRankedCandidate[T]]:
     window_size = min(_EVIDENCE_SET_WINDOW, len(scores))
     selected = list(scores[:window_size])
@@ -742,7 +807,7 @@ def _stabilize_evidence_set_ranking[T](
 
     for candidate in ranked_by_coverage:
         ranked, _index = candidate
-        if ranked.stable_id in selected_ids or ranked.overlap < _EVIDENCE_SET_MIN_OVERLAP:
+        if ranked.stable_id in selected_ids or ranked.overlap < min_overlap:
             continue
 
         worst_index, worst = min(
@@ -750,7 +815,7 @@ def _stabilize_evidence_set_ranking[T](
             key=lambda item: (item[1][0].score, -item[1][1]),
         )
         worst_ranked, _worst_original_index = worst
-        if ranked.score <= worst_ranked.score + _EVIDENCE_SET_INSERT_MARGIN:
+        if ranked.score <= worst_ranked.score + insert_margin:
             continue
 
         selected[worst_index] = candidate
