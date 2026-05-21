@@ -271,6 +271,19 @@ WHERE description = NONE OR content = NONE;
 """ + RELATION_EDGE_CLEANUP_DEFINITIONS
 
 
+RELATION_ENDPOINT_SCHEMA_DEFINITIONS = """
+DEFINE FIELD IF NOT EXISTS source_id ON mentions TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS target_id ON mentions TYPE option<string>;
+
+DEFINE INDEX IF NOT EXISTS idx_relates_group_source_created ON relates_to FIELDS group_id, source_id, created_at, uuid;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_target_created ON relates_to FIELDS group_id, target_id, created_at, uuid;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_source ON mentions FIELDS group_id, source_id;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_target ON mentions FIELDS group_id, target_id;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_source_created ON mentions FIELDS group_id, source_id, created_at, uuid;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_target_created ON mentions FIELDS group_id, target_id, created_at, uuid;
+"""
+
+
 RELATION_ENDPOINT_BACKFILL_DEFINITIONS = """
 UPDATE relates_to SET
     source_id = source_id ?? in.uuid,
@@ -297,7 +310,13 @@ GRAPH_SCHEMA_MIGRATIONS = (
     SchemaMigration(
         version=GRAPH_SCHEMA_CURRENT_VERSION,
         name="relation_endpoint_denormalization",
-        statements=tuple(split_statements(RELATION_ENDPOINT_BACKFILL_DEFINITIONS)),
+        statements=tuple(
+            split_statements(
+                RELATION_ENDPOINT_SCHEMA_DEFINITIONS
+                + "\n"
+                + RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+            )
+        ),
     ),
 )
 
@@ -337,7 +356,8 @@ async def bootstrap_schema(
             await driver.execute_query(f"REMOVE TABLE IF EXISTS {table};")
     else:
         await ensure_schema_version_table(driver.execute_query, group_id=driver.group_id)
-        if await get_schema_version(driver.execute_query) >= GRAPH_SCHEMA_CURRENT_VERSION:
+        current_version = await get_schema_version(driver.execute_query)
+        if current_version >= GRAPH_SCHEMA_CURRENT_VERSION:
             missing_relation_table = await _execute_graph_schema_block(
                 driver,
                 CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
@@ -347,6 +367,20 @@ async def bootstrap_schema(
                 force = True
             if not force:
                 return
+        elif current_version > 0 and not force:
+            await apply_schema_migrations(
+                driver.execute_query,
+                GRAPH_SCHEMA_MIGRATIONS,
+                group_id=driver.group_id,
+            )
+            missing_relation_table = await _execute_graph_schema_block(
+                driver,
+                CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
+                ignore_missing_relation_tables=True,
+            )
+            if not missing_relation_table:
+                return
+            force = True
 
     compatible_blocks = (
         ANALYZER_DEFINITIONS,

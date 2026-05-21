@@ -20,6 +20,7 @@ from sibyl_core.backends.surreal.schema import (
     NODE_DEFINITIONS,
     RELATION_EDGE_CLEANUP_DEFINITIONS,
     RELATION_ENDPOINT_BACKFILL_DEFINITIONS,
+    RELATION_ENDPOINT_SCHEMA_DEFINITIONS,
     bootstrap_schema,
     render_fulltext_compatible_sql,
 )
@@ -156,6 +157,8 @@ def test_graph_relation_endpoint_indexes_match_hot_lookups() -> None:
 
 
 def test_graph_relation_endpoint_backfill_is_versioned() -> None:
+    assert "idx_relates_group_source_created" in RELATION_ENDPOINT_SCHEMA_DEFINITIONS
+    assert "idx_mentions_group_source_created" in RELATION_ENDPOINT_SCHEMA_DEFINITIONS
     assert "UPDATE relates_to SET" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
     assert "source_id = source_id ?? in.uuid" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
     assert "target_id = target_id ?? out.uuid" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
@@ -213,6 +216,20 @@ async def test_graph_bootstrap_runs_light_maintenance_when_version_is_current() 
     )
     assert any("UPDATE relates_to SET" in statement for statement in client.calls)
     assert any("UPDATE mentions SET" in statement for statement in client.calls)
+
+
+@pytest.mark.asyncio
+async def test_graph_bootstrap_applies_migrations_without_full_rebuild() -> None:
+    client = _RecordingSchemaClient(schema_version=GRAPH_SCHEMA_CURRENT_VERSION - 1)
+
+    await bootstrap_schema(client)  # type: ignore[arg-type]
+
+    assert not any("DEFINE TABLE IF NOT EXISTS entity" in statement for statement in client.calls)
+    assert not any("DEFINE TABLE OVERWRITE relates_to" in statement for statement in client.calls)
+    assert any("idx_relates_group_source_created" in statement for statement in client.calls)
+    assert any("idx_mentions_group_source_created" in statement for statement in client.calls)
+    assert any("UPDATE relates_to SET" in statement for statement in client.calls)
+    assert client.schema_version == GRAPH_SCHEMA_CURRENT_VERSION
 
 
 @pytest.mark.asyncio
