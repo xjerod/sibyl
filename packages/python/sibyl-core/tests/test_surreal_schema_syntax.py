@@ -176,6 +176,13 @@ def test_graph_relation_cleanup_covers_all_relation_tables() -> None:
     assert "SELECT VALUE id FROM community" in RELATION_EDGE_CLEANUP_DEFINITIONS
 
 
+def test_current_graph_maintenance_skips_orphan_cleanup() -> None:
+    for relation in ("relates_to", "mentions", "has_episode", "next_episode", "has_member"):
+        assert f"DELETE FROM {relation}" not in CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
+
+    assert "SELECT VALUE id FROM entity" not in CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
+
+
 @pytest.mark.asyncio
 async def test_graph_bootstrap_cleans_relations_before_enforcement() -> None:
     client = _RecordingSchemaClient()
@@ -216,6 +223,8 @@ async def test_graph_bootstrap_runs_light_maintenance_when_version_is_current() 
     )
     assert any("UPDATE relates_to SET" in statement for statement in client.calls)
     assert any("UPDATE mentions SET" in statement for statement in client.calls)
+    assert not any("DELETE FROM relates_to" in statement for statement in client.calls)
+    assert not any("DELETE FROM mentions" in statement for statement in client.calls)
 
 
 @pytest.mark.asyncio
@@ -229,6 +238,7 @@ async def test_graph_bootstrap_applies_migrations_without_full_rebuild() -> None
     assert any("idx_relates_group_source_created" in statement for statement in client.calls)
     assert any("idx_mentions_group_source_created" in statement for statement in client.calls)
     assert any("UPDATE relates_to SET" in statement for statement in client.calls)
+    assert not any("DELETE FROM relates_to" in statement for statement in client.calls)
     assert client.schema_version == GRAPH_SCHEMA_CURRENT_VERSION
 
 
