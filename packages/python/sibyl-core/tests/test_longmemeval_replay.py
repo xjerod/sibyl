@@ -323,6 +323,73 @@ def test_coverage_rerank_uses_primary_user_turn_signal() -> None:
     assert reranked.index("answer-session") < 5
 
 
+def test_coverage_rerank_uses_assistant_turn_for_retrospective_answer() -> None:
+    haystack_ids = [
+        *(f"distractor-{index}" for index in range(5)),
+        "answer-session",
+        *(f"tail-{index}" for index in range(5)),
+    ]
+    haystack_sessions = [
+        [
+            {
+                "role": "user",
+                "content": "I'm looking for online music resources and free lessons.",
+            },
+            {"role": "assistant", "content": "Here are broad learning websites."},
+        ]
+        for _index in range(5)
+    ]
+    haystack_sessions.append(
+        [
+            {"role": "user", "content": "Do you have any recommendations for resources?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "MusicTheory.net offers free lessons and exercises for music theory."
+                ),
+            },
+        ]
+    )
+    haystack_sessions.extend(
+        [{"role": "user", "content": "I saved an unrelated note."}]
+        for _index in range(5)
+    )
+    entry = {
+        "question_id": "q1",
+        "question_type": "single-session-assistant",
+        "question": (
+            "Can you remind me of the website you recommended for free lessons and exercises?"
+        ),
+        "question_date": "2026/01/20 12:00",
+        "answer_session_ids": ["answer-session"],
+        "haystack_session_ids": haystack_ids,
+        "haystack_dates": ["2026/01/19"] * len(haystack_ids),
+        "haystack_sessions": haystack_sessions,
+    }
+    case = {
+        "case_index": 0,
+        "question_id": "q1",
+        "question_type": entry["question_type"],
+        "question": entry["question"],
+        "question_date": entry["question_date"],
+        "answer_session_ids": ["answer-session"],
+        "ranked_session_ids": haystack_ids,
+        "ranked_results": [
+            {"longmemeval_session_id": session_id, "score": 1.0 - (index * 0.01)}
+            for index, session_id in enumerate(haystack_ids)
+        ],
+    }
+
+    reranked = rerank_longmemeval_case(
+        case,
+        entry,
+        strategy="coverage",
+        corpus_text_policy="user-and-assistant-turns-v1",
+    )
+
+    assert reranked.index("answer-session") < 5
+
+
 def test_coverage_rerank_keeps_partial_segment_from_evicting_count_evidence() -> None:
     haystack_ids = [
         *(f"answer-{index}" for index in range(5)),

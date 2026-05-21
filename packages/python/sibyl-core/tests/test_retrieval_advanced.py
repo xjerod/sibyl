@@ -1388,6 +1388,56 @@ class TestHybridSearch:
         assert result.metadata["query_coverage_rerank_applied"] is True
 
     @pytest.mark.asyncio
+    async def test_hybrid_search_query_coverage_uses_assistant_turn_for_retrospective_answer(
+        self,
+    ) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        distractors = [
+            make_entity_for_test(
+                f"distractor-{index}",
+                description=(
+                    "User: I'm looking for online music resources and free lessons. "
+                    "Assistant: Here are broad learning websites."
+                ),
+            )
+            for index in range(5)
+        ]
+        answer = make_entity_for_test(
+            "answer",
+            description=(
+                "User: Do you have any recommendations for learning resources? "
+                "Assistant: MusicTheory.net offers free lessons and exercises "
+                "for music theory."
+            ),
+        )
+        tail = [
+            make_entity_for_test(f"tail-{index}", description="User: unrelated note.")
+            for index in range(4)
+        ]
+        manager.search_results = [
+            *[(entity, 1.0 - (index * 0.01)) for index, entity in enumerate(distractors)],
+            (answer, 0.92),
+            *[(entity, 0.8 - (index * 0.01)) for index, entity in enumerate(tail)],
+        ]
+
+        result = await hybrid_search(
+            "Can you remind me of the website you recommended for free lessons and exercises?",
+            client,  # type: ignore[arg-type]
+            manager,  # type: ignore[arg-type]
+            limit=5,
+            config=HybridConfig(
+                graph_weight=0,
+                apply_temporal=False,
+                apply_keyword_boost=False,
+            ),
+        )
+
+        assert "answer" in [entity.id for entity in result.entities]
+        assert result.metadata["query_coverage_rerank_applied"] is True
+
+    @pytest.mark.asyncio
     async def test_hybrid_search_query_coverage_uses_product_domain_aliases(
         self,
     ) -> None:

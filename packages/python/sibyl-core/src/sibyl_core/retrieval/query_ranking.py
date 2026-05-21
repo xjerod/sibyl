@@ -103,6 +103,16 @@ _TRANSCRIPT_USER_TURN_PATTERN = re.compile(
     r"user:\s*(.*?)(?=\s+assistant:|\s+user:|$)",
     re.IGNORECASE | re.DOTALL,
 )
+_TRANSCRIPT_ASSISTANT_TURN_PATTERN = re.compile(
+    r"assistant:\s*(.*?)(?=\s+assistant:|\s+user:|$)",
+    re.IGNORECASE | re.DOTALL,
+)
+_ASSISTANT_EVIDENCE_QUERY_PATTERN = re.compile(
+    r"\b(?:you|assistant)\s+(?:mentioned|said|told|recommended|suggested|shared|"
+    r"provided|gave|explained|advised|noted)\b|\bremind me "
+    r"(?:of|about|what|which|who|where|when|how)\b|\bprevious conversations?\b",
+    re.IGNORECASE,
+)
 _PRIMARY_PERSONAL_PATTERN = re.compile(
     r"\b(i|i'm|i've|i'd|me|my|mine|we|our)\b",
     re.IGNORECASE,
@@ -236,6 +246,15 @@ def extract_primary_text_from_text(text: str) -> tuple[str, bool]:
     return text, False
 
 
+def extract_assistant_text_from_text(text: str) -> tuple[str, bool]:
+    assistant_turns = [
+        match.group(1) for match in _TRANSCRIPT_ASSISTANT_TURN_PATTERN.finditer(text)
+    ]
+    if assistant_turns:
+        return " ".join(assistant_turns), True
+    return text, False
+
+
 def generic_assistant_marker_count(text: str) -> int:
     return sum(1 for pattern in _GENERIC_ASSISTANT_PATTERNS if pattern.search(text.lower()))
 
@@ -276,7 +295,7 @@ def rank_by_query_coverage[T](
     for candidate in candidates:
         text = candidate.text.lower()
         tokens = keyword_tokens_from_text(text)
-        primary_text, has_primary_text = extract_primary_text_from_text(text)
+        primary_text, has_primary_text = _extract_query_focus_text(query, text)
         primary_tokens = keyword_tokens_from_text(primary_text) if has_primary_text else []
         token_rows.append(
             (
@@ -493,6 +512,18 @@ def _is_preference_query(query: str, query_terms: set[str]) -> bool:
     return bool(query_terms & _PREFERENCE_QUERY_TERMS) or bool(
         _RECOMMENDATION_QUERY_PATTERN.search(query)
     )
+
+
+def _extract_query_focus_text(query: str, text: str) -> tuple[str, bool]:
+    if _is_assistant_evidence_query(query):
+        assistant_text, has_assistant_text = extract_assistant_text_from_text(text)
+        if has_assistant_text:
+            return assistant_text, True
+    return extract_primary_text_from_text(text)
+
+
+def _is_assistant_evidence_query(query: str) -> bool:
+    return bool(_ASSISTANT_EVIDENCE_QUERY_PATTERN.search(query))
 
 
 def _concept_overlap_score(query_terms: set[str], token_set: set[str]) -> float:
