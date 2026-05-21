@@ -38,6 +38,7 @@ from sibyl_core.tools.responses import SearchResponse, SearchResult
 
 SearchFn = Callable[..., Awaitable[SearchResponse]]
 RelatedFn = Callable[..., Awaitable[list[ContextRelatedItem]]]
+RelatedBatchFn = Callable[..., Awaitable[dict[str, list[ContextRelatedItem]]]]
 RawMemoryRecallFn = Callable[..., Awaitable[list[RawMemory]]]
 
 log = structlog.get_logger()
@@ -341,6 +342,62 @@ async def _default_related_items(
     return related
 
 
+def _relationship_value(value: Any) -> str:
+    enum_value = getattr(value, "value", None)
+    return str(enum_value if enum_value is not None else value)
+
+
+async def _default_related_items_batch(
+    *,
+    entity_ids: Sequence[str],
+    organization_id: str,
+    accessible_projects: set[str] | None = None,
+    limit: int = 3,
+) -> dict[str, list[ContextRelatedItem]]:
+    ids = list(dict.fromkeys(str(entity_id) for entity_id in entity_ids if entity_id))
+    if not ids:
+        return {}
+
+    runtime = await get_graph_runtime(organization_id)
+    relationship_manager = runtime.relationship_manager
+    batch_lookup = getattr(relationship_manager, "get_related_entities_batch", None)
+    if callable(batch_lookup):
+        raw_by_seed = await batch_lookup(ids, limit_per_entity=limit)
+    else:
+        raw_by_seed = {
+            entity_id: await relationship_manager.get_related_entities(
+                entity_id=entity_id,
+                max_depth=1,
+                limit=limit,
+            )
+            for entity_id in ids
+        }
+
+    related_by_seed: dict[str, list[ContextRelatedItem]] = {}
+    for seed_id, raw_results in raw_by_seed.items():
+        related: list[ContextRelatedItem] = []
+        for entity, relationship in raw_results:
+            if accessible_projects is not None:
+                entity_project = _project_id_for(entity)
+                if entity_project is not None and entity_project not in accessible_projects:
+                    continue
+
+            source_id = str(getattr(relationship, "source_id", ""))
+            related.append(
+                ContextRelatedItem(
+                    id=str(entity.id),
+                    type=_relationship_value(entity.entity_type),
+                    name=str(entity.name),
+                    relationship=_relationship_value(relationship.relationship_type),
+                    direction="outgoing" if source_id == seed_id else "incoming",
+                )
+            )
+            if len(related) >= limit:
+                break
+        related_by_seed[str(seed_id)] = related
+    return related_by_seed
+
+
 def _item_from_result(result: SearchResult, facet: ContextFacet) -> ContextItem:
     metadata = dict(result.metadata)
     quality = _quality_metadata_from_result(result)
@@ -519,10 +576,29 @@ async def _attach_related_items(
     accessible_projects: set[str] | None,
     related_limit: int,
     related_fn: RelatedFn,
+    related_batch_fn: RelatedBatchFn | None = _default_related_items_batch,
 ) -> list[ContextSection]:
     related_limit = max(0, min(related_limit, 5))
     if related_limit == 0:
         return sections
+
+    eligible_ids = [
+        item.id
+        for section in sections
+        for item in section.items
+        if item.type != "document" and not item.id.startswith("document:")
+    ]
+    related_by_item_id: dict[str, list[ContextRelatedItem]] = {}
+    if related_fn is _default_related_items and related_batch_fn is not None:
+        try:
+            related_by_item_id = await related_batch_fn(
+                entity_ids=eligible_ids,
+                organization_id=organization_id,
+                accessible_projects=accessible_projects,
+                limit=related_limit,
+            )
+        except Exception:
+            related_by_item_id = {}
 
     enriched_sections: list[ContextSection] = []
     for section in sections:
@@ -530,6 +606,9 @@ async def _attach_related_items(
         for item in section.items:
             if item.type == "document" or item.id.startswith("document:"):
                 items.append(item)
+                continue
+            if related_fn is _default_related_items and related_batch_fn is not None:
+                items.append(replace(item, related=related_by_item_id.get(item.id, [])))
                 continue
             try:
                 related = await related_fn(

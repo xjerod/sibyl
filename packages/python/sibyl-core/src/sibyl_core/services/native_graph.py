@@ -1113,45 +1113,19 @@ class NativeRelationshipManager:
         type_values = [rel_type.value for rel_type in relationship_types or ()]
         type_clause = "AND name IN $relationship_types" if type_values else ""
         per_seed_limit = max(int(limit_per_entity), 1)
-        query_limit = min(per_seed_limit * len(seed_ids), 5000)
-        edge_rows = normalize_records(
-            await self._client.execute_query(
-                """
-                SELECT id AS record_id,
-                       uuid,
-                       name,
-                       fact,
-                       group_id,
-                       episodes,
-                       attributes,
-                       created_at,
-                       expired_at,
-                       valid_at,
-                       invalid_at,
-                       source_id ?? in.uuid AS source_uuid,
-                       target_id ?? out.uuid AS target_uuid
-                FROM relates_to
-                WHERE group_id = $group_id
-                  AND (
-                    source_id IN $entity_ids
-                    OR target_id IN $entity_ids
-                    OR (
-                        (source_id IS NONE OR target_id IS NONE)
-                        AND (in.uuid IN $entity_ids OR out.uuid IN $entity_ids)
-                    )
-                  )
-                """
-                + type_clause
-                + """
-                ORDER BY created_at DESC, uuid DESC
-                LIMIT $limit;
-                """,
-                group_id=self._group_id,
-                entity_ids=seed_ids,
-                relationship_types=type_values,
-                limit=query_limit,
-            )
+        edge_rows = await self._get_indexed_related_edge_rows(
+            seed_ids,
+            type_clause=type_clause,
+            type_values=type_values,
+            limit=per_seed_limit,
         )
+        if not edge_rows:
+            edge_rows = await self._get_legacy_related_edge_rows(
+                seed_ids,
+                type_clause=type_clause,
+                type_values=type_values,
+                limit=min(per_seed_limit * len(seed_ids), 5000),
+            )
 
         seed_id_set = set(seed_ids)
         edge_pairs_by_seed: dict[str, list[tuple[SurrealRecord, str]]] = {
@@ -1198,6 +1172,131 @@ class NativeRelationshipManager:
                 seed_results.append((entity, _relationship_from_row(row)))
             results[seed_id] = seed_results
         return results
+
+    async def _get_indexed_related_edge_rows(
+        self,
+        seed_ids: Sequence[str],
+        *,
+        type_clause: str,
+        type_values: Sequence[str],
+        limit: int,
+    ) -> list[SurrealRecord]:
+        rows: list[SurrealRecord] = []
+        for seed_id in seed_ids:
+            rows.extend(
+                normalize_records(
+                    await self._client.execute_query(
+                        """
+                        SELECT id AS record_id,
+                               uuid,
+                               name,
+                               fact,
+                               group_id,
+                               episodes,
+                               attributes,
+                               created_at,
+                               expired_at,
+                               valid_at,
+                               invalid_at,
+                               source_id AS source_uuid,
+                               target_id AS target_uuid
+                        FROM relates_to
+                        WHERE group_id = $group_id
+                          AND source_id = $entity_id
+                        """
+                        + type_clause
+                        + """
+                        ORDER BY created_at DESC, uuid DESC
+                        LIMIT $limit;
+                        """,
+                        group_id=self._group_id,
+                        entity_id=seed_id,
+                        relationship_types=type_values,
+                        limit=limit,
+                    )
+                )
+            )
+            rows.extend(
+                normalize_records(
+                    await self._client.execute_query(
+                        """
+                        SELECT id AS record_id,
+                               uuid,
+                               name,
+                               fact,
+                               group_id,
+                               episodes,
+                               attributes,
+                               created_at,
+                               expired_at,
+                               valid_at,
+                               invalid_at,
+                               source_id AS source_uuid,
+                               target_id AS target_uuid
+                        FROM relates_to
+                        WHERE group_id = $group_id
+                          AND target_id = $entity_id
+                        """
+                        + type_clause
+                        + """
+                        ORDER BY created_at DESC, uuid DESC
+                        LIMIT $limit;
+                        """,
+                        group_id=self._group_id,
+                        entity_id=seed_id,
+                        relationship_types=type_values,
+                        limit=limit,
+                    )
+                )
+            )
+        return rows
+
+    async def _get_legacy_related_edge_rows(
+        self,
+        seed_ids: Sequence[str],
+        *,
+        type_clause: str,
+        type_values: Sequence[str],
+        limit: int,
+    ) -> list[SurrealRecord]:
+        return normalize_records(
+            await self._client.execute_query(
+                """
+                SELECT id AS record_id,
+                       uuid,
+                       name,
+                       fact,
+                       group_id,
+                       episodes,
+                       attributes,
+                       created_at,
+                       expired_at,
+                       valid_at,
+                       invalid_at,
+                       source_id ?? in.uuid AS source_uuid,
+                       target_id ?? out.uuid AS target_uuid
+                FROM relates_to
+                WHERE group_id = $group_id
+                  AND (
+                    source_id IN $entity_ids
+                    OR target_id IN $entity_ids
+                    OR (
+                        (source_id IS NONE OR target_id IS NONE)
+                        AND (in.uuid IN $entity_ids OR out.uuid IN $entity_ids)
+                    )
+                  )
+                """
+                + type_clause
+                + """
+                ORDER BY created_at DESC, uuid DESC
+                LIMIT $limit;
+                """,
+                group_id=self._group_id,
+                entity_ids=list(seed_ids),
+                relationship_types=type_values,
+                limit=limit,
+            )
+        )
 
     async def list_all(
         self,

@@ -215,6 +215,8 @@ DEFINE INDEX IF NOT EXISTS idx_relates_group_target ON relates_to FIELDS group_i
 DEFINE INDEX IF NOT EXISTS idx_relates_group_name_source ON relates_to FIELDS group_id, name, source_id;
 DEFINE INDEX IF NOT EXISTS idx_relates_group_name_target ON relates_to FIELDS group_id, name, target_id;
 DEFINE INDEX IF NOT EXISTS idx_relates_group_source_target_name ON relates_to FIELDS group_id, source_id, target_id, name;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_source_created ON relates_to FIELDS group_id, source_id, created_at, uuid;
+DEFINE INDEX IF NOT EXISTS idx_relates_group_target_created ON relates_to FIELDS group_id, target_id, created_at, uuid;
 DEFINE INDEX IF NOT EXISTS idx_relates_group_created ON relates_to FIELDS group_id, created_at, uuid;
 DEFINE INDEX IF NOT EXISTS idx_relates_fact_ft ON relates_to FIELDS fact FULLTEXT ANALYZER content_analyzer BM25;
 DEFINE INDEX IF NOT EXISTS idx_relates_fact_embedding ON relates_to FIELDS fact_embedding
@@ -224,10 +226,16 @@ DEFINE TABLE OVERWRITE mentions SCHEMAFULL TYPE RELATION IN episode OUT entity E
 ALTER TABLE IF EXISTS mentions SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON mentions TYPE string;
 DEFINE FIELD IF NOT EXISTS group_id ON mentions TYPE string;
+DEFINE FIELD IF NOT EXISTS source_id ON mentions TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS target_id ON mentions TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_at ON mentions TYPE datetime DEFAULT time::now();
 
 DEFINE INDEX IF NOT EXISTS idx_mentions_uuid ON mentions FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_mentions_group ON mentions FIELDS group_id;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_source ON mentions FIELDS group_id, source_id;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_target ON mentions FIELDS group_id, target_id;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_source_created ON mentions FIELDS group_id, source_id, created_at, uuid;
+DEFINE INDEX IF NOT EXISTS idx_mentions_group_target_created ON mentions FIELDS group_id, target_id, created_at, uuid;
 
 DEFINE TABLE OVERWRITE has_episode SCHEMAFULL TYPE RELATION IN saga OUT episode ENFORCED;
 ALTER TABLE IF EXISTS has_episode SCHEMAFULL;
@@ -263,12 +271,33 @@ WHERE description = NONE OR content = NONE;
 """ + RELATION_EDGE_CLEANUP_DEFINITIONS
 
 
+RELATION_ENDPOINT_BACKFILL_DEFINITIONS = """
+UPDATE relates_to SET
+    source_id = source_id ?? in.uuid,
+    target_id = target_id ?? out.uuid
+WHERE source_id = NONE OR target_id = NONE;
+
+UPDATE mentions SET
+    source_id = source_id ?? in.uuid,
+    target_id = target_id ?? out.uuid
+WHERE source_id = NONE OR target_id = NONE;
+"""
+
+
+CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS += RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+
+
 GRAPH_TABLES = ("entity", "episode", "community", "saga")
 GRAPH_EDGES = ("relates_to", "mentions", "has_episode", "next_episode", "has_member")
 GRAPH_SCHEMA_MIGRATIONS = (
     SchemaMigration(
-        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        version=2,
         name="native_graph_schema_bootstrap",
+    ),
+    SchemaMigration(
+        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        name="relation_endpoint_denormalization",
+        statements=tuple(split_statements(RELATION_ENDPOINT_BACKFILL_DEFINITIONS)),
     ),
 )
 

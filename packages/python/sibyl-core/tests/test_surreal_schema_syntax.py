@@ -19,6 +19,7 @@ from sibyl_core.backends.surreal.schema import (
     EDGE_DEFINITIONS,
     NODE_DEFINITIONS,
     RELATION_EDGE_CLEANUP_DEFINITIONS,
+    RELATION_ENDPOINT_BACKFILL_DEFINITIONS,
     bootstrap_schema,
     render_fulltext_compatible_sql,
 )
@@ -145,6 +146,23 @@ def test_graph_hnsw_indexes_use_configurable_defaults() -> None:
     assert "HNSW DIMENSION 1024 DIST COSINE TYPE F32 EFC 150 M 12" in EDGE_DEFINITIONS
 
 
+def test_graph_relation_endpoint_indexes_match_hot_lookups() -> None:
+    assert "DEFINE FIELD IF NOT EXISTS source_id ON mentions" in EDGE_DEFINITIONS
+    assert "DEFINE FIELD IF NOT EXISTS target_id ON mentions" in EDGE_DEFINITIONS
+    assert "idx_relates_group_source_created" in EDGE_DEFINITIONS
+    assert "idx_relates_group_target_created" in EDGE_DEFINITIONS
+    assert "idx_mentions_group_source_created" in EDGE_DEFINITIONS
+    assert "idx_mentions_group_target_created" in EDGE_DEFINITIONS
+
+
+def test_graph_relation_endpoint_backfill_is_versioned() -> None:
+    assert "UPDATE relates_to SET" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+    assert "source_id = source_id ?? in.uuid" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+    assert "target_id = target_id ?? out.uuid" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+    assert "UPDATE mentions SET" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+    assert RELATION_ENDPOINT_BACKFILL_DEFINITIONS in CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
+
+
 def test_graph_relation_cleanup_covers_all_relation_tables() -> None:
     for relation in ("relates_to", "mentions", "has_episode", "next_episode", "has_member"):
         assert f"DELETE FROM {relation}" in RELATION_EDGE_CLEANUP_DEFINITIONS
@@ -193,6 +211,8 @@ async def test_graph_bootstrap_runs_light_maintenance_when_version_is_current() 
     assert "description = description ?? attributes.description" in (
         CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
     )
+    assert any("UPDATE relates_to SET" in statement for statement in client.calls)
+    assert any("UPDATE mentions SET" in statement for statement in client.calls)
 
 
 @pytest.mark.asyncio

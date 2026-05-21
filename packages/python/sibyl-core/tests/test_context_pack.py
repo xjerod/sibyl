@@ -654,6 +654,63 @@ async def test_compile_context_can_attach_one_hop_related_items(
 
 
 @pytest.mark.asyncio
+async def test_compile_context_batches_default_related_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    async def fake_native_context_search(**kwargs: Any) -> SearchResponse:
+        if kwargs.get("facet") is not ContextFacet.DECISIONS:
+            return SearchResponse(results=[], total=0, query=kwargs["plan"].query, filters={})
+        return SearchResponse(
+            results=[
+                _result("decision-1", "decision", "Use context packs"),
+                _result("decision-2", "decision", "Batch related lookups"),
+            ],
+            total=2,
+            query=kwargs["plan"].query,
+            filters={},
+        )
+
+    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+
+    related_entity = SimpleNamespace(
+        id="task-1",
+        entity_type=SimpleNamespace(value="task"),
+        name="Related task",
+        metadata={},
+    )
+    relationship = SimpleNamespace(
+        source_id="decision-1",
+        target_id="task-1",
+        relationship_type=SimpleNamespace(value="RELATED_TO"),
+    )
+    relationship_manager = SimpleNamespace(
+        get_related_entities=AsyncMock(return_value=[]),
+        get_related_entities_batch=AsyncMock(
+            return_value={"decision-1": [(related_entity, relationship)], "decision-2": []}
+        ),
+    )
+    runtime = SimpleNamespace(relationship_manager=relationship_manager)
+
+    with patch.object(context_module, "get_graph_runtime", AsyncMock(return_value=runtime)):
+        pack = await compile_context(
+            "ship faster",
+            intent="decide",
+            organization_id="org-123",
+            limit=2,
+            include_related=True,
+        )
+
+    relationship_manager.get_related_entities_batch.assert_awaited_once_with(
+        ["decision-1", "decision-2"],
+        limit_per_entity=3,
+    )
+    relationship_manager.get_related_entities.assert_not_awaited()
+    assert pack.items[0].related[0].id == "task-1"
+
+
+@pytest.mark.asyncio
 async def test_compile_context_filters_related_project_entities_by_own_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
