@@ -22,6 +22,32 @@ EXPECTED_PROJECTION_RELATIONSHIPS = 2
 EXPECTED_PROJECTION_SKIPPED = 1
 
 
+class _BlankSecret:
+    def get_secret_value(self) -> str:
+        return ""
+
+
+def test_eval_workflow_full_run_forces_memory_extraction_off() -> None:
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "eval.yml").read_text(
+        encoding="utf-8"
+    )
+    smoke_job = workflow.split("  longmemeval-live-smoke:", 1)[1].split(
+        "  longmemeval-live-full:",
+        1,
+    )[0]
+    full_job = workflow.split("  longmemeval-live-full:", 1)[1]
+
+    assert "Enable queued LLM memory extraction during LongMemEval smoke only" in workflow
+    assert "SIBYL_AUTO_EXTRACT_ENTITIES: ${{ inputs.longmemeval_auto_extract_entities }}" in (
+        smoke_job
+    )
+    assert 'SIBYL_AUTO_EXTRACT_ENTITIES: "false"' in full_job
+    assert "SIBYL_LLM_MEMORY_PROVIDER" not in full_job
+    assert "--wait-for-memory-extraction" not in full_job
+    assert "Full LongMemEval must run with SIBYL_AUTO_EXTRACT_ENTITIES=false." in full_job
+    assert '--metadata auto_extract_entities="${SIBYL_AUTO_EXTRACT_ENTITIES}"' in full_job
+
+
 def _load_live_module() -> ModuleType:
     path = Path(__file__).parents[2] / "benchmarks" / "longmemeval_live.py"
     spec = importlib.util.spec_from_file_location("longmemeval_live", path)
@@ -178,8 +204,15 @@ def test_longmemeval_live_refuses_localhost_without_explicit_allow() -> None:
     module.validate_target("http://localhost:3334/api", allow_localhost=True)
 
 
-def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
+def test_longmemeval_live_builds_gate_valid_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = _load_live_module()
+    monkeypatch.setenv("SIBYL_GRAPH_EMBEDDING_PROVIDER", "openai")
+    monkeypatch.delenv("SIBYL_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(module.settings, "openai_api_key", _BlankSecret())
     data_path = tmp_path / "longmemeval_s_cleaned.json"
     data_path.write_text(
         json.dumps(
@@ -314,6 +347,8 @@ def test_longmemeval_live_builds_gate_valid_report(tmp_path: Path) -> None:
             k_values=[1, 2],
             command=["longmemeval_live.py", "fixture.json"],
             verify_sha256=False,
+            wait_for_memory_projection=True,
+            memory_projection_timeout_seconds=1,
             wait_for_memory_extraction=True,
             memory_extraction_timeout_seconds=1,
             transport=httpx.MockTransport(handler),

@@ -40,7 +40,7 @@ on:
           - user-turns-only-v1
         default: user-and-assistant-turns-v1
       longmemeval_auto_extract_entities:
-        description: "Enable queued LLM memory extraction during LongMemEval"
+        description: "Enable queued LLM memory extraction during LongMemEval smoke only"
         type: boolean
         default: false
       longmemeval_wait_for_memory_extraction:
@@ -464,13 +464,11 @@ jobs:
       SIBYL_SURREAL_PASSWORD: sibyl_ci_password
       SIBYL_SURREAL_PATH: rocksdb:///data/sibyl-longmemeval-full.db
       SIBYL_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      SIBYL_AUTO_EXTRACT_ENTITIES: ${{ inputs.longmemeval_auto_extract_entities }}
+      SIBYL_AUTO_EXTRACT_ENTITIES: "false"
       SIBYL_GRAPH_HNSW_EFC: ${{ inputs.longmemeval_graph_hnsw_efc }}
       SIBYL_GRAPH_HNSW_M: ${{ inputs.longmemeval_graph_hnsw_m }}
       SIBYL_GRAPH_KNN_EF: ${{ inputs.longmemeval_graph_knn_ef }}
       SIBYL_NATIVE_FUSION_BACKEND: ${{ inputs.longmemeval_native_fusion_backend }}
-      SIBYL_LLM_MEMORY_PROVIDER: openai
-      SIBYL_LLM_MEMORY_MODEL: gpt-5.4-nano
       PYTHONUNBUFFERED: "1"
       LONGMEMEVAL_SHA256: d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442
       LONGMEMEVAL_URL: https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json?download=true
@@ -553,12 +551,12 @@ jobs:
         run: |
           mkdir -p .moon/cache/evals
           wait_for_extraction="false"
-          if [[ "${{ inputs.longmemeval_wait_for_memory_extraction }}" == "true" ]]; then
-            echo "::notice::Full LongMemEval runs are raw-first; extraction waits apply to the smoke job."
+          if [[ "${SIBYL_AUTO_EXTRACT_ENTITIES}" != "false" ]]; then
+            echo "::error::Full LongMemEval must run with SIBYL_AUTO_EXTRACT_ENTITIES=false."
+            exit 1
           fi
-          extraction_args=()
-          if [[ "$wait_for_extraction" == "true" ]]; then
-            extraction_args+=(--wait-for-memory-extraction --memory-extraction-timeout 600)
+          if [[ "${{ inputs.longmemeval_wait_for_memory_extraction }}" == "true" || "${{ inputs.longmemeval_auto_extract_entities }}" == "true" ]]; then
+            echo "::notice::Full LongMemEval runs are raw-first; extraction applies to the smoke job."
           fi
           wait_for_projection="${{ inputs.longmemeval_wait_for_memory_projection }}"
           projection_args=()
@@ -586,8 +584,7 @@ jobs:
             --metadata graph_hnsw_m="${SIBYL_GRAPH_HNSW_M}" \
             --metadata graph_knn_ef="${SIBYL_GRAPH_KNN_EF}" \
             --metadata native_fusion_backend="${SIBYL_NATIVE_FUSION_BACKEND}" \
-            "${projection_args[@]}" \
-            "${extraction_args[@]}"
+            "${projection_args[@]}"
 
       - name: Gate LongMemEval live full
         run: |
