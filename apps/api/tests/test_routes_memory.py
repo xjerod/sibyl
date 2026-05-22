@@ -44,6 +44,7 @@ from sibyl.api.schemas import (
 )
 from sibyl.auth.api_key_common import api_key_memory_scope_key
 from sibyl.jobs import source_imports
+from sibyl.services.recall_limits import RecallConcurrencyLimitExceededError
 from sibyl_core.auth import OrganizationRole, ProjectRole
 from sibyl_core.services.native_memory import (
     NativeMemoryAccessPreview,
@@ -627,6 +628,33 @@ async def test_recall_raw_returns_scoped_memories() -> None:
     assert response.policy_reason == "private_principal_bound"
     assert [memory.id for memory in response.memories] == ["memory-1"]
     assert response.memories[0].policy_reason == "private_principal_bound"
+
+
+@pytest.mark.asyncio
+async def test_recall_raw_rate_limits_concurrent_member_recall() -> None:
+    with (
+        patch(
+            "sibyl.api.routes.memory.recall_concurrency_slot",
+            side_effect=RecallConcurrencyLimitExceededError(
+                user_id="user-123",
+                max_concurrent=3,
+            ),
+        ),
+        patch("sibyl.api.routes.memory.recall_raw_memory", AsyncMock()) as recall,
+        pytest.raises(HTTPException) as exc,
+    ):
+        await recall_raw(
+            RawMemoryRecallRequest(query="raw memory", limit=5),
+            org=_org(),
+            ctx=_ctx(),
+        )
+
+    assert exc.value.status_code == 429
+    assert exc.value.detail == {
+        "error": "recall_concurrency_limit_exceeded",
+        "max_concurrent": 3,
+    }
+    recall.assert_not_awaited()
 
 
 @pytest.mark.asyncio

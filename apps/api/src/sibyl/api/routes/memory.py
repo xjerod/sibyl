@@ -61,6 +61,10 @@ from sibyl.persistence.auth_runtime import (
     log_memory_audit_event,
     update_memory_space,
 )
+from sibyl.services.recall_limits import (
+    RecallConcurrencyLimitExceededError,
+    recall_concurrency_slot,
+)
 from sibyl_core.auth import AuthOrganization, MemoryPolicyContext, OrganizationRole, ProjectRole
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyAction,
@@ -1652,16 +1656,21 @@ async def recall_raw(
             policy_action="read",
             request=http_request,
         )
-        memories = await recall_raw_memory(
+        async with recall_concurrency_slot(
             organization_id=str(org.id),
-            principal_id=principal_id,
-            query=request.query,
-            memory_scope=request.memory_scope,
-            scope_key=request.scope_key,
-            agent_id=request.agent_id,
-            project_id=request.project_id,
-            limit=request.limit,
-        )
+            user_id=principal_id,
+            organization_role=ctx.org_role,
+        ):
+            memories = await recall_raw_memory(
+                organization_id=str(org.id),
+                principal_id=principal_id,
+                query=request.query,
+                memory_scope=request.memory_scope,
+                scope_key=request.scope_key,
+                agent_id=request.agent_id,
+                project_id=request.project_id,
+                limit=request.limit,
+            )
         await _log_memory_audit(
             action="memory.recall",
             ctx=ctx,
@@ -1704,6 +1713,19 @@ async def recall_raw(
             duration_ms=elapsed_ms(started_at),
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except RecallConcurrencyLimitExceededError as e:
+        telemetry_registry().record_memory_operation(
+            operation="recall_raw",
+            status="rate_limited",
+            duration_ms=elapsed_ms(started_at),
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "recall_concurrency_limit_exceeded",
+                "max_concurrent": e.max_concurrent,
+            },
+        ) from e
     except HTTPException:
         telemetry_registry().record_memory_operation(
             operation="recall_raw",

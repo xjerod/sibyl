@@ -23,6 +23,10 @@ from sibyl.persistence.auth_runtime import (
     has_owner_membership,
     resolve_accessible_project_graph_ids,
 )
+from sibyl.services.recall_limits import (
+    RecallConcurrencyLimitExceededError,
+    recall_concurrency_slot,
+)
 from sibyl_core.auth.context import MemoryPolicyContext
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyAction,
@@ -284,23 +288,33 @@ async def _compile_mcp_context_pack(
             scope_key=scope_key,
             surface="mcp_context",
         )
-    pack = await _compile_context(
-        goal=goal,
-        intent=intent,
-        layer=layer,
-        domain=domain,
-        project=project,
-        accessible_projects=accessible_projects,
-        principal_id=ctx.user_id,
-        agent_id=agent_id,
-        limit=limit,
-        include_related=include_related,
-        related_limit=related_limit,
-        organization_id=ctx.org_id,
-        allowed_memory_scope_keys=set(ctx.api_key_memory_scope_keys)
-        if ctx.api_key_memory_scope_keys is not None
-        else None,
-    )
+    if ctx.user_id is None:
+        raise ValueError("User context required for recall.")
+    try:
+        async with recall_concurrency_slot(
+            organization_id=ctx.org_id,
+            user_id=ctx.user_id,
+            organization_role=ctx.org_role,
+        ):
+            pack = await _compile_context(
+                goal=goal,
+                intent=intent,
+                layer=layer,
+                domain=domain,
+                project=project,
+                accessible_projects=accessible_projects,
+                principal_id=ctx.user_id,
+                agent_id=agent_id,
+                limit=limit,
+                include_related=include_related,
+                related_limit=related_limit,
+                organization_id=ctx.org_id,
+                allowed_memory_scope_keys=set(ctx.api_key_memory_scope_keys)
+                if ctx.api_key_memory_scope_keys is not None
+                else None,
+            )
+    except RecallConcurrencyLimitExceededError as exc:
+        raise ValueError("recall_concurrency_limit_exceeded") from exc
     payload = context_pack_to_dict(pack)
     payload["markdown"] = context_pack_to_markdown(pack)
     await log_context_pack_audit(

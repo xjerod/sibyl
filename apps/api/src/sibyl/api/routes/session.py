@@ -13,6 +13,10 @@ from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.auth.errors import ProjectAccessDeniedError
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
+from sibyl.services.recall_limits import (
+    RecallConcurrencyLimitExceededError,
+    recall_concurrency_slot,
+)
 from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.services.surreal_content import recall_raw_memory
 from sibyl_core.session_bundle import (
@@ -79,6 +83,7 @@ async def _append_raw_memories(
     query: str,
     organization_id: str,
     principal_id: str | None,
+    organization_role: OrganizationRole | str | None,
     selected_project_ids: list[str],
     limit: int,
 ) -> None:
@@ -88,30 +93,39 @@ async def _append_raw_memories(
     scope_requests: list[tuple[str, str | None]] = [("private", None)]
     scope_requests.extend(("project", project_id) for project_id in selected_project_ids)
 
-    for memory_scope, scope_key in scope_requests:
-        remaining = limit - len(memories)
-        if remaining <= 0:
-            break
-        try:
-            raw_memories = await recall_raw_memory(
-                organization_id=organization_id,
-                principal_id=principal_id,
-                query=query,
-                memory_scope=memory_scope,
-                scope_key=scope_key,
-                limit=remaining,
-            )
-        except Exception as exc:
-            log.warning(
-                "session_raw_memory_lookup_failed",
-                memory_scope=memory_scope,
-                scope_key=scope_key,
-                error=str(exc),
-            )
-            continue
+    async with recall_concurrency_slot(
+        organization_id=organization_id,
+        user_id=principal_id,
+        organization_role=organization_role,
+    ):
+        for memory_scope, scope_key in scope_requests:
+            remaining = limit - len(memories)
+            if remaining <= 0:
+                break
+            try:
+                raw_memories = await recall_raw_memory(
+                    organization_id=organization_id,
+                    principal_id=principal_id,
+                    query=query,
+                    memory_scope=memory_scope,
+                    scope_key=scope_key,
+                    limit=remaining,
+                )
+            except Exception as exc:
+                log.warning(
+                    "session_raw_memory_lookup_failed",
+                    memory_scope=memory_scope,
+                    scope_key=scope_key,
+                    error=str(exc),
+                )
+                continue
 
-        for raw_memory in raw_memories:
-            _append_unique_memory(memories, summarize_raw_memory(_as_mapping(raw_memory)), limit)
+            for raw_memory in raw_memories:
+                _append_unique_memory(
+                    memories,
+                    summarize_raw_memory(_as_mapping(raw_memory)),
+                    limit,
+                )
 
 
 @router.get("/bundle", response_model=SessionBundleResponse)
@@ -186,6 +200,7 @@ async def get_session_bundle(
                 query=effective_query,
                 organization_id=organization_id,
                 principal_id=getattr(ctx, "user_id", None),
+                organization_role=getattr(ctx, "org_role", None),
                 selected_project_ids=selected_project_ids,
                 limit=memory_limit,
             )
@@ -246,6 +261,14 @@ async def get_session_bundle(
         )
     except HTTPException:
         raise
+    except RecallConcurrencyLimitExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "recall_concurrency_limit_exceeded",
+                "max_concurrent": exc.max_concurrent,
+            },
+        ) from exc
     except ProjectAccessDeniedError:
         raise
     except Exception as exc:
