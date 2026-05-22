@@ -30,6 +30,10 @@
   feasibility-gated refactor because Authlib documents Flask/Django provider integrations but
   FastAPI/Starlette client integrations, and added implementation acceptance gates plus
   plan-validation receipts.
+- **2026-05-22 v4** — added the current implementation validation packet:
+  [`ENTERPRISE_READINESS_VALIDATION_2026-05-22.md`](ENTERPRISE_READINESS_VALIDATION_2026-05-22.md).
+  The packet separates automated local proof from external/manual gates that still require a real
+  IdP tenant, MCP clients, or Kubernetes cluster.
 
 ---
 
@@ -931,9 +935,11 @@ the equivalent in the other IdP.
 
 ---
 
-## Plan validation evidence
+## Pre-implementation validation evidence
 
-Validated on 2026-05-22 against the current worktree and current upstream sources:
+Validated on 2026-05-22 before implementation against the then-current worktree and upstream
+sources. For current implementation evidence, see
+[`ENTERPRISE_READINESS_VALIDATION_2026-05-22.md`](ENTERPRISE_READINESS_VALIDATION_2026-05-22.md).
 
 - Current chart surface: `charts/sibyl` exists with backend, frontend, worker, classic Ingress, PDB,
   service, secret, configmap, and HPA templates. It does **not** yet include HTTPRoute,

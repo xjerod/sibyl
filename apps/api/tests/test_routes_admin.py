@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -135,6 +136,31 @@ async def test_admin_audit_exports_csv() -> None:
     assert "attachment; filename=" in response.headers["content-disposition"]
     assert b"memory.recall" in response.body
     assert b"sibyl" in response.body
+
+
+@pytest.mark.asyncio
+async def test_admin_audit_exports_json() -> None:
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    rows = [
+        {
+            "uuid": "audit-1",
+            "organization_id": str(org.id),
+            "user_id": "00000000-0000-0000-0000-000000000222",
+            "action": "auth.login",
+            "details": {"resource": "user:00000000-0000-0000-0000-000000000222"},
+            "created_at": datetime(2026, 5, 22, 9, 30, tzinfo=UTC),
+        }
+    ]
+
+    with patch("sibyl.api.routes.admin.list_audit_events", AsyncMock(return_value=(rows, 1))):
+        response = await export_admin_audit(org=org, export_format="json", limit=1000)
+
+    payload = json.loads(response.body)
+    assert response.media_type == "application/json"
+    assert "attachment; filename=" in response.headers["content-disposition"]
+    assert payload["total"] == 1
+    assert payload["events"][0]["action"] == "auth.login"
+    assert payload["events"][0]["resource"] == "user:00000000-0000-0000-0000-000000000222"
 
 
 @pytest.mark.asyncio
