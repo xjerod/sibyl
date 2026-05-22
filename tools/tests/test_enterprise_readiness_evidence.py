@@ -618,6 +618,10 @@ spec:
             - env:
                 - name: SIBYL_RESTORE_RECEIPT_PATH
                   value: /tmp/restore-drill-receipt.json
+            - args:
+                - |
+                  echo "SIBYL_RESTORE_RECEIPT_JSON_BEGIN"
+                  echo "SIBYL_RESTORE_RECEIPT_JSON_END"
 ---
 apiVersion: batch/v1
 kind: Job
@@ -1327,6 +1331,64 @@ def test_capture_restore_drill_evidence_updates_manifest(tmp_path: Path) -> None
     assert json.loads(recall_sample.read_text(encoding="utf-8"))["result_count"] == 1
 
 
+def test_capture_restore_drill_evidence_from_kubernetes_logs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    payload = _restore_drill_payload()
+    log_text = "\n".join(
+        [
+            "restore drill receipt: /tmp/restore-drill-receipt.json",
+            evidence.RESTORE_RECEIPT_LOG_BEGIN,
+            json.dumps(payload),
+            evidence.RESTORE_RECEIPT_LOG_END,
+        ]
+    )
+
+    def fake_kubectl_text_output(args: list[str]) -> str:
+        assert args == [
+            "logs",
+            "job/sibyl-surrealdb-restore-drill-manual",
+            "--namespace",
+            "sibyl-restore",
+            "--container",
+            "restore-drill",
+        ]
+        return log_text
+
+    monkeypatch.setattr(evidence, "_kubectl_text_output", fake_kubectl_text_output)
+
+    receipt = evidence.capture_restore_drill_evidence_from_kubernetes(
+        tmp_path / "evidence",
+        namespace="sibyl-restore",
+        job_name="sibyl-surrealdb-restore-drill-manual",
+        captured_by="Nova",
+    )
+
+    assert receipt["status"] == "PASS"
+    source_receipt = (
+        tmp_path / "evidence" / "kubernetes_restore_drill" / "restore-drill-receipt.json"
+    )
+    assert json.loads(source_receipt.read_text(encoding="utf-8"))["runtime"].startswith("kind/")
+
+
+def test_capture_restore_drill_evidence_from_kubernetes_requires_log_markers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(evidence, "_kubectl_text_output", lambda args: "restore drill passed")
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_restore_drill_evidence_from_kubernetes(
+            tmp_path / "evidence",
+            namespace="sibyl-restore",
+            job_name="sibyl-surrealdb-restore-drill-manual",
+            captured_by="Nova",
+        )
+
+    assert "restore drill logs must include" in str(exc_info.value)
+
+
 def test_capture_restore_drill_evidence_rejects_failed_status(tmp_path: Path) -> None:
     payload = _restore_drill_payload()
     payload["status"] = "FAIL"
@@ -1410,6 +1472,54 @@ def test_main_capture_restore_drill_evidence_requires_json(
 
     assert exit_code == 1
     assert "restore drill receipt must be a JSON file" in captured.out
+
+
+def test_main_capture_kubernetes_restore_drill(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_capture_restore_drill_evidence_from_kubernetes(
+        evidence_dir: Path,
+        *,
+        namespace: str,
+        job_name: str,
+        container: str,
+        captured_by: str,
+    ) -> dict[str, Any]:
+        assert evidence_dir == tmp_path / "evidence"
+        assert namespace == "sibyl-restore"
+        assert job_name == "restore-job"
+        assert container == "restore-drill"
+        assert captured_by == "Nova"
+        return {
+            "schema_version": evidence.SCHEMA_VERSION,
+            "status": "PASS",
+            "manifest": str(tmp_path / "evidence" / "enterprise-readiness-evidence.json"),
+        }
+
+    monkeypatch.setattr(
+        evidence,
+        "capture_restore_drill_evidence_from_kubernetes",
+        fake_capture_restore_drill_evidence_from_kubernetes,
+    )
+
+    exit_code = evidence.main(
+        [
+            "--evidence-dir",
+            str(tmp_path / "evidence"),
+            "--capture-kubernetes-restore-drill",
+            "restore-job",
+            "--kubernetes-namespace",
+            "sibyl-restore",
+            "--manual-captured-by",
+            "Nova",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "captured Kubernetes restore drill and recall evidence from job logs" in captured.out
 
 
 def _idp_role_claim_payload() -> dict[str, Any]:

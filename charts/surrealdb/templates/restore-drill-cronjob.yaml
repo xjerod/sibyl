@@ -126,6 +126,9 @@ spec:
                     "$recall_sample_json" \
                     > "$SIBYL_RESTORE_RECEIPT_PATH"
                   echo "restore drill receipt: $SIBYL_RESTORE_RECEIPT_PATH"
+                  echo "SIBYL_RESTORE_RECEIPT_JSON_BEGIN"
+                  cat "$SIBYL_RESTORE_RECEIPT_PATH"
+                  echo "SIBYL_RESTORE_RECEIPT_JSON_END"
                   kill "$server_pid"
               env:
                 - name: HOME

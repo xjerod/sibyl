@@ -127,7 +127,11 @@ SURREALDB_RENDER_SNIPPETS = (
     "app.kubernetes.io/component: restore-drill",
     "SIBYL_RESTORE_RECEIPT_PATH",
     "restore-drill-receipt.json",
+    "SIBYL_RESTORE_RECEIPT_JSON_BEGIN",
+    "SIBYL_RESTORE_RECEIPT_JSON_END",
 )
+RESTORE_RECEIPT_LOG_BEGIN = "SIBYL_RESTORE_RECEIPT_JSON_BEGIN"
+RESTORE_RECEIPT_LOG_END = "SIBYL_RESTORE_RECEIPT_JSON_END"
 RENDERED_HELM_RENDER_SPECS: tuple[
     tuple[str, str, Sequence[str], Sequence[str]],
     ...,
@@ -343,6 +347,25 @@ def _gh_json_output(args: Sequence[str]) -> JsonObject:
         msg = f"gh {' '.join(args)} JSON root must be an object"
         raise EvidenceFailure(msg)
     return payload
+
+
+def _kubectl_text_output(args: Sequence[str]) -> str:
+    kubectl = which("kubectl")
+    if kubectl is None:
+        msg = "kubectl executable not found"
+        raise EvidenceFailure(msg)
+    result = subprocess.run(  # noqa: S603
+        [kubectl, *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = result.stderr.strip() or result.stdout.strip()
+        msg = f"kubectl {' '.join(args)} failed: {details}"
+        raise EvidenceFailure(msg)
+    return result.stdout.strip()
 
 
 def _http_get_bytes(url: str, headers: Mapping[str, str]) -> bytes:
@@ -1589,6 +1612,44 @@ def capture_restore_drill_evidence(
     }
 
 
+def capture_restore_drill_evidence_from_kubernetes(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    namespace: str,
+    job_name: str,
+    container: str = "restore-drill",
+    captured_by: str,
+) -> JsonObject:
+    namespace = _require_manual_field("namespace", namespace)
+    job_name = _require_manual_field("job name", job_name)
+    container = _require_manual_field("container", container)
+
+    log_text = _kubectl_text_output(
+        [
+            "logs",
+            f"job/{job_name}",
+            "--namespace",
+            namespace,
+            "--container",
+            container,
+        ]
+    )
+    receipt = _restore_drill_receipt_from_log(log_text)
+
+    source_dir = evidence_dir / "kubernetes_restore_drill"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_receipt = source_dir / "restore-drill-receipt.json"
+    source_receipt.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return capture_restore_drill_evidence(
+        evidence_dir,
+        source_receipt=source_receipt,
+        captured_by=captured_by,
+    )
+
+
 def capture_manual_evidence(
     evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
     *,
@@ -2102,6 +2163,28 @@ def _load_restore_drill_payload(path: Path) -> JsonObject:
 
     if not isinstance(payload, dict):
         msg = "restore drill receipt root must be an object"
+        raise EvidenceFailure(msg)
+    return cast(JsonObject, payload)
+
+
+def _restore_drill_receipt_from_log(log_text: str) -> JsonObject:
+    begin = log_text.find(RESTORE_RECEIPT_LOG_BEGIN)
+    end = log_text.find(RESTORE_RECEIPT_LOG_END)
+    if begin < 0 or end < 0 or end <= begin:
+        msg = (
+            f"restore drill logs must include {RESTORE_RECEIPT_LOG_BEGIN} and "
+            f"{RESTORE_RECEIPT_LOG_END} markers"
+        )
+        raise EvidenceFailure(msg)
+
+    receipt_text = log_text[begin + len(RESTORE_RECEIPT_LOG_BEGIN) : end].strip()
+    try:
+        payload = json.loads(receipt_text)
+    except json.JSONDecodeError as exc:
+        msg = f"restore drill log receipt is not valid JSON: {exc}"
+        raise EvidenceFailure(msg) from exc
+    if not isinstance(payload, dict):
+        msg = "restore drill log receipt root must be an object"
         raise EvidenceFailure(msg)
     return cast(JsonObject, payload)
 
@@ -3155,6 +3238,30 @@ def _handle_restore_drill_capture(
     return 0
 
 
+def _handle_kubernetes_restore_drill_capture(
+    evidence_dir: Path | None,
+    *,
+    namespace: str,
+    job_name: str,
+    container: str,
+    captured_by: str,
+) -> int:
+    try:
+        receipt = capture_restore_drill_evidence_from_kubernetes(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            namespace=namespace,
+            job_name=job_name,
+            container=container,
+            captured_by=captured_by,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write("captured Kubernetes restore drill and recall evidence from job logs\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def _handle_manual_evidence_capture(
     evidence_dir: Path | None,
     *,
@@ -3207,6 +3314,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--capture-entra-smoke-evidence", type=Path)
     parser.add_argument("--capture-mcp-client-smoke-evidence", type=Path)
     parser.add_argument("--capture-restore-drill-evidence", type=Path)
+    parser.add_argument("--capture-kubernetes-restore-drill")
+    parser.add_argument("--kubernetes-namespace", default="default")
+    parser.add_argument("--kubernetes-container", default="restore-drill")
     parser.add_argument("--capture-manual-evidence")
     parser.add_argument("--manual-artifact", type=Path, action="append", default=[])
     parser.add_argument("--manual-runtime", default="")
@@ -3283,6 +3393,14 @@ def _dispatch_capture_command(args: argparse.Namespace) -> int | None:
         exit_code = _handle_restore_drill_capture(
             args.evidence_dir,
             source_receipt=args.capture_restore_drill_evidence,
+            captured_by=args.manual_captured_by,
+        )
+    elif args.capture_kubernetes_restore_drill is not None:
+        exit_code = _handle_kubernetes_restore_drill_capture(
+            args.evidence_dir,
+            namespace=args.kubernetes_namespace,
+            job_name=args.capture_kubernetes_restore_drill,
+            container=args.kubernetes_container,
             captured_by=args.manual_captured_by,
         )
     elif args.capture_manual_evidence is not None:

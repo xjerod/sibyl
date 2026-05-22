@@ -48,8 +48,8 @@ hooks.
 ## Restore Drill
 
 The restore drill imports the latest export into an ephemeral runtime and checks fixture table
-counts. It also writes a structured receipt that can be copied from the completed pod or persisted
-with an overlay-mounted volume:
+counts. It writes a structured receipt to disk and emits the same JSON between
+`SIBYL_RESTORE_RECEIPT_JSON_BEGIN` / `SIBYL_RESTORE_RECEIPT_JSON_END` markers in the job logs:
 
 ```yaml
 restoreDrill:
@@ -83,6 +83,15 @@ The sampled command can use your deployment's preferred helper image or mounted 
 contract is that it writes a non-empty `query` and `result_count > 0`. A restore process that has
 not been rehearsed is not a backup strategy. Keep the weekly drill enabled for production and page
 on failure.
+
+Capture the enterprise evidence bundle from a completed Kubernetes Job with:
+
+```bash
+moon run enterprise-readiness-evidence -- \
+  --capture-kubernetes-restore-drill sibyl-surrealdb-restore-drill-manual \
+  --kubernetes-namespace sibyl \
+  --manual-captured-by "$(whoami)"
+```
 
 ## Manual Restore Shape
 
