@@ -72,3 +72,18 @@ class TestAgentPromptSnippet:
         # The snippet must not open with a Claude-specific "/sibyl" mandate.
         first_line = AGENT_PROMPT_SNIPPET.strip().splitlines()[0]
         assert "/sibyl" not in first_line
+
+    def test_includes_intent_to_verb_bridges(self) -> None:
+        # The eval-proven section that bridges natural-language asks to CLI verbs.
+        assert "Intent -> verb bridges" in AGENT_PROMPT_SNIPPET
+        assert "sibyl remember" in AGENT_PROMPT_SNIPPET
+        assert "sibyl reflect" in AGENT_PROMPT_SNIPPET
+        assert "sibyl task list" in AGENT_PROMPT_SNIPPET
+
+    def test_mentions_mandatory_session_start(self) -> None:
+        # Section heading naming the MANDATORY framing.
+        assert "Session start (MANDATORY)" in AGENT_PROMPT_SNIPPET
+
+    def test_points_at_the_doctor_command(self) -> None:
+        # Users should know how to verify their setup.
+        assert "sibyl doctor" in AGENT_PROMPT_SNIPPET
