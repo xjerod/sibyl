@@ -151,6 +151,43 @@ def test_sync_manifest_hashes_rejects_missing_artifact(tmp_path: Path) -> None:
     assert "restore_recall_sample artifact not found" in str(exc_info.value)
 
 
+def test_inspect_manifest_reports_template_incomplete(tmp_path: Path) -> None:
+    manifest_path = evidence.write_template(tmp_path)
+
+    report = evidence.inspect_manifest(manifest_path)
+
+    assert report["status"] == "INCOMPLETE"
+    assert report["summary"] == {"PASS": 0, "INCOMPLETE": 12}
+    assert report["items"][0]["issues"] == [
+        "status is 'TODO', not PASS",
+        "artifact hash mismatch: entra_happy_path/receipt.md",
+    ]
+
+
+def test_inspect_manifest_reports_multiple_issues(tmp_path: Path) -> None:
+    payload = _valid_manifest(tmp_path)
+    payload["items"].pop("mcp_cursor_auth")
+    payload["items"]["audit_export_sample"]["artifacts"][0]["sha256"] = "bad"
+    (tmp_path / "restore_recall_sample" / "receipt.md").unlink()
+    manifest_path = _write_manifest(tmp_path, payload)
+
+    report = evidence.inspect_manifest(manifest_path)
+    issues_by_key = {
+        item["key"]: item["issues"]
+        for item in cast(list[dict[str, Any]], report["items"])
+        if item["issues"]
+    }
+
+    assert report["status"] == "INCOMPLETE"
+    assert issues_by_key["mcp_cursor_auth"] == ["missing evidence item"]
+    assert issues_by_key["audit_export_sample"] == [
+        "artifact hash mismatch: audit_export_sample/receipt.md"
+    ]
+    assert issues_by_key["restore_recall_sample"] == [
+        "artifact not found: restore_recall_sample/receipt.md"
+    ]
+
+
 def test_validate_manifest_passes_with_hashes(tmp_path: Path) -> None:
     payload = _valid_manifest(tmp_path)
     manifest_path = _write_manifest(tmp_path, payload)
@@ -253,3 +290,29 @@ def test_main_sync_hashes_updates_manifest(
     assert payload["items"]["entra_happy_path"]["artifacts"][0]["sha256"] != (
         "<fill-after-capture>"
     )
+
+
+def test_main_status_reports_incomplete_manifest(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    manifest_path = evidence.write_template(tmp_path)
+
+    exit_code = evidence.main(["--manifest", str(manifest_path), "--status"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Enterprise readiness evidence: INCOMPLETE" in captured.out
+    assert "summary: 0 PASS, 12 INCOMPLETE" in captured.out
+
+
+def test_main_status_reports_valid_manifest(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    manifest_path = _write_manifest(tmp_path, _valid_manifest(tmp_path))
+
+    exit_code = evidence.main(["--manifest", str(manifest_path), "--status"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Enterprise readiness evidence: PASS" in captured.out
+    assert "summary: 12 PASS, 0 INCOMPLETE" in captured.out
