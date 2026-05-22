@@ -20,7 +20,8 @@ data:
   SIBYL_STORE: "surreal"
   SIBYL_AUTH_STORE: "surreal"
   SIBYL_COORDINATION_BACKEND: {{ .Values.coordinationBackend | quote }}
-  SIBYL_LOCAL_AUTH_ENABLED: {{ .Values.breakGlass.enabled | quote }}
+  SIBYL_LOCAL_AUTH_ENABLED: {{ .Values.auth.localAuthEnabled | quote }}
+  SIBYL_PUBLIC_SIGNUPS_ENABLED: {{ .Values.auth.publicSignupsEnabled | quote }}
   SIBYL_BREAK_GLASS_ENABLED: {{ .Values.breakGlass.enabled | quote }}
   SIBYL_BREAK_GLASS_ALLOWED_IPS: {{ .Values.breakGlass.allowedIPs | toJson | quote }}
   {{- if .Values.breakGlass.expiresAt }}

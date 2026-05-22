@@ -59,6 +59,8 @@ SIBYL_HELM_RENDER_ARGS = (
     "enterprise",
     "charts/sibyl",
     "--set",
+    "auth.localAuthEnabled=false",
+    "--set",
     "ingress.gatewayApi.enabled=true",
     "--set",
     "ingress.gatewayApi.parentRefs[0].name=shared-gateway",
@@ -114,6 +116,8 @@ SIBYL_RENDER_SNIPPETS = (
     "kind: Namespace",
     "kind: NetworkPolicy",
     "kind: Job",
+    'SIBYL_LOCAL_AUTH_ENABLED: "false"',
+    'SIBYL_PUBLIC_SIGNUPS_ENABLED: "false"',
 )
 SURREALDB_RENDER_SNIPPETS = (
     "kind: CronJob",

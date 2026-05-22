@@ -41,6 +41,27 @@ global:
 Sibyl bootstraps SurrealDB schemas at application startup. The chart does not run Alembic or
 PostgreSQL migration jobs.
 
+## Authentication Defaults
+
+```yaml
+auth:
+  # Local username/password login is the default simple path.
+  localAuthEnabled: true
+  # Public account creation after setup stays invite-only by default.
+  publicSignupsEnabled: false
+
+oidc:
+  providers: []
+  silent_refresh_enabled: false
+  extra_providers_enabled: false
+
+breakGlass:
+  enabled: false
+```
+
+For enterprise SSO deployments, configure a corporate OIDC provider and set
+`auth.localAuthEnabled=false`. Break-glass access remains a separate, bounded opt-in.
+
 ## Backend Configuration
 
 ### Basic Settings

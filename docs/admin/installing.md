@@ -52,6 +52,10 @@ helm upgrade --install sibyl charts/sibyl \
 ```yaml
 coordinationBackend: redis
 
+auth:
+  localAuthEnabled: false
+  publicSignupsEnabled: false
+
 oidc:
   providers:
     - name: entra
@@ -69,7 +73,6 @@ backend:
   env:
     SIBYL_ENVIRONMENT: "production"
     SIBYL_PUBLIC_URL: "https://sibyl.example.com"
-    SIBYL_LOCAL_AUTH_ENABLED: "false"
   surreal:
     url: "ws://sibyl-surrealdb:8000/rpc"
     existingSecret: sibyl-surreal
@@ -105,6 +108,10 @@ podSecurity:
 
 Keep cloud-specific annotations, certificate issuers, secret references, object storage mounts, and
 SIEM wiring in a deployment overlay.
+
+The chart default keeps local username/password login enabled for simple self-hosted installs while
+leaving public signup, OIDC providers, silent refresh, and break-glass access off. Enterprise SSO
+values should set `auth.localAuthEnabled=false` after the corporate OIDC provider is configured.
 
 ## OIDC Provider Setup
 

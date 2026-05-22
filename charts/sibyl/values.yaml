@@ -14,6 +14,14 @@ global:
 # -- Coordination backend: "auto", "local", or "redis"
 coordinationBackend: "auto"
 
+# -- Authentication defaults. Local username/password auth is the default simple path; enterprise
+# SSO values can disable it explicitly after OIDC is configured.
+auth:
+  # -- Enable local username/password login outside setup and break-glass flows.
+  localAuthEnabled: true
+  # -- Allow public self-serve account creation after initial setup.
+  publicSignupsEnabled: false
+
 # -- OpenID Connect configuration passed to SIBYL_OIDC.
 oidc:
   # -- Corporate OIDC providers. GitHub/Google require extra_providers_enabled=true.

@@ -598,6 +598,9 @@ kind: NetworkPolicy
 ---
 apiVersion: batch/v1
 kind: Job
+data:
+  SIBYL_LOCAL_AUTH_ENABLED: "false"
+  SIBYL_PUBLIC_SIGNUPS_ENABLED: "false"
 """
         if args[2] == "charts/surrealdb":
             return """

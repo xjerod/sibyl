@@ -182,7 +182,7 @@ def test_settings_explicit_production_local_auth_override_is_respected() -> None
     assert s.local_auth_enabled is True
 
 
-def test_settings_oidc_defaults_to_enterprise_contract() -> None:
+def test_settings_enterprise_auth_features_are_opt_in() -> None:
     s = Settings(
         _env_file=None,
         environment="production",
@@ -193,6 +193,8 @@ def test_settings_oidc_defaults_to_enterprise_contract() -> None:
         surreal_password="really_secure_password",
     )
 
+    assert s.local_auth_enabled is True
+    assert s.public_signups_enabled is False
     assert s.break_glass_enabled is False
     assert s.break_glass_allowed_ips == []
     assert s.break_glass_expires_at is None
