@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from shutil import which
+from shutil import copy2, which
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -41,6 +41,18 @@ AUDIT_EXPORT_CSV_COLUMNS = (
     "ip_address",
     "user_agent",
     "details",
+)
+MANUAL_EVIDENCE_KEYS = frozenset(
+    {
+        "entra_happy_path",
+        "entra_missing_role_denial",
+        "mcp_cursor_auth",
+        "mcp_claude_code_auth",
+        "mcp_claude_desktop_auth",
+        "kubernetes_restore_drill",
+        "restore_recall_sample",
+        "idp_role_claim_evidence",
+    }
 )
 SIBYL_HELM_RENDER_ARGS = (
     "template",
@@ -1010,6 +1022,83 @@ def capture_audit_export_sample(
     }
 
 
+def capture_manual_evidence(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    key: str,
+    source_artifacts: Sequence[Path],
+    runtime: str,
+    flow: str,
+    result: str,
+    captured_by: str,
+    redactions: str = "none",
+) -> JsonObject:
+    requirement = _requirement_by_key(key)
+    if requirement.key not in MANUAL_EVIDENCE_KEYS:
+        msg = f"{requirement.key} cannot be captured manually; use its dedicated capture command"
+        raise EvidenceFailure(msg)
+    if not source_artifacts:
+        msg = "manual evidence requires at least one artifact"
+        raise EvidenceFailure(msg)
+
+    runtime = _require_manual_field("runtime", runtime)
+    flow = _require_manual_field("flow", flow)
+    result = _require_manual_field("result", result)
+    captured_by = _require_manual_field("captured by", captured_by)
+    redactions = redactions.strip() or "none"
+
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = evidence_dir / DEFAULT_MANIFEST.name
+    if not manifest_path.exists():
+        write_template(evidence_dir)
+    payload = _load_manifest(manifest_path)
+    items = _manifest_items(payload)
+
+    artifact_dir = evidence_dir / requirement.key
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    copied_artifacts = [
+        _copy_manual_artifact(source_path, artifact_dir=artifact_dir)
+        for source_path in source_artifacts
+    ]
+    receipt_path = artifact_dir / "receipt.md"
+    receipt_path.write_text(
+        _manual_evidence_receipt(
+            requirement=requirement,
+            runtime=runtime,
+            flow=flow,
+            result=result,
+            captured_by=captured_by,
+            redactions=redactions,
+            artifact_paths=copied_artifacts,
+        ),
+        encoding="utf-8",
+    )
+
+    _update_manifest_item(
+        items=items,
+        key=requirement.key,
+        gate=requirement.gate,
+        description=requirement.description,
+        artifacts=[
+            _artifact_entry(evidence_dir, receipt_path),
+            *[_artifact_entry(evidence_dir, path) for path in copied_artifacts],
+        ],
+        notes="Captured from external/manual enterprise validation evidence.",
+    )
+    manifest_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS",
+        "captured_at": datetime.now(UTC).isoformat(),
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir.resolve()),
+        "item": items[requirement.key],
+    }
+
+
 def _audit_export_url(api_url: str, *, export_format: str, limit: int) -> str:
     raw_url = api_url.strip()
     if not raw_url:
@@ -1260,6 +1349,40 @@ def _update_manifest_item(
     items[key] = item
 
 
+def _requirement_by_key(key: str) -> EvidenceRequirement:
+    for requirement in REQUIRED_EVIDENCE:
+        if requirement.key == key:
+            return requirement
+    msg = f"unknown evidence item: {key}"
+    raise EvidenceFailure(msg)
+
+
+def _require_manual_field(label: str, value: str) -> str:
+    stripped = value.strip()
+    if stripped:
+        return stripped
+    msg = f"manual evidence {label} is required"
+    raise EvidenceFailure(msg)
+
+
+def _copy_manual_artifact(source_path: Path, *, artifact_dir: Path) -> Path:
+    source_path = source_path.expanduser().resolve()
+    if not source_path.is_file():
+        msg = f"manual evidence artifact not found: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path.stat().st_size == 0:
+        msg = f"manual evidence artifact is empty: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path.name == "receipt.md":
+        msg = "manual evidence artifact must not be named receipt.md"
+        raise EvidenceFailure(msg)
+
+    target_path = artifact_dir / source_path.name
+    if source_path != target_path.resolve():
+        copy2(source_path, target_path)
+    return target_path
+
+
 def _artifact_entry(evidence_dir: Path, artifact_path: Path) -> JsonObject:
     relative_path = artifact_path.relative_to(evidence_dir).as_posix()
     return {
@@ -1424,6 +1547,35 @@ def _audit_export_receipt(
 - Related artifact paths:
   - audit_export_sample/audit-export.{export_format}
 """
+
+
+def _manual_evidence_receipt(
+    *,
+    requirement: EvidenceRequirement,
+    runtime: str,
+    flow: str,
+    result: str,
+    captured_by: str,
+    redactions: str,
+    artifact_paths: Sequence[Path],
+) -> str:
+    lines = [
+        f"# {requirement.key}",
+        "",
+        f"- Gate: {requirement.gate}",
+        "- Status: PASS",
+        f"- Required proof: {requirement.description}",
+        f"- Captured at: {datetime.now(UTC).isoformat()}",
+        f"- Captured by: {captured_by}",
+        f"- Runtime or environment: {runtime}",
+        f"- Commands or manual flow: {flow}",
+        f"- Observed result: {result}",
+        f"- Redactions: {redactions}",
+        "- Related artifact paths:",
+    ]
+    for path in artifact_paths:
+        lines.append(f"  - {requirement.key}/{path.name}")
+    return "\n".join(lines) + "\n"
 
 
 def build_template_payload() -> JsonObject:
@@ -1640,6 +1792,36 @@ def _handle_audit_export_capture(
     return 0
 
 
+def _handle_manual_evidence_capture(
+    evidence_dir: Path | None,
+    *,
+    key: str,
+    source_artifacts: Sequence[Path],
+    runtime: str,
+    flow: str,
+    result: str,
+    captured_by: str,
+    redactions: str,
+) -> int:
+    try:
+        receipt = capture_manual_evidence(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            key=key,
+            source_artifacts=source_artifacts,
+            runtime=runtime,
+            flow=flow,
+            result=result,
+            captured_by=captured_by,
+            redactions=redactions,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write(f"captured manual evidence for {key}\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -1657,6 +1839,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--audit-export-format", choices=AUDIT_EXPORT_FORMATS, default="json")
     parser.add_argument("--audit-export-limit", type=int, default=1000)
     parser.add_argument("--audit-export-token-env", default="SIBYL_ACCESS_TOKEN")
+    parser.add_argument("--capture-manual-evidence")
+    parser.add_argument("--manual-artifact", type=Path, action="append", default=[])
+    parser.add_argument("--manual-runtime", default="")
+    parser.add_argument("--manual-flow", default="")
+    parser.add_argument("--manual-result", default="")
+    parser.add_argument("--manual-captured-by", default=os.environ.get("USER", "operator"))
+    parser.add_argument("--manual-redactions", default="none")
     parser.add_argument("--head-ref", default="HEAD")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
@@ -1691,6 +1880,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             token_env=args.audit_export_token_env,
             export_format=args.audit_export_format,
             limit=args.audit_export_limit,
+        )
+    elif args.capture_manual_evidence is not None:
+        exit_code = _handle_manual_evidence_capture(
+            args.evidence_dir,
+            key=args.capture_manual_evidence,
+            source_artifacts=args.manual_artifact,
+            runtime=args.manual_runtime,
+            flow=args.manual_flow,
+            result=args.manual_result,
+            captured_by=args.manual_captured_by,
+            redactions=args.manual_redactions,
         )
     else:
         exit_code = run_gate(

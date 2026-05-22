@@ -670,3 +670,88 @@ def test_capture_audit_export_sample_accepts_csv(
 
     assert item["status"] == "PASS"
     assert item["artifacts"][1]["path"] == "audit_export_sample/audit-export.csv"
+
+
+def test_capture_manual_evidence_updates_manifest(tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "evidence"
+    source = tmp_path / "cursor-smoke.txt"
+    source.write_text("Cursor MCP authenticated with scoped API key", encoding="utf-8")
+
+    receipt = evidence.capture_manual_evidence(
+        evidence_dir,
+        key="mcp_cursor_auth",
+        source_artifacts=[source],
+        runtime="Cursor stable against https://sibyl.example.com",
+        flow="Configured /mcp with a scoped API key, then opened the MCP tools list.",
+        result="Cursor listed Sibyl tools and completed a recall call.",
+        captured_by="Nova",
+        redactions="API key redacted",
+    )
+    manifest_path = Path(str(receipt["manifest"]))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    item = payload["items"]["mcp_cursor_auth"]
+    captured = evidence_dir / "mcp_cursor_auth" / "cursor-smoke.txt"
+    receipt_file = evidence_dir / "mcp_cursor_auth" / "receipt.md"
+
+    assert item["status"] == "PASS"
+    assert item["artifacts"][0]["path"] == "mcp_cursor_auth/receipt.md"
+    assert item["artifacts"][1]["path"] == "mcp_cursor_auth/cursor-smoke.txt"
+    assert captured.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
+    assert "Runtime or environment: Cursor stable" in receipt_file.read_text(encoding="utf-8")
+    assert "API key redacted" in receipt_file.read_text(encoding="utf-8")
+
+
+def test_capture_manual_evidence_rejects_dedicated_capture_item(tmp_path: Path) -> None:
+    source = tmp_path / "audit.json"
+    source.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_manual_evidence(
+            tmp_path / "evidence",
+            key="audit_export_sample",
+            source_artifacts=[source],
+            runtime="live runtime",
+            flow="downloaded audit export",
+            result="audit export returned JSON",
+            captured_by="Nova",
+        )
+
+    assert "audit_export_sample cannot be captured manually" in str(exc_info.value)
+
+
+def test_capture_manual_evidence_rejects_missing_artifact(tmp_path: Path) -> None:
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_manual_evidence(
+            tmp_path / "evidence",
+            key="mcp_claude_code_auth",
+            source_artifacts=[tmp_path / "missing.txt"],
+            runtime="Claude Code",
+            flow="configured /mcp",
+            result="tools listed",
+            captured_by="Nova",
+        )
+
+    assert "manual evidence artifact not found" in str(exc_info.value)
+
+
+def test_main_capture_manual_evidence_requires_artifact(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    exit_code = evidence.main(
+        [
+            "--evidence-dir",
+            str(tmp_path),
+            "--capture-manual-evidence",
+            "mcp_cursor_auth",
+            "--manual-runtime",
+            "Cursor",
+            "--manual-flow",
+            "configured MCP endpoint",
+            "--manual-result",
+            "tools listed",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "manual evidence requires at least one artifact" in captured.out
