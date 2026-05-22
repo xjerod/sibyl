@@ -1206,6 +1206,64 @@ def capture_audit_export_sample(
     }
 
 
+def capture_idp_role_claim_evidence(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    source_config: Path,
+    captured_by: str,
+) -> JsonObject:
+    captured_by = _require_manual_field("captured by", captured_by)
+    payload = _load_idp_role_claim_payload(source_config)
+    summary = _idp_role_claim_summary(payload)
+
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = evidence_dir / DEFAULT_MANIFEST.name
+    if not manifest_path.exists():
+        write_template(evidence_dir)
+    manifest = _load_manifest(manifest_path)
+    items = _manifest_items(manifest)
+
+    artifact_dir = evidence_dir / "idp_role_claim_evidence"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    config_path = _copy_idp_role_claim_artifact(
+        source_config,
+        target_path=artifact_dir / "idp-role-claim-config.json",
+    )
+    receipt_path = artifact_dir / "receipt.md"
+    receipt_path.write_text(
+        _idp_role_claim_receipt(
+            summary=summary,
+            captured_by=captured_by,
+            artifact_path=config_path,
+        ),
+        encoding="utf-8",
+    )
+
+    _update_manifest_item(
+        items=items,
+        key="idp_role_claim_evidence",
+        gate="security-review-packet",
+        description="IdP role-claim screenshot or config export shows the Sibyl role mapping.",
+        artifacts=[
+            _artifact_entry(evidence_dir, receipt_path),
+            _artifact_entry(evidence_dir, config_path),
+        ],
+        notes="Captured from a structured IdP app role configuration export.",
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS",
+        "captured_at": datetime.now(UTC).isoformat(),
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir.resolve()),
+        "item": items["idp_role_claim_evidence"],
+    }
+
+
 def capture_entra_smoke_evidence(
     evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
     *,
@@ -1621,6 +1679,117 @@ def _validate_audit_csv_export(body: bytes) -> int:
         msg = "audit CSV export events must include an action"
         raise EvidenceFailure(msg)
     return len(rows)
+
+
+def _load_idp_role_claim_payload(path: Path) -> JsonObject:
+    if path.suffix.lower() != ".json":
+        msg = "IdP role-claim config must be a JSON file"
+        raise EvidenceFailure(msg)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        msg = f"IdP role-claim config not found: {path}"
+        raise EvidenceFailure(msg) from exc
+    except json.JSONDecodeError as exc:
+        msg = f"IdP role-claim config is not valid JSON: {exc}"
+        raise EvidenceFailure(msg) from exc
+
+    if not isinstance(payload, dict):
+        msg = "IdP role-claim config root must be an object"
+        raise EvidenceFailure(msg)
+    return cast(JsonObject, payload)
+
+
+def _idp_role_claim_summary(payload: Mapping[str, object]) -> JsonObject:
+    role_claim = payload.get("role_claim") or payload.get("roleClaim") or "roles"
+    if role_claim != "roles":
+        msg = f"IdP role-claim config role_claim must be 'roles', got {role_claim!r}"
+        raise EvidenceFailure(msg)
+
+    app_roles = _idp_app_roles(payload)
+    return {
+        "provider": _idp_optional_string(payload.get("provider") or payload.get("idp")) or "entra",
+        "tenant_id": _idp_optional_string(payload.get("tenant_id") or payload.get("tenantId")),
+        "app_id": _idp_optional_string(payload.get("app_id") or payload.get("appId")),
+        "display_name": _idp_optional_string(
+            payload.get("display_name") or payload.get("displayName") or payload.get("name")
+        ),
+        "role_claim": "roles",
+        "roles": {
+            role: _idp_required_app_role(app_roles, role) for role in sorted(SIBYL_IDP_ROLES)
+        },
+    }
+
+
+def _idp_app_roles(payload: Mapping[str, object]) -> list[Mapping[str, object]]:
+    candidates = [
+        payload.get("appRoles"),
+        payload.get("app_roles"),
+    ]
+    for key in (
+        "application",
+        "appRegistration",
+        "app_registration",
+        "servicePrincipal",
+        "service_principal",
+        "app",
+    ):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            nested_payload = cast(Mapping[str, object], nested)
+            candidates.extend([nested_payload.get("appRoles"), nested_payload.get("app_roles")])
+
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        if not candidate:
+            msg = "IdP role-claim config appRoles list must not be empty"
+            raise EvidenceFailure(msg)
+        roles: list[Mapping[str, object]] = []
+        for raw_role in candidate:
+            if not isinstance(raw_role, dict):
+                msg = "IdP role-claim config appRoles entries must be objects"
+                raise EvidenceFailure(msg)
+            roles.append(cast(Mapping[str, object], raw_role))
+        return roles
+
+    msg = "IdP role-claim config must include an appRoles list"
+    raise EvidenceFailure(msg)
+
+
+def _idp_required_app_role(
+    roles: Sequence[Mapping[str, object]],
+    expected_value: str,
+) -> JsonObject:
+    matches = [role for role in roles if role.get("value") == expected_value]
+    if not matches:
+        msg = f"IdP role-claim config missing enabled app role: {expected_value}"
+        raise EvidenceFailure(msg)
+
+    role = matches[0]
+    if role.get("isEnabled") is not True:
+        msg = f"IdP app role {expected_value} must be enabled with isEnabled=true"
+        raise EvidenceFailure(msg)
+
+    allowed_member_types = role.get("allowedMemberTypes")
+    if not isinstance(allowed_member_types, list) or "User" not in allowed_member_types:
+        msg = f"IdP app role {expected_value} allowedMemberTypes must include User"
+        raise EvidenceFailure(msg)
+
+    return {
+        "value": expected_value,
+        "display_name": _idp_optional_string(role.get("displayName")),
+        "id": _idp_optional_string(role.get("id")),
+        "allowed_member_types": [
+            value for value in allowed_member_types if isinstance(value, str) and value.strip()
+        ],
+    }
+
+
+def _idp_optional_string(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
 
 def _load_entra_smoke_payload(path: Path) -> JsonObject:
@@ -2134,6 +2303,19 @@ def _copy_manual_artifact(source_path: Path, *, artifact_dir: Path) -> Path:
     return target_path
 
 
+def _copy_idp_role_claim_artifact(source_path: Path, *, target_path: Path) -> Path:
+    source_path = source_path.expanduser().resolve()
+    if not source_path.is_file():
+        msg = f"IdP role-claim config not found: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path.stat().st_size == 0:
+        msg = f"IdP role-claim config is empty: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path != target_path.resolve():
+        copy2(source_path, target_path)
+    return target_path
+
+
 def _copy_entra_smoke_artifact(source_path: Path, *, target_path: Path) -> Path:
     source_path = source_path.expanduser().resolve()
     if not source_path.is_file():
@@ -2337,6 +2519,44 @@ def _audit_export_receipt(
 - Related artifact paths:
   - audit_export_sample/audit-export.{export_format}
 """
+
+
+def _idp_role_claim_receipt(
+    *,
+    summary: Mapping[str, object],
+    captured_by: str,
+    artifact_path: Path,
+) -> str:
+    roles = cast(Mapping[str, Mapping[str, object]], summary["roles"])
+    lines = [
+        "# idp_role_claim_evidence",
+        "",
+        "- Gate: security-review-packet",
+        "- Status: PASS",
+        "- Required proof: IdP role-claim screenshot or config export shows the Sibyl role mapping.",
+        f"- Captured at: {datetime.now(UTC).isoformat()}",
+        f"- Captured by: {captured_by}",
+        "- Runtime or environment: IdP app role configuration export",
+        f"- Provider: {summary['provider']}",
+        f"- Tenant ID: {summary.get('tenant_id') or 'not provided'}",
+        f"- App ID: {summary.get('app_id') or 'not provided'}",
+        f"- App display name: {summary.get('display_name') or 'not provided'}",
+        f"- Role claim: {summary['role_claim']}",
+        "- Observed result: required Sibyl app roles are enabled for user assignment.",
+        "- App roles:",
+    ]
+    for role, role_summary in roles.items():
+        allowed = ", ".join(cast(list[str], role_summary["allowed_member_types"]))
+        display_name = role_summary.get("display_name") or role
+        lines.append(f"  - {role}: {display_name} ({allowed})")
+    lines.extend(
+        [
+            "- Redactions: source config may redact tenant, app, or display names",
+            "- Related artifact paths:",
+            f"  - idp_role_claim_evidence/{artifact_path.name}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _entra_happy_path_receipt(
@@ -2730,6 +2950,26 @@ def _handle_audit_export_capture(
     return 0
 
 
+def _handle_idp_role_claim_capture(
+    evidence_dir: Path | None,
+    *,
+    source_config: Path,
+    captured_by: str,
+) -> int:
+    try:
+        receipt = capture_idp_role_claim_evidence(
+            evidence_dir or DEFAULT_EVIDENCE_DIR,
+            source_config=source_config,
+            captured_by=captured_by,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write("captured IdP role-claim evidence\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def _handle_entra_smoke_capture(
     evidence_dir: Path | None,
     *,
@@ -2837,6 +3077,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--audit-export-format", choices=AUDIT_EXPORT_FORMATS, default="json")
     parser.add_argument("--audit-export-limit", type=int, default=1000)
     parser.add_argument("--audit-export-token-env", default="SIBYL_ACCESS_TOKEN")
+    parser.add_argument("--capture-idp-role-claim-evidence", type=Path)
     parser.add_argument("--capture-entra-smoke-evidence", type=Path)
     parser.add_argument("--capture-mcp-client-smoke-evidence", type=Path)
     parser.add_argument("--capture-restore-drill-evidence", type=Path)
@@ -2888,6 +3129,12 @@ def _dispatch_capture_command(args: argparse.Namespace) -> int | None:
             token_env=args.audit_export_token_env,
             export_format=args.audit_export_format,
             limit=args.audit_export_limit,
+        )
+    elif args.capture_idp_role_claim_evidence is not None:
+        exit_code = _handle_idp_role_claim_capture(
+            args.evidence_dir,
+            source_config=args.capture_idp_role_claim_evidence,
+            captured_by=args.manual_captured_by,
         )
     elif args.capture_entra_smoke_evidence is not None:
         exit_code = _handle_entra_smoke_capture(

@@ -1287,6 +1287,118 @@ def test_main_capture_restore_drill_evidence_requires_json(
     assert "restore drill receipt must be a JSON file" in captured.out
 
 
+def _idp_role_claim_payload() -> dict[str, Any]:
+    return {
+        "provider": "entra",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "appId": "22222222-2222-2222-2222-222222222222",
+        "displayName": "Sibyl Dev",
+        "appRoles": [
+            {
+                "allowedMemberTypes": ["User"],
+                "displayName": "Sibyl member",
+                "id": "33333333-3333-3333-3333-333333333333",
+                "isEnabled": True,
+                "value": "Sibyl.Member",
+            },
+            {
+                "allowedMemberTypes": ["User"],
+                "displayName": "Sibyl admin",
+                "id": "44444444-4444-4444-4444-444444444444",
+                "isEnabled": True,
+                "value": "Sibyl.Admin",
+            },
+            {
+                "allowedMemberTypes": ["User"],
+                "displayName": "Sibyl owner",
+                "id": "55555555-5555-5555-5555-555555555555",
+                "isEnabled": True,
+                "value": "Sibyl.Owner",
+            },
+        ],
+    }
+
+
+def _write_idp_role_claim_config(path: Path, payload: dict[str, Any]) -> Path:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_capture_idp_role_claim_evidence_updates_manifest(tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "evidence"
+    source = _write_idp_role_claim_config(
+        tmp_path / "idp-config.json",
+        _idp_role_claim_payload(),
+    )
+
+    receipt = evidence.capture_idp_role_claim_evidence(
+        evidence_dir,
+        source_config=source,
+        captured_by="Nova",
+    )
+    manifest_path = Path(str(receipt["manifest"]))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    item = payload["items"]["idp_role_claim_evidence"]
+    receipt_file = evidence_dir / "idp_role_claim_evidence" / "receipt.md"
+    config_file = evidence_dir / "idp_role_claim_evidence" / "idp-role-claim-config.json"
+
+    assert item["status"] == "PASS"
+    assert item["artifacts"][0]["path"] == "idp_role_claim_evidence/receipt.md"
+    assert item["artifacts"][1]["path"] == ("idp_role_claim_evidence/idp-role-claim-config.json")
+    assert "Sibyl.Member" in receipt_file.read_text(encoding="utf-8")
+    assert json.loads(config_file.read_text(encoding="utf-8"))["provider"] == "entra"
+
+
+def test_capture_idp_role_claim_evidence_rejects_missing_role(tmp_path: Path) -> None:
+    payload = _idp_role_claim_payload()
+    payload["appRoles"] = [role for role in payload["appRoles"] if role["value"] != "Sibyl.Owner"]
+    source = _write_idp_role_claim_config(tmp_path / "idp-config.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_idp_role_claim_evidence(
+            tmp_path / "evidence",
+            source_config=source,
+            captured_by="Nova",
+        )
+
+    assert "missing enabled app role: Sibyl.Owner" in str(exc_info.value)
+
+
+def test_capture_idp_role_claim_evidence_rejects_disabled_role(tmp_path: Path) -> None:
+    payload = _idp_role_claim_payload()
+    payload["appRoles"][0]["isEnabled"] = False
+    source = _write_idp_role_claim_config(tmp_path / "idp-config.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_idp_role_claim_evidence(
+            tmp_path / "evidence",
+            source_config=source,
+            captured_by="Nova",
+        )
+
+    assert "Sibyl.Member must be enabled" in str(exc_info.value)
+
+
+def test_main_capture_idp_role_claim_evidence_requires_json(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    source = tmp_path / "idp-config.txt"
+    source.write_text("not JSON", encoding="utf-8")
+
+    exit_code = evidence.main(
+        [
+            "--evidence-dir",
+            str(tmp_path / "evidence"),
+            "--capture-idp-role-claim-evidence",
+            str(source),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "IdP role-claim config must be a JSON file" in captured.out
+
+
 def test_capture_manual_evidence_updates_manifest(tmp_path: Path) -> None:
     evidence_dir = tmp_path / "evidence"
     source = tmp_path / "role-claim-config.txt"
