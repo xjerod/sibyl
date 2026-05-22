@@ -32,6 +32,8 @@ license=('AGPL-3.0-only')
 provides=('sibyl-cli')
 conflicts=('sibyl-cli')
 depends=(
+    'docker'
+    'docker-compose'
     'python>=3.13'
     'python-anyio'
     'python-dotenv'
@@ -52,10 +54,6 @@ makedepends=(
     'python-hatchling'
     'python-installer'
     'python-wheel'
-)
-optdepends=(
-    'docker: start the local Docker-backed Sibyl server with sibyl up'
-    'docker-compose: Docker Compose support for local Sibyl'
 )
 source=(
     "sibyl-dev-${{pkgver}}.tar.gz::{cli.url}"

@@ -213,9 +213,11 @@ def test_aur_pkgbuild_renders_cli_package() -> None:
     assert "pkgver=1.0.0rc1" in pkgbuild
     assert "provides=('sibyl-cli')" in pkgbuild
     assert "depends=(" in pkgbuild
+    assert "'docker'" in pkgbuild
+    assert "'docker-compose'" in pkgbuild
     assert "'python-typer'" in pkgbuild
     assert "'python-pydantic-settings'" in pkgbuild
-    assert "'docker: start the local Docker-backed Sibyl server with sibyl up'" in pkgbuild
+    assert "optdepends=(" not in pkgbuild
     assert (
         '"sibyl-dev-${pkgver}.tar.gz::https://files.pythonhosted.org/packages/sibyl_dev-1.0.0rc1.tar.gz"'
         in pkgbuild
