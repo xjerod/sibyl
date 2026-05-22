@@ -246,6 +246,108 @@ def test_validate_manifest_rejects_hash_mismatch(tmp_path: Path) -> None:
     assert "audit_export_sample artifact hash mismatch" in str(exc_info.value)
 
 
+def _package_lock_manifest(
+    evidence_dir: Path,
+    *,
+    receipt_text: str,
+    diff_text: str,
+) -> Path:
+    payload = _valid_manifest(evidence_dir)
+    package_dir = evidence_dir / "package_lock_diff"
+    package_dir.mkdir(parents=True, exist_ok=True)
+    receipt_path = package_dir / "receipt.md"
+    diff_path = package_dir / "package-lock.diff"
+    receipt_path.write_text(receipt_text, encoding="utf-8")
+    diff_path.write_text(diff_text, encoding="utf-8")
+
+    payload["items"]["package_lock_diff"] = {
+        "gate": "security-review-packet",
+        "status": "PASS",
+        "description": "Package lock diff for Authlib, PyJWT, and argon2-cffi is captured.",
+        "artifacts": [
+            {
+                "path": "package_lock_diff/receipt.md",
+                "sha256": hashlib.sha256(receipt_text.encode()).hexdigest(),
+            },
+            {
+                "path": "package_lock_diff/package-lock.diff",
+                "sha256": hashlib.sha256(diff_text.encode()).hexdigest(),
+            },
+        ],
+    }
+    return _write_manifest(evidence_dir, payload)
+
+
+def test_inspect_manifest_reports_stale_package_lock_head(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    diff_text = "diff text\n"
+    manifest_path = _package_lock_manifest(
+        tmp_path,
+        receipt_text=(
+            "# package_lock_diff\n"
+            "- Base ref: base\n"
+            "- Base sha: base-sha\n"
+            "- Head ref: HEAD\n"
+            "- Head sha: stale-sha\n"
+        ),
+        diff_text=diff_text,
+    )
+
+    def fake_git_output(args: list[str]) -> str:
+        if args == ["rev-parse", "HEAD"]:
+            return "current-sha"
+        if args[0] == "diff":
+            return diff_text
+        raise AssertionError(args)
+
+    monkeypatch.setattr(evidence, "_git_output", fake_git_output)
+
+    report = evidence.inspect_manifest(manifest_path)
+    package_item = next(
+        item
+        for item in cast(list[dict[str, Any]], report["items"])
+        if item["key"] == "package_lock_diff"
+    )
+
+    assert package_item["status"] == "INCOMPLETE"
+    assert package_item["issues"] == [
+        "head sha is stale: HEAD resolves to current-sha, receipt has stale-sha"
+    ]
+
+
+def test_validate_manifest_rejects_stale_package_lock_diff(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest_path = _package_lock_manifest(
+        tmp_path,
+        receipt_text=(
+            "# package_lock_diff\n"
+            "- Base ref: base\n"
+            "- Base sha: base-sha\n"
+            "- Head ref: HEAD\n"
+            "- Head sha: current-sha\n"
+        ),
+        diff_text="stale diff\n",
+    )
+
+    def fake_git_output(args: list[str]) -> str:
+        if args == ["rev-parse", "HEAD"]:
+            return "current-sha"
+        if args[0] == "diff":
+            return "fresh diff"
+        raise AssertionError(args)
+
+    monkeypatch.setattr(evidence, "_git_output", fake_git_output)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.validate_manifest(manifest_path)
+
+    assert "package_lock_diff package lock diff artifact is stale for base..HEAD" in str(
+        exc_info.value
+    )
+
+
 def test_validate_manifest_rejects_path_escape(tmp_path: Path) -> None:
     payload = _valid_manifest(tmp_path)
     payload["items"]["package_lock_diff"]["artifacts"][0] = {

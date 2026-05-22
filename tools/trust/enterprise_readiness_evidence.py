@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -389,6 +390,15 @@ def _require_item(
             }
         )
 
+    freshness_issues = _inspect_generated_artifact_freshness(
+        evidence_dir=evidence_dir,
+        requirement=requirement,
+        item=item,
+    )
+    if freshness_issues:
+        msg = f"{requirement.key} {freshness_issues[0]}"
+        raise EvidenceFailure(msg)
+
     return {
         "key": requirement.key,
         "gate": requirement.gate,
@@ -555,6 +565,13 @@ def inspect_manifest(
                     )
                     artifacts_report.append(artifact_report)
                     issues.extend(cast(list[str], artifact_report["issues"]))
+            issues.extend(
+                _inspect_generated_artifact_freshness(
+                    evidence_dir=evidence_dir,
+                    requirement=requirement,
+                    item=item,
+                )
+            )
 
         item_status = "PASS" if status == "PASS" and not issues else "INCOMPLETE"
         summary[item_status] += 1
@@ -619,6 +636,107 @@ def _inspect_artifact(*, evidence_dir: Path, raw_artifact: object) -> JsonObject
         issues.append(f"artifact hash mismatch: {artifact_rel_path}")
 
     return report
+
+
+def _inspect_generated_artifact_freshness(
+    *,
+    evidence_dir: Path,
+    requirement: EvidenceRequirement,
+    item: Mapping[str, object],
+) -> list[str]:
+    if requirement.key != "package_lock_diff":
+        return []
+    return _inspect_package_lock_diff_freshness(evidence_dir=evidence_dir, item=item)
+
+
+def _inspect_package_lock_diff_freshness(
+    *,
+    evidence_dir: Path,
+    item: Mapping[str, object],
+) -> list[str]:
+    receipt_path, diff_path = _package_lock_artifact_paths(evidence_dir=evidence_dir, item=item)
+    if receipt_path is None or not receipt_path.is_file():
+        return []
+
+    receipt_text = receipt_path.read_text(encoding="utf-8")
+    base_ref = _receipt_field(receipt_text, "Base ref")
+    head_ref = _receipt_field(receipt_text, "Head ref")
+    head_sha = _receipt_field(receipt_text, "Head sha")
+    if not base_ref or not head_ref or not head_sha:
+        return []
+
+    return [
+        *_package_lock_head_issues(head_ref=head_ref, head_sha=head_sha),
+        *_package_lock_diff_issues(base_ref=base_ref, head_ref=head_ref, diff_path=diff_path),
+    ]
+
+
+def _package_lock_artifact_paths(
+    *,
+    evidence_dir: Path,
+    item: Mapping[str, object],
+) -> tuple[Path | None, Path | None]:
+    artifacts = item.get("artifacts")
+    if not isinstance(artifacts, list):
+        return None, None
+
+    receipt_path: Path | None = None
+    diff_path: Path | None = None
+    for raw_artifact in artifacts:
+        if not isinstance(raw_artifact, dict):
+            continue
+        artifact_path_value = raw_artifact.get("path")
+        if artifact_path_value == "package_lock_diff/receipt.md":
+            receipt_path = _safe_artifact_path(evidence_dir, artifact_path_value)
+        elif artifact_path_value == "package_lock_diff/package-lock.diff":
+            diff_path = _safe_artifact_path(evidence_dir, artifact_path_value)
+    return receipt_path, diff_path
+
+
+def _package_lock_head_issues(*, head_ref: str, head_sha: str) -> list[str]:
+    try:
+        current_head_sha = _git_output(["rev-parse", head_ref])
+    except EvidenceFailure as exc:
+        return [f"head ref cannot be resolved: {exc}"]
+
+    if current_head_sha != head_sha:
+        return [
+            f"head sha is stale: {head_ref} resolves to {current_head_sha}, receipt has {head_sha}"
+        ]
+    return []
+
+
+def _package_lock_diff_issues(
+    *,
+    base_ref: str,
+    head_ref: str,
+    diff_path: Path | None,
+) -> list[str]:
+    if diff_path is None or not diff_path.is_file():
+        return []
+
+    diff_args = [
+        "diff",
+        "--no-ext-diff",
+        "--unified=80",
+        f"{base_ref}..{head_ref}",
+        "--",
+        *PACKAGE_LOCK_PATHS,
+    ]
+    try:
+        expected_diff = _git_output(diff_args).rstrip() + "\n"
+    except EvidenceFailure as exc:
+        return [f"package lock diff cannot be regenerated: {exc}"]
+
+    actual_diff = diff_path.read_text(encoding="utf-8")
+    if actual_diff != expected_diff:
+        return [f"package lock diff artifact is stale for {base_ref}..{head_ref}"]
+    return []
+
+
+def _receipt_field(receipt_text: str, label: str) -> str | None:
+    match = re.search(rf"^- {re.escape(label)}: (.+)$", receipt_text, re.MULTILINE)
+    return match.group(1).strip() if match else None
 
 
 def capture_package_lock_diff(
