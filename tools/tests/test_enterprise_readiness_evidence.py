@@ -103,6 +103,20 @@ def test_template_contains_every_required_item(tmp_path: Path) -> None:
             payload["items"][requirement.key]["artifacts"][0]["sha256"]
             == hashlib.sha256(receipt.read_bytes()).hexdigest()
         )
+    source_templates = {
+        path.name: json.loads(path.read_text(encoding="utf-8"))
+        for path in (tmp_path / "source").glob("*.json")
+    }
+    assert set(source_templates) == {
+        "entra-smoke.json",
+        "idp-role-claim-config.json",
+        "mcp-client-smoke.json",
+        "restore-drill.json",
+    }
+    assert source_templates["entra-smoke.json"]["status"] == "TODO"
+    assert source_templates["mcp-client-smoke.json"]["clients"]["cursor"]["status"] == "TODO"
+    assert source_templates["restore-drill.json"]["recall_sample"]["result_count"] == 0
+    assert source_templates["idp-role-claim-config.json"]["appRoles"][0]["isEnabled"] is False
 
 
 def test_template_refuses_to_overwrite_existing_manifest(tmp_path: Path) -> None:
@@ -119,11 +133,14 @@ def test_template_preserves_receipts_without_force(tmp_path: Path) -> None:
     manifest_path.unlink()
     receipt = tmp_path / "entra_happy_path" / "receipt.md"
     receipt.write_text("real receipt", encoding="utf-8")
+    source_template = tmp_path / "source" / "entra-smoke.json"
+    source_template.write_text('{"real": true}\n', encoding="utf-8")
 
     manifest_path = evidence.write_template(tmp_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert receipt.read_text(encoding="utf-8") == "real receipt"
+    assert source_template.read_text(encoding="utf-8") == '{"real": true}\n'
     assert (
         payload["items"]["entra_happy_path"]["artifacts"][0]["sha256"]
         == hashlib.sha256(b"real receipt").hexdigest()
@@ -134,10 +151,13 @@ def test_template_force_regenerates_receipts(tmp_path: Path) -> None:
     evidence.write_template(tmp_path)
     receipt = tmp_path / "entra_happy_path" / "receipt.md"
     receipt.write_text("stale", encoding="utf-8")
+    source_template = tmp_path / "source" / "entra-smoke.json"
+    source_template.write_text('{"stale": true}\n', encoding="utf-8")
 
     evidence.write_template(tmp_path, force=True)
 
     assert "Required proof" in receipt.read_text(encoding="utf-8")
+    assert json.loads(source_template.read_text(encoding="utf-8"))["provider"] == "entra"
 
 
 def test_sync_manifest_hashes_updates_artifacts(tmp_path: Path) -> None:

@@ -2978,6 +2978,116 @@ moon run enterprise-readiness-evidence -- --sync-hashes
 """
 
 
+def _source_template_payloads() -> Mapping[str, JsonObject]:
+    return {
+        "entra-smoke.json": {
+            "provider": "entra",
+            "status": "TODO",
+            "tenant_id": "<tenant-id>",
+            "runtime": "https://sibyl.example.com",
+            "role_claim": "roles",
+            "happy_path": {
+                "status": "TODO",
+                "tid": "<tenant-id>",
+                "oid": "<user-object-id>",
+                "roles": ["Sibyl.Member"],
+            },
+            "missing_role_denial": {
+                "status": "TODO",
+                "roles": [],
+                "http_status": 403,
+                "reason": "missing Sibyl role",
+            },
+        },
+        "mcp-client-smoke.json": {
+            "status": "TODO",
+            "runtime": "https://sibyl.example.com/mcp",
+            "clients": {
+                "cursor": {
+                    "status": "TODO",
+                    "client": "Cursor",
+                    "auth_method": "scoped API key",
+                    "tools_listed": False,
+                    "tool_call_succeeded": False,
+                    "result": "",
+                },
+                "claude_code": {
+                    "status": "TODO",
+                    "client": "Claude Code",
+                    "auth_method": "scoped API key",
+                    "tools_listed": False,
+                    "recall_succeeded": False,
+                    "result": "",
+                },
+                "claude_desktop": {
+                    "status": "TODO",
+                    "client": "Claude Desktop",
+                    "auth_method": "scoped API key",
+                    "tools_listed": False,
+                    "tool_call_succeeded": False,
+                    "result": "",
+                },
+            },
+        },
+        "restore-drill.json": {
+            "status": "TODO",
+            "runtime": "kind/sibyl-enterprise namespace sibyl-restore-drill",
+            "row_counts": {
+                "entity": {"expected": 0, "actual": 0},
+                "episode": {"expected": 0, "actual": 0},
+            },
+            "recall_sample": {
+                "query": "restore drill fixture memory",
+                "result_count": 0,
+                "sample": "",
+            },
+        },
+        "idp-role-claim-config.json": {
+            "provider": "entra",
+            "tenant_id": "<tenant-id>",
+            "app_id": "<app-registration-client-id>",
+            "display_name": "Sibyl",
+            "role_claim": "roles",
+            "appRoles": [
+                {
+                    "id": "<member-role-id>",
+                    "value": "Sibyl.Member",
+                    "displayName": "Sibyl Member",
+                    "isEnabled": False,
+                    "allowedMemberTypes": ["User"],
+                },
+                {
+                    "id": "<admin-role-id>",
+                    "value": "Sibyl.Admin",
+                    "displayName": "Sibyl Admin",
+                    "isEnabled": False,
+                    "allowedMemberTypes": ["User"],
+                },
+                {
+                    "id": "<owner-role-id>",
+                    "value": "Sibyl.Owner",
+                    "displayName": "Sibyl Owner",
+                    "isEnabled": False,
+                    "allowedMemberTypes": ["User"],
+                },
+            ],
+        },
+    }
+
+
+def _write_source_templates(evidence_dir: Path, *, force: bool) -> None:
+    source_dir = evidence_dir / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    for filename, payload in _source_template_payloads().items():
+        source_path = source_dir / filename
+        if source_path.exists() and not force:
+            continue
+        source_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+
 def write_template(evidence_dir: Path, *, force: bool = False) -> Path:
     evidence_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = evidence_dir / DEFAULT_MANIFEST.name
@@ -2991,6 +3101,8 @@ def write_template(evidence_dir: Path, *, force: bool = False) -> Path:
             continue
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(_receipt_template(requirement), encoding="utf-8")
+
+    _write_source_templates(evidence_dir, force=force)
 
     manifest_path.write_text(
         json.dumps(build_template_payload(evidence_dir), indent=2, sort_keys=True) + "\n",

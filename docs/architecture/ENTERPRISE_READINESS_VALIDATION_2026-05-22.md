@@ -115,12 +115,13 @@ moon run enterprise-readiness-evidence
 
 Use
 `moon run enterprise-readiness-evidence -- --init-template .moon/cache/enterprise-readiness-evidence`
-to create the manifest skeleton and per-item `receipt.md` stubs. The template command preserves
-existing evidence files by default; use `--force-template` only when intentionally regenerating the
-bundle. After real artifacts are captured, run
-`moon run enterprise-readiness-evidence -- --sync-hashes` to refresh the manifest checksums. The
-`--status` mode reports every incomplete item at once before the final gate runs. The local rendered
-Helm receipt can be captured with
+to create the manifest skeleton, per-item `receipt.md` stubs, and fillable
+`source/entra-smoke.json`, `source/mcp-client-smoke.json`, `source/restore-drill.json`, and
+`source/idp-role-claim-config.json` input templates. The template command preserves existing
+evidence files by default; use `--force-template` only when intentionally regenerating the bundle.
+After real artifacts are captured, run `moon run enterprise-readiness-evidence -- --sync-hashes` to
+refresh the manifest checksums. The `--status` mode reports every incomplete item at once before the
+final gate runs. The local rendered Helm receipt can be captured with
 `moon run enterprise-readiness-evidence -- --capture-rendered-helm-manifests`. The local package
 receipt can be captured with
 `moon run enterprise-readiness-evidence -- --capture-package-lock-diff <base-ref>`. Release SBOM and
