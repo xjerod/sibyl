@@ -517,8 +517,10 @@ bootstrap:
 # -- Break-glass local owner bootstrap.
 breakGlass:
   enabled: false
-  # -- Optional source CIDRs for downstream ingress/firewall overlays.
+  # -- Source CIDRs allowed to use break-glass login when enabled.
   allowedIPs: []
+  # -- UTC timestamp after which app-level break-glass login is denied.
+  expiresAt: ""
   # -- Existing secret containing owner bootstrap fields.
   existingSecret: ""
   ownerEmailKey: "owner-email"

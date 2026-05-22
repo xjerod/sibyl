@@ -2,6 +2,8 @@
 
 import os
 import secrets
+from datetime import UTC, datetime
+from ipaddress import ip_network
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -172,10 +174,35 @@ class Settings(BaseSettings):
         default=False,
         description="Treat local auth as an active break-glass access path",
     )
+    break_glass_allowed_ips: list[str] = Field(
+        default_factory=list,
+        description="Optional CIDR ranges allowed to use break-glass local auth",
+    )
+    break_glass_expires_at: datetime | None = Field(
+        default=None,
+        description="UTC timestamp after which break-glass local auth is denied",
+    )
     oidc: OIDCSettings = Field(
         default_factory=OIDCSettings,
         description="OpenID Connect provider and session settings",
     )
+
+    @field_validator("break_glass_allowed_ips")
+    @classmethod
+    def validate_break_glass_allowed_ips(cls, value: list[str]) -> list[str]:
+        cidrs = [cidr.strip() for cidr in value if cidr.strip()]
+        for cidr in cidrs:
+            ip_network(cidr, strict=False)
+        return cidrs
+
+    @field_validator("break_glass_expires_at")
+    @classmethod
+    def normalize_break_glass_expires_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":

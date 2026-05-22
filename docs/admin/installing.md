@@ -153,8 +153,14 @@ accounts:
 ```yaml
 breakGlass:
   enabled: true
+  allowedIPs:
+    - 203.0.113.0/24
+  expiresAt: "<UTC timestamp no more than four hours out>"
   existingSecret: sibyl-break-glass
 ```
 
 After the OIDC owner signs in successfully, disable local password login in production values unless
-you are actively running the break-glass path.
+you are actively running the break-glass path. Set `expiresAt` no more than four hours out for an
+emergency window and keep `allowedIPs` scoped to the operator network. When break-glass is enabled,
+Sibyl denies login if either field is missing, if the expiry has passed, or if the expiry is more
+than four hours out.

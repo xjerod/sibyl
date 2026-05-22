@@ -15,14 +15,25 @@ Use a local owner account stored in a dedicated secret:
 ```yaml
 breakGlass:
   enabled: true
+  allowedIPs:
+    - 203.0.113.0/24
+  expiresAt: "<UTC timestamp no more than four hours out>"
   existingSecret: sibyl-break-glass
   ownerEmailKey: owner-email
   ownerPasswordKey: owner-password
 ```
 
 Keep production `SIBYL_LOCAL_AUTH_ENABLED=false` for normal operation. Temporarily enable local auth
-only for a documented break-glass window, or restrict it with network and ingress controls in your
-deployment overlay.
+only for a documented break-glass window. `breakGlass.enabled=true` sets
+`SIBYL_BREAK_GLASS_ENABLED=true`, and Sibyl denies break-glass login after `breakGlass.expiresAt` or
+from a source address outside `breakGlass.allowedIPs`.
+
+When break-glass is enabled, `expiresAt` and at least one `allowedIPs` CIDR are required. Sibyl also
+denies login if the expiry is more than four hours out, so the emergency window stays bounded even
+if the chart override is left in place.
+
+The CIDR allowlist is an app-level backstop. Keep the same restriction at ingress or firewall level
+when possible, especially if the app only sees proxy addresses.
 
 ## Storage
 
@@ -36,7 +47,7 @@ roster.
 
 1. Declare the break-glass event in the incident channel.
 2. Restrict access at ingress or firewall level if possible.
-3. Enable the break-glass values or local-auth override.
+3. Enable the break-glass values with CIDRs and an expiry no more than four hours out.
 4. Sign in with the break-glass owner.
 5. Fix the IdP, OIDC secret, role assignment, or admin membership issue.
 6. Confirm normal OIDC admin login works.

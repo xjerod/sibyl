@@ -22,6 +22,10 @@ data:
   SIBYL_COORDINATION_BACKEND: {{ .Values.coordinationBackend | quote }}
   SIBYL_LOCAL_AUTH_ENABLED: {{ .Values.breakGlass.enabled | quote }}
   SIBYL_BREAK_GLASS_ENABLED: {{ .Values.breakGlass.enabled | quote }}
+  SIBYL_BREAK_GLASS_ALLOWED_IPS: {{ .Values.breakGlass.allowedIPs | toJson | quote }}
+  {{- if .Values.breakGlass.expiresAt }}
+  SIBYL_BREAK_GLASS_EXPIRES_AT: {{ .Values.breakGlass.expiresAt | quote }}
+  {{- end }}
   SIBYL_OIDC: {{ .Values.oidc | toJson | quote }}
   {{- if eq .Values.coordinationBackend "redis" }}
   SIBYL_REDIS_HOST: {{ .Values.backend.redis.host | quote }}

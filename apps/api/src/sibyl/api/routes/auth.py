@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from ipaddress import ip_address, ip_network
 from typing import Protocol
 from urllib.parse import quote, urlencode, urlparse
 from uuid import UUID
@@ -76,6 +77,27 @@ LOCAL_AUTH_DISABLED_DETAIL = {
     "code": "local_auth_disabled",
     "message": "Local username/password auth is disabled for this instance.",
 }
+BREAK_GLASS_EXPIRED_DETAIL = {
+    "code": "break_glass_expired",
+    "message": "Break-glass access has expired for this instance.",
+}
+BREAK_GLASS_EXPIRY_REQUIRED_DETAIL = {
+    "code": "break_glass_expiry_required",
+    "message": "Break-glass access requires an expiry timestamp.",
+}
+BREAK_GLASS_EXPIRY_TOO_LONG_DETAIL = {
+    "code": "break_glass_expiry_too_long",
+    "message": "Break-glass access expiry must be within four hours.",
+}
+BREAK_GLASS_IP_REQUIRED_DETAIL = {
+    "code": "break_glass_ip_required",
+    "message": "Break-glass access requires at least one allowed source CIDR.",
+}
+BREAK_GLASS_IP_DENIED_DETAIL = {
+    "code": "break_glass_ip_denied",
+    "message": "Break-glass access is not allowed from this source address.",
+}
+BREAK_GLASS_MAX_WINDOW = timedelta(hours=4)
 
 
 class ApiKeyCreateRequest(BaseModel):
@@ -360,13 +382,71 @@ async def _require_signup_allowed(
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SIGNUP_DISABLED_DETAIL)
 
 
-async def _require_local_auth_allowed() -> None:
-    if config_module.settings.local_auth_enabled or await is_setup_mode():
+async def _require_local_auth_allowed(request: Request) -> None:
+    if await is_setup_mode():
+        return
+    if config_module.settings.break_glass_enabled:
+        _require_break_glass_allowed(request)
+        return
+    if config_module.settings.local_auth_enabled:
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=LOCAL_AUTH_DISABLED_DETAIL,
     )
+
+
+def _require_break_glass_allowed(request: Request) -> None:
+    now = datetime.now(UTC)
+    expires_at = config_module.settings.break_glass_expires_at
+    if expires_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BREAK_GLASS_EXPIRY_REQUIRED_DETAIL,
+        )
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    else:
+        expires_at = expires_at.astimezone(UTC)
+    if now >= expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BREAK_GLASS_EXPIRED_DETAIL,
+        )
+    if expires_at > now + BREAK_GLASS_MAX_WINDOW:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BREAK_GLASS_EXPIRY_TOO_LONG_DETAIL,
+        )
+
+    allowed_ips = config_module.settings.break_glass_allowed_ips
+    if not allowed_ips:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BREAK_GLASS_IP_REQUIRED_DETAIL,
+        )
+    if not _client_ip_allowed(request, allowed_ips):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BREAK_GLASS_IP_DENIED_DETAIL,
+        )
+
+
+def _client_ip_allowed(request: Request, cidrs: list[str]) -> bool:
+    if request.client is None:
+        return False
+    try:
+        client_ip = ip_address(request.client.host)
+    except ValueError:
+        return False
+    for cidr in cidrs:
+        try:
+            network = ip_network(cidr, strict=False)
+        except ValueError:
+            return False
+        if client_ip in network:
+            return True
+    return False
 
 
 def _organization_payload(organization: IssuedOrganization) -> dict[str, str]:
@@ -666,7 +746,7 @@ async def github_callback(request: Request) -> Response:
 @router.post("/local/signup", response_model=None)
 async def local_signup(request: Request):
     _ = _require_jwt_secret()
-    await _require_local_auth_allowed()
+    await _require_local_auth_allowed(request)
     data = await _read_auth_payload(request)
     body = LocalSignupRequest.model_validate(data)
     invite_token = _auth_payload_invite_token(body.invite_token)
@@ -680,13 +760,16 @@ async def local_signup(request: Request):
             name=body.name,
             request=request,
         )
-        access_token, refresh_token, refresh_expires, organization = (
-            await _apply_invitation_to_issued_session(
-                issued=issued,
-                invite_token=invite_token,
-                request=request,
-                cleanup_new_user_on_failure=True,
-            )
+        (
+            access_token,
+            refresh_token,
+            refresh_expires,
+            organization,
+        ) = await _apply_invitation_to_issued_session(
+            issued=issued,
+            invite_token=invite_token,
+            request=request,
+            cleanup_new_user_on_failure=True,
         )
     except HTTPException as e:
         if has_redirect:
@@ -738,7 +821,7 @@ async def local_signup(request: Request):
 @limiter.limit("5/minute")  # Strict limit to prevent brute force
 async def local_login(request: Request):
     _ = _require_jwt_secret()
-    await _require_local_auth_allowed()
+    await _require_local_auth_allowed(request)
     data = await _read_auth_payload(request)
     body = LocalLoginRequest.model_validate(data)
     invite_token = _auth_payload_invite_token(body.invite_token)
@@ -771,12 +854,15 @@ async def local_login(request: Request):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     try:
-        access_token, refresh_token, refresh_expires, organization = (
-            await _apply_invitation_to_issued_session(
-                issued=issued,
-                invite_token=invite_token,
-                request=request,
-            )
+        (
+            access_token,
+            refresh_token,
+            refresh_expires,
+            organization,
+        ) = await _apply_invitation_to_issued_session(
+            issued=issued,
+            invite_token=invite_token,
+            request=request,
         )
     except HTTPException as e:
         if has_redirect:
@@ -1242,7 +1328,7 @@ async def device_verify_post(request: Request) -> Response:
     verify_url = f"/api/auth/device/verify?user_code={user_code}"
 
     if action == "login":
-        await _require_local_auth_allowed()
+        await _require_local_auth_allowed(request)
         email = str(form.get("email") or "").strip()
         password = str(form.get("password") or "").strip()
         login = await login_device_browser_user(

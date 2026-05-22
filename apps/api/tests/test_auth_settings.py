@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from sibyl.config import Settings
@@ -139,11 +141,28 @@ def test_settings_oidc_defaults_to_enterprise_contract() -> None:
 
     assert s.local_auth_enabled is False
     assert s.break_glass_enabled is False
+    assert s.break_glass_allowed_ips == []
+    assert s.break_glass_expires_at is None
     assert s.oidc.providers == []
     assert s.oidc.role_claim == "roles"
     assert s.oidc.session_minutes == 60
     assert s.oidc.silent_refresh_enabled is True
     assert s.oidc.extra_providers_enabled is False
+
+
+def test_settings_break_glass_parses_cidrs_and_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIBYL_BREAK_GLASS_ALLOWED_IPS", '["203.0.113.0/24","2001:db8::/32"]')
+    monkeypatch.setenv("SIBYL_BREAK_GLASS_EXPIRES_AT", "2026-05-22T19:00:00Z")
+
+    s = Settings(_env_file=None)
+
+    assert s.break_glass_allowed_ips == ["203.0.113.0/24", "2001:db8::/32"]
+    assert s.break_glass_expires_at == datetime(2026, 5, 22, 19, tzinfo=UTC)
+
+
+def test_settings_break_glass_rejects_invalid_cidr() -> None:
+    with pytest.raises(ValueError, match="not-a-cidr"):
+        Settings(_env_file=None, break_glass_allowed_ips=["not-a-cidr"])
 
 
 def test_settings_oidc_accepts_corporate_provider_config() -> None:
