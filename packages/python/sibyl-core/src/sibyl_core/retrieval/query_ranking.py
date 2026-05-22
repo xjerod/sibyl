@@ -37,6 +37,7 @@ _KEYWORD_STOPWORDS = {
     "doing",
     "earlier",
     "earliest",
+    "few",
     "during",
     "day",
     "days",
@@ -44,6 +45,7 @@ _KEYWORD_STOPWORDS = {
     "for",
     "four",
     "going",
+    "getting",
     "have",
     "having",
     "happened",
@@ -65,6 +67,7 @@ _KEYWORD_STOPWORDS = {
     "month",
     "months",
     "need",
+    "new",
     "one",
     "or",
     "order",
@@ -91,6 +94,7 @@ _KEYWORD_STOPWORDS = {
     "those",
     "this",
     "tonight",
+    "take",
     "type",
     "types",
     "two",
@@ -116,6 +120,13 @@ _KEYWORD_STOPWORDS = {
     "you",
     "your",
 }
+_NORMALIZED_TOKEN_ALIASES = {
+    "engaged": "engagement",
+    "engagements": "engagement",
+    "subscribed": "subscription",
+    "subscribing": "subscription",
+    "weddings": "wedding",
+}
 _RANK_WEIGHT = 0.95
 _PRIOR_WEIGHT = 0.04
 _OVERLAP_WEIGHT = 0.30
@@ -137,13 +148,14 @@ _MEMORY_SPAN_OVERLAP_WEIGHT = 0.16
 _MEMORY_SPAN_SEGMENT_WEIGHT = 0.14
 _MEMORY_CONCEPT_WEIGHT = 0.06
 _MEMORY_EVIDENCE_WEIGHT = 0.08
+_ASSISTANT_ONLY_MEMORY_PENALTY = 1.20
 _EVIDENCE_SET_WINDOW = 5
 _EVIDENCE_SET_MIN_OVERLAP = 0.25
 _EVIDENCE_SET_INSERT_MARGIN = 0.14
 _PREFERENCE_MIN_OVERLAP = 0.25
 _PREFERENCE_INSERT_MARGIN = 0.03
 _TEMPORAL_EVIDENCE_MIN_SIGNAL = 0.22
-_TEMPORAL_EVIDENCE_INSERT_MARGIN = 0.10
+_TEMPORAL_EVIDENCE_INSERT_MARGIN = 0.06
 _ARTIFACT_EVIDENCE_MIN_SIGNAL = 0.65
 _ARTIFACT_EVIDENCE_INSERT_MARGIN = 0.36
 _TEMPORAL_TARGET_WEIGHT = 0.34
@@ -152,6 +164,57 @@ _QUERY_COVERAGE_REFINEMENT_WINDOW = 5
 _QUERY_COVERAGE_REFINEMENT_GUARD_WINDOW = 10
 _QUERY_COVERAGE_REFINEMENT_MIN_TOP_GAIN = 0.05
 _QUERY_COVERAGE_REFINEMENT_MAX_GUARD_LOSS = 0.05
+_CLUSTER_AFFINITY_WEIGHT = 0.45
+_CLUSTER_AFFINITY_MIN = 0.05
+_CLUSTER_AFFINITY_MAX_ORIGINAL_RANK = 40
+_CLUSTER_ANCHOR_MIN_SIGNAL = 0.5
+_CLUSTER_SIGNAL_WEIGHT = 2.1
+_SIGNAL_DOMINANCE_INSERT_MARGIN = 0.20
+_CLUSTER_AFFINITY_STOPWORDS = {
+    "actually",
+    "all",
+    "around",
+    "back",
+    "bit",
+    "but",
+    "could",
+    "definitely",
+    "give",
+    "great",
+    "had",
+    "help",
+    "just",
+    "know",
+    "make",
+    "maybe",
+    "not",
+    "now",
+    "out",
+    "really",
+    "same",
+    "seem",
+    "since",
+    "still",
+    "sure",
+    "tell",
+    "thank",
+    "thanks",
+    "their",
+    "them",
+    "there",
+    "these",
+    "thing",
+    "things",
+    "though",
+    "thought",
+    "time",
+    "today",
+    "try",
+    "trying",
+    "want",
+    "way",
+    "well",
+}
 
 _EVIDENCE_SET_QUERY_PATTERN = re.compile(
     r"\b(how many|how much|total number|number of|count of|order of|sequence of)\b",
@@ -427,6 +490,7 @@ _CATEGORY_ALIASES: tuple[tuple[frozenset[str], frozenset[str]], ...] = (
 )
 _MEMORY_EVIDENCE_PATTERNS = (
     re.compile(r"\bby the way\b"),
+    re.compile(r"\bi(?:'m| am) \d{1,3}\b"),
     re.compile(r"\bi (?:just|recently|finally|already|still|used to)\b"),
     re.compile(
         r"\bi(?:'ve| have)? (?:bought|got|ordered|purchased|acquired|"
@@ -435,7 +499,33 @@ _MEMORY_EVIDENCE_PATTERNS = (
         r"worked|led|watched|read|booked|adopted|moved|graduated|"
         r"submitted|became|had|went)\b"
     ),
+    re.compile(
+        r"\bi(?:'m| am) (?:also |currently |already |still |now )?"
+        r"(?:getting|using|taking|seeing|watching|reading|listening|"
+        r"planning|going|wearing|carrying)\b"
+    ),
+    re.compile(
+        r"\bi(?:'ve| have) been (?:also |currently |really |still )?"
+        r"(?:using|reading|listening|watching|attending|working|baking|"
+        r"seeing|visiting|playing|taking|going|getting|loving|keeping|"
+        r"collecting)\b"
+    ),
     re.compile(r"\bmy (?:current|new|old|previous|favorite|preferred|usual|go-to)\b"),
+)
+_ACQUISITION_CONCEPT_GROUP = frozenset(
+    {
+        "acquire",
+        "acquired",
+        "bought",
+        "buy",
+        "got",
+        "invest",
+        "invested",
+        "order",
+        "ordered",
+        "purchase",
+        "purchased",
+    }
 )
 _CONCEPT_GROUPS = (
     frozenset(
@@ -489,21 +579,7 @@ _CONCEPT_GROUPS = (
             "tomatoes",
         }
     ),
-    frozenset(
-        {
-            "acquire",
-            "acquired",
-            "bought",
-            "buy",
-            "got",
-            "invest",
-            "invested",
-            "order",
-            "ordered",
-            "purchase",
-            "purchased",
-        }
-    ),
+    _ACQUISITION_CONCEPT_GROUP,
     frozenset(
         {
             "business",
@@ -609,6 +685,7 @@ _CONCEPT_GROUPS = (
         }
     ),
 )
+_GENERIC_ACTION_CONCEPT_GROUPS = frozenset({_ACQUISITION_CONCEPT_GROUP})
 
 
 @dataclass(frozen=True)
@@ -680,6 +757,8 @@ def extract_keywords(query: str) -> list[str]:
 
 def normalize_keyword_token(token: str) -> str:
     token = token.strip("'\"")
+    if token in _NORMALIZED_TOKEN_ALIASES:
+        return _NORMALIZED_TOKEN_ALIASES[token]
     if token == "buisiness":
         return "business"
     if len(token) > 4 and token.endswith("ies"):
@@ -922,6 +1001,7 @@ def rank_by_query_coverage[T](
 ) -> QueryCoverageResult[T]:
     keywords = extract_keywords(query)
     is_preference_query = _is_preference_query(query, set(keywords))
+    is_personal_memory_query = _is_personal_memory_query(query)
     if is_preference_query:
         focused_keywords = [
             keyword
@@ -989,6 +1069,24 @@ def rank_by_query_coverage[T](
         [token_set for _candidate, _tokens, token_set, *_rest in token_rows],
         query_terms,
     )
+    affinity_tokens_by_id = {
+        candidate.stable_id: _cluster_affinity_tokens(
+            primary_token_set if has_primary_text else token_set
+        )
+        for (
+            candidate,
+            _tokens,
+            token_set,
+            _primary_tokens,
+            primary_token_set,
+            _memory_tokens,
+            _memory_token_set,
+            _primary_text,
+            _memory_text,
+            has_primary_text,
+            _has_memory_text,
+        ) in token_rows
+    }
     rank_span = max(1, len(candidates) - 1)
     max_prior_score = max((candidate.prior_score for candidate in candidates), default=0.0) or 1.0
     scored: list[tuple[QueryCoverageRankedCandidate[T], int]] = []
@@ -1116,6 +1214,22 @@ def rank_by_query_coverage[T](
             )
             + (_TEMPORAL_TARGET_WEIGHT * temporal_alignment * coverage_signal)
         )
+        if (
+            is_personal_memory_query
+            and not is_preference_query
+            and has_primary_text
+            and not has_memory_text
+            and max(primary_overlap, primary_segment_overlap, primary_concept_overlap) <= 0.05
+            and max(overlap, idf_overlap, segment_overlap, idf_segment_overlap, concept_overlap)
+            >= 0.5
+        ):
+            score -= _ASSISTANT_ONLY_MEMORY_PENALTY * max(
+                overlap,
+                idf_overlap,
+                segment_overlap,
+                idf_segment_overlap,
+                concept_overlap,
+            )
         if is_preference_query:
             score += _PREFERENCE_EVIDENCE_WEIGHT * _preference_evidence_score(primary_text)
             score -= (
@@ -1152,6 +1266,9 @@ def rank_by_query_coverage[T](
             applied=False,
             changed=False,
         )
+
+    if _is_evidence_cluster_query(query):
+        scored = _apply_evidence_cluster_affinity(scored, affinity_tokens_by_id)
 
     if is_preference_query:
         ranked = _stabilize_preference_ranking(scored)
@@ -1275,6 +1392,12 @@ def _is_assistant_evidence_query(query: str) -> bool:
     return bool(_ASSISTANT_EVIDENCE_QUERY_PATTERN.search(query))
 
 
+def _is_personal_memory_query(query: str) -> bool:
+    return bool(_PRIMARY_PERSONAL_PATTERN.search(query)) and not _is_assistant_evidence_query(
+        query
+    )
+
+
 def _is_generated_artifact_query(query: str, query_terms: set[str]) -> bool:
     return bool(_GENERATED_ARTIFACT_QUERY_PATTERN.search(query)) and bool(
         query_terms & (_ARTIFACT_TYPE_TERMS | _ARTIFACT_SECTION_TERMS)
@@ -1285,20 +1408,109 @@ def _is_temporal_instruction_query(query: str) -> bool:
     return bool(_TEMPORAL_INSTRUCTION_QUERY_PATTERN.search(query))
 
 
+def _is_evidence_cluster_query(query: str) -> bool:
+    lowered = query.lower()
+    return bool(_EVIDENCE_SET_QUERY_PATTERN.search(lowered)) or _is_temporal_instruction_query(
+        query
+    ) or bool(
+        _AGE_ARITHMETIC_QUERY_PATTERN.search(query)
+    )
+
+
 def _concept_overlap_score(query_terms: set[str], token_set: set[str]) -> float:
     if not query_terms or not token_set:
         return 0.0
 
+    has_specific_query_concept = any(
+        query_terms & group
+        for group in _CONCEPT_GROUPS
+        if group not in _GENERIC_ACTION_CONCEPT_GROUPS
+    )
     matched = 0
     relevant = 0
     for group in _CONCEPT_GROUPS:
         if query_terms & group:
+            if group in _GENERIC_ACTION_CONCEPT_GROUPS and has_specific_query_concept:
+                continue
             relevant += 1
             if token_set & group:
                 matched += 1
     if relevant == 0:
         return 0.0
     return matched / relevant
+
+
+def _cluster_affinity_tokens(tokens: set[str]) -> set[str]:
+    return {
+        token
+        for token in tokens
+        if len(token) > 2
+        and token not in _KEYWORD_STOPWORDS
+        and token not in _PREFERENCE_QUERY_SCAFFOLDING_TERMS
+        and token not in _CLUSTER_AFFINITY_STOPWORDS
+        and token not in {"assistant", "user"}
+    }
+
+
+def _apply_evidence_cluster_affinity[T](
+    scores: list[tuple[QueryCoverageRankedCandidate[T], int]],
+    affinity_tokens_by_id: dict[str, set[str]],
+) -> list[tuple[QueryCoverageRankedCandidate[T], int]]:
+    anchors = [
+        (ranked, affinity_tokens_by_id.get(ranked.stable_id, set()))
+        for ranked, _index in scores[:_EVIDENCE_SET_WINDOW]
+        if ranked.overlap >= _CLUSTER_ANCHOR_MIN_SIGNAL
+    ]
+    anchors = [(ranked, tokens) for ranked, tokens in anchors if tokens]
+    if not anchors:
+        return scores
+
+    adjusted: list[tuple[QueryCoverageRankedCandidate[T], int]] = []
+    for ranked, index in scores:
+        tokens = affinity_tokens_by_id.get(ranked.stable_id, set())
+        if (
+            ranked.original_rank <= _EVIDENCE_SET_WINDOW
+            or ranked.original_rank > _CLUSTER_AFFINITY_MAX_ORIGINAL_RANK
+            or not tokens
+        ):
+            adjusted.append((ranked, index))
+            continue
+
+        affinity = max(
+            (
+                _token_jaccard(tokens, anchor_tokens)
+                * (0.65 + (0.35 * max(anchor.overlap, 0.0)))
+                for anchor, anchor_tokens in anchors
+            ),
+            default=0.0,
+        )
+        if affinity < _CLUSTER_AFFINITY_MIN:
+            adjusted.append((ranked, index))
+            continue
+
+        adjusted.append(
+            (
+                QueryCoverageRankedCandidate(
+                    item=ranked.item,
+                    stable_id=ranked.stable_id,
+                    score=ranked.score + (_CLUSTER_AFFINITY_WEIGHT * affinity),
+                    original_rank=ranked.original_rank,
+                    overlap=max(
+                        ranked.overlap,
+                        min(1.0, affinity * _CLUSTER_SIGNAL_WEIGHT),
+                    ),
+                ),
+                index,
+            )
+        )
+
+    return adjusted
+
+
+def _token_jaccard(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
 
 
 def _temporal_alignment_score(value: Any, target: datetime | None) -> float:
@@ -1435,7 +1647,11 @@ def _stabilize_top_window_ranking[T](
                 key=lambda item: (item[1][0].overlap, item[1][0].score, -item[1][1]),
             )
             worst_ranked, _worst_original_index = worst
-            if ranked.score + insert_margin >= worst_ranked.score:
+            if (
+                ranked.overlap >= min_overlap
+                and ranked.overlap
+                >= worst_ranked.overlap + _SIGNAL_DOMINANCE_INSERT_MARGIN
+            ) or ranked.score + insert_margin >= worst_ranked.score:
                 selected[worst_index] = candidate
                 selected_ids.remove(worst_ranked.stable_id)
                 selected_ids.add(ranked.stable_id)

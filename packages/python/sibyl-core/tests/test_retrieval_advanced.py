@@ -350,6 +350,92 @@ def test_query_coverage_promotes_personal_sports_event_with_temporal_target() ->
     assert "soccer" in [candidate.stable_id for candidate in result.ranked[:5]]
 
 
+def test_query_coverage_promotes_related_temporal_cluster_support() -> None:
+    target = datetime(2023, 2, 1, tzinfo=UTC)
+    result = rank_by_query_coverage(
+        "What did I do with Rachel on the Wednesday two months ago?",
+        [
+            QueryCoverageCandidate(
+                item="ukulele-anchor",
+                stable_id="ukulele-anchor",
+                text=(
+                    "User: I started taking ukulele lessons with my friend Rachel "
+                    "today and practiced chord changes on my Yamaha keyboard."
+                ),
+                prior_score=1.0,
+                original_rank=1,
+                timestamp="2023/02/01 14:00",
+            ),
+            QueryCoverageCandidate(
+                item="rachel-distractor",
+                stable_id="rachel-distractor",
+                text="User: Rachel sent me a recipe for dinner.",
+                prior_score=0.99,
+                original_rank=2,
+                timestamp="2023/02/01 15:00",
+            ),
+            QueryCoverageCandidate(
+                item="generic-a",
+                stable_id="generic-a",
+                text="User: I researched League Cup formats.",
+                prior_score=0.98,
+                original_rank=3,
+                timestamp="2023/02/01 16:00",
+            ),
+            QueryCoverageCandidate(
+                item="generic-b",
+                stable_id="generic-b",
+                text="User: I planned a weekend museum visit.",
+                prior_score=0.97,
+                original_rank=4,
+                timestamp="2023/02/01 17:00",
+            ),
+            QueryCoverageCandidate(
+                item="generic-c",
+                stable_id="generic-c",
+                text="User: I checked train schedules.",
+                prior_score=0.96,
+                original_rank=5,
+                timestamp="2023/02/01 18:00",
+            ),
+            QueryCoverageCandidate(
+                item="ukulele-support",
+                stable_id="ukulele-support",
+                text=(
+                    "User: My Yamaha keyboard practice helped my ukulele chord "
+                    "changes, and I asked for fingerpicking drills."
+                ),
+                prior_score=0.75,
+                original_rank=6,
+                timestamp="2023/02/01 19:00",
+            ),
+        ],
+        temporal_target=target,
+    )
+
+    assert "ukulele-support" in [candidate.stable_id for candidate in result.ranked[:5]]
+
+
+def test_query_coverage_penalizes_assistant_only_memory_matches() -> None:
+    ranked = _rank_query_ids(
+        "How many years older is my grandma than me?",
+        [
+            (
+                "User: Can you explain how to calculate age differences in family "
+                "trees? Assistant: Compare your age with your grandma's age."
+            ),
+            "User: I made a birthday card.",
+            "User: I organized old photos.",
+            "User: I am 32 years old and tracking family milestones.",
+            "User: My grandma is 78 years old and still loves gardening.",
+            "User: Assistant, explain older relatives in genealogy charts.",
+        ],
+    )
+
+    assert {"3", "4"} <= set(ranked[:5])
+    assert ranked.index("4") < ranked.index("5")
+
+
 def test_query_coverage_treats_generic_events_as_weak_sports_evidence() -> None:
     result = rank_by_query_coverage(
         "What is the order of the three sports events I participated in?",
