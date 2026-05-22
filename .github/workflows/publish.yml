@@ -181,6 +181,48 @@ jobs:
           git push
 
   # =========================================================================
+  # AUR: generate and publish the Arch Linux package from PyPI artifacts
+  # =========================================================================
+  aur:
+    name: "► AUR: Update package"
+    needs: python
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: "◆ Checkout Sibyl"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: "◇ Setup Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: "△ Extract version from tag"
+        id: version
+        run: echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+        env:
+          TAG: ${{ inputs.tag }}
+
+      - name: "△ Generate PKGBUILD"
+        run: |
+          python tools/release/aur_pkgbuild.py \
+            --version "${{ steps.version.outputs.version }}" \
+            --output PKGBUILD
+
+      - name: "► Publish to AUR"
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.2
+        with:
+          pkgname: sibyl
+          pkgbuild: ./PKGBUILD
+          commit_username: Stefanie Jane
+          commit_email: stef@hyperbliss.tech
+          commit_message: "Update to ${{ steps.version.outputs.version }}"
+          ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
+
+  # =========================================================================
   # Docker: build each (image, platform) on its native runner, push by digest
   # =========================================================================
   docker-build:
@@ -304,7 +346,7 @@ jobs:
   # =========================================================================
   release:
     name: "◆ Release: Update"
-    needs: [python, homebrew, docker-merge]
+    needs: [python, homebrew, aur, docker-merge]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -343,6 +385,12 @@ jobs:
             sibyl up
             ```
 
+            **Arch Linux (AUR)**
+            ```bash
+            paru -S sibyl
+            sibyl up
+            ```
+
             **Headless server**
             ```bash
             curl -fsSL https://raw.githubusercontent.com/hyperb1iss/sibyl/main/install.sh | sh -s -- --version ${{ steps.version.outputs.version }} --no-open
@@ -356,6 +404,9 @@ jobs:
           echo "- [sibyl-core](https://pypi.org/project/sibyl-core/${{ steps.version.outputs.version }}/)" >> $GITHUB_STEP_SUMMARY
           echo "- [sibyl-dev](https://pypi.org/project/sibyl-dev/${{ steps.version.outputs.version }}/)" >> $GITHUB_STEP_SUMMARY
           echo "- [sibyld](https://pypi.org/project/sibyld/${{ steps.version.outputs.version }}/)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Linux Packages" >> $GITHUB_STEP_SUMMARY
+          echo "- [sibyl](https://aur.archlinux.org/packages/sibyl)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Docker Images (multi-arch: linux/amd64, linux/arm64)" >> $GITHUB_STEP_SUMMARY
           echo "- \`ghcr.io/hyperb1iss/sibyl-api:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

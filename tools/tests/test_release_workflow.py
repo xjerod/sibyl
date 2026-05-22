@@ -6,6 +6,7 @@ import subprocess
 from shutil import which
 from typing import Any, cast
 
+from tools.release.aur_pkgbuild import render_pkgbuild as render_aur_pkgbuild
 from tools.release.homebrew_formula import PackageArtifact, pep440_version, render_formula
 from tools.tests.conftest import REPO_ROOT
 
@@ -97,21 +98,29 @@ def test_publish_workflow_gates_direct_dispatches_before_artifacts() -> None:
 
     assert "rc-gate:" in workflow
     assert "homebrew:" in workflow
+    assert "aur:" in workflow
     assert "moon run :check" in workflow
     assert "moon run python-package-build" in workflow
     assert "tools/release/homebrew_formula.py" in workflow
+    assert "tools/release/aur_pkgbuild.py" in workflow
     assert "hyperb1iss/homebrew-tap" in workflow
     assert "HOMEBREW_TAP_TOKEN" in workflow
+    assert "KSXGitHub/github-actions-deploy-aur@v4.1.2" in workflow
+    assert "AUR_SSH_KEY" in workflow
     assert workflow.index("moon run :check") < workflow.index("moon run python-package-build")
     assert workflow.index("moon run :check") < workflow.index("docker/build-push-action")
     assert workflow.index("gh-action-pypi-publish") < workflow.index("homebrew_formula.py")
+    assert workflow.index("gh-action-pypi-publish") < workflow.index("aur_pkgbuild.py")
     assert workflow.count("needs: rc-gate") == PUBLISH_ARTIFACT_JOB_COUNT
     assert "install.sh | sh -s -- --version ${{ steps.version.outputs.version }}" in workflow
     assert (
         "install.sh | sh -s -- --remote --version ${{ steps.version.outputs.version }}" in workflow
     )
+    assert "paru -S sibyl" in workflow
+    assert "needs: [python, homebrew, aur, docker-merge]" in workflow
     assert "uv tool install sibyld" not in workflow
     assert "[sibyld](https://pypi.org/project/sibyld/" in workflow
+    assert "[sibyl](https://aur.archlinux.org/packages/sibyl)" in workflow
 
 
 def test_install_script_defaults_to_server_ui_story() -> None:
@@ -129,10 +138,7 @@ def test_install_script_defaults_to_server_ui_story() -> None:
 
 def test_python_package_build_verifies_cli_bundle_data() -> None:
     task = _root_task("python-package-build")
-    input_paths = {
-        cast(str, entry.get("file") or entry.get("glob"))
-        for entry in task["inputs"]
-    }
+    input_paths = {cast(str, entry.get("file") or entry.get("glob")) for entry in task["inputs"]}
     script = task["script"]
 
     assert "set -euo pipefail" in script
@@ -182,3 +188,42 @@ def test_homebrew_formula_renders_cli_and_daemon_formula() -> None:
     assert 'resource "sibyld"' in formula
     assert 'bin.install_symlink libexec/"bin/sibyl"' in formula
     assert 'bin.install_symlink libexec/"bin/sibyld"' in formula
+
+
+def test_aur_pkgbuild_renders_cli_package() -> None:
+    artifacts = {
+        "sibyl-dev": PackageArtifact(
+            name="sibyl-dev",
+            url="https://files.pythonhosted.org/packages/sibyl_dev-1.0.0rc1.tar.gz",
+            sha256="a" * 64,
+        ),
+        "sibyl-core": PackageArtifact(
+            name="sibyl-core",
+            url="https://files.pythonhosted.org/packages/sibyl_core-1.0.0rc1.tar.gz",
+            sha256="b" * 64,
+        ),
+    }
+
+    pkgbuild = render_aur_pkgbuild(
+        python_version=pep440_version("1.0.0-rc.1"),
+        artifacts=artifacts,
+    )
+
+    assert "pkgname=sibyl" in pkgbuild
+    assert "pkgver=1.0.0rc1" in pkgbuild
+    assert "provides=('sibyl-cli')" in pkgbuild
+    assert "depends=(" in pkgbuild
+    assert "'python-typer'" in pkgbuild
+    assert "'python-pydantic-settings'" in pkgbuild
+    assert "'docker: start the local Docker-backed Sibyl server with sibyl up'" in pkgbuild
+    assert (
+        '"sibyl-dev-${pkgver}.tar.gz::https://files.pythonhosted.org/packages/sibyl_dev-1.0.0rc1.tar.gz"'
+        in pkgbuild
+    )
+    assert (
+        '"sibyl-core-${pkgver}.tar.gz::https://files.pythonhosted.org/packages/sibyl_core-1.0.0rc1.tar.gz"'
+        in pkgbuild
+    )
+    assert "'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'" in pkgbuild
+    assert 'python -m build --wheel --no-isolation "sibyl_core-${pkgver}"' in pkgbuild
+    assert 'python -m installer --destdir="${pkgdir}" "sibyl_dev-${pkgver}"/dist/*.whl' in pkgbuild
