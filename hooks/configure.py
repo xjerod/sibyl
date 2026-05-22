@@ -38,18 +38,6 @@ SIBYL_HOOKS = {
             ],
         },
     ],
-    "UserPromptSubmit": [
-        {
-            "matcher": ".*",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": f"python3 {HOOKS_DIR}/user-prompt-submit.py",
-                    "timeout": 5,
-                }
-            ],
-        }
-    ],
 }
 
 

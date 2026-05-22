@@ -340,13 +340,17 @@ moon run hooks:install     # Optional Claude Code context hooks for repo dev
 ```
 
 The installed `/sibyl` skill is intentionally tiny. It points agents back to the installed CLI,
-which serves the full markdown skill packs for the exact Sibyl version on the machine. Hooks inject
-context automatically:
+which serves the full markdown skill packs for the exact Sibyl version on the machine. A single
+hook nudges the agent at session boundaries; everything else is the agent's job:
 
-| Hook                 | Trigger        | Action                                                                |
-| -------------------- | -------------- | --------------------------------------------------------------------- |
-| **SessionStart**     | Session begins | Prints a compact session bundle with active tasks and relevant memory |
-| **UserPromptSubmit** | Every prompt   | Searches the graph and injects relevant patterns as context           |
+| Hook             | Trigger        | Action                                                                |
+| ---------------- | -------------- | --------------------------------------------------------------------- |
+| **SessionStart** | Session begins | Prints a compact session bundle with active tasks and relevant memory |
+
+The agent is responsible for invoking the `sibyl` skill and calling `sibyl recall` /
+`sibyl context pack` for working memory. We previously shipped a per-prompt context-injection
+hook (`UserPromptSubmit`) but removed it: it substituted for skill invocation instead of
+prompting it, and agents stopped reaching for the CLI.
 
 See [`skills/`](skills/) and [`hooks/`](hooks/) for implementation details.
 

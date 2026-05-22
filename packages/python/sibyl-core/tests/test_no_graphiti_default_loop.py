@@ -483,7 +483,6 @@ assert ("", "mcp") in combined_routes
 
 root = Path(os.environ["SIBYL_REPO_ROOT"])
 runpy.run_path(str(root / "apps/cli/src/sibyl_cli/data/hooks/session-start.py"))
-runpy.run_path(str(root / "apps/cli/src/sibyl_cli/data/hooks/user-prompt-submit.py"))
 
 assert blocked_import not in sys.modules
 """

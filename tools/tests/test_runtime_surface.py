@@ -535,8 +535,5 @@ def test_no_graphiti_smoke_covers_default_entrypoints() -> None:
     ):
         assert expected in imports
 
-    for expected in (
-        "apps/cli/src/sibyl_cli/data/hooks/session-start.py",
-        "apps/cli/src/sibyl_cli/data/hooks/user-prompt-submit.py",
-    ):
+    for expected in ("apps/cli/src/sibyl_cli/data/hooks/session-start.py",):
         assert expected in entrypoint_script

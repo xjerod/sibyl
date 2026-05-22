@@ -71,18 +71,6 @@ def get_sibyl_hooks_config() -> dict:
                 ],
             },
         ],
-        "UserPromptSubmit": [
-            {
-                "matcher": ".*",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f"python3 {hooks_dir}/user-prompt-submit.py",
-                        "timeout": 5,
-                    }
-                ],
-            }
-        ],
     }
 
 
@@ -228,7 +216,8 @@ def install_hooks_symlink(source_dir: Path) -> bool:
 
     CLAUDE_HOOKS_DIR.mkdir(parents=True, exist_ok=True)
 
-    hook_files = ["session-start.py", "user-prompt-submit.py"]
+    hook_files = ["session-start.py"]
+    _prune_legacy_hook_files()
     for hook_file in hook_files:
         source = hooks_source / hook_file
         target = CLAUDE_HOOKS_DIR / hook_file
@@ -256,7 +245,8 @@ def install_hooks_copy(data_dir: Path) -> bool:
 
     CLAUDE_HOOKS_DIR.mkdir(parents=True, exist_ok=True)
 
-    hook_files = ["session-start.py", "user-prompt-submit.py"]
+    hook_files = ["session-start.py"]
+    _prune_legacy_hook_files()
     for hook_file in hook_files:
         source = hooks_source / hook_file
         target = CLAUDE_HOOKS_DIR / hook_file
@@ -271,6 +261,17 @@ def install_hooks_copy(data_dir: Path) -> bool:
         target.chmod(0o755)
 
     return True
+
+
+def _prune_legacy_hook_files() -> None:
+    """Remove hook scripts that previous Sibyl versions installed but no longer ship."""
+    for legacy in ("user-prompt-submit.py",):
+        target = CLAUDE_HOOKS_DIR / legacy
+        if target.is_symlink() or target.exists():
+            try:
+                target.unlink()
+            except OSError:
+                pass
 
 
 def configure_claude_hooks() -> bool:
@@ -447,7 +448,7 @@ def get_installation_status() -> dict:
             )
 
     # Check hooks
-    hook_files = ["session-start.py", "user-prompt-submit.py"]
+    hook_files = ["session-start.py"]
     claude_hooks = all((CLAUDE_HOOKS_DIR / f).exists() for f in hook_files)
 
     # Check settings.json for hook configuration
@@ -456,7 +457,7 @@ def get_installation_status() -> dict:
             settings = json.loads(CLAUDE_SETTINGS_FILE.read_text())
             hooks = settings.get("hooks", {})
             # Check if Sibyl hooks are configured
-            for event in ["SessionStart", "UserPromptSubmit"]:
+            for event in ["SessionStart"]:
                 if event in hooks:
                     for h in hooks[event]:
                         if is_sibyl_hook(h):

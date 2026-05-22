@@ -17,10 +17,6 @@ def test_packaged_skill_and_hook_assets_match_repo_sources() -> None:
             REPO_ROOT / "hooks" / "session-start.py",
             REPO_ROOT / "apps" / "cli" / "src" / "sibyl_cli" / "data" / "hooks" / "session-start.py",
         ),
-        (
-            REPO_ROOT / "hooks" / "user-prompt-submit.py",
-            REPO_ROOT / "apps" / "cli" / "src" / "sibyl_cli" / "data" / "hooks" / "user-prompt-submit.py",
-        ),
     ]
 
     mismatches = [

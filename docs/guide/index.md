@@ -53,12 +53,14 @@ Skills and CLI workflows teach your tools and teammates how to work with Sibyl. 
 
 ### 2. Hooks (Automatic Context)
 
-Hooks are the magic that makes Sibyl invisible. They run automatically:
+One hook fires automatically at session boundaries:
 
-- **SessionStart**: Loads your active tasks when you begin a session
-- **UserPromptSubmit**: Searches for relevant knowledge on every prompt
+- **SessionStart**: Loads your active tasks and a compact session bundle when you begin a session
 
-Relevant patterns appear automatically in context instead of relying on memory or manual lookup.
+Per-prompt context injection lived here for a while as `UserPromptSubmit`, but it
+substituted for skill invocation rather than nudging it, so we removed it. The
+agent is expected to call the `sibyl` skill and `sibyl recall` / `sibyl context pack`
+when it needs working memory.
 
 ### 3. Web UI
 
