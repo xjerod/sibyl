@@ -214,9 +214,6 @@ def test_login_auto_passes_break_glass_reason_to_local_login(
     calls: list[dict[str, object]] = []
     writes: list[dict[str, object]] = []
 
-    def unavailable(**_kwargs: object) -> dict:
-        raise RuntimeError("unavailable")
-
     def local_login(**kwargs: object) -> dict:
         calls.append(kwargs)
         return {"access_token": "access-token", "refresh_token": "refresh-token"}
@@ -224,8 +221,16 @@ def test_login_auto_passes_break_glass_reason_to_local_login(
     def persist_tokens(**kwargs: object) -> None:
         writes.append(kwargs)
 
-    monkeypatch.setattr(auth, "_login_via_device_flow", unavailable)
-    monkeypatch.setattr(auth, "_login_via_oauth", unavailable)
+    monkeypatch.setattr(
+        auth,
+        "_login_via_device_flow",
+        lambda **_kwargs: pytest.fail("explicit local login must not start device flow"),
+    )
+    monkeypatch.setattr(
+        auth,
+        "_login_via_oauth",
+        lambda **_kwargs: pytest.fail("explicit local login must not start OAuth"),
+    )
     monkeypatch.setattr(auth, "_login_via_local_password", local_login)
     monkeypatch.setattr(auth, "_persist_tokens", persist_tokens)
 
@@ -247,3 +252,34 @@ def test_login_auto_passes_break_glass_reason_to_local_login(
         }
     ]
     assert writes[0]["access_token"] == "access-token"
+
+
+def test_login_auto_requires_complete_local_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        auth,
+        "_login_via_device_flow",
+        lambda **_kwargs: pytest.fail("partial local credentials must not start device flow"),
+    )
+    monkeypatch.setattr(
+        auth,
+        "_login_via_oauth",
+        lambda **_kwargs: pytest.fail("partial local credentials must not start OAuth"),
+    )
+    monkeypatch.setattr(
+        auth,
+        "_login_via_local_password",
+        lambda **_kwargs: pytest.fail("partial local credentials must not call local login"),
+    )
+
+    auth._login_auto(
+        api_url="http://testserver/api",
+        no_browser=False,
+        timeout_seconds=180,
+        email="stef@example.com",
+        password=None,
+    )
+
+    assert "Local login requires both --email and --password." in _plain(capsys.readouterr().out)

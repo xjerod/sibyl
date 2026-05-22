@@ -513,13 +513,45 @@ def _login_auto(
     """Single login entrypoint.
 
     Preference order:
-    1) Device authorization flow (best for remote/headless)
-    2) OAuth PKCE (FastMCP auth server)
-    3) Local password login (only if email/password provided)
+    1) Local password login when email/password are provided
+    2) Device authorization flow (best for remote/headless)
+    3) OAuth PKCE (FastMCP auth server)
     """
     import httpx
 
-    # 1) Device flow (preferred)
+    # 1) Local password login when explicitly requested with credentials.
+    if email or password:
+        if not email or not password:
+            error("Local login requires both --email and --password.")
+            return
+        try:
+            tok = _login_via_local_password(
+                api_url=api_url,
+                email=email,
+                password=password,
+                break_glass_reason=break_glass_reason,
+            )
+        except SibylClientError as e:
+            error(str(e))
+            return
+        except _OAuthLoginError as e:
+            error(str(e))
+            if e.payload is not None:
+                print_json(e.payload)
+            return
+
+        _persist_tokens(
+            api_url=api_url,
+            access_token=tok["access_token"],
+            refresh_token=tok.get("refresh_token"),
+            expires_in=tok.get("expires_in"),
+            credential_scope_name=credential_scope_name,
+        )
+        _warn_if_env_token_overrides_login()
+        success(f"Login complete (saved credentials for {api_url})")
+        return
+
+    # 2) Device flow (preferred for browser-based login)
     try:
         tok = _login_via_device_flow(
             api_url=api_url,
@@ -557,7 +589,7 @@ def _login_auto(
         # Best-effort fall-through to OAuth when device flow isn't available.
         info(f"Device login unavailable ({type(e).__name__}); trying OAuth login.")
 
-    # 2) OAuth PKCE
+    # 3) OAuth PKCE
     try:
         tok = _login_via_oauth(
             api_url=api_url,
@@ -597,38 +629,9 @@ def _login_auto(
             f"OAuth login unavailable ({type(e).__name__}); falling back to local login if credentials provided."
         )
 
-    # 3) Local password (optional)
-    if not email or not password:
-        error(
-            "No supported login methods detected for this server (need device/oauth, or provide --email/--password)."
-        )
-        return
-
-    try:
-        tok = _login_via_local_password(
-            api_url=api_url,
-            email=email,
-            password=password,
-            break_glass_reason=break_glass_reason,
-        )
-    except SibylClientError as e:
-        error(str(e))
-        return
-    except _OAuthLoginError as e:
-        error(str(e))
-        if e.payload is not None:
-            print_json(e.payload)
-        return
-
-    _persist_tokens(
-        api_url=api_url,
-        access_token=tok["access_token"],
-        refresh_token=tok.get("refresh_token"),
-        expires_in=tok.get("expires_in"),
-        credential_scope_name=credential_scope_name,
+    error(
+        "No supported login methods detected for this server (need device/oauth, or provide --email/--password)."
     )
-    _warn_if_env_token_overrides_login()
-    success(f"Login complete (saved credentials for {api_url})")
 
 
 def _warn_if_env_token_overrides_login() -> None:
