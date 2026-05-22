@@ -294,7 +294,7 @@ def http_exception_payload(exc: HTTPException, request_id: str) -> dict[str, obj
         details = raw_details if isinstance(raw_details, dict) else {}
         return safe_error_payload(
             error=raw_error,
-            message=raw_message,
+            message=_safe_message_for_status(raw_message, exc.status_code),
             request_id=request_id,
             remediation=str(raw_remediation) if raw_remediation else _remediation_for(raw_error),
             details=details,
@@ -304,7 +304,7 @@ def http_exception_payload(exc: HTTPException, request_id: str) -> dict[str, obj
     error = _error_code_for_status(exc.status_code)
     return safe_error_payload(
         error=error,
-        message=message,
+        message=_safe_message_for_status(message, exc.status_code),
         request_id=request_id,
         remediation=_remediation_for(error),
     )
@@ -350,6 +350,16 @@ def sanitize_error_text(message: str) -> str:
         if pattern.search(message):
             return VALIDATION_ERROR
     return message
+
+
+def _safe_message_for_status(message: str, status_code: int) -> str:
+    sanitized = sanitize_error_text(message)
+    if sanitized == VALIDATION_ERROR and status_code not in {
+        status.HTTP_400_BAD_REQUEST,
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    }:
+        return _message_for_status(status_code)
+    return sanitized
 
 
 def _safe_token(value: str) -> str:

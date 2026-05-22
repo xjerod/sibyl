@@ -22,6 +22,7 @@ from sibyl.api.errors import (
     epic_not_found,
     forbidden,
     generate_error_id,
+    http_exception_payload,
     internal_error,
     log_and_raise_internal,
     no_org_context,
@@ -114,6 +115,37 @@ class TestForbidden:
         """Uses custom message when provided."""
         result = forbidden("Admin access required")
         assert result.detail == "Admin access required"
+
+    def test_payload_uses_forbidden_message_when_detail_is_sanitized(self) -> None:
+        """Sensitive permission details should not look like validation failures."""
+        exc = HTTPException(
+            status_code=403,
+            detail="Project 00000000-0000-0000-0000-000000000000 is forbidden",
+        )
+
+        assert http_exception_payload(exc, "req_forbidden") == {
+            "error": "forbidden",
+            "message": FORBIDDEN_ERROR,
+            "request_id": "req_forbidden",
+            "remediation": "Check your organization and project permissions.",
+        }
+
+    def test_structured_payload_uses_forbidden_message_when_detail_is_sanitized(self) -> None:
+        """Structured auth errors keep their code while redacting unsafe messages."""
+        exc = HTTPException(
+            status_code=403,
+            detail={
+                "error": "project_access_denied",
+                "message": "No access to project 00000000-0000-0000-0000-000000000000",
+            },
+        )
+
+        assert http_exception_payload(exc, "req_project") == {
+            "error": "project_access_denied",
+            "message": FORBIDDEN_ERROR,
+            "request_id": "req_project",
+            "remediation": "Check your project permissions or switch context.",
+        }
 
 
 # =============================================================================
