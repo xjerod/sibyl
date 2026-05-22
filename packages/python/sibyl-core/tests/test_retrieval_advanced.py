@@ -547,15 +547,15 @@ def test_query_coverage_completes_evidence_sets_over_low_signal_distractors() ->
     assert {"3", "5", "6"} <= set(ranked[:5])
 
 
-def test_query_coverage_promotes_art_event_action_evidence() -> None:
+def test_query_coverage_promotes_event_action_evidence() -> None:
     ranked = _rank_query_ids(
-        "How many different art-related events did I attend in the past month?",
+        "How many different events did I volunteer at, present at, or attend?",
         [
-            "User: Can you suggest family-friendly events for kids to attend?",
-            "User: I asked about stretching before museum visits.",
-            "User: I planned a dinner menu after a concert.",
-            "User: I compared local event calendars.",
-            "User: I watched a documentary about galleries.",
+            "User: Can you suggest family-friendly places for kids?",
+            "User: I asked about stretching before long walks.",
+            "User: I planned a dinner menu after a long commute.",
+            "User: I compared calendars for next month.",
+            "User: I watched a documentary about planning conferences.",
             "User: I volunteered at the museum opening and helped with the gallery tour.",
             "User: I presented a small print series at a community art exhibition.",
             "User: I attended a lecture by a textile artist at the downtown gallery.",
@@ -565,9 +565,9 @@ def test_query_coverage_promotes_art_event_action_evidence() -> None:
     assert "5" in ranked[:5]
 
 
-def test_query_coverage_promotes_food_delivery_action_evidence() -> None:
+def test_query_coverage_promotes_service_action_evidence() -> None:
     ranked = _rank_query_ids(
-        "How many different types of food delivery services have I used recently?",
+        "How many different services did I order, rely on, or subscribe to?",
         [
             "User: I cooked dinner with basil from the garden.",
             "User: I compared grocery budgets for the week.",
@@ -583,9 +583,9 @@ def test_query_coverage_promotes_food_delivery_action_evidence() -> None:
     assert "5" in ranked[:5]
 
 
-def test_query_coverage_promotes_food_delivery_reliance_evidence() -> None:
+def test_query_coverage_promotes_reliance_evidence() -> None:
     ranked = _rank_query_ids(
-        "Which food delivery service have I been using when meetings run late?",
+        "Which service have I been relying on when meetings run late?",
         [
             "User: I cooked dinner with basil from the garden.",
             "User: I compared grocery budgets for the week.",
@@ -599,9 +599,9 @@ def test_query_coverage_promotes_food_delivery_reliance_evidence() -> None:
     assert ranked[0] == "5"
 
 
-def test_query_coverage_promotes_furniture_action_evidence() -> None:
+def test_query_coverage_promotes_object_action_evidence() -> None:
     ranked = _rank_query_ids(
-        "How many pieces of furniture did I buy, assemble, sell, or fix?",
+        "How many things did I buy, assemble, sell, or fix?",
         [
             "User: I bought new screws for a kitchen drawer.",
             "User: I read a moving checklist for renters.",
@@ -617,9 +617,9 @@ def test_query_coverage_promotes_furniture_action_evidence() -> None:
     assert {"5", "6"} <= set(ranked[:5])
 
 
-def test_query_coverage_promotes_furniture_fix_evidence() -> None:
+def test_query_coverage_promotes_repair_action_evidence() -> None:
     ranked = _rank_query_ids(
-        "Which piece of furniture did I fix after dinner?",
+        "Which item did I fix after dinner?",
         [
             "User: I bought new screws for a kitchen drawer.",
             "User: I read a moving checklist for renters.",
@@ -635,16 +635,16 @@ def test_query_coverage_promotes_furniture_fix_evidence() -> None:
     assert "7" in ranked[:5]
 
 
-def test_query_coverage_promotes_recurring_yoga_frequency() -> None:
+def test_query_coverage_promotes_recurring_frequency() -> None:
     ranked = _rank_query_ids(
-        "How often do I attend yoga classes to help with my anxiety?",
+        "How often do I attend classes to help with my anxiety?",
         [
             "User: I asked about anxiety breathing exercises.",
             "User: I read about class scheduling software.",
             "User: I planned weekend errands around the gym.",
             "User: I compared meditation apps.",
             "User: I saved an article about sleep routines.",
-            "User: I attend yoga classes twice a week to help with anxiety.",
+            "User: I attend classes twice a week to help with anxiety.",
         ],
     )
 

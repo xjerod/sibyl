@@ -44,6 +44,7 @@ _KEYWORD_STOPWORDS = {
     "from",
     "for",
     "four",
+    "free",
     "going",
     "getting",
     "have",
@@ -68,6 +69,7 @@ _KEYWORD_STOPWORDS = {
     "months",
     "need",
     "new",
+    "name",
     "one",
     "or",
     "order",
@@ -95,6 +97,7 @@ _KEYWORD_STOPWORDS = {
     "this",
     "tonight",
     "take",
+    "time",
     "type",
     "types",
     "two",
@@ -121,14 +124,22 @@ _KEYWORD_STOPWORDS = {
     "your",
 }
 _NORMALIZED_TOKEN_ALIASES = {
+    "attended": "attend",
+    "attending": "attend",
     "assembled": "assemble",
     "assembling": "assemble",
+    "classes": "class",
     "engaged": "engagement",
     "engagements": "engagement",
+    "events": "event",
+    "fixed": "fix",
+    "fixing": "fix",
     "presented": "present",
     "presenting": "present",
     "relied": "rely",
     "relying": "rely",
+    "serviced": "service",
+    "servicing": "service",
     "sold": "sell",
     "selling": "sell",
     "subscribed": "subscription",
@@ -164,7 +175,7 @@ _EVIDENCE_SET_MIN_OVERLAP = 0.25
 _EVIDENCE_SET_INSERT_MARGIN = 0.14
 _EVIDENCE_SET_SIGNAL_DOMINANCE_SCORE_MARGIN = 0.25
 _PREFERENCE_MIN_OVERLAP = 0.25
-_PREFERENCE_INSERT_MARGIN = 0.03
+_PREFERENCE_INSERT_MARGIN = 0.10
 _TEMPORAL_EVIDENCE_MIN_SIGNAL = 0.22
 _TEMPORAL_EVIDENCE_INSERT_MARGIN = 0.06
 _ARTIFACT_EVIDENCE_MIN_SIGNAL = 0.65
@@ -274,6 +285,7 @@ _PREFERENCE_QUERY_SCAFFOLDING_TERMS = {
     "find",
     "getting",
     "good",
+    "got",
     "having",
     "idea",
     "interesting",
@@ -411,7 +423,7 @@ _RECURRING_APPOINTMENT_QUERY_PATTERN = re.compile(
 )
 _RECURRING_APPOINTMENT_EVIDENCE_PATTERN = re.compile(
     r"\b(?:every week|weekly|bi-weekly|biweekly|every two weeks|every \d+ weeks|"
-    r"twice a week|twice weekly|daily|monthly|yoga classes?|session with dr\.?|"
+    r"twice a week|twice weekly|daily|monthly|session with dr\.?|"
     r"see dr\.?|appointment)\b",
     re.IGNORECASE,
 )
@@ -541,6 +553,16 @@ _ACQUISITION_CONCEPT_GROUP = frozenset(
         "purchased",
     }
 )
+_ACTION_EVIDENCE_GROUPS = (
+    _ACQUISITION_CONCEPT_GROUP,
+    frozenset({"assemble", "build", "built", "install", "installed", "set"}),
+    frozenset({"donate", "donated", "sell", "sold"}),
+    frozenset({"fix", "repair", "repaired", "replace", "replaced", "service", "serviced"}),
+    frozenset({"attend", "join", "joined", "participate", "participated"}),
+    frozenset({"present", "volunteer"}),
+    frozenset({"register", "registered", "subscribe", "subscription"}),
+    frozenset({"rely", "use", "used", "using"}),
+)
 _CONCEPT_GROUPS = (
     frozenset(
         {
@@ -608,68 +630,6 @@ _CONCEPT_GROUPS = (
     ),
     frozenset(
         {
-            "art",
-            "art-related",
-            "artistic",
-            "auction",
-            "exhibit",
-            "exhibition",
-            "gallery",
-            "lecture",
-            "museum",
-            "present",
-            "tour",
-            "volunteer",
-        }
-    ),
-    frozenset(
-        {
-            "delivery",
-            "doordash",
-            "eat",
-            "food",
-            "grocery",
-            "meal",
-            "pizza",
-            "restaurant",
-            "service",
-            "takeout",
-            "ubereats",
-        }
-    ),
-    frozenset(
-        {
-            "class",
-            "conference",
-            "course",
-            "festival",
-            "lecture",
-            "seminar",
-            "studio",
-            "workshop",
-        }
-    ),
-    frozenset(
-        {
-            "assemble",
-            "bed",
-            "bookshelf",
-            "cabinet",
-            "chair",
-            "couch",
-            "desk",
-            "dresser",
-            "fix",
-            "fixed",
-            "furniture",
-            "mattress",
-            "sell",
-            "sofa",
-            "table",
-        }
-    ),
-    frozenset(
-        {
             "bike",
             "charity",
             "completed",
@@ -728,32 +688,12 @@ _CONCEPT_GROUPS = (
             "clinic",
             "dermatologist",
             "doctor",
-            "meditation",
             "physician",
             "prescription",
             "specialist",
             "therapist",
-            "yoga",
             "visit",
             "visited",
-        }
-    ),
-    frozenset(
-        {
-            "comedy",
-            "documentary",
-            "hulu",
-            "movie",
-            "netflix",
-            "peacock",
-            "prime",
-            "series",
-            "show",
-            "special",
-            "stand-up",
-            "streaming",
-            "subscription",
-            "watch",
         }
     ),
     frozenset(
@@ -1032,6 +972,10 @@ def _query_frame_score(
     ):
         score = max(score, 0.92)
 
+    action_score = _action_evidence_score(query, evidence_tokens)
+    if action_score > 0.0:
+        score = max(score, action_score)
+
     artifact_score = _assistant_artifact_score(
         query,
         query_terms,
@@ -1047,6 +991,20 @@ def _query_frame_score(
         score = max(score, 0.95)
 
     return min(score, 1.0)
+
+
+def _action_evidence_score(query: str, evidence_tokens: set[str]) -> float:
+    query_tokens = set(keyword_tokens_from_text(query))
+    query_action_groups = [
+        group for group in _ACTION_EVIDENCE_GROUPS if query_tokens & group
+    ]
+    if not query_action_groups:
+        return 0.0
+
+    matched = sum(1 for group in query_action_groups if evidence_tokens & group)
+    if matched == 0:
+        return 0.0
+    return min(1.0, 0.58 + (0.42 * (matched / len(query_action_groups))))
 
 
 def _category_alias_score(query_terms: set[str], evidence_tokens: set[str]) -> float:
@@ -1259,6 +1217,11 @@ def rank_by_query_coverage[T](
             primary_text=primary_text,
             memory_text=memory_text,
         )
+        preference_signal = (
+            _preference_evidence_score(primary_text)
+            if is_preference_query and has_primary_text
+            else 0.0
+        )
         rank_score = 1.0 - ((candidate.original_rank - 1) / rank_span)
         normalized_prior_score = (
             candidate.prior_score / max_prior_score if candidate.prior_score > 0 else 0.0
@@ -1278,6 +1241,7 @@ def rank_by_query_coverage[T](
             primary_concept_overlap,
             memory_relevance,
             query_frame_score,
+            preference_signal,
         )
         memory_multiplier = 0.0 if is_preference_query else 1.0
         score = (
@@ -1341,6 +1305,7 @@ def rank_by_query_coverage[T](
             or memory_overlap > 0.0
             or memory_concept_overlap > 0.0
             or query_frame_score > 0.0
+            or preference_signal > 0.0
             or (temporal_alignment > 0.0 and coverage_signal > 0.0)
         )
         scored.append(
@@ -1672,6 +1637,7 @@ def _stabilize_preference_ranking[T](
         scores,
         min_overlap=_PREFERENCE_MIN_OVERLAP,
         insert_margin=_PREFERENCE_INSERT_MARGIN,
+        protected_original_rank=1,
     )
 
 
@@ -1723,11 +1689,20 @@ def _stabilize_top_window_ranking[T](
     min_overlap: float,
     insert_margin: float,
     dominance_score_margin: float | None = None,
+    protected_original_rank: int | None = None,
 ) -> list[QueryCoverageRankedCandidate[T]]:
     window_size = min(_EVIDENCE_SET_WINDOW, len(scores))
     selected = list(scores[:window_size])
     selected_ids = {ranked.stable_id for ranked, _index in selected}
     ranked_by_coverage = sorted(scores, key=lambda item: (-item[0].score, item[1]))
+
+    def protected(item: tuple[QueryCoverageRankedCandidate[T], int]) -> bool:
+        ranked, _index = item
+        return bool(
+            protected_original_rank is not None
+            and ranked.original_rank <= protected_original_rank
+            and ranked.overlap >= min_overlap
+        )
 
     for candidate in ranked_by_coverage:
         ranked, _index = candidate
@@ -1737,7 +1712,7 @@ def _stabilize_top_window_ranking[T](
         low_signal = [
             item
             for item in enumerate(selected)
-            if item[1][0].overlap < min_overlap
+            if item[1][0].overlap < min_overlap and not protected(item[1])
         ]
         if low_signal:
             worst_index, worst = min(
@@ -1760,8 +1735,13 @@ def _stabilize_top_window_ranking[T](
                 selected_ids.add(ranked.stable_id)
                 continue
 
+        replaceable = [
+            item for item in enumerate(selected) if not protected(item[1])
+        ]
+        if not replaceable:
+            continue
         worst_index, worst = min(
-            enumerate(selected),
+            replaceable,
             key=lambda item: (item[1][0].score, -item[1][1]),
         )
         worst_ranked, _worst_original_index = worst
