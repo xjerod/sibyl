@@ -126,6 +126,31 @@ def test_template_force_regenerates_receipts(tmp_path: Path) -> None:
     assert "Required proof" in receipt.read_text(encoding="utf-8")
 
 
+def test_sync_manifest_hashes_updates_artifacts(tmp_path: Path) -> None:
+    manifest_path = evidence.write_template(tmp_path)
+    receipt = tmp_path / "entra_happy_path" / "receipt.md"
+    receipt.write_text("real receipt", encoding="utf-8")
+
+    sync_receipt = evidence.sync_manifest_hashes(manifest_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert sync_receipt["status"] == "SYNCED"
+    assert (
+        payload["items"]["entra_happy_path"]["artifacts"][0]["sha256"]
+        == hashlib.sha256(b"real receipt").hexdigest()
+    )
+
+
+def test_sync_manifest_hashes_rejects_missing_artifact(tmp_path: Path) -> None:
+    manifest_path = evidence.write_template(tmp_path)
+    (tmp_path / "restore_recall_sample" / "receipt.md").unlink()
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.sync_manifest_hashes(manifest_path)
+
+    assert "restore_recall_sample artifact not found" in str(exc_info.value)
+
+
 def test_validate_manifest_passes_with_hashes(tmp_path: Path) -> None:
     payload = _valid_manifest(tmp_path)
     manifest_path = _write_manifest(tmp_path, payload)
@@ -212,3 +237,19 @@ def test_main_refuses_template_overwrite(
 
     assert exit_code == 1
     assert "pass --force-template to overwrite" in captured.out
+
+
+def test_main_sync_hashes_updates_manifest(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    manifest_path = evidence.write_template(tmp_path)
+
+    exit_code = evidence.main(["--manifest", str(manifest_path), "--sync-hashes"])
+    captured = capsys.readouterr()
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert "synced artifact hashes: 12" in captured.out
+    assert payload["items"]["entra_happy_path"]["artifacts"][0]["sha256"] != (
+        "<fill-after-capture>"
+    )

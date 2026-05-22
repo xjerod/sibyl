@@ -238,6 +238,85 @@ def validate_manifest(
     }
 
 
+def sync_manifest_hashes(
+    manifest_path: Path = DEFAULT_MANIFEST,
+    *,
+    evidence_dir: Path | None = None,
+) -> JsonObject:
+    manifest_path = manifest_path.resolve()
+    evidence_dir = evidence_dir.resolve() if evidence_dir is not None else manifest_path.parent
+    payload = _load_manifest(manifest_path)
+
+    schema_version = payload.get("schema_version")
+    if schema_version != SCHEMA_VERSION:
+        msg = f"schema_version must be {SCHEMA_VERSION!r}, got {schema_version!r}"
+        raise EvidenceFailure(msg)
+
+    items = payload.get("items")
+    if not isinstance(items, dict):
+        msg = "manifest must include an items object"
+        raise EvidenceFailure(msg)
+
+    synced_items: list[JsonObject] = []
+    for requirement in REQUIRED_EVIDENCE:
+        raw_item = items.get(requirement.key)
+        if not isinstance(raw_item, dict):
+            msg = f"missing evidence item: {requirement.key}"
+            raise EvidenceFailure(msg)
+        item = cast(JsonObject, raw_item)
+
+        artifacts = item.get("artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            msg = f"{requirement.key} must list at least one artifact"
+            raise EvidenceFailure(msg)
+
+        synced_artifacts: list[JsonObject] = []
+        for raw_artifact in artifacts:
+            if not isinstance(raw_artifact, dict):
+                msg = f"{requirement.key} artifacts must be objects"
+                raise EvidenceFailure(msg)
+            artifact = cast(JsonObject, raw_artifact)
+            artifact_rel_path = artifact.get("path")
+            artifact_path = _safe_artifact_path(evidence_dir, artifact_rel_path)
+            if not artifact_path.is_file():
+                msg = f"{requirement.key} artifact not found: {artifact_rel_path}"
+                raise EvidenceFailure(msg)
+            if artifact_path.stat().st_size == 0:
+                msg = f"{requirement.key} artifact is empty: {artifact_rel_path}"
+                raise EvidenceFailure(msg)
+
+            actual_sha = _sha256(artifact_path)
+            artifact["sha256"] = actual_sha
+            synced_artifacts.append(
+                {
+                    "path": artifact_rel_path,
+                    "sha256": actual_sha,
+                    "bytes": artifact_path.stat().st_size,
+                }
+            )
+
+        synced_items.append(
+            {
+                "key": requirement.key,
+                "gate": requirement.gate,
+                "artifacts": synced_artifacts,
+            }
+        )
+
+    manifest_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "SYNCED",
+        "synced_at": datetime.now(UTC).isoformat(),
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir),
+        "items": synced_items,
+    }
+
+
 def build_template_payload() -> JsonObject:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -347,6 +426,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     parser.add_argument("--init-template", type=Path)
     parser.add_argument("--force-template", action="store_true")
+    parser.add_argument("--sync-hashes", action="store_true")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
 
@@ -361,6 +441,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write(f"{exc}\n")
             return 1
         sys.stdout.write(f"wrote template: {manifest_path}\n")
+        return 0
+
+    if args.sync_hashes:
+        try:
+            receipt = sync_manifest_hashes(
+                args.manifest,
+                evidence_dir=args.evidence_dir,
+            )
+        except EvidenceFailure as exc:
+            sys.stdout.write(f"{exc}\n")
+            return 1
+        artifact_count = sum(len(item["artifacts"]) for item in receipt["items"])
+        sys.stdout.write(f"synced artifact hashes: {artifact_count}\n")
+        sys.stdout.write(f"manifest: {receipt['manifest']}\n")
         return 0
 
     return run_gate(
