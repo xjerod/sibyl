@@ -883,6 +883,125 @@ def test_capture_github_release_evidence_updates_manifest(
     assert (tmp_path / "cosign_signature_receipt" / "sign-web.log").is_file()
 
 
+def test_capture_github_release_evidence_uses_release_assets_when_artifacts_expire(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_gh_json_output(args: list[str]) -> dict[str, Any]:
+        if args[0:2] == ["run", "view"]:
+            return {
+                "conclusion": "success",
+                "createdAt": "2026-05-22T12:00:00Z",
+                "databaseId": 12345,
+                "headBranch": "main",
+                "headSha": "abc123",
+                "name": "Publish",
+                "url": "https://github.example/run/12345",
+                "workflowName": "Publish",
+                "jobs": [
+                    {
+                        "conclusion": "success",
+                        "databaseId": 101,
+                        "name": "◆ Docker: Security api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 102,
+                        "name": "◆ Docker: Security web",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 201,
+                        "name": "◆ Docker: Sign api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 202,
+                        "name": "◆ Docker: Sign web",
+                    },
+                ],
+            }
+        if args == ["api", "repos/hyperb1iss/sibyl/actions/runs/12345/artifacts?per_page=100"]:
+            return {
+                "artifacts": [
+                    {
+                        "expired": True,
+                        "name": "sibyl-api-1.2.3-sbom",
+                        "size_in_bytes": 123,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-web-1.2.3-sbom",
+                        "size_in_bytes": 456,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-api-1.2.3-cosign",
+                        "size_in_bytes": 789,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-web-1.2.3-cosign",
+                        "size_in_bytes": 890,
+                    },
+                ]
+            }
+        if args == ["api", "repos/hyperb1iss/sibyl/releases/tags/v1.2.3"]:
+            return {
+                "assets": [
+                    {"name": "sibyl-api-1.2.3.cdx.json", "size": 123},
+                    {"name": "sibyl-web-1.2.3.cdx.json", "size": 456},
+                    {"name": "sibyl-api-1.2.3-cosign-receipt.json", "size": 789},
+                    {"name": "sibyl-web-1.2.3-cosign-receipt.json", "size": 890},
+                ]
+            }
+        raise AssertionError(args)
+
+    def fake_gh_text_output(args: list[str]) -> str:
+        if args[0:2] == ["run", "view"]:
+            return "cosign signing log"
+        raise AssertionError(args)
+
+    def fake_download_github_release_asset(
+        *,
+        repo: str,
+        tag: str,
+        asset_name: str,
+        destination: Path,
+    ) -> None:
+        assert repo == "hyperb1iss/sibyl"
+        assert tag == "v1.2.3"
+        image = asset_name.split("-")[1]
+        if asset_name.endswith(".cdx.json"):
+            content = _cyclonedx_sbom(image)
+        elif asset_name.endswith("-cosign-receipt.json"):
+            content = _cosign_receipt(image)
+        else:
+            raise AssertionError(asset_name)
+        destination.joinpath(asset_name).write_text(content, encoding="utf-8")
+
+    monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
+    monkeypatch.setattr(evidence, "_gh_text_output", fake_gh_text_output)
+    monkeypatch.setattr(
+        evidence,
+        "_download_github_artifact",
+        lambda **kwargs: pytest.fail(f"unexpected Actions artifact download: {kwargs}"),
+    )
+    monkeypatch.setattr(
+        evidence,
+        "_download_github_release_asset",
+        fake_download_github_release_asset,
+    )
+
+    receipt = evidence.capture_github_release_evidence(tmp_path, run_id="12345")
+    manifest_path = Path(str(receipt["manifest"]))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["items"]["image_sbom_receipt"]["status"] == "PASS"
+    assert payload["items"]["cosign_signature_receipt"]["status"] == "PASS"
+    assert (tmp_path / "image_sbom_receipt" / "sibyl-api-1.2.3.cdx.json").is_file()
+    assert (tmp_path / "cosign_signature_receipt" / "sibyl-web-1.2.3-cosign-receipt.json").is_file()
+
+
 def test_capture_github_release_evidence_rejects_invalid_sbom(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1154,6 +1273,181 @@ def test_preflight_github_release_evidence_reports_all_missing_requirements(
         "GitHub run is missing required SBOM artifact for web",
         "GitHub run is missing required Cosign receipt artifact for web",
     ]
+
+
+def test_preflight_github_release_evidence_accepts_release_assets_for_expired_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_gh_json_output(args: list[str]) -> dict[str, Any]:
+        if args[0:2] == ["run", "view"]:
+            return {
+                "conclusion": "success",
+                "createdAt": "2026-05-22T12:00:00Z",
+                "databaseId": 12345,
+                "headBranch": "main",
+                "headSha": "abc123",
+                "name": "Publish",
+                "url": "https://github.example/run/12345",
+                "workflowName": "Publish",
+                "jobs": [
+                    {
+                        "conclusion": "success",
+                        "databaseId": 101,
+                        "name": "◆ Docker: Security api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 102,
+                        "name": "◆ Docker: Security web",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 201,
+                        "name": "◆ Docker: Sign api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 202,
+                        "name": "◆ Docker: Sign web",
+                    },
+                ],
+            }
+        if args == ["api", "repos/hyperb1iss/sibyl/actions/runs/12345/artifacts?per_page=100"]:
+            return {
+                "artifacts": [
+                    {
+                        "expired": True,
+                        "name": "sibyl-api-1.2.3-sbom",
+                        "size_in_bytes": 123,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-web-1.2.3-sbom",
+                        "size_in_bytes": 456,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-api-1.2.3-cosign",
+                        "size_in_bytes": 789,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-web-1.2.3-cosign",
+                        "size_in_bytes": 890,
+                    },
+                ]
+            }
+        if args == ["api", "repos/hyperb1iss/sibyl/releases/tags/v1.2.3"]:
+            return {
+                "assets": [
+                    {"name": "sibyl-api-1.2.3.cdx.json", "size": 123},
+                    {"name": "sibyl-web-1.2.3.cdx.json", "size": 456},
+                    {"name": "sibyl-api-1.2.3-cosign-receipt.json", "size": 789},
+                    {"name": "sibyl-web-1.2.3-cosign-receipt.json", "size": 890},
+                ]
+            }
+        raise AssertionError(args)
+
+    monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
+
+    report = evidence.preflight_github_release_evidence(run_id="12345")
+
+    assert report["status"] == "PASS"
+    assert report["issues"] == []
+
+
+def test_preflight_github_release_evidence_rejects_missing_release_asset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_gh_json_output(args: list[str]) -> dict[str, Any]:
+        if args[0:2] == ["run", "view"]:
+            return {
+                "conclusion": "success",
+                "createdAt": "2026-05-22T12:00:00Z",
+                "databaseId": 12345,
+                "headBranch": "main",
+                "headSha": "abc123",
+                "name": "Publish",
+                "url": "https://github.example/run/12345",
+                "workflowName": "Publish",
+                "jobs": [
+                    {
+                        "conclusion": "success",
+                        "databaseId": 101,
+                        "name": "◆ Docker: Security api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 102,
+                        "name": "◆ Docker: Security web",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 201,
+                        "name": "◆ Docker: Sign api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 202,
+                        "name": "◆ Docker: Sign web",
+                    },
+                ],
+            }
+        if args == ["api", "repos/hyperb1iss/sibyl/actions/runs/12345/artifacts?per_page=100"]:
+            return {
+                "artifacts": [
+                    {
+                        "expired": True,
+                        "name": "sibyl-api-1.2.3-sbom",
+                        "size_in_bytes": 123,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-web-1.2.3-sbom",
+                        "size_in_bytes": 456,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-api-1.2.3-cosign",
+                        "size_in_bytes": 789,
+                    },
+                    {
+                        "expired": True,
+                        "name": "sibyl-web-1.2.3-cosign",
+                        "size_in_bytes": 890,
+                    },
+                ]
+            }
+        if args == ["api", "repos/hyperb1iss/sibyl/releases/tags/v1.2.3"]:
+            return {
+                "assets": [
+                    {"name": "sibyl-api-1.2.3.cdx.json", "size": 123},
+                    {"name": "sibyl-web-1.2.3.cdx.json", "size": 456},
+                    {"name": "sibyl-api-1.2.3-cosign-receipt.json", "size": 789},
+                ]
+            }
+        raise AssertionError(args)
+
+    monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
+
+    report = evidence.preflight_github_release_evidence(run_id="12345")
+
+    assert report["status"] == "FAIL"
+    assert report["issues"] == [
+        "GitHub Release is missing durable evidence asset: sibyl-web-1.2.3-cosign-receipt.json"
+    ]
+
+
+def test_release_tag_from_artifacts_rejects_split_expired_versions() -> None:
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence._release_tag_from_artifacts(
+            [
+                {"expired": True, "name": "sibyl-api-1.2.3-sbom"},
+                {"expired": True, "name": "sibyl-web-1.2.4-sbom"},
+            ]
+        )
+
+    assert "must resolve to one release version" in str(exc_info.value)
 
 
 def test_latest_successful_github_publish_run_id(monkeypatch: pytest.MonkeyPatch) -> None:

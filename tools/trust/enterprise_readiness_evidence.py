@@ -1083,11 +1083,18 @@ def capture_github_release_evidence(
     )
     artifacts = _run_artifacts(artifacts_payload)
     sbom_artifacts = {
-        image: _require_sbom_artifact(artifacts, image) for image in GITHUB_RELEASE_IMAGES
+        image: _require_sbom_artifact(artifacts, image, allow_expired=True)
+        for image in GITHUB_RELEASE_IMAGES
     }
     cosign_artifacts = {
-        image: _require_cosign_artifact(artifacts, image) for image in GITHUB_RELEASE_IMAGES
+        image: _require_cosign_artifact(artifacts, image, allow_expired=True)
+        for image in GITHUB_RELEASE_IMAGES
     }
+    release_tag, release_assets = _release_asset_fallback(
+        repo=repo,
+        tag_hint=_release_tag_hint(run),
+        artifacts=[*sbom_artifacts.values(), *cosign_artifacts.values()],
+    )
 
     sbom_dir = evidence_dir / "image_sbom_receipt"
     sign_dir = evidence_dir / "cosign_signature_receipt"
@@ -1098,12 +1105,16 @@ def capture_github_release_evidence(
         repo=repo,
         run_id=run_id,
         sbom_artifacts=sbom_artifacts,
+        release_tag=release_tag,
+        release_assets=release_assets,
         destination=sbom_dir,
     )
     downloaded_cosign_receipts = _download_cosign_receipts(
         repo=repo,
         run_id=run_id,
         cosign_artifacts=cosign_artifacts,
+        release_tag=release_tag,
+        release_assets=release_assets,
         destination=sign_dir,
     )
     sign_logs = _capture_sign_logs(
@@ -1182,20 +1193,30 @@ def _download_release_sboms(
     repo: str,
     run_id: str,
     sbom_artifacts: Mapping[str, Mapping[str, object]],
+    release_tag: str | None,
+    release_assets: Sequence[Mapping[str, object]],
     destination: Path,
 ) -> set[Path]:
     downloaded: set[Path] = set()
     for image, artifact in sbom_artifacts.items():
         artifact_name = _artifact_name(artifact)
-        _download_github_artifact(
-            repo=repo,
-            run_id=run_id,
-            artifact_name=artifact_name,
-            destination=destination,
-        )
-        image_files = sorted(
-            file for file in _files_under(destination) if f"sibyl-{image}-" in file.name
-        )
+        asset_name = _sbom_release_asset_name(artifact, image=image)
+        if _artifact_is_expired(artifact):
+            _require_release_asset(release_assets, asset_name)
+            _download_github_release_asset(
+                repo=repo,
+                tag=_require_release_tag(release_tag),
+                asset_name=asset_name,
+                destination=destination,
+            )
+        else:
+            _download_github_artifact(
+                repo=repo,
+                run_id=run_id,
+                artifact_name=artifact_name,
+                destination=destination,
+            )
+        image_files = sorted(file for file in _files_under(destination) if file.name == asset_name)
         if not image_files:
             msg = f"SBOM artifact download produced no files for {image}: {artifact_name}"
             raise EvidenceFailure(msg)
@@ -1210,22 +1231,30 @@ def _download_cosign_receipts(
     repo: str,
     run_id: str,
     cosign_artifacts: Mapping[str, Mapping[str, object]],
+    release_tag: str | None,
+    release_assets: Sequence[Mapping[str, object]],
     destination: Path,
 ) -> set[Path]:
     downloaded: set[Path] = set()
     for image, artifact in cosign_artifacts.items():
         artifact_name = _artifact_name(artifact)
-        _download_github_artifact(
-            repo=repo,
-            run_id=run_id,
-            artifact_name=artifact_name,
-            destination=destination,
-        )
-        image_files = sorted(
-            file
-            for file in _files_under(destination)
-            if file.name.startswith(f"{artifact_name}-") and file.suffix == ".json"
-        )
+        asset_name = _cosign_release_asset_name(artifact, image=image)
+        if _artifact_is_expired(artifact):
+            _require_release_asset(release_assets, asset_name)
+            _download_github_release_asset(
+                repo=repo,
+                tag=_require_release_tag(release_tag),
+                asset_name=asset_name,
+                destination=destination,
+            )
+        else:
+            _download_github_artifact(
+                repo=repo,
+                run_id=run_id,
+                artifact_name=artifact_name,
+                destination=destination,
+            )
+        image_files = sorted(file for file in _files_under(destination) if file.name == asset_name)
         if not image_files:
             msg = f"Cosign artifact download produced no files for {image}: {artifact_name}"
             raise EvidenceFailure(msg)
@@ -1305,13 +1334,13 @@ def preflight_github_release_evidence(
     except EvidenceFailure as exc:
         issues.append(str(exc))
 
-    for image in GITHUB_RELEASE_IMAGES:
-        issue = _sbom_artifact_issue(artifacts, image)
-        if issue is not None:
-            issues.append(issue)
-        issue = _cosign_artifact_issue(artifacts, image)
-        if issue is not None:
-            issues.append(issue)
+    issues.extend(
+        _release_artifact_preflight_issues(
+            repo=repo,
+            tag_hint=_release_tag_hint(run),
+            artifacts=artifacts,
+        )
+    )
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -2681,6 +2710,8 @@ def _run_artifacts(payload: Mapping[str, object]) -> list[Mapping[str, object]]:
 def _require_sbom_artifact(
     artifacts: Sequence[Mapping[str, object]],
     image: str,
+    *,
+    allow_expired: bool = False,
 ) -> Mapping[str, object]:
     prefix = f"sibyl-{image}-"
     matches = [
@@ -2699,7 +2730,7 @@ def _require_sbom_artifact(
         raise EvidenceFailure(msg)
 
     artifact = matches[0]
-    if artifact.get("expired") is True:
+    if artifact.get("expired") is True and not allow_expired:
         msg = f"GitHub SBOM artifact is expired for {image}: {_artifact_name(artifact)}"
         raise EvidenceFailure(msg)
     size = artifact.get("size_in_bytes")
@@ -2712,6 +2743,8 @@ def _require_sbom_artifact(
 def _require_cosign_artifact(
     artifacts: Sequence[Mapping[str, object]],
     image: str,
+    *,
+    allow_expired: bool = False,
 ) -> Mapping[str, object]:
     prefix = f"sibyl-{image}-"
     matches = [
@@ -2730,7 +2763,7 @@ def _require_cosign_artifact(
         raise EvidenceFailure(msg)
 
     artifact = matches[0]
-    if artifact.get("expired") is True:
+    if artifact.get("expired") is True and not allow_expired:
         msg = f"GitHub Cosign receipt artifact is expired for {image}: {_artifact_name(artifact)}"
         raise EvidenceFailure(msg)
     size = artifact.get("size_in_bytes")
@@ -2797,26 +2830,193 @@ def _validate_cosign_receipt(path: Path, *, image: str) -> None:
         raise EvidenceFailure(msg)
 
 
-def _sbom_artifact_issue(
+def _release_artifact_preflight_issues(
+    *,
+    repo: str,
+    tag_hint: str | None,
+    artifacts: Sequence[Mapping[str, object]],
+) -> list[str]:
+    issues: list[str] = []
+    release_artifacts: list[Mapping[str, object]] = []
+    for image in GITHUB_RELEASE_IMAGES:
+        release_artifacts.extend(
+            _preflight_image_release_artifacts(
+                artifacts=artifacts,
+                image=image,
+                issues=issues,
+            )
+        )
+
+    if not release_artifacts:
+        return issues
+
+    try:
+        release_tag, release_assets = _release_asset_fallback(
+            repo=repo,
+            tag_hint=tag_hint,
+            artifacts=release_artifacts,
+        )
+    except EvidenceFailure as exc:
+        return [*issues, str(exc)]
+
+    if release_tag is None:
+        return issues
+
+    for image in GITHUB_RELEASE_IMAGES:
+        issues.extend(
+            _expired_release_asset_issues(
+                artifacts=artifacts,
+                release_assets=release_assets,
+                image=image,
+            )
+        )
+    return issues
+
+
+def _preflight_image_release_artifacts(
+    *,
     artifacts: Sequence[Mapping[str, object]],
     image: str,
-) -> str | None:
-    try:
-        _require_sbom_artifact(artifacts, image)
-    except EvidenceFailure as exc:
-        return str(exc)
+    issues: list[str],
+) -> list[Mapping[str, object]]:
+    release_artifacts: list[Mapping[str, object]] = []
+    for require_artifact in (_require_sbom_artifact, _require_cosign_artifact):
+        try:
+            release_artifacts.append(require_artifact(artifacts, image, allow_expired=True))
+        except EvidenceFailure as exc:
+            issues.append(str(exc))
+    return release_artifacts
+
+
+def _expired_release_asset_issues(
+    *,
+    artifacts: Sequence[Mapping[str, object]],
+    release_assets: Sequence[Mapping[str, object]],
+    image: str,
+) -> list[str]:
+    issues: list[str] = []
+    for require_artifact, asset_name_for in (
+        (_require_sbom_artifact, _sbom_release_asset_name),
+        (_require_cosign_artifact, _cosign_release_asset_name),
+    ):
+        try:
+            artifact = require_artifact(artifacts, image, allow_expired=True)
+        except EvidenceFailure:
+            continue
+        if _artifact_is_expired(artifact):
+            try:
+                _require_release_asset(release_assets, asset_name_for(artifact, image=image))
+            except EvidenceFailure as exc:
+                issues.append(str(exc))
+    return issues
+
+
+def _release_asset_fallback(
+    *,
+    repo: str,
+    tag_hint: str | None,
+    artifacts: Sequence[Mapping[str, object]],
+) -> tuple[str | None, list[Mapping[str, object]]]:
+    if not any(_artifact_is_expired(artifact) for artifact in artifacts):
+        return None, []
+
+    release_tag = _release_tag_from_artifacts(artifacts, tag_hint=tag_hint)
+    release_payload = _gh_json_output(["api", f"repos/{repo}/releases/tags/{release_tag}"])
+    return release_tag, _release_assets(release_payload)
+
+
+def _release_tag_from_artifacts(
+    artifacts: Sequence[Mapping[str, object]],
+    *,
+    tag_hint: str | None = None,
+) -> str:
+    versions = {
+        _github_artifact_version(_artifact_name(artifact))
+        for artifact in artifacts
+        if _artifact_is_expired(artifact)
+    }
+    if len(versions) != 1:
+        msg = f"expired GitHub artifacts must resolve to one release version: {sorted(versions)}"
+        raise EvidenceFailure(msg)
+    version = next(iter(versions))
+    if tag_hint and _tag_version(tag_hint) == version:
+        return tag_hint
+    return f"v{version}"
+
+
+def _release_tag_hint(run: Mapping[str, object]) -> str | None:
+    head_branch = run.get("headBranch")
+    if isinstance(head_branch, str) and head_branch.strip():
+        return head_branch.strip()
     return None
 
 
-def _cosign_artifact_issue(
-    artifacts: Sequence[Mapping[str, object]],
-    image: str,
-) -> str | None:
-    try:
-        _require_cosign_artifact(artifacts, image)
-    except EvidenceFailure as exc:
-        return str(exc)
-    return None
+def _tag_version(tag: str) -> str:
+    return tag[1:] if tag.startswith("v") else tag
+
+
+def _github_artifact_version(artifact_name: str) -> str:
+    for image in GITHUB_RELEASE_IMAGES:
+        prefix = f"sibyl-{image}-"
+        for suffix in ("-sbom", "-cosign"):
+            if artifact_name.startswith(prefix) and artifact_name.endswith(suffix):
+                version = artifact_name.removeprefix(prefix).removesuffix(suffix)
+                if version:
+                    return version
+    msg = f"GitHub artifact name does not match Sibyl release evidence naming: {artifact_name}"
+    raise EvidenceFailure(msg)
+
+
+def _release_assets(payload: Mapping[str, object]) -> list[Mapping[str, object]]:
+    assets = payload.get("assets")
+    if not isinstance(assets, list):
+        msg = "GitHub release payload must include an assets list"
+        raise EvidenceFailure(msg)
+    return [cast(Mapping[str, object], asset) for asset in assets if isinstance(asset, dict)]
+
+
+def _require_release_asset(
+    assets: Sequence[Mapping[str, object]],
+    asset_name: str,
+) -> Mapping[str, object]:
+    matches = [
+        asset
+        for asset in assets
+        if isinstance(asset.get("name"), str) and asset.get("name") == asset_name
+    ]
+    if not matches:
+        msg = f"GitHub Release is missing durable evidence asset: {asset_name}"
+        raise EvidenceFailure(msg)
+    if len(matches) > 1:
+        msg = f"GitHub Release has duplicate durable evidence asset: {asset_name}"
+        raise EvidenceFailure(msg)
+    asset = matches[0]
+    size = asset.get("size")
+    if not isinstance(size, int) or size <= 0:
+        msg = f"GitHub Release durable evidence asset is empty: {asset_name}"
+        raise EvidenceFailure(msg)
+    return asset
+
+
+def _artifact_is_expired(artifact: Mapping[str, object]) -> bool:
+    return artifact.get("expired") is True
+
+
+def _require_release_tag(release_tag: str | None) -> str:
+    if release_tag:
+        return release_tag
+    msg = "expired GitHub artifacts require a release tag for durable asset fallback"
+    raise EvidenceFailure(msg)
+
+
+def _sbom_release_asset_name(artifact: Mapping[str, object], *, image: str) -> str:
+    version = _github_artifact_version(_artifact_name(artifact))
+    return f"sibyl-{image}-{version}.cdx.json"
+
+
+def _cosign_release_asset_name(artifact: Mapping[str, object], *, image: str) -> str:
+    version = _github_artifact_version(_artifact_name(artifact))
+    return f"sibyl-{image}-{version}-cosign-receipt.json"
 
 
 def _artifact_name(artifact: Mapping[str, object]) -> str:
@@ -2853,6 +3053,29 @@ def _download_github_artifact(
             str(destination),
             "--name",
             artifact_name,
+        ]
+    )
+
+
+def _download_github_release_asset(
+    *,
+    repo: str,
+    tag: str,
+    asset_name: str,
+    destination: Path,
+) -> None:
+    _gh_text_output(
+        [
+            "release",
+            "download",
+            tag,
+            "--repo",
+            repo,
+            "--pattern",
+            asset_name,
+            "--dir",
+            str(destination),
+            "--clobber",
         ]
     )
 
