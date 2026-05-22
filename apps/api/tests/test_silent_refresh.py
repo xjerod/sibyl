@@ -41,7 +41,7 @@ def _install_provider(monkeypatch: pytest.MonkeyPatch) -> OIDCProviderSettings:
     monkeypatch.setattr(
         config_module.settings,
         "oidc",
-        OIDCSettings(providers=[provider], session_minutes=15),
+        OIDCSettings(providers=[provider], session_minutes=15, silent_refresh_enabled=True),
     )
     return provider
 

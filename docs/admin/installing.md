@@ -61,7 +61,7 @@ oidc:
       scopes: ["openid", "profile", "email"]
   role_claim: "roles"
   session_minutes: 60
-  silent_refresh_enabled: true
+  silent_refresh_enabled: false
   extra_providers_enabled: false
 
 backend:

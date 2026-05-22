@@ -647,10 +647,10 @@ in the Sibyl OSS workflow.
   `["openid","profile","email"]`, `role_claim_override` (optional, falls back to the top-level
   `oidc.role_claim`)), `oidc.role_claim` (default `roles`, supports dotted paths like
   `resource_access.sibyl.roles`), `oidc.redirect_uri_base`, `oidc.session_minutes` (default 60),
-  `oidc.silent_refresh_enabled` (default true), `oidc.extra_providers_enabled` (default false; gates
-  Google/GitHub-style non-corporate providers from being registered in the live OAuth registry,
-  enforced at app startup with an exit-on-mismatch validation), `local_auth_enabled` (default
-  false).
+  `oidc.silent_refresh_enabled` (default false), `oidc.extra_providers_enabled` (default false;
+  gates Google/GitHub-style non-corporate providers from being registered in the live OAuth
+  registry, enforced at app startup with an exit-on-mismatch validation), `local_auth_enabled`
+  (default false).
 - SurrealDB schema: new tables `identity_provider` (config per provider), `user_identity`
   (`(provider, subject_key) → user_id`). Migration via the existing idempotent schema bootstrap.
 - `apps/web/src/app/login/page.tsx` — modify. Show provider buttons enumerated from the server's

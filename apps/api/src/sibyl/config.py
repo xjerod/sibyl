@@ -74,7 +74,7 @@ class OIDCSettings(BaseModel):
     role_claim: str = "roles"
     redirect_uri_base: str = ""
     session_minutes: int = Field(default=60, ge=5, le=1440)
-    silent_refresh_enabled: bool = True
+    silent_refresh_enabled: bool = False
     extra_providers_enabled: bool = False
 
     @field_validator("role_claim", "redirect_uri_base")

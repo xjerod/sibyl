@@ -183,7 +183,7 @@ def test_settings_oidc_defaults_to_enterprise_contract() -> None:
     assert s.oidc.providers == []
     assert s.oidc.role_claim == "roles"
     assert s.oidc.session_minutes == 60
-    assert s.oidc.silent_refresh_enabled is True
+    assert s.oidc.silent_refresh_enabled is False
     assert s.oidc.extra_providers_enabled is False
 
 

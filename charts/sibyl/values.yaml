@@ -31,7 +31,7 @@ oidc:
   # -- OIDC-backed session lifetime in minutes.
   session_minutes: 60
   # -- Enable silent refresh against the IdP.
-  silent_refresh_enabled: true
+  silent_refresh_enabled: false
   # -- Explicit opt-in for non-corporate providers such as GitHub or Google.
   extra_providers_enabled: false
 
