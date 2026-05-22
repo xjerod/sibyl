@@ -43,6 +43,10 @@ PostgreSQL migration jobs.
 
 ## Authentication Defaults
 
+The chart defaults match the self-hosted single-user path. Local username/password login is enabled,
+the first setup signup creates the owner/admin user, post-setup account creation is invite-only, and
+OIDC is empty until an operator configures it.
+
 ```yaml
 auth:
   # Local username/password login is the default simple path.
@@ -60,7 +64,8 @@ breakGlass:
 ```
 
 For enterprise SSO deployments, configure a corporate OIDC provider and set
-`auth.localAuthEnabled=false`. Break-glass access remains a separate, bounded opt-in.
+`auth.localAuthEnabled=false` only after an owner has successfully signed in through OIDC.
+Break-glass access remains a separate, bounded opt-in.
 
 ## Backend Configuration
 

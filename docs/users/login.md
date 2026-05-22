@@ -5,9 +5,13 @@ description: Signing in to Sibyl with a corporate OIDC identity provider
 
 # Enterprise Sign-In
 
-Sibyl signs users in through your organization's OpenID Connect provider. The production shape is
-intentionally boring: the identity provider proves who you are, Sibyl reads a role claim, then Sibyl
-issues its own short-lived session for the web app.
+This page applies when an operator has enabled enterprise OIDC. The default Sibyl install is
+local-first: the first setup signup creates the owner/admin user, and later users join by invitation
+unless public signups are enabled.
+
+In enterprise SSO mode, Sibyl signs users in through your organization's OpenID Connect provider.
+The production shape is intentionally boring: the identity provider proves who you are, Sibyl reads
+a role claim, then Sibyl issues its own short-lived session for the web app.
 
 ## What Happens At Login
 

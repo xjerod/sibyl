@@ -33,6 +33,10 @@
   [`ENTERPRISE_READINESS_VALIDATION_2026-05-22.md`](ENTERPRISE_READINESS_VALIDATION_2026-05-22.md).
   The packet separates automated local proof from external/manual gates that still require a real
   IdP tenant, MCP clients, or Kubernetes cluster.
+- **2026-05-22 v5** — clarified that enterprise SSO is opt-in. The default Sibyl install remains
+  local-first: first owner/admin setup is allowed, post-setup account creation is invite-based
+  unless public signups are explicitly enabled, and OIDC/extra providers/silent refresh/break-glass
+  are off until configured.
 
 ---
 
@@ -55,6 +59,12 @@ validation against). A "Mapping to other IdPs" section translates the pattern to
 Keycloak, and generic OIDC. Per-deployment specifics (cloud provider, ingress controller flavor,
 secrets-injector choice, audit-log sink, backup target) belong in a deployment-overlay doc
 maintained separately by the deploying organization — they're explicitly out of scope here.
+
+The enterprise path does not change Sibyl's default product mode. A fresh install remains
+local-first and single-user friendly: local auth is enabled, the first setup signup creates the
+owner/admin user, and later account creation is invite-based unless public signups are explicitly
+enabled. OIDC, silent refresh, non-corporate OAuth providers, break-glass, and disabled local auth
+are enterprise/operator opt-ins.
 
 ---
 

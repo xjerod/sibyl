@@ -75,6 +75,53 @@ surrealdb error: connection refused
 
 ## Authentication Issues
 
+### Forbidden After Login
+
+**Symptoms:**
+
+- API response includes `"error": "forbidden"`.
+- Response body says `"Invalid request data."` with remediation to check organization or project
+  permissions.
+- Login or refresh succeeds, but the next project, search, admin, or MCP request fails.
+
+**What it usually means:**
+
+The client has a valid Sibyl session, but the request does not match the user's organization,
+project, memory-space, or admin permissions. This is different from an OIDC provider problem. In the
+default install, OIDC is off and local auth is expected.
+
+**Solutions:**
+
+1. **Confirm the intended auth mode:**
+
+   ```bash
+   echo $SIBYL_LOCAL_AUTH_ENABLED
+   echo $SIBYL_PUBLIC_SIGNUPS_ENABLED
+   echo $SIBYL_OIDC
+   ```
+
+   Default local installs should have local auth enabled, public signups disabled, and no OIDC
+   providers.
+
+2. **For a new default install, complete setup first.**
+
+   The first setup signup creates the owner/admin user. After setup, additional users need an invite
+   unless `SIBYL_PUBLIC_SIGNUPS_ENABLED=true`.
+
+3. **Check the active CLI context and token owner:**
+
+   ```bash
+   sibyl context
+   sibyl auth status
+   sibyl whoami
+   ```
+
+4. **For project-scoped failures, switch to a project the user can access or ask an owner/admin to
+   add the membership.**
+
+5. **For enterprise SSO, verify the IdP role claim emits `Sibyl.Member`, `Sibyl.Admin`, or
+   `Sibyl.Owner`.**
+
 ### JWT Token Invalid
 
 **Symptoms:**

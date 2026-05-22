@@ -65,15 +65,53 @@ When using Kong or similar ingress, `SIBYL_PUBLIC_URL` is typically set to the e
 
 ## Authentication
 
-| Variable                            | Default | Description                                 |
-| ----------------------------------- | ------- | ------------------------------------------- |
-| `SIBYL_JWT_SECRET`                  | (empty) | **Required.** JWT signing secret            |
-| `SIBYL_JWT_ALGORITHM`               | `HS256` | JWT signing algorithm                       |
-| `SIBYL_ACCESS_TOKEN_EXPIRE_MINUTES` | `60`    | Access token TTL in minutes                 |
-| `SIBYL_REFRESH_TOKEN_EXPIRE_DAYS`   | `30`    | Refresh token TTL in days                   |
-| `SIBYL_DISABLE_AUTH`                | `false` | Disable auth enforcement (dev only)         |
-| `SIBYL_MCP_AUTH_MODE`               | `auto`  | MCP auth: auto/on/off                       |
-| `SIBYL_SETTINGS_KEY`                | (auto)  | Fernet key for encrypting DB-stored secrets |
+| Variable                            | Default | Description                                             |
+| ----------------------------------- | ------- | ------------------------------------------------------- |
+| `SIBYL_JWT_SECRET`                  | (empty) | **Required.** JWT signing secret                        |
+| `SIBYL_JWT_ALGORITHM`               | `HS256` | JWT signing algorithm                                   |
+| `SIBYL_ACCESS_TOKEN_EXPIRE_MINUTES` | `60`    | Access token TTL in minutes                             |
+| `SIBYL_REFRESH_TOKEN_EXPIRE_DAYS`   | `30`    | Local-auth refresh token TTL in days                    |
+| `SIBYL_DISABLE_AUTH`                | `false` | Disable auth enforcement (dev only)                     |
+| `SIBYL_MCP_AUTH_MODE`               | `auto`  | MCP auth: auto/on/off                                   |
+| `SIBYL_SETTINGS_KEY`                | (auto)  | Fernet key for encrypting DB-stored secrets             |
+| `SIBYL_LOCAL_AUTH_ENABLED`          | `true`  | Enable local username/password login after setup        |
+| `SIBYL_PUBLIC_SIGNUPS_ENABLED`      | `false` | Allow public self-serve account creation after setup    |
+| `SIBYL_OIDC`                        | `{}`    | JSON object for optional OIDC providers and session UX  |
+| `SIBYL_BREAK_GLASS_ENABLED`         | `false` | Enable bounded emergency local login for SSO outages    |
+| `SIBYL_BREAK_GLASS_ALLOWED_IPS`     | `[]`    | JSON array of CIDRs allowed to use break-glass login    |
+| `SIBYL_BREAK_GLASS_EXPIRES_AT`      | (empty) | UTC expiry for break-glass, no more than four hours out |
+
+The default Sibyl mode is local-first and single-user friendly: local auth is enabled, the first
+setup signup creates the owner/admin user, and account creation after setup is invite-based unless
+`SIBYL_PUBLIC_SIGNUPS_ENABLED=true`.
+
+OIDC, silent refresh, extra OAuth providers, public signups, disabled local auth, and break-glass
+are all opt-in. Enterprise SSO deployments should configure a corporate OIDC provider first, verify
+an owner can sign in through it, and only then set `SIBYL_LOCAL_AUTH_ENABLED=false`.
+
+`SIBYL_OIDC` is a JSON object with these fields:
+
+```json
+{
+  "providers": [
+    {
+      "name": "entra",
+      "issuer": "https://login.microsoftonline.com/<tenant-id>/v2.0",
+      "client_id": "<app-client-id>",
+      "client_secret_env": "SIBYL_OIDC_ENTRA_CLIENT_SECRET",
+      "scopes": ["openid", "profile", "email"]
+    }
+  ],
+  "role_claim": "roles",
+  "redirect_uri_base": "",
+  "session_minutes": 60,
+  "silent_refresh_enabled": false,
+  "extra_providers_enabled": false
+}
+```
+
+Non-corporate providers such as GitHub or Google require `"extra_providers_enabled": true`; leave it
+false for enterprise SSO.
 
 ### Fallback Variables
 

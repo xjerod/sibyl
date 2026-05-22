@@ -10,6 +10,24 @@ This packet is the review artifact for the OSS-side work. It records what the cu
 proves, which commands produced the proof, and which plan gates still need evidence from a real
 identity provider, real MCP clients, or a Kubernetes cluster.
 
+## Completion Boundary
+
+The remaining enterprise-readiness work is external validation, not more local validation-gate
+polish. The repository now has automated proof for the implemented code paths and a validator that
+rejects missing or stale artifacts. Additional validator hardening should only happen when it
+directly captures one of the missing real receipts.
+
+The work required before claiming the full enterprise gate complete is:
+
+1. Run a real Entra dev-tenant smoke for happy-path OIDC login and missing-role denial.
+2. Capture IdP role-claim configuration evidence, such as an app-role export or screenshot.
+3. Smoke MCP authentication in Cursor and Claude Desktop. Claude Code is already captured.
+4. Run a Kubernetes restore drill against a real local cluster and capture sampled recall evidence.
+5. Capture SBOM and Cosign receipts from a new qualifying publish workflow or release assets.
+
+Until those are captured, Sibyl is locally validated for the enterprise feature set but not fully
+externally proven.
+
 ## Implemented Workstreams
 
 | Workstream                         | Current evidence                                                                                                                                                                                                                                                                                                                                                                        | Status                                     |

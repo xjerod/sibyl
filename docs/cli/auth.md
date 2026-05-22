@@ -25,6 +25,9 @@ Login to a Sibyl server and save credentials. With no URL, logs in to the active
 default server. Login opens a browser for the auth flow unless `--no-browser` is set, or you can
 pass `--email` and `--password` for local login.
 
+The default self-hosted install uses local auth. Explicit `--email` and `--password` credentials go
+to the local login path; browser login is for device/OAuth/OIDC flows configured on the server.
+
 ### Synopsis
 
 ```bash
@@ -91,7 +94,10 @@ sibyl auth status
 
 ## auth local-signup
 
-Create a local user and save the returned access token. Useful for local development servers.
+Create a local user and save the returned access token. On a fresh default install, this is allowed
+for setup bootstrap and creates the first owner/admin user. After setup completes, local signup is
+blocked unless the request uses an invitation token or public signups are explicitly enabled on the
+server.
 
 ### Synopsis
 

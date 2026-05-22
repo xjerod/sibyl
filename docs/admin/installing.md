@@ -5,9 +5,17 @@ description: Enterprise Kubernetes installation guide for Sibyl admins
 
 # Installing Sibyl
 
-The enterprise install shape is a Kubernetes deployment behind your corporate identity provider,
-with SurrealDB as the active data plane, Valkey or Redis for coordination when running multiple
-replicas, and an ingress or Gateway API controller for TLS and routing.
+Sibyl has two supported install shapes:
+
+- **Default single-user install:** local username/password auth is enabled, the first setup signup
+  creates the owner/admin user, and later account creation is invite-only unless public signups are
+  explicitly enabled.
+- **Enterprise SSO install:** Kubernetes deployment behind a corporate identity provider, with OIDC
+  configured explicitly and local password login disabled only after an OIDC owner can sign in.
+
+SurrealDB is the active data plane in both shapes. Valkey or Redis is only needed for coordination
+when running multiple backend or worker replicas. Enterprise installs add an ingress or Gateway API
+controller for TLS and routing.
 
 ## Prerequisites
 
@@ -18,7 +26,7 @@ replicas, and an ingress or Gateway API controller for TLS and routing.
   secret manager.
 - SurrealDB 3.x, either through `charts/surrealdb` or a separately managed endpoint.
 - Valkey or Redis when backend or worker replicas are greater than one.
-- Corporate OIDC app registration with MFA enforced at the provider.
+- For enterprise SSO only: corporate OIDC app registration with MFA enforced at the provider.
 
 ## Install The Charts
 
@@ -110,8 +118,9 @@ Keep cloud-specific annotations, certificate issuers, secret references, object 
 SIEM wiring in a deployment overlay.
 
 The chart default keeps local username/password login enabled for simple self-hosted installs while
-leaving public signup, OIDC providers, silent refresh, and break-glass access off. Enterprise SSO
-values should set `auth.localAuthEnabled=false` after the corporate OIDC provider is configured.
+leaving public signup, OIDC providers, silent refresh, extra OAuth providers, and break-glass access
+off. Enterprise SSO values should set `auth.localAuthEnabled=false` only after the corporate OIDC
+provider is configured and an owner has successfully signed in through it.
 
 ## OIDC Provider Setup
 
@@ -159,7 +168,10 @@ setup completes, account creation is invite-based unless `SIBYL_PUBLIC_SIGNUPS_E
 `auth.publicSignupsEnabled=true` is set.
 
 Enterprise SSO installs can opt into OIDC and then disable local password login after the corporate
-provider is working. Break-glass remains an explicit emergency path:
+provider is working. Do not disable local auth on a fresh install before completing either local
+setup or a verified OIDC owner login, or the instance has no normal owner path.
+
+Break-glass remains an explicit emergency path:
 
 ```yaml
 breakGlass:
