@@ -448,7 +448,42 @@ jobs:
               | tr -d '"'
           )"
           test -n "$digest"
-          cosign sign --yes "${REPO}@${digest}"
+          image_ref="${REPO}@${digest}"
+          cosign sign --yes "${image_ref}"
+          mkdir -p cosign-receipts
+          receipt="cosign-receipts/sibyl-${{ matrix.image }}-${VERSION}-cosign-receipt.json"
+          IMAGE="${{ matrix.image }}" REPO="$REPO" VERSION="$VERSION" DIGEST="$digest" IMAGE_REF="$image_ref" RECEIPT="$receipt" python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          payload = {
+              "status": "PASS",
+              "signer": "github-actions-oidc-keyless",
+              "image": os.environ["IMAGE"],
+              "repository": os.environ["REPO"],
+              "version": os.environ["VERSION"],
+              "digest": os.environ["DIGEST"],
+              "image_ref": os.environ["IMAGE_REF"],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow_sha": os.environ["GITHUB_SHA"],
+              "workflow_ref": os.environ["GITHUB_REF"],
+              "signed_at": datetime.now(UTC).isoformat(),
+          }
+          Path(os.environ["RECEIPT"]).write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: "► Upload Cosign receipt"
+        uses: actions/upload-artifact@v4
+        with:
+          name: sibyl-${{ matrix.image }}-${{ steps.version.outputs.version }}-cosign
+          path: cosign-receipts/sibyl-${{ matrix.image }}-${{ steps.version.outputs.version }}-cosign-receipt.json
+          if-no-files-found: error
+          retention-days: 90
 
   # =========================================================================
   # Release: update GitHub release with install instructions

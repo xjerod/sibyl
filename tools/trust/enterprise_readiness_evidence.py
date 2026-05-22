@@ -35,6 +35,7 @@ PACKAGE_LOCK_PATHS = ("apps/api/pyproject.toml", "uv.lock")
 DEFAULT_GITHUB_REPO = "hyperb1iss/sibyl"
 DEFAULT_GITHUB_WORKFLOW = "publish.yml"
 GITHUB_RELEASE_IMAGES = ("api", "web")
+COSIGN_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 LOCAL_KUBERNETES_CONTEXTS = (
     "orbstack",
     "docker-desktop",
@@ -231,7 +232,7 @@ REQUIRED_EVIDENCE: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         key="cosign_signature_receipt",
         gate="security-review-packet",
-        description="Release run produced a Cosign signing receipt for published images.",
+        description="Release run produced validated Cosign signing receipts for published images.",
     ),
     EvidenceRequirement(
         key="package_lock_diff",
@@ -1084,43 +1085,33 @@ def capture_github_release_evidence(
     sbom_artifacts = {
         image: _require_sbom_artifact(artifacts, image) for image in GITHUB_RELEASE_IMAGES
     }
+    cosign_artifacts = {
+        image: _require_cosign_artifact(artifacts, image) for image in GITHUB_RELEASE_IMAGES
+    }
 
     sbom_dir = evidence_dir / "image_sbom_receipt"
     sign_dir = evidence_dir / "cosign_signature_receipt"
     sbom_dir.mkdir(parents=True, exist_ok=True)
     sign_dir.mkdir(parents=True, exist_ok=True)
 
-    downloaded_sboms: set[Path] = set()
-    for image, artifact in sbom_artifacts.items():
-        artifact_name = _artifact_name(artifact)
-        _download_github_artifact(
-            repo=repo,
-            run_id=run_id,
-            artifact_name=artifact_name,
-            destination=sbom_dir,
-        )
-        image_files = sorted(
-            file for file in _files_under(sbom_dir) if f"sibyl-{image}-" in file.name
-        )
-        if not image_files:
-            msg = f"SBOM artifact download produced no files for {image}: {artifact_name}"
-            raise EvidenceFailure(msg)
-        for image_file in image_files:
-            _validate_cyclonedx_sbom(image_file, image=image)
-        downloaded_sboms.update(image_files)
-
-    sign_logs: list[Path] = []
-    for image, job in sign_jobs.items():
-        job_id = _job_database_id(job)
-        log_text = _gh_text_output(
-            ["run", "view", run_id, "--repo", repo, "--job", job_id, "--log"]
-        )
-        if not log_text:
-            msg = f"Cosign sign job log is empty for {image}: {job_id}"
-            raise EvidenceFailure(msg)
-        log_path = sign_dir / f"sign-{image}.log"
-        log_path.write_text(log_text.rstrip() + "\n", encoding="utf-8")
-        sign_logs.append(log_path)
+    downloaded_sboms = _download_release_sboms(
+        repo=repo,
+        run_id=run_id,
+        sbom_artifacts=sbom_artifacts,
+        destination=sbom_dir,
+    )
+    downloaded_cosign_receipts = _download_cosign_receipts(
+        repo=repo,
+        run_id=run_id,
+        cosign_artifacts=cosign_artifacts,
+        destination=sign_dir,
+    )
+    sign_logs = _capture_sign_logs(
+        repo=repo,
+        run_id=run_id,
+        sign_jobs=sign_jobs,
+        destination=sign_dir,
+    )
 
     sbom_receipt_path = sbom_dir / "receipt.md"
     sign_receipt_path = sign_dir / "receipt.md"
@@ -1139,6 +1130,8 @@ def capture_github_release_evidence(
             repo=repo,
             run=run,
             sign_jobs=sign_jobs,
+            cosign_artifacts=cosign_artifacts,
+            cosign_receipts=sorted(downloaded_cosign_receipts),
             sign_logs=sign_logs,
         ),
         encoding="utf-8",
@@ -1159,9 +1152,10 @@ def capture_github_release_evidence(
         items=items,
         key="cosign_signature_receipt",
         gate="security-review-packet",
-        description="Release run produced a Cosign signing receipt for published images.",
+        description="Release run produced validated Cosign signing receipts for published images.",
         artifacts=[
             _artifact_entry(evidence_dir, sign_receipt_path),
+            *[_artifact_entry(evidence_dir, path) for path in sorted(downloaded_cosign_receipts)],
             *[_artifact_entry(evidence_dir, path) for path in sign_logs],
         ],
         notes=f"Captured from GitHub Actions run {run_id}.",
@@ -1181,6 +1175,86 @@ def capture_github_release_evidence(
             "cosign_signature_receipt": items["cosign_signature_receipt"],
         },
     }
+
+
+def _download_release_sboms(
+    *,
+    repo: str,
+    run_id: str,
+    sbom_artifacts: Mapping[str, Mapping[str, object]],
+    destination: Path,
+) -> set[Path]:
+    downloaded: set[Path] = set()
+    for image, artifact in sbom_artifacts.items():
+        artifact_name = _artifact_name(artifact)
+        _download_github_artifact(
+            repo=repo,
+            run_id=run_id,
+            artifact_name=artifact_name,
+            destination=destination,
+        )
+        image_files = sorted(
+            file for file in _files_under(destination) if f"sibyl-{image}-" in file.name
+        )
+        if not image_files:
+            msg = f"SBOM artifact download produced no files for {image}: {artifact_name}"
+            raise EvidenceFailure(msg)
+        for image_file in image_files:
+            _validate_cyclonedx_sbom(image_file, image=image)
+        downloaded.update(image_files)
+    return downloaded
+
+
+def _download_cosign_receipts(
+    *,
+    repo: str,
+    run_id: str,
+    cosign_artifacts: Mapping[str, Mapping[str, object]],
+    destination: Path,
+) -> set[Path]:
+    downloaded: set[Path] = set()
+    for image, artifact in cosign_artifacts.items():
+        artifact_name = _artifact_name(artifact)
+        _download_github_artifact(
+            repo=repo,
+            run_id=run_id,
+            artifact_name=artifact_name,
+            destination=destination,
+        )
+        image_files = sorted(
+            file
+            for file in _files_under(destination)
+            if file.name.startswith(f"{artifact_name}-") and file.suffix == ".json"
+        )
+        if not image_files:
+            msg = f"Cosign artifact download produced no files for {image}: {artifact_name}"
+            raise EvidenceFailure(msg)
+        for image_file in image_files:
+            _validate_cosign_receipt(image_file, image=image)
+        downloaded.update(image_files)
+    return downloaded
+
+
+def _capture_sign_logs(
+    *,
+    repo: str,
+    run_id: str,
+    sign_jobs: Mapping[str, Mapping[str, object]],
+    destination: Path,
+) -> list[Path]:
+    logs: list[Path] = []
+    for image, job in sign_jobs.items():
+        job_id = _job_database_id(job)
+        log_text = _gh_text_output(
+            ["run", "view", run_id, "--repo", repo, "--job", job_id, "--log"]
+        )
+        if not log_text:
+            msg = f"Cosign sign job log is empty for {image}: {job_id}"
+            raise EvidenceFailure(msg)
+        log_path = destination / f"sign-{image}.log"
+        log_path.write_text(log_text.rstrip() + "\n", encoding="utf-8")
+        logs.append(log_path)
+    return logs
 
 
 def preflight_github_release_evidence(
@@ -1233,6 +1307,9 @@ def preflight_github_release_evidence(
 
     for image in GITHUB_RELEASE_IMAGES:
         issue = _sbom_artifact_issue(artifacts, image)
+        if issue is not None:
+            issues.append(issue)
+        issue = _cosign_artifact_issue(artifacts, image)
         if issue is not None:
             issues.append(issue)
 
@@ -2632,6 +2709,37 @@ def _require_sbom_artifact(
     return artifact
 
 
+def _require_cosign_artifact(
+    artifacts: Sequence[Mapping[str, object]],
+    image: str,
+) -> Mapping[str, object]:
+    prefix = f"sibyl-{image}-"
+    matches = [
+        artifact
+        for artifact in artifacts
+        if isinstance(artifact.get("name"), str)
+        and cast(str, artifact["name"]).startswith(prefix)
+        and cast(str, artifact["name"]).endswith("-cosign")
+    ]
+    if not matches:
+        msg = f"GitHub run is missing required Cosign receipt artifact for {image}"
+        raise EvidenceFailure(msg)
+    if len(matches) > 1:
+        names = ", ".join(_artifact_name(match) for match in matches)
+        msg = f"GitHub run has ambiguous Cosign receipt artifacts for {image}: {names}"
+        raise EvidenceFailure(msg)
+
+    artifact = matches[0]
+    if artifact.get("expired") is True:
+        msg = f"GitHub Cosign receipt artifact is expired for {image}: {_artifact_name(artifact)}"
+        raise EvidenceFailure(msg)
+    size = artifact.get("size_in_bytes")
+    if not isinstance(size, int) or size <= 0:
+        msg = f"GitHub Cosign receipt artifact is empty for {image}: {_artifact_name(artifact)}"
+        raise EvidenceFailure(msg)
+    return artifact
+
+
 def _validate_cyclonedx_sbom(path: Path, *, image: str) -> None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2655,12 +2763,57 @@ def _validate_cyclonedx_sbom(path: Path, *, image: str) -> None:
         raise EvidenceFailure(msg)
 
 
+def _validate_cosign_receipt(path: Path, *, image: str) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        msg = f"Cosign receipt for {image} is not valid JSON: {path.name}"
+        raise EvidenceFailure(msg) from exc
+
+    if not isinstance(payload, dict):
+        msg = f"Cosign receipt for {image} must be a JSON object: {path.name}"
+        raise EvidenceFailure(msg)
+    if payload.get("status") != "PASS":
+        msg = f"Cosign receipt for {image} must have status PASS: {path.name}"
+        raise EvidenceFailure(msg)
+    if payload.get("image") != image:
+        msg = f"Cosign receipt image must be {image}: {path.name}"
+        raise EvidenceFailure(msg)
+
+    digest = payload.get("digest")
+    if not isinstance(digest, str) or COSIGN_DIGEST_RE.fullmatch(digest) is None:
+        msg = f"Cosign receipt for {image} must include a sha256 digest: {path.name}"
+        raise EvidenceFailure(msg)
+
+    image_ref = payload.get("image_ref")
+    image_marker = f"/sibyl-{image}@{digest}"
+    if not isinstance(image_ref, str) or image_marker not in image_ref:
+        msg = f"Cosign receipt for {image} must include the signed image ref: {path.name}"
+        raise EvidenceFailure(msg)
+
+    signer = payload.get("signer")
+    if not isinstance(signer, str) or not signer.strip():
+        msg = f"Cosign receipt for {image} must include signer metadata: {path.name}"
+        raise EvidenceFailure(msg)
+
+
 def _sbom_artifact_issue(
     artifacts: Sequence[Mapping[str, object]],
     image: str,
 ) -> str | None:
     try:
         _require_sbom_artifact(artifacts, image)
+    except EvidenceFailure as exc:
+        return str(exc)
+    return None
+
+
+def _cosign_artifact_issue(
+    artifacts: Sequence[Mapping[str, object]],
+    image: str,
+) -> str | None:
+    try:
+        _require_cosign_artifact(artifacts, image)
     except EvidenceFailure as exc:
         return str(exc)
     return None
@@ -2931,6 +3084,8 @@ def _github_cosign_receipt(
     repo: str,
     run: Mapping[str, object],
     sign_jobs: Mapping[str, Mapping[str, object]],
+    cosign_artifacts: Mapping[str, Mapping[str, object]],
+    cosign_receipts: Sequence[Path],
     sign_logs: Sequence[Path],
 ) -> str:
     lines = [
@@ -2938,7 +3093,8 @@ def _github_cosign_receipt(
         "",
         "- Gate: security-review-packet",
         "- Status: PASS",
-        "- Required proof: Release run produced a Cosign signing receipt for published images.",
+        "- Required proof: Release run produced validated Cosign signing receipts for published "
+        "images.",
         f"- Captured at: {datetime.now(UTC).isoformat()}",
         "- Captured by: enterprise_readiness_evidence.py",
         "- Runtime or environment: GitHub Actions publish workflow",
@@ -2948,12 +3104,20 @@ def _github_cosign_receipt(
         f"- Head branch: {run.get('headBranch')}",
         f"- Head sha: {run.get('headSha')}",
         f"- Created at: {run.get('createdAt')}",
-        "- Observed result: Cosign signing jobs completed and logs were captured.",
+        "- Observed result: Cosign signing jobs completed, receipt artifacts were validated, "
+        "and logs were captured.",
         "- Sign jobs:",
     ]
     for image, job in sign_jobs.items():
         lines.append(f"  - {image}: {job.get('name')} ({job.get('conclusion')})")
+    lines.append("- Cosign receipt artifacts:")
+    for image, artifact in cosign_artifacts.items():
+        lines.append(
+            f"  - {image}: {_artifact_name(artifact)} ({artifact.get('size_in_bytes')} bytes)"
+        )
     lines.extend(["- Redactions: GitHub log masking applies", "- Related artifact paths:"])
+    for path in cosign_receipts:
+        lines.append(f"  - cosign_signature_receipt/{path.name}")
     for path in sign_logs:
         lines.append(f"  - cosign_signature_receipt/{path.name}")
     return "\n".join(lines) + "\n"

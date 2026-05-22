@@ -84,6 +84,25 @@ def _cyclonedx_sbom(image: str) -> str:
     )
 
 
+def _cosign_receipt(image: str) -> str:
+    digest = "sha256:" + ("a" * 64)
+    return json.dumps(
+        {
+            "status": "PASS",
+            "signer": "github-actions-oidc-keyless",
+            "image": image,
+            "repository": f"ghcr.io/hyperb1iss/sibyl-{image}",
+            "version": "1.2.3",
+            "digest": digest,
+            "image_ref": f"ghcr.io/hyperb1iss/sibyl-{image}@{digest}",
+            "workflow_run_id": "12345",
+            "workflow_sha": "abc123",
+            "workflow_ref": "refs/tags/v1.2.3",
+            "signed_at": "2026-05-22T12:00:00+00:00",
+        }
+    )
+
+
 def test_required_evidence_covers_external_acceptance_gates() -> None:
     keys = {requirement.key for requirement in evidence.REQUIRED_EVIDENCE}
 
@@ -803,6 +822,16 @@ def test_capture_github_release_evidence_updates_manifest(
                         "name": "sibyl-web-1.2.3-sbom",
                         "size_in_bytes": 456,
                     },
+                    {
+                        "expired": False,
+                        "name": "sibyl-api-1.2.3-cosign",
+                        "size_in_bytes": 789,
+                    },
+                    {
+                        "expired": False,
+                        "name": "sibyl-web-1.2.3-cosign",
+                        "size_in_bytes": 890,
+                    },
                 ]
             }
         raise AssertionError(args)
@@ -822,10 +851,15 @@ def test_capture_github_release_evidence_updates_manifest(
         assert repo == "hyperb1iss/sibyl"
         assert run_id == "12345"
         image = artifact_name.split("-")[1]
-        destination.joinpath(f"sibyl-{image}-1.2.3.cdx.json").write_text(
-            _cyclonedx_sbom(image),
-            encoding="utf-8",
-        )
+        if artifact_name.endswith("-sbom"):
+            content = _cyclonedx_sbom(image)
+            path = destination / f"sibyl-{image}-1.2.3.cdx.json"
+        elif artifact_name.endswith("-cosign"):
+            content = _cosign_receipt(image)
+            path = destination / f"{artifact_name}-receipt.json"
+        else:
+            raise AssertionError(artifact_name)
+        path.write_text(content, encoding="utf-8")
 
     monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
     monkeypatch.setattr(evidence, "_gh_text_output", fake_gh_text_output)
@@ -843,6 +877,8 @@ def test_capture_github_release_evidence_updates_manifest(
     assert sign_item["artifacts"][0]["path"] == "cosign_signature_receipt/receipt.md"
     assert (tmp_path / "image_sbom_receipt" / "sibyl-api-1.2.3.cdx.json").is_file()
     assert (tmp_path / "image_sbom_receipt" / "sibyl-web-1.2.3.cdx.json").is_file()
+    assert (tmp_path / "cosign_signature_receipt" / "sibyl-api-1.2.3-cosign-receipt.json").is_file()
+    assert (tmp_path / "cosign_signature_receipt" / "sibyl-web-1.2.3-cosign-receipt.json").is_file()
     assert (tmp_path / "cosign_signature_receipt" / "sign-api.log").is_file()
     assert (tmp_path / "cosign_signature_receipt" / "sign-web.log").is_file()
 
@@ -897,6 +933,16 @@ def test_capture_github_release_evidence_rejects_invalid_sbom(
                         "name": "sibyl-web-1.2.3-sbom",
                         "size_in_bytes": 456,
                     },
+                    {
+                        "expired": False,
+                        "name": "sibyl-api-1.2.3-cosign",
+                        "size_in_bytes": 789,
+                    },
+                    {
+                        "expired": False,
+                        "name": "sibyl-web-1.2.3-cosign",
+                        "size_in_bytes": 890,
+                    },
                 ]
             }
         raise AssertionError(args)
@@ -909,10 +955,15 @@ def test_capture_github_release_evidence_rejects_invalid_sbom(
         destination: Path,
     ) -> None:
         image = artifact_name.split("-")[1]
-        destination.joinpath(f"sibyl-{image}-1.2.3.cdx.json").write_text(
-            "{}",
-            encoding="utf-8",
-        )
+        if artifact_name.endswith("-sbom"):
+            content = "{}"
+            path = destination / f"sibyl-{image}-1.2.3.cdx.json"
+        elif artifact_name.endswith("-cosign"):
+            content = _cosign_receipt(image)
+            path = destination / f"{artifact_name}-receipt.json"
+        else:
+            raise AssertionError(artifact_name)
+        path.write_text(content, encoding="utf-8")
 
     monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
     monkeypatch.setattr(evidence, "_download_github_artifact", fake_download_github_artifact)
@@ -921,6 +972,97 @@ def test_capture_github_release_evidence_rejects_invalid_sbom(
         evidence.capture_github_release_evidence(tmp_path, run_id="12345")
 
     assert "SBOM artifact for api must be CycloneDX JSON" in str(exc_info.value)
+
+
+def test_capture_github_release_evidence_rejects_invalid_cosign_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_gh_json_output(args: list[str]) -> dict[str, Any]:
+        if args[0:2] == ["run", "view"]:
+            return {
+                "conclusion": "success",
+                "createdAt": "2026-05-22T12:00:00Z",
+                "databaseId": 12345,
+                "headBranch": "main",
+                "headSha": "abc123",
+                "name": "Publish",
+                "url": "https://github.example/run/12345",
+                "workflowName": "Publish",
+                "jobs": [
+                    {
+                        "conclusion": "success",
+                        "databaseId": 101,
+                        "name": "◆ Docker: Security api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 102,
+                        "name": "◆ Docker: Security web",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 201,
+                        "name": "◆ Docker: Sign api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 202,
+                        "name": "◆ Docker: Sign web",
+                    },
+                ],
+            }
+        if args[0] == "api":
+            return {
+                "artifacts": [
+                    {
+                        "expired": False,
+                        "name": "sibyl-api-1.2.3-sbom",
+                        "size_in_bytes": 123,
+                    },
+                    {
+                        "expired": False,
+                        "name": "sibyl-web-1.2.3-sbom",
+                        "size_in_bytes": 456,
+                    },
+                    {
+                        "expired": False,
+                        "name": "sibyl-api-1.2.3-cosign",
+                        "size_in_bytes": 789,
+                    },
+                    {
+                        "expired": False,
+                        "name": "sibyl-web-1.2.3-cosign",
+                        "size_in_bytes": 890,
+                    },
+                ]
+            }
+        raise AssertionError(args)
+
+    def fake_download_github_artifact(
+        *,
+        repo: str,
+        run_id: str,
+        artifact_name: str,
+        destination: Path,
+    ) -> None:
+        image = artifact_name.split("-")[1]
+        if artifact_name.endswith("-sbom"):
+            content = _cyclonedx_sbom(image)
+            path = destination / f"sibyl-{image}-1.2.3.cdx.json"
+        elif artifact_name.endswith("-cosign"):
+            content = "{}"
+            path = destination / f"{artifact_name}-receipt.json"
+        else:
+            raise AssertionError(artifact_name)
+        path.write_text(content, encoding="utf-8")
+
+    monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
+    monkeypatch.setattr(evidence, "_download_github_artifact", fake_download_github_artifact)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_github_release_evidence(tmp_path, run_id="12345")
+
+    assert "Cosign receipt for api must have status PASS" in str(exc_info.value)
 
 
 def test_capture_github_release_evidence_rejects_missing_sign_job(
@@ -1008,7 +1150,9 @@ def test_preflight_github_release_evidence_reports_all_missing_requirements(
         "GitHub job ◆ Docker: Sign api must have conclusion success, got 'failure'",
         "GitHub run is missing required job: ◆ Docker: Security web",
         "GitHub run is missing required job: ◆ Docker: Sign web",
+        "GitHub run is missing required Cosign receipt artifact for api",
         "GitHub run is missing required SBOM artifact for web",
+        "GitHub run is missing required Cosign receipt artifact for web",
     ]
 
 
