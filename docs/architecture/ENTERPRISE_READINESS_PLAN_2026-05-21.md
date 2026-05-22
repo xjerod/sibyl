@@ -315,9 +315,11 @@ the realistic shape.
 
 #### Local fallback and break-glass
 
-Username/password login behind a `SIBYL_LOCAL_AUTH_ENABLED` flag (default `false` in prod, `true` in
-dev). Necessary for local development and as an emergency admin path if the IdP goes sideways during
-a security incident.
+Username/password login behind a `SIBYL_LOCAL_AUTH_ENABLED` flag defaults on for the single-user
+install path. Setup mode allows the first admin to be created; after that, public signup stays off
+unless explicitly enabled and additional users join by invitation. Enterprise SSO deployments set
+`SIBYL_LOCAL_AUTH_ENABLED=false` after the corporate OIDC provider is configured, and break-glass
+remains a separate bounded emergency path.
 
 The break-glass pattern follows the standard "emergency access account" shape
 ([Microsoft Entra guidance](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access)
@@ -650,7 +652,7 @@ in the Sibyl OSS workflow.
   `oidc.silent_refresh_enabled` (default false), `oidc.extra_providers_enabled` (default false;
   gates Google/GitHub-style non-corporate providers from being registered in the live OAuth
   registry, enforced at app startup with an exit-on-mismatch validation), `local_auth_enabled`
-  (default false).
+  (default true for the single-user install path; enterprise SSO values opt out explicitly).
 - SurrealDB schema: new tables `identity_provider` (config per provider), `user_identity`
   (`(provider, subject_key) → user_id`). Migration via the existing idempotent schema bootstrap.
 - `apps/web/src/app/login/page.tsx` — modify. Show provider buttons enumerated from the server's
@@ -672,7 +674,8 @@ pyjwt[crypto]>=2.13.0,<3  # current latest as of 2026-05-22
 argon2-cffi
 ```
 
-Enable Dependabot or equivalent security-update PRs on `authlib`/`pyjwt`/`argon2-cffi`.
+Enable Dependabot or equivalent security-update PRs on `authlib`/`pyjwt`/`argon2-cffi`. The
+reference repo uses `.github/dependabot.yml` with the `uv` ecosystem at the workspace root.
 
 **Library consolidation (in scope, part of W1):** Since Authlib is becoming a load-bearing
 dependency, reduce bespoke OAuth-shaped code where Authlib fits cleanly. This is intentionally
