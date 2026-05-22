@@ -56,6 +56,23 @@ def _api_key_allows_rest(*, scopes: list[str], method: str) -> bool:
     return _REST_WRITE_SCOPE in normalized
 
 
+def _insufficient_api_scope(*, scopes: list[str], method: str) -> HTTPException:
+    expected = "api:read or api:write" if method.upper() in _SAFE_HTTP_METHODS else "api:write"
+    actual = ", ".join(scope for scope in scopes if scope.strip()) or "none"
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": "insufficient_api_scope",
+            "message": "Request is missing required REST scope.",
+            "remediation": "Use a REST scope that matches this request.",
+            "details": {
+                "expected": expected,
+                "actual": actual,
+            },
+        },
+    )
+
+
 def _api_key_claims(auth: ApiKeyAuth, *, scopes: list[str]) -> dict[str, object]:
     claims: dict[str, object] = {
         "sub": str(auth.user_id),
@@ -115,10 +132,7 @@ async def resolve_claims(
                 if _is_rest_request(request) and not _api_key_allows_rest(
                     scopes=scopes, method=request.method
                 ):
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Insufficient API key scope",
-                    )
+                    raise _insufficient_api_scope(scopes=scopes, method=request.method)
                 api_key_claims = _api_key_claims(auth, scopes=scopes)
                 setattr(request.state, _VALIDATED_AUTH_CLAIMS_ATTR, api_key_claims)
                 return api_key_claims

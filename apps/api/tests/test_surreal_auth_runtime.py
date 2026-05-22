@@ -2858,10 +2858,19 @@ async def test_resolve_request_claims_rejects_rest_write_with_mcp_only_api_key(
     )
     monkeypatch.setattr(surreal_auth_runtime, "authenticate_api_key", AsyncMock(return_value=auth))
 
-    with pytest.raises(HTTPException, match="Insufficient API key scope") as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await surreal_auth_runtime.resolve_request_claims(request)
 
     assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == {
+        "error": "insufficient_api_scope",
+        "message": "Request is missing required REST scope.",
+        "remediation": "Use a REST scope that matches this request.",
+        "details": {
+            "expected": "api:write",
+            "actual": "mcp",
+        },
+    }
 
 
 @pytest.mark.asyncio

@@ -22,9 +22,10 @@ from sibyl_cli.auth_store import (
     set_tokens,
 )
 from sibyl_cli.client import SibylClient, SibylClientError, get_client
-from sibyl_cli.common import error, info, print_json, run_async, success
+from sibyl_cli.common import error, info, print_json, run_async, success, warn
 
 app = typer.Typer(help="Authentication and credentials")
+CLI_AUTH_SCOPE = "mcp api:read api:write"
 
 
 def _issuer_url_from_api_url(api_url: str) -> str:
@@ -129,7 +130,7 @@ def _register_oauth_client(
         "token_endpoint_auth_method": "none",
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
-        "scope": "mcp",
+        "scope": CLI_AUTH_SCOPE,
         "client_name": "sibyl-cli",
     }
 
@@ -212,7 +213,12 @@ def _start_device_flow(*, api_url: str, insecure: bool = False) -> tuple[str, st
     start_url = api_url.rstrip("/") + "/auth/device"
     resp = httpx.post(
         start_url,
-        json={"client_name": "sibyl-cli", "scope": "mcp", "interval": 5, "expires_in": 600},
+        json={
+            "client_name": "sibyl-cli",
+            "scope": CLI_AUTH_SCOPE,
+            "interval": 5,
+            "expires_in": 600,
+        },
         timeout=10,
         verify=not insecure,
     )
@@ -328,7 +334,7 @@ def _oauth_pkce_login(
                 "code_challenge": code_challenge,
                 "code_challenge_method": "S256",
                 "state": state,
-                "scope": "mcp",
+                "scope": CLI_AUTH_SCOPE,
                 "resource": resource,
             }
         )
@@ -528,6 +534,7 @@ def _login_auto(
             expires_in=tok.get("expires_in"),
             credential_scope_name=credential_scope_name,
         )
+        _warn_if_env_token_overrides_login()
         success(f"Login complete (saved credentials for {api_url})")
         return
     except _NoBrowserLoginPrinted as e:
@@ -566,6 +573,7 @@ def _login_auto(
             expires_in=tok.get("expires_in"),
             credential_scope_name=credential_scope_name,
         )
+        _warn_if_env_token_overrides_login()
         success(f"Login complete (saved credentials for {api_url})")
         return
     except _NoBrowserLoginPrinted as e:
@@ -619,7 +627,16 @@ def _login_auto(
         expires_in=tok.get("expires_in"),
         credential_scope_name=credential_scope_name,
     )
+    _warn_if_env_token_overrides_login()
     success(f"Login complete (saved credentials for {api_url})")
+
+
+def _warn_if_env_token_overrides_login() -> None:
+    if os.environ.get("SIBYL_AUTH_TOKEN", "").strip():
+        warn(
+            "SIBYL_AUTH_TOKEN is set and will override saved login credentials. "
+            "Unset it to use this login."
+        )
     return
 
 

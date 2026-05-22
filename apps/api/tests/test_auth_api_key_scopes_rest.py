@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from sibyl.api.errors import http_exception_payload
 from sibyl.auth.api_key_common import ApiKeyAuth, ApiKeyMemorySpaceAuth
 from sibyl.auth.dependencies import resolve_claims
 
@@ -47,6 +48,25 @@ async def test_api_key_rest_denies_without_api_scopes() -> None:
         with pytest.raises(HTTPException) as exc:
             await resolve_claims(request, _session=session)
         assert exc.value.status_code == 403
+        assert exc.value.detail == {
+            "error": "insufficient_api_scope",
+            "message": "Request is missing required REST scope.",
+            "remediation": "Use a REST scope that matches this request.",
+            "details": {
+                "expected": "api:read or api:write",
+                "actual": "mcp",
+            },
+        }
+        assert http_exception_payload(exc.value, "req_scope") == {
+            "error": "insufficient_api_scope",
+            "message": "Request is missing required REST scope.",
+            "request_id": "req_scope",
+            "remediation": "Use a REST scope that matches this request.",
+            "details": {
+                "expected": "api:read or api:write",
+                "actual": "mcp",
+            },
+        }
 
 
 @pytest.mark.asyncio
@@ -124,6 +144,15 @@ async def test_api_key_rest_denies_write_without_api_write() -> None:
         with pytest.raises(HTTPException) as exc:
             await resolve_claims(request, _session=session)
         assert exc.value.status_code == 403
+        assert exc.value.detail == {
+            "error": "insufficient_api_scope",
+            "message": "Request is missing required REST scope.",
+            "remediation": "Use a REST scope that matches this request.",
+            "details": {
+                "expected": "api:write",
+                "actual": "api:read",
+            },
+        }
 
 
 @pytest.mark.asyncio

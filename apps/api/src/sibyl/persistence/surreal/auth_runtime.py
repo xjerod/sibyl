@@ -14,6 +14,7 @@ from typing import Protocol, Self, cast
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
+from starlette import status
 from starlette.requests import Request
 
 from sibyl import config as config_module
@@ -97,6 +98,23 @@ def _api_key_allows_rest(*, scopes: list[str], method: str) -> bool:
     if method.upper() in _SAFE_HTTP_METHODS:
         return bool(normalized & _REST_READ_SCOPES)
     return _REST_WRITE_SCOPE in normalized
+
+
+def _insufficient_api_scope(*, scopes: list[str], method: str) -> HTTPException:
+    expected = "api:read or api:write" if method.upper() in _SAFE_HTTP_METHODS else "api:write"
+    actual = ", ".join(scope for scope in scopes if scope.strip()) or "none"
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": "insufficient_api_scope",
+            "message": "Request is missing required REST scope.",
+            "remediation": "Use a REST scope that matches this request.",
+            "details": {
+                "expected": expected,
+                "actual": actual,
+            },
+        },
+    )
 
 
 def _project_not_found_detail(project_id: object) -> str:
@@ -2287,7 +2305,7 @@ async def resolve_request_claims(request) -> SurrealRecord | None:
         if _is_rest_request(request) and not _api_key_allows_rest(
             scopes=scopes, method=request.method
         ):
-            raise HTTPException(status_code=403, detail="Insufficient API key scope")
+            raise _insufficient_api_scope(scopes=scopes, method=request.method)
         return _api_key_claim_payload(auth)
     return None
 

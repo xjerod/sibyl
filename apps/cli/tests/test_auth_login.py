@@ -58,6 +58,69 @@ def test_device_no_browser_prints_url_without_polling(
     assert "https://verify.test" in output
 
 
+def test_device_login_requests_cli_rest_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "device_code": "device-code",
+                "user_code": "USER-CODE",
+                "verification_uri": "https://verify.test",
+                "interval": 5,
+                "expires_in": 600,
+            }
+
+    def post(_url: str, **kwargs: object) -> Response:
+        payload = kwargs.get("json")
+        assert isinstance(payload, dict)
+        calls.append(payload)
+        return Response()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "post", post)
+
+    auth._start_device_flow(api_url="http://testserver/api")
+
+    assert calls[0]["scope"] == auth.CLI_AUTH_SCOPE
+
+
+def test_oauth_registration_requests_cli_rest_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class Response:
+        status_code = 201
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"client_id": "client-id"}
+
+    def post(_url: str, **kwargs: object) -> Response:
+        payload = kwargs.get("json")
+        assert isinstance(payload, dict)
+        calls.append(payload)
+        return Response()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "post", post)
+
+    auth._register_oauth_client(
+        registration_endpoint="http://testserver/register",
+        redirect_uri="http://127.0.0.1/callback",
+    )
+
+    assert calls[0]["scope"] == auth.CLI_AUTH_SCOPE
+
+
 def test_login_auto_returns_after_no_browser_url(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -79,6 +142,33 @@ def test_login_auto_returns_after_no_browser_url(
 
     output = capsys.readouterr().out
     assert "approval polling skipped" in output
+
+
+def test_login_auto_warns_when_env_token_overrides_saved_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    writes: list[dict[str, object]] = []
+
+    monkeypatch.setenv("SIBYL_AUTH_TOKEN", "sk_live_mcp_only")
+    monkeypatch.setattr(
+        auth,
+        "_login_via_device_flow",
+        lambda **_kwargs: {"access_token": "access-token", "refresh_token": "refresh-token"},
+    )
+    monkeypatch.setattr(auth, "_persist_tokens", lambda **kwargs: writes.append(kwargs))
+
+    auth._login_auto(
+        api_url="http://testserver/api",
+        no_browser=False,
+        timeout_seconds=180,
+        email=None,
+        password=None,
+    )
+
+    output = _plain(capsys.readouterr().out)
+    assert writes[0]["access_token"] == "access-token"
+    assert "SIBYL_AUTH_TOKEN is set and will override saved login credentials" in output
 
 
 def test_login_auto_oauth_preserves_access_token_expiry(
