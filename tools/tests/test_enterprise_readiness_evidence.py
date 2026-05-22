@@ -444,3 +444,134 @@ def test_capture_rendered_helm_manifests_rejects_missing_kind(
     assert "Sibyl enterprise chart rendered manifest missing required snippets" in str(
         exc_info.value
     )
+
+
+def test_capture_github_release_evidence_updates_manifest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_gh_json_output(args: list[str]) -> dict[str, Any]:
+        if args[0:2] == ["run", "view"]:
+            return {
+                "conclusion": "success",
+                "createdAt": "2026-05-22T12:00:00Z",
+                "databaseId": 12345,
+                "headBranch": "main",
+                "headSha": "abc123",
+                "name": "Publish",
+                "url": "https://github.example/run/12345",
+                "workflowName": "Publish",
+                "jobs": [
+                    {
+                        "conclusion": "success",
+                        "databaseId": 101,
+                        "name": "◆ Docker: Security api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 102,
+                        "name": "◆ Docker: Security web",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 201,
+                        "name": "◆ Docker: Sign api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 202,
+                        "name": "◆ Docker: Sign web",
+                    },
+                ],
+            }
+        if args[0] == "api":
+            return {
+                "artifacts": [
+                    {
+                        "expired": False,
+                        "name": "sibyl-api-1.2.3-sbom",
+                        "size_in_bytes": 123,
+                    },
+                    {
+                        "expired": False,
+                        "name": "sibyl-web-1.2.3-sbom",
+                        "size_in_bytes": 456,
+                    },
+                ]
+            }
+        raise AssertionError(args)
+
+    def fake_gh_text_output(args: list[str]) -> str:
+        if args[0:2] == ["run", "view"]:
+            return "cosign signing log"
+        raise AssertionError(args)
+
+    def fake_download_github_artifact(
+        *,
+        repo: str,
+        run_id: str,
+        artifact_name: str,
+        destination: Path,
+    ) -> None:
+        assert repo == "hyperb1iss/sibyl"
+        assert run_id == "12345"
+        image = artifact_name.split("-")[1]
+        destination.joinpath(f"sibyl-{image}-1.2.3.cdx.json").write_text(
+            "{}",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
+    monkeypatch.setattr(evidence, "_gh_text_output", fake_gh_text_output)
+    monkeypatch.setattr(evidence, "_download_github_artifact", fake_download_github_artifact)
+
+    receipt = evidence.capture_github_release_evidence(tmp_path, run_id="12345")
+    manifest_path = Path(str(receipt["manifest"]))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    sbom_item = payload["items"]["image_sbom_receipt"]
+    sign_item = payload["items"]["cosign_signature_receipt"]
+
+    assert sbom_item["status"] == "PASS"
+    assert sign_item["status"] == "PASS"
+    assert sbom_item["artifacts"][0]["path"] == "image_sbom_receipt/receipt.md"
+    assert sign_item["artifacts"][0]["path"] == "cosign_signature_receipt/receipt.md"
+    assert (tmp_path / "image_sbom_receipt" / "sibyl-api-1.2.3.cdx.json").is_file()
+    assert (tmp_path / "image_sbom_receipt" / "sibyl-web-1.2.3.cdx.json").is_file()
+    assert (tmp_path / "cosign_signature_receipt" / "sign-api.log").is_file()
+    assert (tmp_path / "cosign_signature_receipt" / "sign-web.log").is_file()
+
+
+def test_capture_github_release_evidence_rejects_missing_sign_job(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_gh_json_output(args: list[str]) -> dict[str, Any]:
+        if args[0:2] == ["run", "view"]:
+            return {
+                "conclusion": "success",
+                "name": "Publish",
+                "workflowName": "Publish",
+                "jobs": [
+                    {
+                        "conclusion": "success",
+                        "databaseId": 101,
+                        "name": "◆ Docker: Security api",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 102,
+                        "name": "◆ Docker: Security web",
+                    },
+                    {
+                        "conclusion": "success",
+                        "databaseId": 201,
+                        "name": "◆ Docker: Sign api",
+                    },
+                ],
+            }
+        raise AssertionError(args)
+
+    monkeypatch.setattr(evidence, "_gh_json_output", fake_gh_json_output)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_github_release_evidence(tmp_path, run_id="12345")
+
+    assert "GitHub run is missing required job: ◆ Docker: Sign web" in str(exc_info.value)

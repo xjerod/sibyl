@@ -22,6 +22,8 @@ DEFAULT_RECEIPT = DEFAULT_EVIDENCE_DIR / "receipt.json"
 SCHEMA_VERSION = "enterprise-readiness-evidence/v1"
 PACKAGE_LOCK_DEPENDENCIES = ("authlib", "pyjwt", "argon2-cffi")
 PACKAGE_LOCK_PATHS = ("apps/api/pyproject.toml", "uv.lock")
+DEFAULT_GITHUB_REPO = "hyperb1iss/sibyl"
+GITHUB_RELEASE_IMAGES = ("api", "web")
 SIBYL_HELM_RENDER_ARGS = (
     "template",
     "enterprise",
@@ -254,6 +256,38 @@ def _helm_output(args: Sequence[str]) -> str:
         msg = f"helm {' '.join(args)} failed: {details}"
         raise EvidenceFailure(msg)
     return result.stdout.strip()
+
+
+def _gh_text_output(args: Sequence[str]) -> str:
+    gh = which("gh")
+    if gh is None:
+        msg = "gh executable not found"
+        raise EvidenceFailure(msg)
+    result = subprocess.run(  # noqa: S603
+        [gh, *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = result.stderr.strip() or result.stdout.strip()
+        msg = f"gh {' '.join(args)} failed: {details}"
+        raise EvidenceFailure(msg)
+    return result.stdout.strip()
+
+
+def _gh_json_output(args: Sequence[str]) -> JsonObject:
+    output = _gh_text_output(args)
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        msg = f"gh {' '.join(args)} did not return JSON: {exc}"
+        raise EvidenceFailure(msg) from exc
+    if not isinstance(payload, dict):
+        msg = f"gh {' '.join(args)} JSON root must be an object"
+        raise EvidenceFailure(msg)
+    return payload
 
 
 def _require_item(
@@ -720,6 +754,306 @@ def capture_rendered_helm_manifests(
     }
 
 
+def capture_github_release_evidence(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    run_id: str,
+    repo: str = DEFAULT_GITHUB_REPO,
+) -> JsonObject:
+    if not run_id.strip():
+        msg = "GitHub run id is required to capture release evidence"
+        raise EvidenceFailure(msg)
+
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = evidence_dir / DEFAULT_MANIFEST.name
+    if not manifest_path.exists():
+        write_template(evidence_dir)
+    payload = _load_manifest(manifest_path)
+    items = _manifest_items(payload)
+
+    run = _gh_json_output(
+        [
+            "run",
+            "view",
+            run_id,
+            "--repo",
+            repo,
+            "--json",
+            "conclusion,createdAt,databaseId,headBranch,headSha,jobs,name,url,workflowName",
+        ]
+    )
+    _require_publish_run(run, run_id=run_id)
+
+    jobs = _run_jobs(run)
+    security_jobs = {
+        image: _require_successful_job(jobs, f"◆ Docker: Security {image}")
+        for image in GITHUB_RELEASE_IMAGES
+    }
+    sign_jobs = {
+        image: _require_successful_job(jobs, f"◆ Docker: Sign {image}")
+        for image in GITHUB_RELEASE_IMAGES
+    }
+
+    artifacts_payload = _gh_json_output(
+        ["api", f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"]
+    )
+    artifacts = _run_artifacts(artifacts_payload)
+    sbom_artifacts = {
+        image: _require_sbom_artifact(artifacts, image) for image in GITHUB_RELEASE_IMAGES
+    }
+
+    sbom_dir = evidence_dir / "image_sbom_receipt"
+    sign_dir = evidence_dir / "cosign_signature_receipt"
+    sbom_dir.mkdir(parents=True, exist_ok=True)
+    sign_dir.mkdir(parents=True, exist_ok=True)
+
+    downloaded_sboms: set[Path] = set()
+    for image, artifact in sbom_artifacts.items():
+        artifact_name = _artifact_name(artifact)
+        _download_github_artifact(
+            repo=repo,
+            run_id=run_id,
+            artifact_name=artifact_name,
+            destination=sbom_dir,
+        )
+        image_files = sorted(
+            file for file in _files_under(sbom_dir) if f"sibyl-{image}-" in file.name
+        )
+        if not image_files:
+            msg = f"SBOM artifact download produced no files for {image}: {artifact_name}"
+            raise EvidenceFailure(msg)
+        downloaded_sboms.update(image_files)
+
+    sign_logs: list[Path] = []
+    for image, job in sign_jobs.items():
+        job_id = _job_database_id(job)
+        log_text = _gh_text_output(
+            ["run", "view", run_id, "--repo", repo, "--job", job_id, "--log"]
+        )
+        if not log_text:
+            msg = f"Cosign sign job log is empty for {image}: {job_id}"
+            raise EvidenceFailure(msg)
+        log_path = sign_dir / f"sign-{image}.log"
+        log_path.write_text(log_text.rstrip() + "\n", encoding="utf-8")
+        sign_logs.append(log_path)
+
+    sbom_receipt_path = sbom_dir / "receipt.md"
+    sign_receipt_path = sign_dir / "receipt.md"
+    sbom_receipt_path.write_text(
+        _github_sbom_receipt(
+            repo=repo,
+            run=run,
+            security_jobs=security_jobs,
+            sbom_artifacts=sbom_artifacts,
+            downloaded_sboms=sorted(downloaded_sboms),
+        ),
+        encoding="utf-8",
+    )
+    sign_receipt_path.write_text(
+        _github_cosign_receipt(
+            repo=repo,
+            run=run,
+            sign_jobs=sign_jobs,
+            sign_logs=sign_logs,
+        ),
+        encoding="utf-8",
+    )
+
+    _update_manifest_item(
+        items=items,
+        key="image_sbom_receipt",
+        gate="security-review-packet",
+        description="Release run produced the image SBOM artifact.",
+        artifacts=[
+            _artifact_entry(evidence_dir, sbom_receipt_path),
+            *[_artifact_entry(evidence_dir, path) for path in sorted(downloaded_sboms)],
+        ],
+        notes=f"Captured from GitHub Actions run {run_id}.",
+    )
+    _update_manifest_item(
+        items=items,
+        key="cosign_signature_receipt",
+        gate="security-review-packet",
+        description="Release run produced a Cosign signing receipt for published images.",
+        artifacts=[
+            _artifact_entry(evidence_dir, sign_receipt_path),
+            *[_artifact_entry(evidence_dir, path) for path in sign_logs],
+        ],
+        notes=f"Captured from GitHub Actions run {run_id}.",
+    )
+    manifest_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS",
+        "captured_at": datetime.now(UTC).isoformat(),
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir.resolve()),
+        "items": {
+            "image_sbom_receipt": items["image_sbom_receipt"],
+            "cosign_signature_receipt": items["cosign_signature_receipt"],
+        },
+    }
+
+
+def _manifest_items(payload: JsonObject) -> dict[str, object]:
+    schema_version = payload.get("schema_version")
+    if schema_version != SCHEMA_VERSION:
+        msg = f"schema_version must be {SCHEMA_VERSION!r}, got {schema_version!r}"
+        raise EvidenceFailure(msg)
+
+    items = payload.get("items")
+    if not isinstance(items, dict):
+        msg = "manifest must include an items object"
+        raise EvidenceFailure(msg)
+    return cast(dict[str, object], items)
+
+
+def _require_publish_run(run: Mapping[str, object], *, run_id: str) -> None:
+    if run.get("conclusion") != "success":
+        msg = f"GitHub run {run_id} must have conclusion success, got {run.get('conclusion')!r}"
+        raise EvidenceFailure(msg)
+    workflow_name = run.get("workflowName")
+    run_name = run.get("name")
+    if workflow_name != "Publish" and run_name != "Publish":
+        msg = (
+            f"GitHub run {run_id} must be the Publish workflow, "
+            f"got workflowName={workflow_name!r}, name={run_name!r}"
+        )
+        raise EvidenceFailure(msg)
+
+
+def _run_jobs(run: Mapping[str, object]) -> list[Mapping[str, object]]:
+    jobs = run.get("jobs")
+    if not isinstance(jobs, list):
+        msg = "GitHub run payload must include a jobs list"
+        raise EvidenceFailure(msg)
+    return [cast(Mapping[str, object], job) for job in jobs if isinstance(job, dict)]
+
+
+def _require_successful_job(
+    jobs: Sequence[Mapping[str, object]],
+    name: str,
+) -> Mapping[str, object]:
+    matches = [job for job in jobs if job.get("name") == name]
+    if not matches:
+        msg = f"GitHub run is missing required job: {name}"
+        raise EvidenceFailure(msg)
+    job = matches[0]
+    if job.get("conclusion") != "success":
+        msg = f"GitHub job {name} must have conclusion success, got {job.get('conclusion')!r}"
+        raise EvidenceFailure(msg)
+    return job
+
+
+def _run_artifacts(payload: Mapping[str, object]) -> list[Mapping[str, object]]:
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, list):
+        msg = "GitHub artifacts payload must include an artifacts list"
+        raise EvidenceFailure(msg)
+    return [
+        cast(Mapping[str, object], artifact) for artifact in artifacts if isinstance(artifact, dict)
+    ]
+
+
+def _require_sbom_artifact(
+    artifacts: Sequence[Mapping[str, object]],
+    image: str,
+) -> Mapping[str, object]:
+    prefix = f"sibyl-{image}-"
+    matches = [
+        artifact
+        for artifact in artifacts
+        if isinstance(artifact.get("name"), str)
+        and cast(str, artifact["name"]).startswith(prefix)
+        and cast(str, artifact["name"]).endswith("-sbom")
+    ]
+    if not matches:
+        msg = f"GitHub run is missing required SBOM artifact for {image}"
+        raise EvidenceFailure(msg)
+    if len(matches) > 1:
+        names = ", ".join(_artifact_name(match) for match in matches)
+        msg = f"GitHub run has ambiguous SBOM artifacts for {image}: {names}"
+        raise EvidenceFailure(msg)
+
+    artifact = matches[0]
+    if artifact.get("expired") is True:
+        msg = f"GitHub SBOM artifact is expired for {image}: {_artifact_name(artifact)}"
+        raise EvidenceFailure(msg)
+    size = artifact.get("size_in_bytes")
+    if not isinstance(size, int) or size <= 0:
+        msg = f"GitHub SBOM artifact is empty for {image}: {_artifact_name(artifact)}"
+        raise EvidenceFailure(msg)
+    return artifact
+
+
+def _artifact_name(artifact: Mapping[str, object]) -> str:
+    name = artifact.get("name")
+    if not isinstance(name, str) or not name:
+        msg = "GitHub artifact is missing a name"
+        raise EvidenceFailure(msg)
+    return name
+
+
+def _job_database_id(job: Mapping[str, object]) -> str:
+    database_id = job.get("databaseId")
+    if not isinstance(database_id, int):
+        msg = f"GitHub job {job.get('name')!r} is missing databaseId"
+        raise EvidenceFailure(msg)
+    return str(database_id)
+
+
+def _download_github_artifact(
+    *,
+    repo: str,
+    run_id: str,
+    artifact_name: str,
+    destination: Path,
+) -> None:
+    _gh_text_output(
+        [
+            "run",
+            "download",
+            run_id,
+            "--repo",
+            repo,
+            "--dir",
+            str(destination),
+            "--name",
+            artifact_name,
+        ]
+    )
+
+
+def _files_under(path: Path) -> set[Path]:
+    return {file for file in path.rglob("*") if file.is_file()}
+
+
+def _update_manifest_item(
+    *,
+    items: dict[str, object],
+    key: str,
+    gate: str,
+    description: str,
+    artifacts: list[JsonObject],
+    notes: str,
+) -> None:
+    raw_item = items.get(key)
+    item = cast(JsonObject, raw_item.copy()) if isinstance(raw_item, dict) else {}
+    item.update(
+        {
+            "gate": gate,
+            "status": "PASS",
+            "description": description,
+            "artifacts": artifacts,
+            "notes": notes,
+        }
+    )
+    items[key] = item
+
+
 def _artifact_entry(evidence_dir: Path, artifact_path: Path) -> JsonObject:
     relative_path = artifact_path.relative_to(evidence_dir).as_posix()
     return {
@@ -786,6 +1120,78 @@ def _rendered_helm_receipt(
     )
     for _, artifact_path, _ in rendered_artifacts:
         lines.append(f"  - rendered_helm_manifests/{artifact_path.name}")
+    return "\n".join(lines) + "\n"
+
+
+def _github_sbom_receipt(
+    *,
+    repo: str,
+    run: Mapping[str, object],
+    security_jobs: Mapping[str, Mapping[str, object]],
+    sbom_artifacts: Mapping[str, Mapping[str, object]],
+    downloaded_sboms: Sequence[Path],
+) -> str:
+    lines = [
+        "# image_sbom_receipt",
+        "",
+        "- Gate: security-review-packet",
+        "- Status: PASS",
+        "- Required proof: Release run produced the image SBOM artifact.",
+        f"- Captured at: {datetime.now(UTC).isoformat()}",
+        "- Captured by: enterprise_readiness_evidence.py",
+        "- Runtime or environment: GitHub Actions publish workflow",
+        f"- Repository: {repo}",
+        f"- Run ID: {run.get('databaseId')}",
+        f"- Run URL: {run.get('url')}",
+        f"- Head branch: {run.get('headBranch')}",
+        f"- Head sha: {run.get('headSha')}",
+        f"- Created at: {run.get('createdAt')}",
+        "- Observed result: SBOM artifacts downloaded after successful Docker security jobs.",
+        "- Security jobs:",
+    ]
+    for image, job in security_jobs.items():
+        lines.append(f"  - {image}: {job.get('name')} ({job.get('conclusion')})")
+    lines.append("- SBOM artifacts:")
+    for image, artifact in sbom_artifacts.items():
+        lines.append(
+            f"  - {image}: {_artifact_name(artifact)} ({artifact.get('size_in_bytes')} bytes)"
+        )
+    lines.extend(["- Redactions: none", "- Related artifact paths:"])
+    for path in downloaded_sboms:
+        lines.append(f"  - image_sbom_receipt/{path.name}")
+    return "\n".join(lines) + "\n"
+
+
+def _github_cosign_receipt(
+    *,
+    repo: str,
+    run: Mapping[str, object],
+    sign_jobs: Mapping[str, Mapping[str, object]],
+    sign_logs: Sequence[Path],
+) -> str:
+    lines = [
+        "# cosign_signature_receipt",
+        "",
+        "- Gate: security-review-packet",
+        "- Status: PASS",
+        "- Required proof: Release run produced a Cosign signing receipt for published images.",
+        f"- Captured at: {datetime.now(UTC).isoformat()}",
+        "- Captured by: enterprise_readiness_evidence.py",
+        "- Runtime or environment: GitHub Actions publish workflow",
+        f"- Repository: {repo}",
+        f"- Run ID: {run.get('databaseId')}",
+        f"- Run URL: {run.get('url')}",
+        f"- Head branch: {run.get('headBranch')}",
+        f"- Head sha: {run.get('headSha')}",
+        f"- Created at: {run.get('createdAt')}",
+        "- Observed result: Cosign signing jobs completed and logs were captured.",
+        "- Sign jobs:",
+    ]
+    for image, job in sign_jobs.items():
+        lines.append(f"  - {image}: {job.get('name')} ({job.get('conclusion')})")
+    lines.extend(["- Redactions: GitHub log masking applies", "- Related artifact paths:"])
+    for path in sign_logs:
+        lines.append(f"  - cosign_signature_receipt/{path.name}")
     return "\n".join(lines) + "\n"
 
 
@@ -959,6 +1365,26 @@ def _handle_rendered_helm_capture(evidence_dir: Path | None) -> int:
     return 0
 
 
+def _handle_github_release_capture(
+    evidence_dir: Path | None,
+    *,
+    run_id: str,
+    repo: str,
+) -> int:
+    try:
+        receipt = capture_github_release_evidence(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            run_id=run_id,
+            repo=repo,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write("captured GitHub release SBOM and Cosign evidence\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -970,6 +1396,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--capture-package-lock-diff")
     parser.add_argument("--capture-rendered-helm-manifests", action="store_true")
+    parser.add_argument("--capture-github-release-evidence")
+    parser.add_argument("--github-repo", default=DEFAULT_GITHUB_REPO)
     parser.add_argument("--head-ref", default="HEAD")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
@@ -991,6 +1419,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     elif args.capture_rendered_helm_manifests:
         exit_code = _handle_rendered_helm_capture(args.evidence_dir)
+    elif args.capture_github_release_evidence is not None:
+        exit_code = _handle_github_release_capture(
+            args.evidence_dir,
+            run_id=args.capture_github_release_evidence,
+            repo=args.github_repo,
+        )
     else:
         exit_code = run_gate(
             manifest_path=args.manifest,
