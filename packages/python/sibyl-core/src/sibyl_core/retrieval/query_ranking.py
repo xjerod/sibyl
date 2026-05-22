@@ -144,6 +144,8 @@ _PREFERENCE_MIN_OVERLAP = 0.25
 _PREFERENCE_INSERT_MARGIN = 0.03
 _TEMPORAL_EVIDENCE_MIN_SIGNAL = 0.22
 _TEMPORAL_EVIDENCE_INSERT_MARGIN = 0.10
+_ARTIFACT_EVIDENCE_MIN_SIGNAL = 0.65
+_ARTIFACT_EVIDENCE_INSERT_MARGIN = 0.36
 _TEMPORAL_TARGET_WEIGHT = 0.34
 _QUERY_FRAME_WEIGHT = 0.52
 
@@ -333,6 +335,56 @@ _RECURRING_APPOINTMENT_EVIDENCE_PATTERN = re.compile(
     r"session with dr\.?|see dr\.?|appointment)\b",
     re.IGNORECASE,
 )
+_DOCTOR_VISIT_QUERY_PATTERN = re.compile(
+    r"\b(?:doctors?|dr\.?|physician|therapist|dermatologist|dentist|"
+    r"appointment|visit)\b",
+    re.IGNORECASE,
+)
+_DOCTOR_VISIT_EVIDENCE_PATTERN = re.compile(
+    r"\b(?:(?:visited|saw|went to|met with|appointment with|session with)"
+    r"[^.?!]{0,80}(?:doctor|dr\.?|physician|therapist|dermatologist|dentist|"
+    r"optometrist)|(?:doctor|dr\.?|physician|therapist|dermatologist|dentist|"
+    r"optometrist)[^.?!]{0,80}(?:appointment|visit|checkup|check-up|"
+    r"prescription))\b",
+    re.IGNORECASE,
+)
+_GENERATED_ARTIFACT_QUERY_PATTERN = re.compile(
+    r"\b(?:created?|composed|wrote|write|generated|made|drafted|built)\b",
+    re.IGNORECASE,
+)
+_GENERATED_ARTIFACT_OUTPUT_PATTERN = re.compile(
+    r"\b(?:here'?s|below is|draft|verse\s*\d*|chorus|bridge|ingredients?|"
+    r"instructions?|steps?|def |class |```)\b",
+    re.IGNORECASE,
+)
+_ARTIFACT_TYPE_TERMS = {
+    "code",
+    "email",
+    "letter",
+    "outline",
+    "plan",
+    "poem",
+    "recipe",
+    "script",
+    "song",
+    "story",
+}
+_ARTIFACT_SECTION_TERMS = {
+    "bridge",
+    "chorus",
+    "chord",
+    "class",
+    "draft",
+    "function",
+    "ingredient",
+    "instruction",
+    "intro",
+    "outro",
+    "progression",
+    "section",
+    "step",
+    "verse",
+}
 _NOSTALGIA_EVIDENCE_PATTERN = re.compile(
     r"\b(?:high school|old friends?|happy .*experiences?|debate team|"
     r"advanced placement|favorite subjects?)\b",
@@ -769,6 +821,20 @@ def _query_frame_score(
     ) and _RECURRING_APPOINTMENT_EVIDENCE_PATTERN.search(evidence_text):
         score = max(score, 0.82)
 
+    if _DOCTOR_VISIT_QUERY_PATTERN.search(query) and _DOCTOR_VISIT_EVIDENCE_PATTERN.search(
+        evidence_text
+    ):
+        score = max(score, 0.92)
+
+    artifact_score = _assistant_artifact_score(
+        query,
+        query_terms,
+        evidence_tokens,
+        evidence_text,
+    )
+    if artifact_score > 0.0:
+        score = max(score, artifact_score)
+
     if {"high", "school", "reunion", "nostalgic"} & query_terms and (
         "high" in evidence_tokens or "school" in evidence_tokens
     ) and _NOSTALGIA_EVIDENCE_PATTERN.search(evidence_text):
@@ -791,6 +857,29 @@ def _category_alias_score(query_terms: set[str], evidence_tokens: set[str]) -> f
     if relevant == 0:
         return 0.0
     return matched / relevant
+
+
+def _assistant_artifact_score(
+    query: str,
+    query_terms: set[str],
+    evidence_tokens: set[str],
+    evidence_text: str,
+) -> float:
+    artifact_type_match = bool(query_terms & _ARTIFACT_TYPE_TERMS & evidence_tokens)
+    section_match = bool(query_terms & _ARTIFACT_SECTION_TERMS & evidence_tokens)
+    generated_query = bool(_GENERATED_ARTIFACT_QUERY_PATTERN.search(query))
+    if not generated_query and not (artifact_type_match and section_match):
+        return 0.0
+    if not _GENERATED_ARTIFACT_OUTPUT_PATTERN.search(evidence_text):
+        return 0.0
+
+    if artifact_type_match and section_match:
+        return 1.0
+    if section_match:
+        return 0.86
+    if artifact_type_match and generated_query:
+        return 0.72
+    return 0.0
 
 
 def rank_by_query_coverage[T](
@@ -1036,6 +1125,8 @@ def rank_by_query_coverage[T](
         ranked = _stabilize_preference_ranking(scored)
     elif _EVIDENCE_SET_QUERY_PATTERN.search(query.lower()):
         ranked = _stabilize_evidence_set_ranking(scored)
+    elif _is_generated_artifact_query(query, query_terms):
+        ranked = _stabilize_artifact_evidence_ranking(scored)
     elif _is_temporal_instruction_query(query) and temporal_target is not None:
         ranked = _stabilize_temporal_evidence_ranking(scored)
     elif _is_temporal_instruction_query(query):
@@ -1152,6 +1243,12 @@ def _is_assistant_evidence_query(query: str) -> bool:
     return bool(_ASSISTANT_EVIDENCE_QUERY_PATTERN.search(query))
 
 
+def _is_generated_artifact_query(query: str, query_terms: set[str]) -> bool:
+    return bool(_GENERATED_ARTIFACT_QUERY_PATTERN.search(query)) and bool(
+        query_terms & (_ARTIFACT_TYPE_TERMS | _ARTIFACT_SECTION_TERMS)
+    )
+
+
 def _is_temporal_instruction_query(query: str) -> bool:
     return bool(_TEMPORAL_INSTRUCTION_QUERY_PATTERN.search(query))
 
@@ -1258,6 +1355,27 @@ def _stabilize_temporal_evidence_ranking[T](
     )
 
 
+def _stabilize_artifact_evidence_ranking[T](
+    scores: list[tuple[QueryCoverageRankedCandidate[T], int]],
+) -> list[QueryCoverageRankedCandidate[T]]:
+    ranked = _stabilize_top_window_ranking(
+        scores,
+        min_overlap=_ARTIFACT_EVIDENCE_MIN_SIGNAL,
+        insert_margin=_ARTIFACT_EVIDENCE_INSERT_MARGIN,
+    )
+    window_size = min(_EVIDENCE_SET_WINDOW, len(ranked))
+    window = sorted(
+        ranked[:window_size],
+        key=lambda item: (
+            item.overlap < _ARTIFACT_EVIDENCE_MIN_SIGNAL,
+            -item.overlap,
+            -item.score,
+            item.original_rank,
+        ),
+    )
+    return window + ranked[window_size:]
+
+
 def _stabilize_top_window_ranking[T](
     scores: list[tuple[QueryCoverageRankedCandidate[T], int]],
     *,
@@ -1273,6 +1391,23 @@ def _stabilize_top_window_ranking[T](
         ranked, _index = candidate
         if ranked.stable_id in selected_ids or ranked.overlap < min_overlap:
             continue
+
+        low_signal = [
+            item
+            for item in enumerate(selected)
+            if item[1][0].overlap < min_overlap
+        ]
+        if low_signal:
+            worst_index, worst = min(
+                low_signal,
+                key=lambda item: (item[1][0].overlap, item[1][0].score, -item[1][1]),
+            )
+            worst_ranked, _worst_original_index = worst
+            if ranked.score + insert_margin >= worst_ranked.score:
+                selected[worst_index] = candidate
+                selected_ids.remove(worst_ranked.stable_id)
+                selected_ids.add(ranked.stable_id)
+                continue
 
         worst_index, worst = min(
             enumerate(selected),

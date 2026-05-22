@@ -371,6 +371,45 @@ def test_query_coverage_keeps_specific_social_activity_evidence() -> None:
     assert {"1", "2"} <= set(ranked[:5])
 
 
+def test_query_coverage_promotes_assistant_created_artifact_sections() -> None:
+    ranked = _rank_query_ids(
+        "Can you remind me what the chord progression was for the chorus "
+        "in the second sad song you created?",
+        [
+            "User: I asked about guitar practice. Assistant: Here are some music "
+            "theory resources about chord progressions.",
+            "User: I asked about classic rock lyrics. Assistant: Stairway to Heaven "
+            "has famous lyrics and a long structure.",
+            "User: I asked about jewelry cleaning. Assistant: Here are some "
+            "cleaning tips for a bracelet.",
+            "User: I asked for piano exercises. Assistant: Practice common chord "
+            "progressions slowly.",
+            "User: Create two sad songs with notes. Assistant: Here's a sad song "
+            "with notes for you. Verse 1: C D E E E D C C. Chorus: G G G G A "
+            "G F. Here's another sad song. Verse 1: A B C C. Chorus: Am F C G.",
+        ],
+    )
+
+    assert ranked[0] == "4"
+
+
+def test_query_coverage_completes_evidence_sets_over_low_signal_distractors() -> None:
+    ranked = _rank_query_ids(
+        "How many different doctors did I visit?",
+        [
+            "User: I organized a weekly calendar for household chores.",
+            "User: I watched a science fiction show with a doctor character.",
+            "User: I compared health insurance websites.",
+            "User: I visited Dr. Smith for a therapy appointment.",
+            "User: I read an article about hospital architecture.",
+            "User: I saw my dermatologist for a skin check.",
+            "User: I went to the eye doctor for a new prescription.",
+        ],
+    )
+
+    assert {"3", "5", "6"} <= set(ranked[:5])
+
+
 def _rank_query_ids(query: str, texts: list[str]) -> list[str]:
     result = rank_by_query_coverage(
         query,
