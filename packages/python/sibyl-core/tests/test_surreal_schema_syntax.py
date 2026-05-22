@@ -110,6 +110,22 @@ def test_auth_schema_includes_oidc_identity_tables() -> None:
     assert "idx_user_identity_provider_subject" in AUTH_SCHEMA_DEFINITIONS
 
 
+def test_auth_and_content_schema_include_deletion_lifecycle_fields() -> None:
+    assert "DEFINE FIELD IF NOT EXISTS deleted_at ON users TYPE option<datetime>" in (
+        AUTH_SCHEMA_DEFINITIONS
+    )
+    assert "DEFINE FIELD IF NOT EXISTS purge_after ON users TYPE option<datetime>" in (
+        AUTH_SCHEMA_DEFINITIONS
+    )
+    assert "DEFINE FIELD IF NOT EXISTS deleted_at ON raw_captures TYPE option<datetime>" in (
+        CONTENT_SCHEMA_DEFINITIONS
+    )
+    assert "DEFINE FIELD IF NOT EXISTS purge_after ON raw_captures TYPE option<datetime>" in (
+        CONTENT_SCHEMA_DEFINITIONS
+    )
+    assert "idx_raw_captures_purge_after" in CONTENT_SCHEMA_DEFINITIONS
+
+
 def test_fulltext_indexes_render_with_embedded_search_syntax() -> None:
     rendered = render_fulltext_compatible_sql(CONTENT_SCHEMA_DEFINITIONS, url="memory://")
 

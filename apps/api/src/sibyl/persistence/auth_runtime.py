@@ -79,6 +79,7 @@ __all__ += [
     "login_oidc_identity",
     "patch_auth_user",
     "remove_oauth_connection",
+    "request_user_deletion",
     "request_password_reset",
     "resolve_accessible_project_graph_ids",
     "resolve_auth_context",
@@ -518,6 +519,10 @@ async def revoke_user_session(
         user_id=user_id,
         session_id=session_id,
     )
+
+
+async def request_user_deletion(**kwargs: object):
+    return await _call_runtime_helper("request_user_deletion", **kwargs)
 
 
 async def request_password_reset(email: str) -> None:

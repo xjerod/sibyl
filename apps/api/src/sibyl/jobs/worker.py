@@ -35,6 +35,7 @@ from sibyl.jobs.entities import (
     update_task,
 )
 from sibyl.jobs.memory_extraction import extract_memory_entities
+from sibyl.jobs.privacy import purge_due_deleted_personal_memories
 from sibyl.jobs.reflection import run_reflection_dream_cycle, run_reflection_dream_cycle_all_orgs
 from sibyl.jobs.source_imports import import_source_archive
 from sibyl_core.observability import elapsed_ms, telemetry_registry
@@ -216,6 +217,15 @@ def get_schedule_specs() -> list[ScheduleSpec]:
             minute=30,
         )
     )
+    schedule_specs.append(
+        ScheduleSpec(
+            name="purge_due_deleted_personal_memories",
+            function=purge_due_deleted_personal_memories,
+            schedule_label="0 4 * * *",
+            hour=4,
+            minute=0,
+        )
+    )
 
     return schedule_specs
 
@@ -255,6 +265,7 @@ class WorkerSettings:
         consolidate_org,
         consolidate_all_orgs,
         priority_decay,
+        purge_due_deleted_personal_memories,
         run_reflection_dream_cycle,
         run_reflection_dream_cycle_all_orgs,
     ]

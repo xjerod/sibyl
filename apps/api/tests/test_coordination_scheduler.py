@@ -21,6 +21,15 @@ def test_get_schedule_specs_does_not_log_registered_jobs(monkeypatch) -> None:
     assert all(call.args[:1] != ("cron_job_registered",) for call in info.call_args_list)
 
 
+def test_privacy_purge_job_is_scheduled_and_registered() -> None:
+    spec_names = {spec.name for spec in worker_module.get_schedule_specs()}
+
+    assert "purge_due_deleted_personal_memories" in spec_names
+    assert worker_module.purge_due_deleted_personal_memories in (
+        worker_module.WorkerSettings.functions
+    )
+
+
 @pytest.mark.asyncio
 async def test_local_scheduler_logs_registered_jobs_on_startup(monkeypatch) -> None:
     log_schedule_specs = MagicMock()

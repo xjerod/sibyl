@@ -14,6 +14,7 @@ class RuntimeExport(Protocol):
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
+    from datetime import datetime
     from uuid import UUID
 
     from sibyl.persistence.content_common import (
@@ -234,6 +235,17 @@ if TYPE_CHECKING:
             review_state: str,
         ) -> Awaitable[RawCaptureRecord | None]: ...
 
+    class SoftDeletePrivateRawCapturesForUser(Protocol):
+        def __call__(
+            self,
+            *,
+            user_id: UUID | str,
+            purge_after: datetime,
+        ) -> Awaitable[int]: ...
+
+    class PurgeDueDeletedRawCaptures(Protocol):
+        def __call__(self, *, now: datetime | None = None) -> Awaitable[int]: ...
+
     class GetApiIdempotencyRecord(Protocol):
         def __call__(
             self,
@@ -339,6 +351,8 @@ if TYPE_CHECKING:
     save_api_idempotency_record: SaveApiIdempotencyRecord
     search_code_example_chunks: SearchCodeExampleChunks
     search_rag_chunks: SearchRAGChunks
+    soft_delete_private_raw_captures_for_user: SoftDeletePrivateRawCapturesForUser
+    purge_due_deleted_raw_captures: PurgeDueDeletedRawCaptures
     update_raw_capture_review_state: UpdateRawCaptureReviewState
 
 _BACKEND_MODULE = "sibyl.persistence.surreal.content"
@@ -379,6 +393,8 @@ _BACKEND_EXPORTS = [
     "save_api_idempotency_record",
     "search_code_example_chunks",
     "search_rag_chunks",
+    "soft_delete_private_raw_captures_for_user",
+    "purge_due_deleted_raw_captures",
     "update_raw_capture_review_state",
 ]
 
@@ -420,6 +436,8 @@ __all__ = [
     "save_api_idempotency_record",
     "search_code_example_chunks",
     "search_rag_chunks",
+    "soft_delete_private_raw_captures_for_user",
+    "purge_due_deleted_raw_captures",
     "update_raw_capture_review_state",
 ]
 

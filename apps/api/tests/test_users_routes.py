@@ -236,3 +236,35 @@ async def test_revoke_all_sessions_returns_revoked_count(
         user_id=auth.user.id,
         exclude_token_hash=hashlib.sha256(b"keep-token").hexdigest(),
     )
+
+
+@pytest.mark.asyncio
+async def test_delete_current_user_schedules_deletion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _auth()
+    auth.organization = SimpleNamespace(id=uuid4())
+    purge_after = datetime.now(UTC).replace(tzinfo=None)
+    request_deletion = AsyncMock(
+        return_value=SimpleNamespace(
+            purge_after=purge_after,
+            private_memories_scheduled=3,
+            api_keys_revoked=1,
+            sessions_revoked=2,
+        )
+    )
+    request = SimpleNamespace(headers={}, cookies={})
+    monkeypatch.setattr(user_routes, "request_user_deletion", request_deletion)
+
+    response = await user_routes.delete_current_user(request=request, auth=auth)
+
+    request_deletion.assert_awaited_once_with(
+        user_id=auth.user.id,
+        organization_id=auth.organization.id,
+        request=request,
+    )
+    assert response.status == "scheduled"
+    assert response.purge_after is purge_after
+    assert response.private_memories_scheduled == 3
+    assert response.api_keys_revoked == 1
+    assert response.sessions_revoked == 2

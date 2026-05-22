@@ -1402,6 +1402,72 @@ async def update_raw_capture_review_state(
     return _raw_capture_from_record(rows[0]) if rows else None
 
 
+async def soft_delete_private_raw_captures_for_user(
+    *,
+    user_id: UUID | str,
+    purge_after: datetime,
+) -> int:
+    user_id_str = str(user_id)
+    deleted_at = _utcnow()
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            """
+                SELECT * FROM raw_captures
+                WHERE principal_id = $user_id
+                    AND memory_scope = 'private'
+                    AND deleted_at = NONE;
+            """,
+            user_id=user_id_str,
+        )
+        count = 0
+        for row in rows:
+            capture_id = _coerce_uuid(row.get("uuid"), field_name="raw_captures.uuid")
+            metadata = _coerce_dict(row.get("metadata") or row.get("metadata_"))
+            metadata.update(
+                {
+                    "review_state": "deleted",
+                    "lifecycle_state": "deleted",
+                    "deletion_requested_at": deleted_at.isoformat(),
+                    "purge_after": purge_after.isoformat(),
+                    "deleted_by_user_id": user_id_str,
+                }
+            )
+            updated = await _select_many(
+                client,
+                """
+                    UPDATE raw_captures
+                    SET metadata = $metadata,
+                        review_state = 'deleted',
+                        deleted_at = $deleted_at,
+                        purge_after = $purge_after
+                    WHERE uuid = $capture_id;
+                """,
+                capture_id=str(capture_id),
+                metadata=metadata,
+                deleted_at=deleted_at,
+                purge_after=purge_after,
+            )
+            count += 1 if updated else 0
+    return count
+
+
+async def purge_due_deleted_raw_captures(*, now: datetime | None = None) -> int:
+    cutoff = now or _utcnow()
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            """
+                DELETE FROM raw_captures
+                WHERE review_state = 'deleted'
+                    AND purge_after != NONE
+                    AND purge_after <= $now;
+            """,
+            now=cutoff,
+        )
+    return len(rows)
+
+
 async def get_api_idempotency_record(
     _session: object,
     *,

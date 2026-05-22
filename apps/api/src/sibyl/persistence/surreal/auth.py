@@ -265,17 +265,18 @@ class SurrealUserRepository(_SurrealAuthRepository):
 
     async def get_by_id(self, user_id: UUID) -> AuthUser | None:
         record = await self._select_one(
-            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;", uuid=str(user_id)
+            "SELECT * FROM users WHERE uuid = $uuid AND deleted_at = NONE LIMIT 1;",
+            uuid=str(user_id),
         )
         return _user_from_record(record) if record is not None else None
 
     async def has_any_users(self) -> bool:
-        record = await self._select_one("SELECT * FROM users LIMIT 1;")
+        record = await self._select_one("SELECT * FROM users WHERE deleted_at = NONE LIMIT 1;")
         return record is not None
 
     async def get_by_github_id(self, github_id: int) -> AuthUser | None:
         record = await self._select_one(
-            "SELECT * FROM users WHERE github_id = $github_id LIMIT 1;",
+            "SELECT * FROM users WHERE github_id = $github_id AND deleted_at = NONE LIMIT 1;",
             github_id=github_id,
         )
         return _user_from_record(record) if record is not None else None
@@ -285,7 +286,7 @@ class SurrealUserRepository(_SurrealAuthRepository):
         if not normalized:
             return None
         record = await self._select_one(
-            "SELECT * FROM users WHERE email = $email LIMIT 1;",
+            "SELECT * FROM users WHERE email = $email AND deleted_at = NONE LIMIT 1;",
             email=normalized,
         )
         return _user_from_record(record) if record is not None else None
@@ -297,6 +298,8 @@ class SurrealUserRepository(_SurrealAuthRepository):
             "SELECT * FROM users WHERE github_id = $github_id LIMIT 1;",
             github_id=identity.github_id,
         )
+        if existing is not None and existing.get("deleted_at") is not None:
+            raise ValueError("User is scheduled for deletion")
         now = _utcnow()
         if existing is None:
             record = {
@@ -370,7 +373,7 @@ class SurrealUserRepository(_SurrealAuthRepository):
 
     async def authenticate_local(self, *, email: str, password: str) -> AuthUser | None:
         record = await self._select_one(
-            "SELECT * FROM users WHERE email = $email LIMIT 1;",
+            "SELECT * FROM users WHERE email = $email AND deleted_at = NONE LIMIT 1;",
             email=email.strip().lower(),
         )
         if record is None:
@@ -741,7 +744,11 @@ class SurrealAuthContextResolver(RepositoryAuthContextResolver):
         if organization_id is None:
             query = """
                 RETURN {
-                    user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                    user: (
+                        SELECT * FROM users
+                        WHERE uuid = $user_id AND deleted_at = NONE
+                        LIMIT 1
+                    )[0],
                     organization: NONE,
                     membership: NONE,
                 };
@@ -750,7 +757,11 @@ class SurrealAuthContextResolver(RepositoryAuthContextResolver):
             params["organization_id"] = str(organization_id)
             query = """
                 RETURN {
-                    user: (SELECT * FROM users WHERE uuid = $user_id LIMIT 1)[0],
+                    user: (
+                        SELECT * FROM users
+                        WHERE uuid = $user_id AND deleted_at = NONE
+                        LIMIT 1
+                    )[0],
                     organization: (
                         SELECT * FROM organizations WHERE uuid = $organization_id LIMIT 1
                     )[0],

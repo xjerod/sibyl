@@ -47,6 +47,8 @@ DEFINE FIELD IF NOT EXISTS timezone ON users TYPE string DEFAULT 'UTC';
 DEFINE FIELD IF NOT EXISTS avatar_url ON users TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS email_verified_at ON users TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS last_login_at ON users TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS deleted_at ON users TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS purge_after ON users TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS preferences ON users TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS password_salt ON users TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS password_hash ON users TYPE option<string>;
@@ -58,6 +60,7 @@ DEFINE FIELD IF NOT EXISTS updated_at ON users TYPE datetime DEFAULT time::now()
 DEFINE INDEX IF NOT EXISTS idx_users_uuid ON users FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_users_email ON users FIELDS email UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_users_github_id ON users FIELDS github_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_users_purge_after ON users FIELDS purge_after;
 
 DEFINE TABLE IF NOT EXISTS identity_provider SCHEMAFULL;
 ALTER TABLE IF EXISTS identity_provider SCHEMAFULL;

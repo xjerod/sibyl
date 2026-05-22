@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -39,10 +40,12 @@ from sibyl.persistence.surreal.content import (
     delete_crawl_source_record,
     delete_crawled_document_record,
     get_link_graph_status_payload,
+    purge_due_deleted_raw_captures,
     save_api_idempotency_record,
     save_crawl_source_record,
     save_crawled_document_record,
     save_raw_capture_record,
+    soft_delete_private_raw_captures_for_user,
     update_raw_capture_review_state,
 )
 from sibyl.persistence.surreal.system_settings import (
@@ -167,6 +170,73 @@ async def test_api_idempotency_record_round_trips_through_surreal(
     assert "UPSERT api_idempotency_records CONTENT $record WHERE uuid = $uuid" in query
     assert params["uuid"] == str(record.id)
     assert params["record"]["response_body"] == {"id": "episode_123"}
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_private_raw_captures_marks_purge_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid4()
+    capture_id = uuid4()
+    purge_after = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=30)
+    client = _SequencedContentClient(
+        [
+            [
+                {
+                    "uuid": str(capture_id),
+                    "principal_id": str(user_id),
+                    "memory_scope": "private",
+                    "metadata": {"existing": "yes"},
+                }
+            ],
+            [{"uuid": str(capture_id)}],
+        ]
+    )
+
+    @asynccontextmanager
+    async def client_scope():
+        yield client
+
+    monkeypatch.setattr(surreal_content, "surreal_content_client", client_scope)
+
+    count = await soft_delete_private_raw_captures_for_user(
+        user_id=user_id,
+        purge_after=purge_after,
+    )
+
+    assert count == 1
+    select_query, select_params = client.calls[0]
+    update_query, update_params = client.calls[1]
+    assert "principal_id = $user_id" in select_query
+    assert "memory_scope = 'private'" in select_query
+    assert select_params["user_id"] == str(user_id)
+    assert "review_state = 'deleted'" in update_query
+    assert update_params["metadata"]["existing"] == "yes"
+    assert update_params["metadata"]["review_state"] == "deleted"
+    assert update_params["metadata"]["deleted_by_user_id"] == str(user_id)
+    assert update_params["purge_after"] == purge_after
+
+
+@pytest.mark.asyncio
+async def test_purge_due_deleted_raw_captures_deletes_due_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    client = _SequencedContentClient([[{"uuid": str(uuid4())}, {"uuid": str(uuid4())}]])
+
+    @asynccontextmanager
+    async def client_scope():
+        yield client
+
+    monkeypatch.setattr(surreal_content, "surreal_content_client", client_scope)
+
+    purged = await purge_due_deleted_raw_captures(now=now)
+
+    assert purged == 2
+    query, params = client.calls[0]
+    assert "DELETE FROM raw_captures" in query
+    assert "purge_after <= $now" in query
+    assert params["now"] == now
 
 
 @pytest.mark.asyncio

@@ -162,6 +162,7 @@ def test_surreal_auth_runtime_exports_neutral_surface() -> None:
     assert "validate_access_session" in surreal_auth_runtime.__all__
     assert "load_oauth_client_registration" in surreal_auth_runtime.__all__
     assert "save_oauth_client_registration" in surreal_auth_runtime.__all__
+    assert "request_user_deletion" in surreal_auth_runtime.__all__
 
 
 def test_coerce_datetime_normalizes_aware_datetime_instances() -> None:
@@ -705,6 +706,79 @@ async def test_log_memory_audit_event_records_bounded_receipt(
     assert payload["details"]["long"] == "x" * 500
     assert payload["details"]["wide"]["truncated"] == 5
     assert isinstance(payload["details"]["nested"]["a"]["b"], str)
+
+
+@pytest.mark.asyncio
+async def test_request_user_deletion_schedules_private_memory_purge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _auth_session(organization_id=uuid4())
+    user_id = session.user_id
+    organization_id = session.organization_id
+    now = datetime.now(UTC).replace(tzinfo=None)
+    user_record = {
+        "uuid": str(user_id),
+        "email": "nova@example.com",
+        "name": "Nova",
+        "created_at": now,
+        "updated_at": now,
+    }
+    client = _SequenceAuthClient(
+        [
+            [user_record],
+            [user_record],
+            [{**user_record, "deleted_at": now}],
+            [{"uuid": str(uuid4())}],
+            [{"uuid": str(session.id)}, {"uuid": str(uuid4())}],
+            [],
+            [],
+        ]
+    )
+    soft_delete = AsyncMock(return_value=4)
+    access_session_cache.store_session(session)
+
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "_auth_client_scope",
+        lambda: _StaticAuthClientScope(client),
+    )
+    monkeypatch.setattr(
+        surreal_auth_runtime,
+        "soft_delete_private_raw_captures_for_user",
+        soft_delete,
+    )
+
+    result = await surreal_auth_runtime.request_user_deletion(
+        user_id=user_id,
+        organization_id=organization_id,
+        request=None,
+    )
+
+    assert result.user_id == user_id
+    assert result.private_memories_scheduled == 4
+    assert result.api_keys_revoked == 1
+    assert result.sessions_revoked == 2
+    assert result.purge_after > now + timedelta(days=29)
+    assert access_session_cache.get(session.id) is None
+    soft_delete.assert_awaited_once()
+    assert soft_delete.await_args.kwargs["user_id"] == user_id
+    assert soft_delete.await_args.kwargs["purge_after"] == result.purge_after
+
+    queries = [query for query, _params in client.calls]
+    assert any("UPSERT users CONTENT $record" in query for query in queries)
+    assert any("UPDATE api_keys" in query for query in queries)
+    assert any("UPDATE user_sessions" in query for query in queries)
+    audit_records = [
+        params["record"]
+        for query, params in client.calls
+        if query == "CREATE audit_logs CONTENT $record;"
+    ]
+    assert [record["action"] for record in audit_records] == [
+        "auth.user.delete_requested",
+        "memory.delete.personal_scheduled",
+    ]
+    assert audit_records[0]["details"]["private_memories_scheduled"] == 4
+    assert audit_records[1]["details"]["memory_scope"] == "private"
 
 
 @pytest.mark.asyncio

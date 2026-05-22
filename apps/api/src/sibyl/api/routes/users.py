@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import structlog
@@ -14,12 +14,14 @@ from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context
 from sibyl.auth.http import select_access_token
 from sibyl.persistence.auth_runtime import (
+    UserNotFoundError,
     confirm_password_reset as confirm_password_reset_token,
     list_oauth_connections,
     list_user_sessions,
     patch_auth_user,
     remove_oauth_connection,
     request_password_reset as request_password_reset_token,
+    request_user_deletion,
     revoke_all_user_sessions,
     revoke_user_session,
     update_auth_user,
@@ -117,6 +119,16 @@ class OAuthConnectionResponse(BaseModel):
     provider_user_id: str
     provider_email: str | None
     connected_at: datetime
+
+
+class UserDeletionResponse(BaseModel):
+    """User deletion scheduling response."""
+
+    status: Literal["scheduled"] = "scheduled"
+    purge_after: datetime
+    private_memories_scheduled: int
+    api_keys_revoked: int
+    sessions_revoked: int
 
 
 # ============================================================================
@@ -360,4 +372,36 @@ async def remove_connection(
         "oauth_connection_removed",
         user_id=str(auth.user.id),
         provider=connection.provider,
+    )
+
+
+@router.delete(
+    "/me",
+    response_model=UserDeletionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def delete_current_user(
+    request: Request,
+    auth: AuthContext = Depends(get_auth_context),
+) -> UserDeletionResponse:
+    """Schedule current user deletion and personal-memory purge."""
+    try:
+        result = await request_user_deletion(
+            user_id=auth.user.id,
+            organization_id=auth.organization.id if auth.organization else None,
+            request=request,
+        )
+    except UserNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="User not found") from exc
+
+    log.info(
+        "user_deletion_scheduled",
+        user_id=str(auth.user.id),
+        purge_after=result.purge_after.isoformat(),
+    )
+    return UserDeletionResponse(
+        purge_after=result.purge_after,
+        private_memories_scheduled=result.private_memories_scheduled,
+        api_keys_revoked=result.api_keys_revoked,
+        sessions_revoked=result.sessions_revoked,
     )

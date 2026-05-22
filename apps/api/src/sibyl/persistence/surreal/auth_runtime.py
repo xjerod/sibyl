@@ -43,6 +43,8 @@ from sibyl.auth.primitives import (
 )
 from sibyl.auth.session_cache import access_session_cache
 from sibyl.email import PasswordResetEmail, get_email_client
+from sibyl.persistence.auth_common import UserNotFoundError
+from sibyl.persistence.content_runtime import soft_delete_private_raw_captures_for_user
 from sibyl.persistence.surreal.auth import (
     SurrealAuthContextResolver,
     SurrealOrganizationMembershipRepository,
@@ -73,7 +75,14 @@ _PROJECT_ROLE_LEVELS: dict[ProjectRole, int] = {
     ProjectRole.OWNER: 40,
 }
 _USER_UUID_FIELDS = {"id", "github_id", "created_by_user_id", "accepted_by_user_id"}
-_USER_DATETIME_FIELDS = {"created_at", "updated_at", "email_verified_at", "last_login_at"}
+_USER_DATETIME_FIELDS = {
+    "created_at",
+    "updated_at",
+    "email_verified_at",
+    "last_login_at",
+    "deleted_at",
+    "purge_after",
+}
 _SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _REST_READ_SCOPES = frozenset({"api:read", "api:write"})
 _REST_WRITE_SCOPE = "api:write"
@@ -207,6 +216,15 @@ class RefreshRotation:
     refresh_expires: datetime
     user_id: UUID
     organization_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class UserDeletionRequestResult:
+    user_id: UUID
+    purge_after: datetime
+    private_memories_scheduled: int
+    api_keys_revoked: int
+    sessions_revoked: int
 
 
 def _utcnow() -> datetime:
@@ -1324,7 +1342,7 @@ async def authenticate_local_user(*, email: str, password: str):
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
         record = await repo.select_one(
-            "SELECT * FROM users WHERE email = $email LIMIT 1;",
+            "SELECT * FROM users WHERE email = $email AND deleted_at = NONE LIMIT 1;",
             email=email.strip().lower(),
         )
         if record is None:
@@ -1349,7 +1367,7 @@ async def get_user_by_id(user_id: UUID):
     async with _auth_client_scope() as client:
         repo = _SurrealRepository(client)
         record = await repo.select_one(
-            "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;",
+            "SELECT * FROM users WHERE uuid = $uuid AND deleted_at = NONE LIMIT 1;",
             uuid=str(user_id),
         )
         return _auth_user_namespace(record)
@@ -1606,7 +1624,7 @@ async def _safe_oidc_email(
         return None
     repo = _SurrealRepository(client)
     owner = await repo.select_one(
-        "SELECT uuid FROM users WHERE email = $email LIMIT 1;",
+        "SELECT uuid FROM users WHERE email = $email AND deleted_at = NONE LIMIT 1;",
         email=normalized,
     )
     if owner is None:
@@ -1779,6 +1797,9 @@ async def login_oidc_identity(
                 "SELECT * FROM users WHERE uuid = $uuid LIMIT 1;",
                 uuid=str(user_id),
             )
+            if user_record is not None and user_record.get("deleted_at") is not None:
+                msg = "User is scheduled for deletion"
+                raise ValueError(msg)
 
         safe_email = await _safe_oidc_email(client, email=email, user_id=user_id)
         display_name = name.strip() or safe_email or subject
@@ -2663,6 +2684,106 @@ async def log_memory_audit_event(
             request=request,
             details=payload,
         )
+
+
+async def request_user_deletion(
+    *,
+    user_id: UUID,
+    organization_id: UUID | None,
+    request: Request | None,
+) -> UserDeletionRequestResult:
+    now = _utcnow()
+    purge_after = now + timedelta(days=30)
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        user_record = await repo.select_one(
+            "SELECT * FROM users WHERE uuid = $user_id AND deleted_at = NONE LIMIT 1;",
+            user_id=str(user_id),
+        )
+        if user_record is None:
+            msg = f"User not found: {user_id}"
+            raise UserNotFoundError(msg)
+
+    private_memories_scheduled = await soft_delete_private_raw_captures_for_user(
+        user_id=user_id,
+        purge_after=purge_after,
+    )
+
+    async with _auth_client_scope() as client:
+        repo = _SurrealRepository(client)
+        user_record = await repo.select_one(
+            "SELECT * FROM users WHERE uuid = $user_id AND deleted_at = NONE LIMIT 1;",
+            user_id=str(user_id),
+        )
+        if user_record is None:
+            msg = f"User not found: {user_id}"
+            raise UserNotFoundError(msg)
+
+        updated_user = {
+            **user_record,
+            "deleted_at": now,
+            "purge_after": purge_after,
+            "updated_at": now,
+        }
+        await repo.replace_record("users", uuid=user_id, record=updated_user)
+        api_key_rows = await repo.select_many(
+            """
+                UPDATE api_keys
+                SET revoked_at = $now,
+                    updated_at = $now
+                WHERE user_id = $user_id
+                    AND revoked_at = NONE;
+            """,
+            user_id=str(user_id),
+            now=now,
+        )
+        session_rows = await repo.select_many(
+            """
+                UPDATE user_sessions
+                SET revoked_at = $now,
+                    updated_at = $now
+                WHERE user_id = $user_id
+                    AND revoked_at = NONE;
+            """,
+            user_id=str(user_id),
+            now=now,
+        )
+        access_session_cache.invalidate_user(user_id)
+        await _log_audit_event(
+            client,
+            action="auth.user.delete_requested",
+            user_id=user_id,
+            organization_id=organization_id,
+            request=request,
+            details={
+                "purge_after": purge_after.isoformat(),
+                "private_memories_scheduled": private_memories_scheduled,
+                "api_keys_revoked": len(api_key_rows),
+                "sessions_revoked": len(session_rows),
+            },
+        )
+
+    await log_memory_audit_event(
+        action="memory.delete.personal_scheduled",
+        user_id=user_id,
+        organization_id=organization_id,
+        request=request,
+        memory_scope="private",
+        scope_key=str(user_id),
+        policy_allowed=True,
+        policy_reason="user_deletion_requested",
+        details={
+            "purge_after": purge_after.isoformat(),
+            "private_memories_scheduled": private_memories_scheduled,
+        },
+    )
+    return UserDeletionRequestResult(
+        user_id=user_id,
+        purge_after=purge_after,
+        private_memories_scheduled=private_memories_scheduled,
+        api_keys_revoked=len(api_key_rows),
+        sessions_revoked=len(session_rows),
+    )
 
 
 def _memory_audit_details(row: Mapping[str, object]) -> Mapping[str, object]:
@@ -3759,12 +3880,16 @@ async def request_password_reset(email: str) -> None:
         payload = await client.execute_query(
             """
                 RETURN {
-                    user: (SELECT * FROM users WHERE email = $email LIMIT 1)[0],
+                    user: (
+                        SELECT * FROM users
+                        WHERE email = $email AND deleted_at = NONE
+                        LIMIT 1
+                    )[0],
                     tokens: (
                         SELECT * FROM password_reset_tokens
                         WHERE user_id IN (
                             SELECT VALUE uuid FROM users
-                            WHERE email = $email
+                            WHERE email = $email AND deleted_at = NONE
                             LIMIT 1
                         )
                         ORDER BY created_at DESC
@@ -4288,6 +4413,7 @@ __all__ = [
     "SurrealOrganizationRepository",
     "SurrealSessionRepository",
     "SurrealUserRepository",
+    "UserDeletionRequestResult",
     "UserRepository",
     "approve_device_authorization",
     "authenticate_api_key",
@@ -4329,6 +4455,7 @@ __all__ = [
     "login_oidc_identity",
     "patch_auth_user",
     "remove_oauth_connection",
+    "request_user_deletion",
     "request_password_reset",
     "resolve_accessible_project_graph_ids",
     "resolve_auth_context",

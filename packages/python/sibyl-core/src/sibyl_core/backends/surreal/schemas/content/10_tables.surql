@@ -110,6 +110,8 @@ DEFINE FIELD IF NOT EXISTS provenance ON raw_captures TYPE object FLEXIBLE DEFAU
 DEFINE FIELD IF NOT EXISTS capture_surface ON raw_captures TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_by_user_id ON raw_captures TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS captured_at ON raw_captures TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS deleted_at ON raw_captures TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS purge_after ON raw_captures TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_at ON raw_captures TYPE datetime DEFAULT time::now();
 
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_uuid ON raw_captures FIELDS uuid UNIQUE;
@@ -120,6 +122,7 @@ DEFINE INDEX IF NOT EXISTS idx_raw_captures_scope ON raw_captures FIELDS organiz
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_agent ON raw_captures FIELDS organization_id, agent_id;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_project ON raw_captures FIELDS organization_id, project_id;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_review ON raw_captures FIELDS organization_id, review_state;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_purge_after ON raw_captures FIELDS purge_after;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_entity_id ON raw_captures FIELDS entity_id;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_title_ft ON raw_captures FIELDS title FULLTEXT ANALYZER title_analyzer BM25;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_content_ft ON raw_captures FIELDS raw_content FULLTEXT ANALYZER content_analyzer BM25;
