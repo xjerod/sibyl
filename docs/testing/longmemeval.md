@@ -14,26 +14,26 @@ claiming.
 ::: tip Public claim sentence On **LongMemEval-S**, Sibyl's live API eval retrieves a correct answer
 session in the top 5 for **500/500 questions** using SurrealDB-native graph and vector retrieval,
 OpenAI embeddings, async projection, and no LLM extraction or reranking. Strict multi-answer recall
-is **96.67% R@5** and **98.68% R@10**. :::
+is **96.96% R@5** and **98.90% R@10**. :::
 
 The headline metrics:
 
 | Metric            | Value                |
 | ----------------- | -------------------- |
 | `hit@5`           | **100.00%**          |
-| `recall@5`        | **96.67%**           |
-| `ndcg@5`          | **94.21%**           |
+| `recall@5`        | **96.96%**           |
+| `ndcg@5`          | **94.63%**           |
 | `hit@10`          | **100.00%**          |
-| `recall@10`       | **98.68%**           |
-| `ndcg@10`         | **95.12%**           |
+| `recall@10`       | **98.90%**           |
+| `ndcg@10`         | **95.48%**           |
 | Questions         | 500/500              |
-| Wall-clock        | 1,461.29s            |
+| Wall-clock        | 1,619.58s            |
 | Runtime mode      | `live-api-ephemeral` |
 | Memory extraction | disabled (0 jobs)    |
 | LLM reranking     | none                 |
 
 ::: warning One sentence on `hit` vs `recall` `hit@5 = 100%` means every question has at least one
-correct answer session in the top 5. `recall@5 = 96.67%` is the **strict multi-answer** metric: when
+correct answer session in the top 5. `recall@5 = 96.96%` is the **strict multi-answer** metric: when
 a question has several correct sessions, we measure the fraction we surface, not just whether we
 surfaced any of them. Both numbers are real. They measure different things, and we report both. :::
 
@@ -62,7 +62,7 @@ features.
 We are careful with the claim language because the LongMemEval landscape has historically been
 overclaimed.
 
-- **Not "100% recall."** `hit@5` is 100%; strict `recall@5` is 96.67%. Many LongMemEval-S questions
+- **Not "100% recall."** `hit@5` is 100%; strict `recall@5` is 96.96%. Many LongMemEval-S questions
   have multiple correct answer sessions. A two-answer question scored 1/2 contributes 0.5 to strict
   recall but 1.0 to hit.
 - **Not "zero API."** The retrieval path uses OpenAI's `text-embedding-3-small` (1024 dims). We do
@@ -80,12 +80,12 @@ LongMemEval-S categorizes questions into six types. The strict recall and nDCG b
 
 | Type                        | Cases |     R@5 | NDCG@5 |    R@10 | NDCG@10 |
 | --------------------------- | ----: | ------: | -----: | ------: | ------: |
-| `single-session-user`       |    70 | 100.00% | 96.01% | 100.00% |  96.01% |
+| `single-session-user`       |    70 | 100.00% | 96.83% | 100.00% |  96.83% |
 | `single-session-assistant`  |    56 | 100.00% | 99.34% | 100.00% |  99.34% |
-| `single-session-preference` |    30 | 100.00% | 79.26% | 100.00% |  79.26% |
-| `multi-session`             |   133 |  94.92% | 94.23% |  98.43% |  95.96% |
-| `knowledge-update`          |    78 |  99.36% | 98.19% |  99.36% |  98.19% |
-| `temporal-reasoning`        |   133 |  92.94% | 92.13% |  96.97% |  93.79% |
+| `single-session-preference` |    30 | 100.00% | 81.72% | 100.00% |  81.72% |
+| `multi-session`             |   133 |  95.33% | 94.22% |  98.62% |  95.83% |
+| `knowledge-update`          |    78 |  98.72% | 97.89% |  98.72% |  97.89% |
+| `temporal-reasoning`        |   133 |  94.01% | 92.90% |  97.99% |  94.50% |
 
 The remaining quality fight is concentrated in:
 
@@ -95,7 +95,7 @@ The remaining quality fight is concentrated in:
   multiple distinct events represented in the top window, not five near-duplicates.
 - **Single-session preference ranking** (30 questions): the correct session is always present (R@5 =
   100%), but implicit preference evidence is semantically diffuse and the correct session often
-  ranks 3rd or 4th instead of 1st (NDCG@5 = 79.26%).
+  ranks 3rd or 4th instead of 1st (NDCG@5 = 81.72%).
 
 These three patterns are the next quality target. See
 [Retrieval System Architecture](../architecture/retrieval-system.md) for the ranking primitives we
@@ -103,19 +103,19 @@ already use and the set-completion work that is next.
 
 ## Latency
 
-The full run took 1,461 seconds wall-clock across 500 questions, single-concurrency, on a
+The full run took 1,619 seconds wall-clock across 500 questions, single-concurrency, on a
 GitHub-hosted runner. End-to-end per question:
 
-| Phase            |      Avg |      P50 |      P95 |      Max |
-| ---------------- | -------: | -------: | -------: | -------: |
-| Total (per case) | 2,680 ms | 2,457 ms | 3,760 ms | 8,638 ms |
-| Ingest haystack  | 1,846 ms | 1,691 ms | 2,644 ms | 7,845 ms |
-| Readiness probe  |   166 ms |   156 ms |   203 ms | 1,807 ms |
-| Search           |   587 ms |   470 ms |   942 ms | 5,255 ms |
+| Phase            |      Avg |      P50 |      P95 |       Max |
+| ---------------- | -------: | -------: | -------: | --------: |
+| Total (per case) | 2,944 ms | 2,770 ms | 3,913 ms | 10,198 ms |
+| Ingest haystack  | 1,965 ms | 1,870 ms | 2,442 ms |  8,099 ms |
+| Readiness probe  |   153 ms |   144 ms |   191 ms |  1,707 ms |
+| Search           |   706 ms |   584 ms | 1,115 ms |  5,349 ms |
 
 Ingest dominates because each question writes a fresh haystack into an isolated tenant; production
-users do not pay that cost on every query. Search latency is what matters for serving: p50 470 ms,
-p95 942 ms over the production code path with embeddings, fusion, graph expansion, and query-aware
+users do not pay that cost on every query. Search latency is what matters for serving: p50 584 ms,
+p95 1,115 ms over the production code path with embeddings, fusion, graph expansion, and query-aware
 ranking.
 
 ## Configuration
@@ -124,7 +124,7 @@ ranking.
 | ------------------------- | ------------------------------------------ |
 | Dataset                   | `longmemeval_s_cleaned` (500 questions)    |
 | Corpus hash (SHA-256)     | `d6f21ea9...c3a442`                        |
-| Commit                    | `972cf093142e77beb3d51b51ea3efdc7b73af469` |
+| Commit                    | `36032a25b2893f2fbcbc074bd0c212fb829dd975` |
 | Retrieval mode (artifact) | `hybrid`                                   |
 | Retrieval surface         | `POST /api/search`                         |
 | Embedding provider        | OpenAI                                     |
@@ -167,18 +167,18 @@ To inspect the published run from your shell:
 
 ```bash
 # Inspect run metadata
-gh run view 26273942749 --repo hyperb1iss/sibyl \
+gh run view 26304777971 --repo hyperb1iss/sibyl \
   --json status,conclusion,url,headSha,jobs
 
 # Download the artifacts
-mkdir -p /tmp/sibyl-eval-26273942749
-gh run download 26273942749 --repo hyperb1iss/sibyl \
-  --dir /tmp/sibyl-eval-26273942749
+mkdir -p /tmp/sibyl-eval-26304777971
+gh run download 26304777971 --repo hyperb1iss/sibyl \
+  --dir /tmp/sibyl-eval-26304777971
 
 # Parse the overall + per-type metrics
 jq '{completion_status,total_questions,completed_questions,elapsed_seconds,
      overall,per_type,metadata,runtime,dataset,sibyl_commit,repeat_count,k_values}' \
-  /tmp/sibyl-eval-26273942749/longmemeval-live-full-*/longmemeval_live_full.json
+  /tmp/sibyl-eval-26304777971/longmemeval-live-full-*/longmemeval_live_full.json
 ```
 
 To rerun the eval from a fork against your own ephemeral stack, fork the repo and dispatch the "Live
@@ -197,11 +197,34 @@ run; the artifact paths live under `gh run view <id>`.
 | 26256752834 | `3c29529d` |      98.80% |     94.85% |     93.04% |           — |          — | evidence ranking gains    |
 | 26259548500 | `9dae3857` |      99.80% |     95.45% |     93.29% |     100.00% |     98.17% | query-frame result        |
 | 26266367070 | `85e54410` |      99.80% |     96.09% |     93.74% |      99.80% |     98.49% | typed evidence frames     |
-| 26273942749 | `972cf093` | **100.00%** | **96.67%** | **94.21%** | **100.00%** | **98.68%** | artifact evidence ranking |
+| 26273942749 | `972cf093` |     100.00% |     96.67% |     94.21% |     100.00% |     98.68% | artifact evidence ranking |
+| 26304777971 | `36032a25` | **100.00%** | **96.96%** | **94.63%** | **100.00%** | **98.90%** | evidence-cluster polish   |
 
-The latest jump came from making artifact evidence and set completion first-class signals in
-query-aware ranking. The largest single rescued case was 494, a single-session-assistant
-generated-song question: rank 16 → rank 2, hit@5 0 → 1.
+The latest live jump came from tightening evidence clusters without changing the production path:
+typed frames, artifact evidence, and set completion all run inside the same query-aware ranker used
+by `/api/search`.
+
+## Replay Quality Gate
+
+Before dispatching another full live run, ranker changes are replayed against the latest 500-case
+artifact. Replay is not a public score replacement; it is a cheap guard that catches regressions
+before spending another CI run.
+
+The current improvement round expands personal action language and domain concept groups for
+art-related events, food delivery, workshops, furniture actions, streaming subscriptions, and
+recurring yoga/health routines. Forced replay against run `26304777971` produced:
+
+| Metric      | Live baseline | Replay result |   Delta |
+| ----------- | ------------: | ------------: | ------: |
+| `hit@5`     |       100.00% |       100.00% | +0.00pp |
+| `recall@5`  |        96.96% |        97.35% | +0.38pp |
+| `ndcg@5`    |        94.63% |        94.77% | +0.14pp |
+| `hit@10`    |       100.00% |       100.00% | +0.00pp |
+| `recall@10` |        98.90% |        99.10% | +0.20pp |
+| `ndcg@10`   |        95.48% |        95.55% | +0.06pp |
+
+Replay improved 5 cases and regressed 0. The full live API job is still the authority for any public
+headline update.
 
 ## Why The Eval Looks Like This
 
@@ -233,9 +256,8 @@ intentional:
   Memweave).
 - The retrieval ceiling on this benchmark is essentially saturated for `hit@5`. The remaining delta
   is strict recall and ranking order on multi-answer, temporal, and preference questions.
-- The eval workflow is green on the published commit. A separate static CI check on the same SHA was
-  failing on web lint formatting at the time of publication; that is unrelated to retrieval and is
-  being reconciled before any 1.0 RC tag.
+- The eval workflow is green on the published commit. Replay-only improvements stay labeled as
+  projections until a full live API run confirms them.
 
 ## Related
 

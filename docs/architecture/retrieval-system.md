@@ -187,8 +187,8 @@ The current frame families (all interpretable, all hand-crafted, none case-ID-sp
 - **Recurring appointment questions**
 - **Doctor visit questions**
 - **Nostalgia/school questions**
-- **Category aliases** for kitchen, hair, homegrown, media, travel, health, family, and similar
-  concepts
+- **Category aliases** for kitchen, hair, homegrown, media, travel, health, family, art events,
+  delivery services, workshops, furniture actions, streaming subscriptions, and similar concepts
 
 These are retrieval intents, not benchmark case IDs. The right framing: Sibyl recognizes common
 memory-question shapes and ranks evidence accordingly, without paying an LLM on every query.
@@ -217,9 +217,10 @@ Stabilizers currently in play:
   the existing rank in the top window
 
 Each uses margin thresholds and minimum overlap requirements so the system does not overreact to a
-single strong signal. The latest run shifted artifact evidence ranking and lifted hit@5 from 99.80%
-to 100% (case 494, generated-song question: rank 16 → rank 2) while preserving the rest of the top
-window.
+single strong signal. Evidence-set replacement also has a score guard, so a deep low-score candidate
+cannot enter the top window on lexical overlap alone. The latest published run reaches 500/500 hit@5
+and 96.96% strict R@5; local replay of the current ranker against that artifact projects 97.35%
+strict R@5 with zero hit regressions.
 
 ## Embeddings
 
@@ -258,9 +259,11 @@ Every run produces diagnostics alongside metrics. From the latest full run:
 - Zero tracebacks.
 - 3,000 `surreal_query_failed` warnings — almost all expected relation-cleanup `NotFoundError`s on
   throwaway org teardown.
-- 523 `surreal_query_slow` warnings (informational, no failure).
-- 5 `native_graph_embedding_failed` (relationship embedding timeouts at 20s).
+- 513 `surreal_query_slow` warnings (informational, no failure).
+- 1 `native_graph_embedding_failed` (relationship embedding timeout at 20s).
 - 3 `native_entity_vector_search_failed` (query embedding/vector search timeouts).
+- SurrealDB stayed up for the run: `restartCount=0`, `oomKilled=false`, exit code `0`, and peak
+  sampled memory `6.361GiB / 15.61GiB`.
 
 The diagnostics surface is the same one a production operator uses: `sibyl debug status`,
 `sibyl logs tail -l error`, `sibyl debug query`. Eval-time diagnostics are not a separate code path.
