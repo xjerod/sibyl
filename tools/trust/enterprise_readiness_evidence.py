@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from shutil import which
 from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +20,8 @@ DEFAULT_EVIDENCE_DIR = REPO_ROOT / ".moon/cache/enterprise-readiness-evidence"
 DEFAULT_MANIFEST = DEFAULT_EVIDENCE_DIR / "enterprise-readiness-evidence.json"
 DEFAULT_RECEIPT = DEFAULT_EVIDENCE_DIR / "receipt.json"
 SCHEMA_VERSION = "enterprise-readiness-evidence/v1"
+PACKAGE_LOCK_DEPENDENCIES = ("authlib", "pyjwt", "argon2-cffi")
+PACKAGE_LOCK_PATHS = ("apps/api/pyproject.toml", "uv.lock")
 
 type JsonObject = dict[str, Any]
 
@@ -141,6 +145,25 @@ def _load_manifest(path: Path) -> JsonObject:
         msg = "manifest root must be an object"
         raise EvidenceFailure(msg)
     return payload
+
+
+def _git_output(args: Sequence[str]) -> str:
+    git = which("git")
+    if git is None:
+        msg = "git executable not found"
+        raise EvidenceFailure(msg)
+    result = subprocess.run(  # noqa: S603
+        [git, *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        details = result.stderr.strip() or result.stdout.strip()
+        msg = f"git {' '.join(args)} failed: {details}"
+        raise EvidenceFailure(msg)
+    return result.stdout.strip()
 
 
 def _require_item(
@@ -429,6 +452,139 @@ def _inspect_artifact(*, evidence_dir: Path, raw_artifact: object) -> JsonObject
     return report
 
 
+def capture_package_lock_diff(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    base_ref: str,
+    head_ref: str = "HEAD",
+) -> JsonObject:
+    if not base_ref.strip():
+        msg = "base ref is required to capture package lock diff"
+        raise EvidenceFailure(msg)
+
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = evidence_dir / DEFAULT_MANIFEST.name
+    if not manifest_path.exists():
+        write_template(evidence_dir)
+    payload = _load_manifest(manifest_path)
+
+    schema_version = payload.get("schema_version")
+    if schema_version != SCHEMA_VERSION:
+        msg = f"schema_version must be {SCHEMA_VERSION!r}, got {schema_version!r}"
+        raise EvidenceFailure(msg)
+
+    items = payload.get("items")
+    if not isinstance(items, dict):
+        msg = "manifest must include an items object"
+        raise EvidenceFailure(msg)
+
+    diff_args = [
+        "diff",
+        "--no-ext-diff",
+        "--unified=80",
+        f"{base_ref}..{head_ref}",
+        "--",
+        *PACKAGE_LOCK_PATHS,
+    ]
+    diff_text = _git_output(diff_args)
+    missing = [
+        dependency
+        for dependency in PACKAGE_LOCK_DEPENDENCIES
+        if dependency not in diff_text.lower()
+    ]
+    if missing:
+        msg = f"package lock diff does not mention required dependencies: {', '.join(missing)}"
+        raise EvidenceFailure(msg)
+
+    artifact_dir = evidence_dir / "package_lock_diff"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    diff_path = artifact_dir / "package-lock.diff"
+    receipt_path = artifact_dir / "receipt.md"
+    diff_path.write_text(diff_text.rstrip() + "\n", encoding="utf-8")
+
+    base_sha = _git_output(["rev-parse", base_ref])
+    head_sha = _git_output(["rev-parse", head_ref])
+    receipt_path.write_text(
+        _package_lock_receipt(
+            base_ref=base_ref,
+            base_sha=base_sha,
+            head_ref=head_ref,
+            head_sha=head_sha,
+            diff_args=diff_args,
+        ),
+        encoding="utf-8",
+    )
+
+    items = cast(dict[str, object], items)
+    raw_item = items.get("package_lock_diff")
+    item = cast(JsonObject, raw_item.copy()) if isinstance(raw_item, dict) else {}
+    update_payload: JsonObject = {
+        "gate": "security-review-packet",
+        "status": "PASS",
+        "description": "Package lock diff for Authlib, PyJWT, and argon2-cffi is captured.",
+        "artifacts": [
+            _artifact_entry(evidence_dir, receipt_path),
+            _artifact_entry(evidence_dir, diff_path),
+        ],
+        "notes": f"Captured from {base_ref}..{head_ref}.",
+    }
+    item.update(update_payload)
+    items["package_lock_diff"] = item
+    manifest_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS",
+        "captured_at": datetime.now(UTC).isoformat(),
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir.resolve()),
+        "item": item,
+    }
+
+
+def _artifact_entry(evidence_dir: Path, artifact_path: Path) -> JsonObject:
+    relative_path = artifact_path.relative_to(evidence_dir).as_posix()
+    return {
+        "path": relative_path,
+        "sha256": _sha256(artifact_path),
+    }
+
+
+def _package_lock_receipt(
+    *,
+    base_ref: str,
+    base_sha: str,
+    head_ref: str,
+    head_sha: str,
+    diff_args: Sequence[str],
+) -> str:
+    command = "git " + " ".join(diff_args)
+    dependencies = ", ".join(PACKAGE_LOCK_DEPENDENCIES)
+    paths = ", ".join(PACKAGE_LOCK_PATHS)
+    return f"""# package_lock_diff
+
+- Gate: security-review-packet
+- Status: PASS
+- Required proof: Package lock diff for Authlib, PyJWT, and argon2-cffi is captured.
+- Captured at: {datetime.now(UTC).isoformat()}
+- Captured by: enterprise_readiness_evidence.py
+- Runtime or environment: local git checkout
+- Base ref: {base_ref}
+- Base sha: {base_sha}
+- Head ref: {head_ref}
+- Head sha: {head_sha}
+- Dependency names: {dependencies}
+- Diff paths: {paths}
+- Command: `{command}`
+- Observed result: package-lock diff artifact captured and dependency names verified.
+- Redactions: none
+- Related artifact paths:
+  - package_lock_diff/package-lock.diff
+"""
+
+
 def build_template_payload() -> JsonObject:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -566,6 +722,26 @@ def _handle_status(manifest_path: Path, evidence_dir: Path | None) -> int:
     return 0 if report["status"] == "PASS" else 1
 
 
+def _handle_package_lock_capture(
+    evidence_dir: Path | None,
+    *,
+    base_ref: str,
+    head_ref: str,
+) -> int:
+    try:
+        receipt = capture_package_lock_diff(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write("captured package lock diff evidence\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -575,6 +751,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--force-template", action="store_true")
     parser.add_argument("--sync-hashes", action="store_true")
     parser.add_argument("--status", action="store_true")
+    parser.add_argument("--capture-package-lock-diff")
+    parser.add_argument("--head-ref", default="HEAD")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
 
@@ -590,6 +768,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.status:
         return _handle_status(args.manifest, args.evidence_dir)
+
+    if args.capture_package_lock_diff is not None:
+        return _handle_package_lock_capture(
+            args.evidence_dir,
+            base_ref=args.capture_package_lock_diff,
+            head_ref=args.head_ref,
+        )
 
     return run_gate(
         manifest_path=args.manifest,

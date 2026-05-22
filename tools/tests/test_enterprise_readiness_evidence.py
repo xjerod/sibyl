@@ -316,3 +316,55 @@ def test_main_status_reports_valid_manifest(
     assert exit_code == 0
     assert "Enterprise readiness evidence: PASS" in captured.out
     assert "summary: 12 PASS, 0 INCOMPLETE" in captured.out
+
+
+def test_capture_package_lock_diff_updates_manifest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_git_output(args: list[str]) -> str:
+        if args[0] == "diff":
+            return """
+diff --git a/apps/api/pyproject.toml b/apps/api/pyproject.toml
++    "argon2-cffi>=25.1.0",
++    "authlib>=1.7.2,<1.8",
++    "pyjwt[crypto]>=2.13.0,<3",
+diff --git a/uv.lock b/uv.lock
++name = "argon2-cffi"
++name = "authlib"
++name = "pyjwt"
+"""
+        if args == ["rev-parse", "base"]:
+            return "base-sha"
+        if args == ["rev-parse", "HEAD"]:
+            return "head-sha"
+        raise AssertionError(args)
+
+    monkeypatch.setattr(evidence, "_git_output", fake_git_output)
+
+    receipt = evidence.capture_package_lock_diff(tmp_path, base_ref="base")
+    manifest_path = Path(str(receipt["manifest"]))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    item = payload["items"]["package_lock_diff"]
+
+    assert item["status"] == "PASS"
+    assert item["artifacts"][0]["path"] == "package_lock_diff/receipt.md"
+    assert item["artifacts"][1]["path"] == "package_lock_diff/package-lock.diff"
+    assert (tmp_path / "package_lock_diff" / "package-lock.diff").is_file()
+    assert "Base sha: base-sha" in (tmp_path / "package_lock_diff" / "receipt.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_capture_package_lock_diff_rejects_missing_dependencies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        evidence,
+        "_git_output",
+        lambda args: '+    "authlib>=1.7.2,<1.8"\n',
+    )
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_package_lock_diff(tmp_path, base_ref="base")
+
+    assert "pyjwt, argon2-cffi" in str(exc_info.value)
