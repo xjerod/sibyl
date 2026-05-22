@@ -893,6 +893,40 @@ def test_preflight_github_release_evidence_reports_all_missing_requirements(
     ]
 
 
+def test_latest_successful_github_publish_run_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_gh_json_list_output(args: list[str]) -> list[dict[str, Any]]:
+        assert args == [
+            "run",
+            "list",
+            "--repo",
+            "hyperb1iss/sibyl",
+            "--workflow",
+            "publish.yml",
+            "--status",
+            "success",
+            "--limit",
+            "1",
+            "--json",
+            "conclusion,createdAt,databaseId,displayTitle,event,headSha,status,url,workflowName",
+        ]
+        return [{"databaseId": 12345}]
+
+    monkeypatch.setattr(evidence, "_gh_json_list_output", fake_gh_json_list_output)
+
+    assert evidence.latest_successful_github_publish_run_id() == "12345"
+
+
+def test_latest_successful_github_publish_run_id_rejects_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(evidence, "_gh_json_list_output", lambda args: [])
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.latest_successful_github_publish_run_id()
+
+    assert "no successful GitHub publish run found" in str(exc_info.value)
+
+
 def test_main_preflights_github_release_evidence(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -921,6 +955,87 @@ def test_main_preflights_github_release_evidence(
     assert exit_code == 1
     assert "GitHub release evidence preflight: FAIL" in captured.out
     assert "GitHub run is missing required job: ◆ Docker: Sign web" in captured.out
+
+
+def test_main_preflights_latest_github_release_evidence(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_latest_successful_github_publish_run_id(*, repo: str, workflow: str) -> str:
+        assert repo == "hyperb1iss/sibyl"
+        assert workflow == "publish.yml"
+        return "12345"
+
+    def fake_preflight_github_release_evidence(*, run_id: str, repo: str) -> dict[str, Any]:
+        assert run_id == "12345"
+        return {
+            "schema_version": evidence.SCHEMA_VERSION,
+            "status": "FAIL",
+            "repo": repo,
+            "run_id": run_id,
+            "run": {"url": "https://github.example/run/12345"},
+            "issues": ["GitHub run is missing required job: ◆ Docker: Sign web"],
+        }
+
+    monkeypatch.setattr(
+        evidence,
+        "latest_successful_github_publish_run_id",
+        fake_latest_successful_github_publish_run_id,
+    )
+    monkeypatch.setattr(
+        evidence,
+        "preflight_github_release_evidence",
+        fake_preflight_github_release_evidence,
+    )
+
+    exit_code = evidence.main(["--preflight-latest-github-release-evidence"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "latest successful publish run: hyperb1iss/sibyl#12345" in captured.out
+    assert "GitHub release evidence preflight: FAIL" in captured.out
+
+
+def test_main_captures_latest_github_release_evidence(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_latest_successful_github_publish_run_id(*, repo: str, workflow: str) -> str:
+        assert repo == "hyperb1iss/sibyl"
+        assert workflow == "publish.yml"
+        return "12345"
+
+    def fake_capture_github_release_evidence(
+        evidence_dir: Path,
+        *,
+        run_id: str,
+        repo: str,
+    ) -> dict[str, Any]:
+        assert evidence_dir == tmp_path
+        assert run_id == "12345"
+        assert repo == "hyperb1iss/sibyl"
+        return {"manifest": str(tmp_path / "enterprise-readiness-evidence.json")}
+
+    monkeypatch.setattr(
+        evidence,
+        "latest_successful_github_publish_run_id",
+        fake_latest_successful_github_publish_run_id,
+    )
+    monkeypatch.setattr(
+        evidence,
+        "capture_github_release_evidence",
+        fake_capture_github_release_evidence,
+    )
+
+    exit_code = evidence.main(
+        ["--evidence-dir", str(tmp_path), "--capture-latest-github-release-evidence"]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "latest successful publish run: hyperb1iss/sibyl#12345" in captured.out
+    assert "captured GitHub release SBOM and Cosign evidence" in captured.out
 
 
 def test_capture_audit_export_sample_updates_manifest(

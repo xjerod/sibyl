@@ -33,6 +33,7 @@ SCHEMA_VERSION = "enterprise-readiness-evidence/v1"
 PACKAGE_LOCK_DEPENDENCIES = ("authlib", "pyjwt", "argon2-cffi")
 PACKAGE_LOCK_PATHS = ("apps/api/pyproject.toml", "uv.lock")
 DEFAULT_GITHUB_REPO = "hyperb1iss/sibyl"
+DEFAULT_GITHUB_WORKFLOW = "publish.yml"
 GITHUB_RELEASE_IMAGES = ("api", "web")
 AUDIT_EXPORT_FORMATS = ("csv", "json")
 AUDIT_EXPORT_MAX_LIMIT = 5000
@@ -350,6 +351,19 @@ def _gh_json_output(args: Sequence[str]) -> JsonObject:
         msg = f"gh {' '.join(args)} JSON root must be an object"
         raise EvidenceFailure(msg)
     return payload
+
+
+def _gh_json_list_output(args: Sequence[str]) -> list[Mapping[str, object]]:
+    output = _gh_text_output(args)
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        msg = f"gh {' '.join(args)} did not return JSON: {exc}"
+        raise EvidenceFailure(msg) from exc
+    if not isinstance(payload, list):
+        msg = f"gh {' '.join(args)} JSON root must be a list"
+        raise EvidenceFailure(msg)
+    return [cast(Mapping[str, object], item) for item in payload if isinstance(item, dict)]
 
 
 def _kubectl_text_output(args: Sequence[str]) -> str:
@@ -1229,6 +1243,38 @@ def preflight_github_release_evidence(
         },
         "issues": issues,
     }
+
+
+def latest_successful_github_publish_run_id(
+    *,
+    repo: str = DEFAULT_GITHUB_REPO,
+    workflow: str = DEFAULT_GITHUB_WORKFLOW,
+) -> str:
+    runs = _gh_json_list_output(
+        [
+            "run",
+            "list",
+            "--repo",
+            repo,
+            "--workflow",
+            workflow,
+            "--status",
+            "success",
+            "--limit",
+            "1",
+            "--json",
+            "conclusion,createdAt,databaseId,displayTitle,event,headSha,status,url,workflowName",
+        ]
+    )
+    if not runs:
+        msg = f"no successful GitHub publish run found for {repo} workflow {workflow}"
+        raise EvidenceFailure(msg)
+
+    run_id = runs[0].get("databaseId")
+    if not isinstance(run_id, int):
+        msg = f"latest GitHub publish run is missing databaseId: {run_id!r}"
+        raise EvidenceFailure(msg)
+    return str(run_id)
 
 
 def capture_audit_export_sample(
@@ -3235,6 +3281,28 @@ def _handle_github_release_capture(
     return 0
 
 
+def _handle_latest_github_release_capture(
+    evidence_dir: Path | None,
+    *,
+    repo: str,
+    workflow: str,
+) -> int:
+    try:
+        run_id = latest_successful_github_publish_run_id(repo=repo, workflow=workflow)
+        receipt = capture_github_release_evidence(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            run_id=run_id,
+            repo=repo,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write(f"latest successful publish run: {repo}#{run_id}\n")
+    sys.stdout.write("captured GitHub release SBOM and Cosign evidence\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def _handle_github_release_preflight(
     *,
     run_id: str,
@@ -3245,6 +3313,22 @@ def _handle_github_release_preflight(
     except EvidenceFailure as exc:
         sys.stdout.write(f"{exc}\n")
         return 1
+    _print_github_release_preflight(report)
+    return 0 if report["status"] == "PASS" else 1
+
+
+def _handle_latest_github_release_preflight(
+    *,
+    repo: str,
+    workflow: str,
+) -> int:
+    try:
+        run_id = latest_successful_github_publish_run_id(repo=repo, workflow=workflow)
+        report = preflight_github_release_evidence(run_id=run_id, repo=repo)
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write(f"latest successful publish run: {repo}#{run_id}\n")
     _print_github_release_preflight(report)
     return 0 if report["status"] == "PASS" else 1
 
@@ -3419,8 +3503,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--capture-package-lock-diff")
     parser.add_argument("--capture-rendered-helm-manifests", action="store_true")
     parser.add_argument("--capture-github-release-evidence")
+    parser.add_argument("--capture-latest-github-release-evidence", action="store_true")
     parser.add_argument("--preflight-github-release-evidence")
+    parser.add_argument("--preflight-latest-github-release-evidence", action="store_true")
     parser.add_argument("--github-repo", default=DEFAULT_GITHUB_REPO)
+    parser.add_argument("--github-workflow", default=DEFAULT_GITHUB_WORKFLOW)
     parser.add_argument("--capture-audit-export-sample")
     parser.add_argument("--audit-export-format", choices=AUDIT_EXPORT_FORMATS, default="json")
     parser.add_argument("--audit-export-limit", type=int, default=1000)
@@ -3472,6 +3559,12 @@ def _dispatch_capture_command(args: argparse.Namespace) -> int | None:
             args.evidence_dir,
             run_id=args.capture_github_release_evidence,
             repo=args.github_repo,
+        )
+    elif args.capture_latest_github_release_evidence:
+        exit_code = _handle_latest_github_release_capture(
+            args.evidence_dir,
+            repo=args.github_repo,
+            workflow=args.github_workflow,
         )
     elif args.preflight_github_release_evidence is not None:
         exit_code = _handle_github_release_preflight(
@@ -3563,6 +3656,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _handle_github_release_preflight(
             run_id=args.preflight_github_release_evidence,
             repo=args.github_repo,
+        )
+    if args.preflight_latest_github_release_evidence:
+        return _handle_latest_github_release_preflight(
+            repo=args.github_repo,
+            workflow=args.github_workflow,
         )
 
     with _evidence_lock(_evidence_lock_dir(args)):
