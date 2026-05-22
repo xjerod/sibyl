@@ -875,6 +875,141 @@ def test_capture_audit_export_sample_accepts_csv(
     assert item["artifacts"][1]["path"] == "audit_export_sample/audit-export.csv"
 
 
+def _restore_drill_payload() -> dict[str, Any]:
+    return {
+        "status": "PASS",
+        "runtime": "kind/sibyl-enterprise namespace sibyl-restore-drill",
+        "row_counts": {
+            "entity": {"expected": 12, "actual": 12},
+            "episode": {"expected": 4, "actual": 4},
+        },
+        "recall_sample": {
+            "query": "restore drill fixture memory",
+            "result_count": 1,
+            "sample": "restore drill fixture memory returned from restored runtime",
+        },
+    }
+
+
+def _write_restore_drill_receipt(path: Path, payload: dict[str, Any]) -> Path:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_capture_restore_drill_evidence_updates_manifest(tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "evidence"
+    source = _write_restore_drill_receipt(
+        tmp_path / "restore-drill.json",
+        _restore_drill_payload(),
+    )
+
+    receipt = evidence.capture_restore_drill_evidence(
+        evidence_dir,
+        source_receipt=source,
+        captured_by="Nova",
+    )
+    manifest_path = Path(str(receipt["manifest"]))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    drill_item = payload["items"]["kubernetes_restore_drill"]
+    recall_item = payload["items"]["restore_recall_sample"]
+    drill_receipt = evidence_dir / "kubernetes_restore_drill" / "receipt.md"
+    recall_sample = evidence_dir / "restore_recall_sample" / "restore-recall-sample.json"
+
+    assert drill_item["status"] == "PASS"
+    assert recall_item["status"] == "PASS"
+    assert drill_item["artifacts"][1]["path"] == (
+        "kubernetes_restore_drill/restore-drill-receipt.json"
+    )
+    assert recall_item["artifacts"][1]["path"] == "restore_recall_sample/restore-recall-sample.json"
+    assert "entity: expected 12, actual 12" in drill_receipt.read_text(encoding="utf-8")
+    assert json.loads(recall_sample.read_text(encoding="utf-8"))["result_count"] == 1
+
+
+def test_capture_restore_drill_evidence_rejects_failed_status(tmp_path: Path) -> None:
+    payload = _restore_drill_payload()
+    payload["status"] = "FAIL"
+    source = _write_restore_drill_receipt(tmp_path / "restore-drill.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_restore_drill_evidence(
+            tmp_path / "evidence",
+            source_receipt=source,
+            captured_by="Nova",
+        )
+
+    assert "restore drill status must be PASS" in str(exc_info.value)
+
+
+def test_capture_restore_drill_evidence_rejects_mismatched_row_count(
+    tmp_path: Path,
+) -> None:
+    payload = _restore_drill_payload()
+    payload["row_counts"]["entity"]["actual"] = 11
+    source = _write_restore_drill_receipt(tmp_path / "restore-drill.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_restore_drill_evidence(
+            tmp_path / "evidence",
+            source_receipt=source,
+            captured_by="Nova",
+        )
+
+    assert "row_counts.entity expected 12, got 11" in str(exc_info.value)
+
+
+def test_capture_restore_drill_evidence_accepts_results_fallback(tmp_path: Path) -> None:
+    payload = _restore_drill_payload()
+    payload["recall_sample"].pop("result_count")
+    payload["recall_sample"]["results"] = [{"name": "restore fixture"}]
+    source = _write_restore_drill_receipt(tmp_path / "restore-drill.json", payload)
+
+    receipt = evidence.capture_restore_drill_evidence(
+        tmp_path / "evidence",
+        source_receipt=source,
+        captured_by="Nova",
+    )
+
+    recall_item = receipt["items"]["restore_recall_sample"]
+    assert recall_item["status"] == "PASS"
+
+
+def test_capture_restore_drill_evidence_rejects_missing_recall_sample(
+    tmp_path: Path,
+) -> None:
+    payload = _restore_drill_payload()
+    payload.pop("recall_sample")
+    source = _write_restore_drill_receipt(tmp_path / "restore-drill.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_restore_drill_evidence(
+            tmp_path / "evidence",
+            source_receipt=source,
+            captured_by="Nova",
+        )
+
+    assert "restore drill receipt must include recall_sample" in str(exc_info.value)
+
+
+def test_main_capture_restore_drill_evidence_requires_json(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    source = tmp_path / "restore-drill.txt"
+    source.write_text("not JSON", encoding="utf-8")
+
+    exit_code = evidence.main(
+        [
+            "--evidence-dir",
+            str(tmp_path / "evidence"),
+            "--capture-restore-drill-evidence",
+            str(source),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "restore drill receipt must be a JSON file" in captured.out
+
+
 def test_capture_manual_evidence_updates_manifest(tmp_path: Path) -> None:
     evidence_dir = tmp_path / "evidence"
     source = tmp_path / "cursor-smoke.txt"

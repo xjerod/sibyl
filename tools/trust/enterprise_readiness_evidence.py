@@ -50,8 +50,6 @@ MANUAL_EVIDENCE_KEYS = frozenset(
         "mcp_cursor_auth",
         "mcp_claude_code_auth",
         "mcp_claude_desktop_auth",
-        "kubernetes_restore_drill",
-        "restore_recall_sample",
         "idp_role_claim_evidence",
     }
 )
@@ -1207,6 +1205,96 @@ def capture_audit_export_sample(
     }
 
 
+def capture_restore_drill_evidence(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    source_receipt: Path,
+    captured_by: str,
+) -> JsonObject:
+    captured_by = _require_manual_field("captured by", captured_by)
+    payload = _load_restore_drill_payload(source_receipt)
+    summary = _restore_drill_summary(payload)
+
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = evidence_dir / DEFAULT_MANIFEST.name
+    if not manifest_path.exists():
+        write_template(evidence_dir)
+    manifest_payload = _load_manifest(manifest_path)
+    items = _manifest_items(manifest_payload)
+
+    drill_dir = evidence_dir / "kubernetes_restore_drill"
+    recall_dir = evidence_dir / "restore_recall_sample"
+    drill_dir.mkdir(parents=True, exist_ok=True)
+    recall_dir.mkdir(parents=True, exist_ok=True)
+
+    drill_artifact = _copy_restore_drill_artifact(
+        source_receipt,
+        target_path=drill_dir / "restore-drill-receipt.json",
+    )
+    recall_artifact = recall_dir / "restore-recall-sample.json"
+    recall_artifact.write_text(
+        json.dumps(summary["recall_sample"], indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    drill_receipt = drill_dir / "receipt.md"
+    recall_receipt = recall_dir / "receipt.md"
+    drill_receipt.write_text(
+        _restore_drill_receipt(
+            summary=summary,
+            captured_by=captured_by,
+            artifact_path=drill_artifact,
+        ),
+        encoding="utf-8",
+    )
+    recall_receipt.write_text(
+        _restore_recall_receipt(
+            summary=summary,
+            captured_by=captured_by,
+            artifact_path=recall_artifact,
+        ),
+        encoding="utf-8",
+    )
+
+    _update_manifest_item(
+        items=items,
+        key="kubernetes_restore_drill",
+        gate="data-durability",
+        description="A local Kubernetes restore drill imports an export and verifies row counts.",
+        artifacts=[
+            _artifact_entry(evidence_dir, drill_receipt),
+            _artifact_entry(evidence_dir, drill_artifact),
+        ],
+        notes="Captured from a structured live Kubernetes restore drill receipt.",
+    )
+    _update_manifest_item(
+        items=items,
+        key="restore_recall_sample",
+        gate="data-durability",
+        description="The restored Kubernetes runtime returns a sampled recall query.",
+        artifacts=[
+            _artifact_entry(evidence_dir, recall_receipt),
+            _artifact_entry(evidence_dir, recall_artifact),
+        ],
+        notes="Captured from a structured live Kubernetes restore drill receipt.",
+    )
+    manifest_path.write_text(
+        json.dumps(manifest_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS",
+        "captured_at": datetime.now(UTC).isoformat(),
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir.resolve()),
+        "items": {
+            "kubernetes_restore_drill": items["kubernetes_restore_drill"],
+            "restore_recall_sample": items["restore_recall_sample"],
+        },
+    }
+
+
 def capture_manual_evidence(
     evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
     *,
@@ -1376,6 +1464,119 @@ def _validate_audit_csv_export(body: bytes) -> int:
         msg = "audit CSV export events must include an action"
         raise EvidenceFailure(msg)
     return len(rows)
+
+
+def _load_restore_drill_payload(path: Path) -> JsonObject:
+    if path.suffix.lower() != ".json":
+        msg = "restore drill receipt must be a JSON file"
+        raise EvidenceFailure(msg)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        msg = f"restore drill receipt not found: {path}"
+        raise EvidenceFailure(msg) from exc
+    except json.JSONDecodeError as exc:
+        msg = f"restore drill receipt is not valid JSON: {exc}"
+        raise EvidenceFailure(msg) from exc
+
+    if not isinstance(payload, dict):
+        msg = "restore drill receipt root must be an object"
+        raise EvidenceFailure(msg)
+    return cast(JsonObject, payload)
+
+
+def _restore_drill_summary(payload: Mapping[str, object]) -> JsonObject:
+    if payload.get("status") != "PASS":
+        msg = f"restore drill status must be PASS, got {payload.get('status')!r}"
+        raise EvidenceFailure(msg)
+
+    runtime = _restore_string_field(payload.get("runtime"), "runtime")
+    row_counts = _restore_row_counts(payload.get("row_counts"))
+    recall_sample = _restore_recall_sample(payload.get("recall_sample"))
+    return {
+        "runtime": runtime,
+        "row_counts": row_counts,
+        "total_rows": sum(
+            cast(Mapping[str, int], counts)["actual"]
+            for counts in cast(Mapping[str, object], row_counts).values()
+        ),
+        "recall_sample": recall_sample,
+    }
+
+
+def _restore_string_field(value: object, label: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    msg = f"restore drill receipt must include {label}"
+    raise EvidenceFailure(msg)
+
+
+def _restore_row_counts(value: object) -> JsonObject:
+    if not isinstance(value, dict) or not value:
+        msg = "restore drill receipt must include row_counts"
+        raise EvidenceFailure(msg)
+
+    row_counts: JsonObject = {}
+    total_rows = 0
+    for table, raw_counts in value.items():
+        table_name = _restore_string_field(table, "row count table name")
+        if not isinstance(raw_counts, dict):
+            msg = f"row_counts.{table_name} must be an object"
+            raise EvidenceFailure(msg)
+        counts = cast(Mapping[str, object], raw_counts)
+        expected = _restore_nonnegative_int(counts.get("expected"), f"{table_name}.expected")
+        actual = _restore_nonnegative_int(counts.get("actual"), f"{table_name}.actual")
+        if expected != actual:
+            msg = f"row_counts.{table_name} expected {expected}, got {actual}"
+            raise EvidenceFailure(msg)
+        row_counts[table_name] = {"expected": expected, "actual": actual}
+        total_rows += actual
+
+    if total_rows < 1:
+        msg = "restore drill row_counts must prove at least one restored row"
+        raise EvidenceFailure(msg)
+    return row_counts
+
+
+def _restore_nonnegative_int(value: object, label: str) -> int:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    msg = f"restore drill {label} must be a non-negative integer"
+    raise EvidenceFailure(msg)
+
+
+def _restore_recall_sample(value: object) -> JsonObject:
+    if not isinstance(value, dict):
+        msg = "restore drill receipt must include recall_sample"
+        raise EvidenceFailure(msg)
+    sample = cast(Mapping[str, object], value)
+    query = _restore_string_field(sample.get("query"), "recall_sample.query")
+    result_count = _restore_recall_result_count(sample)
+    normalized: JsonObject = {
+        "query": query,
+        "result_count": result_count,
+    }
+    sample_text = sample.get("sample") or sample.get("response")
+    if isinstance(sample_text, str) and sample_text.strip():
+        normalized["sample"] = sample_text.strip()
+    return normalized
+
+
+def _restore_recall_result_count(sample: Mapping[str, object]) -> int:
+    result_count = sample.get("result_count")
+    if isinstance(result_count, int) and not isinstance(result_count, bool) and result_count > 0:
+        return result_count
+
+    results = sample.get("results")
+    if isinstance(results, list) and results:
+        return len(results)
+
+    if isinstance(result_count, int) and not isinstance(result_count, bool):
+        msg = "restore drill recall_sample.result_count must be greater than zero"
+        raise EvidenceFailure(msg)
+
+    msg = "restore drill recall_sample must include result_count > 0 or non-empty results"
+    raise EvidenceFailure(msg)
 
 
 def _manifest_items(payload: JsonObject) -> dict[str, object]:
@@ -1568,6 +1769,19 @@ def _copy_manual_artifact(source_path: Path, *, artifact_dir: Path) -> Path:
     return target_path
 
 
+def _copy_restore_drill_artifact(source_path: Path, *, target_path: Path) -> Path:
+    source_path = source_path.expanduser().resolve()
+    if not source_path.is_file():
+        msg = f"restore drill receipt not found: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path.stat().st_size == 0:
+        msg = f"restore drill receipt is empty: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path != target_path.resolve():
+        copy2(source_path, target_path)
+    return target_path
+
+
 def _artifact_entry(evidence_dir: Path, artifact_path: Path) -> JsonObject:
     relative_path = artifact_path.relative_to(evidence_dir).as_posix()
     return {
@@ -1731,6 +1945,62 @@ def _audit_export_receipt(
 - Redactions: bearer token omitted
 - Related artifact paths:
   - audit_export_sample/audit-export.{export_format}
+"""
+
+
+def _restore_drill_receipt(
+    *,
+    summary: Mapping[str, object],
+    captured_by: str,
+    artifact_path: Path,
+) -> str:
+    row_counts = cast(Mapping[str, Mapping[str, int]], summary["row_counts"])
+    lines = [
+        "# kubernetes_restore_drill",
+        "",
+        "- Gate: data-durability",
+        "- Status: PASS",
+        "- Required proof: A local Kubernetes restore drill imports an export and verifies row counts.",
+        f"- Captured at: {datetime.now(UTC).isoformat()}",
+        f"- Captured by: {captured_by}",
+        f"- Runtime or environment: {summary['runtime']}",
+        "- Commands or manual flow: structured Kubernetes restore drill receipt imported.",
+        f"- Observed result: restored {summary['total_rows']} fixture row(s) with matching counts.",
+        "- Row counts:",
+    ]
+    for table, counts in row_counts.items():
+        lines.append(f"  - {table}: expected {counts['expected']}, actual {counts['actual']}")
+    lines.extend(
+        [
+            "- Redactions: none",
+            "- Related artifact paths:",
+            f"  - kubernetes_restore_drill/{artifact_path.name}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _restore_recall_receipt(
+    *,
+    summary: Mapping[str, object],
+    captured_by: str,
+    artifact_path: Path,
+) -> str:
+    recall_sample = cast(Mapping[str, object], summary["recall_sample"])
+    return f"""# restore_recall_sample
+
+- Gate: data-durability
+- Status: PASS
+- Required proof: The restored Kubernetes runtime returns a sampled recall query.
+- Captured at: {datetime.now(UTC).isoformat()}
+- Captured by: {captured_by}
+- Runtime or environment: {summary["runtime"]}
+- Commands or manual flow: sampled recall query against the restored Kubernetes runtime.
+- Observed result: recall query returned {recall_sample["result_count"]} result(s).
+- Recall query: {recall_sample["query"]}
+- Redactions: none
+- Related artifact paths:
+  - restore_recall_sample/{artifact_path.name}
 """
 
 
@@ -1988,6 +2258,26 @@ def _handle_audit_export_capture(
     return 0
 
 
+def _handle_restore_drill_capture(
+    evidence_dir: Path | None,
+    *,
+    source_receipt: Path,
+    captured_by: str,
+) -> int:
+    try:
+        receipt = capture_restore_drill_evidence(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            source_receipt=source_receipt,
+            captured_by=captured_by,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write("captured Kubernetes restore drill and recall evidence\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def _handle_manual_evidence_capture(
     evidence_dir: Path | None,
     *,
@@ -2035,6 +2325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--audit-export-format", choices=AUDIT_EXPORT_FORMATS, default="json")
     parser.add_argument("--audit-export-limit", type=int, default=1000)
     parser.add_argument("--audit-export-token-env", default="SIBYL_ACCESS_TOKEN")
+    parser.add_argument("--capture-restore-drill-evidence", type=Path)
     parser.add_argument("--capture-manual-evidence")
     parser.add_argument("--manual-artifact", type=Path, action="append", default=[])
     parser.add_argument("--manual-runtime", default="")
@@ -2076,6 +2367,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             token_env=args.audit_export_token_env,
             export_format=args.audit_export_format,
             limit=args.audit_export_limit,
+        )
+    elif args.capture_restore_drill_evidence is not None:
+        exit_code = _handle_restore_drill_capture(
+            args.evidence_dir,
+            source_receipt=args.capture_restore_drill_evidence,
+            captured_by=args.manual_captured_by,
         )
     elif args.capture_manual_evidence is not None:
         exit_code = _handle_manual_evidence_capture(
