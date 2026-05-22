@@ -160,6 +160,32 @@ def test_template_force_regenerates_receipts(tmp_path: Path) -> None:
     assert json.loads(source_template.read_text(encoding="utf-8"))["provider"] == "entra"
 
 
+def test_write_source_templates_backfills_existing_bundle(tmp_path: Path) -> None:
+    manifest_path = evidence.write_template(tmp_path)
+    source_dir = tmp_path / "source"
+    for source_template in source_dir.glob("*.json"):
+        source_template.unlink()
+
+    receipt = evidence.write_source_templates(tmp_path)
+
+    assert manifest_path.is_file()
+    assert receipt["status"] == "PASS"
+    assert (source_dir / "entra-smoke.json").is_file()
+    assert (source_dir / "mcp-client-smoke.json").is_file()
+
+
+def test_main_writes_source_templates(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    exit_code = evidence.main(["--evidence-dir", str(tmp_path), "--write-source-templates"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "wrote source evidence templates" in captured.out
+    assert (tmp_path / "source" / "restore-drill.json").is_file()
+
+
 def test_sync_manifest_hashes_updates_artifacts(tmp_path: Path) -> None:
     manifest_path = evidence.write_template(tmp_path)
     receipt = tmp_path / "entra_happy_path" / "receipt.md"
@@ -1036,6 +1062,132 @@ def test_main_captures_latest_github_release_evidence(
     assert exit_code == 0
     assert "latest successful publish run: hyperb1iss/sibyl#12345" in captured.out
     assert "captured GitHub release SBOM and Cosign evidence" in captured.out
+
+
+def test_preflight_current_environment_reports_section_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        evidence,
+        "_preflight_source_templates",
+        lambda evidence_dir: {
+            "status": "PASS",
+            "templates": [],
+            "issues": [],
+        },
+    )
+    monkeypatch.setattr(
+        evidence,
+        "_preflight_desktop_mcp_clients",
+        lambda: {
+            "status": "FAIL",
+            "clients": [{"key": "cursor", "status": "FAIL"}],
+            "issues": ["missing desktop MCP clients: cursor"],
+        },
+    )
+    monkeypatch.setattr(
+        evidence,
+        "_preflight_local_kubernetes",
+        lambda: {
+            "status": "PASS",
+            "contexts": [{"context": "orbstack", "status": "PASS"}],
+            "issues": [],
+        },
+    )
+    monkeypatch.setattr(
+        evidence,
+        "_preflight_latest_release_evidence",
+        lambda *, repo, workflow: {
+            "status": "PASS",
+            "repo": repo,
+            "workflow": workflow,
+            "run_id": "12345",
+            "run": {},
+            "issues": [],
+        },
+    )
+
+    report = evidence.preflight_current_environment(tmp_path)
+
+    assert report["status"] == "FAIL"
+    assert report["checks"]["desktop_mcp_clients"]["status"] == "FAIL"
+    assert report["checks"]["release_evidence"]["run_id"] == "12345"
+
+
+def test_preflight_source_templates_reports_missing(tmp_path: Path) -> None:
+    report = evidence._preflight_source_templates(tmp_path)
+
+    assert report["status"] == "FAIL"
+    assert "missing source templates" in report["issues"][0]
+
+
+def test_preflight_source_templates_passes_after_template_init(tmp_path: Path) -> None:
+    evidence.write_template(tmp_path)
+
+    report = evidence._preflight_source_templates(tmp_path)
+
+    assert report["status"] == "PASS"
+    assert report["issues"] == []
+
+
+def test_main_preflights_current_environment(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_preflight_current_environment(
+        evidence_dir: Path,
+        *,
+        repo: str,
+        workflow: str,
+    ) -> dict[str, Any]:
+        assert evidence_dir == tmp_path
+        assert repo == "hyperb1iss/sibyl"
+        assert workflow == "publish.yml"
+        return {
+            "schema_version": evidence.SCHEMA_VERSION,
+            "status": "FAIL",
+            "evidence_dir": str(evidence_dir),
+            "checks": {
+                "source_templates": {
+                    "status": "PASS",
+                    "templates": [{"name": "entra-smoke.json", "status": "PASS"}],
+                    "issues": [],
+                },
+                "desktop_mcp_clients": {
+                    "status": "FAIL",
+                    "clients": [{"key": "cursor", "status": "FAIL"}],
+                    "issues": ["missing desktop MCP clients: cursor"],
+                },
+                "local_kubernetes": {
+                    "status": "PASS",
+                    "contexts": [{"context": "orbstack", "status": "PASS"}],
+                    "issues": [],
+                },
+                "release_evidence": {
+                    "status": "FAIL",
+                    "repo": repo,
+                    "run_id": "12345",
+                    "run": {},
+                    "issues": ["GitHub run is missing required job"],
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        evidence,
+        "preflight_current_environment",
+        fake_preflight_current_environment,
+    )
+
+    exit_code = evidence.main(["--evidence-dir", str(tmp_path), "--preflight-current-environment"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Enterprise readiness environment preflight: FAIL" in captured.out
+    assert "desktop_mcp_clients: FAIL" in captured.out
+    assert "release_evidence: FAIL" in captured.out
 
 
 def test_capture_audit_export_sample_updates_manifest(

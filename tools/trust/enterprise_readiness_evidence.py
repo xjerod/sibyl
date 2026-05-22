@@ -35,6 +35,14 @@ PACKAGE_LOCK_PATHS = ("apps/api/pyproject.toml", "uv.lock")
 DEFAULT_GITHUB_REPO = "hyperb1iss/sibyl"
 DEFAULT_GITHUB_WORKFLOW = "publish.yml"
 GITHUB_RELEASE_IMAGES = ("api", "web")
+LOCAL_KUBERNETES_CONTEXTS = (
+    "orbstack",
+    "docker-desktop",
+    "minikube",
+    "kind-kind",
+    "kind-sibyl",
+    "kind-sibyl-enterprise",
+)
 AUDIT_EXPORT_FORMATS = ("csv", "json")
 AUDIT_EXPORT_MAX_LIMIT = 5000
 AUDIT_EXPORT_CSV_COLUMNS = (
@@ -1275,6 +1283,184 @@ def latest_successful_github_publish_run_id(
         msg = f"latest GitHub publish run is missing databaseId: {run_id!r}"
         raise EvidenceFailure(msg)
     return str(run_id)
+
+
+def preflight_current_environment(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    repo: str = DEFAULT_GITHUB_REPO,
+    workflow: str = DEFAULT_GITHUB_WORKFLOW,
+) -> JsonObject:
+    checks = {
+        "source_templates": _preflight_source_templates(evidence_dir),
+        "desktop_mcp_clients": _preflight_desktop_mcp_clients(),
+        "local_kubernetes": _preflight_local_kubernetes(),
+        "release_evidence": _preflight_latest_release_evidence(repo=repo, workflow=workflow),
+    }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS" if all(check["status"] == "PASS" for check in checks.values()) else "FAIL",
+        "checked_at": datetime.now(UTC).isoformat(),
+        "evidence_dir": str(evidence_dir.resolve()),
+        "checks": checks,
+    }
+
+
+def _preflight_source_templates(evidence_dir: Path) -> JsonObject:
+    source_dir = evidence_dir / "source"
+    templates: list[JsonObject] = []
+    for filename in sorted(_source_template_payloads()):
+        path = source_dir / filename
+        templates.append(
+            {
+                "name": filename,
+                "status": "PASS" if path.is_file() else "FAIL",
+                "path": str(path),
+            }
+        )
+    missing = [
+        cast(str, template["name"]) for template in templates if template["status"] != "PASS"
+    ]
+    issues = (
+        [
+            "missing source templates: "
+            + ", ".join(missing)
+            + "; run --write-source-templates before collecting external receipts"
+        ]
+        if missing
+        else []
+    )
+    return {
+        "status": "PASS" if not missing else "FAIL",
+        "templates": templates,
+        "issues": issues,
+    }
+
+
+def _preflight_desktop_mcp_clients(
+    *,
+    home: Path | None = None,
+    applications: Sequence[Path] | None = None,
+) -> JsonObject:
+    home = Path.home() if home is None else home
+    applications = (
+        (Path("/Applications"), home / "Applications") if applications is None else applications
+    )
+    candidate_paths = {
+        "cursor": (
+            *[app_dir / "Cursor.app" for app_dir in applications],
+            home / "Library/Application Support/Cursor",
+            home / ".cursor",
+            home / ".config/Cursor",
+        ),
+        "claude_desktop": (
+            *[app_dir / "Claude.app" for app_dir in applications],
+            home / "Library/Application Support/Claude",
+            home / ".config/Claude",
+        ),
+    }
+    clients: list[JsonObject] = []
+    for key, paths in candidate_paths.items():
+        existing = [str(path) for path in paths if path.exists()]
+        clients.append(
+            {
+                "key": key,
+                "status": "PASS" if existing else "FAIL",
+                "found_paths": existing,
+                "checked_paths": [str(path) for path in paths],
+            }
+        )
+
+    missing = [cast(str, client["key"]) for client in clients if client["status"] != "PASS"]
+    return {
+        "status": "PASS" if not missing else "FAIL",
+        "clients": clients,
+        "issues": [f"missing desktop MCP clients: {', '.join(missing)}"] if missing else [],
+    }
+
+
+def _preflight_local_kubernetes(
+    contexts: Sequence[str] = LOCAL_KUBERNETES_CONTEXTS,
+) -> JsonObject:
+    try:
+        configured_contexts = {
+            line.strip()
+            for line in _kubectl_text_output(["config", "get-contexts", "-o", "name"]).splitlines()
+            if line.strip()
+        }
+    except EvidenceFailure as exc:
+        return {
+            "status": "FAIL",
+            "contexts": [],
+            "issues": [str(exc)],
+        }
+
+    context_reports: list[JsonObject] = []
+    for context in contexts:
+        if context not in configured_contexts:
+            context_reports.append(
+                {
+                    "context": context,
+                    "status": "FAIL",
+                    "issue": "context is not configured",
+                }
+            )
+            continue
+        try:
+            _kubectl_text_output(["--context", context, "get", "namespace"])
+        except EvidenceFailure as exc:
+            context_reports.append(
+                {
+                    "context": context,
+                    "status": "FAIL",
+                    "issue": str(exc),
+                }
+            )
+            continue
+        context_reports.append(
+            {
+                "context": context,
+                "status": "PASS",
+                "issue": "",
+            }
+        )
+
+    available = [
+        cast(str, report["context"]) for report in context_reports if report["status"] == "PASS"
+    ]
+    return {
+        "status": "PASS" if available else "FAIL",
+        "configured_contexts": sorted(configured_contexts),
+        "contexts": context_reports,
+        "issues": []
+        if available
+        else ["no configured local Kubernetes context is currently reachable"],
+    }
+
+
+def _preflight_latest_release_evidence(
+    *,
+    repo: str,
+    workflow: str,
+) -> JsonObject:
+    try:
+        run_id = latest_successful_github_publish_run_id(repo=repo, workflow=workflow)
+        report = preflight_github_release_evidence(run_id=run_id, repo=repo)
+    except EvidenceFailure as exc:
+        return {
+            "status": "FAIL",
+            "repo": repo,
+            "workflow": workflow,
+            "issues": [str(exc)],
+        }
+    return {
+        "status": report["status"],
+        "repo": repo,
+        "workflow": workflow,
+        "run_id": run_id,
+        "run": report["run"],
+        "issues": report["issues"],
+    }
 
 
 def capture_audit_export_sample(
@@ -3134,6 +3320,24 @@ def _write_source_templates(evidence_dir: Path, *, force: bool) -> None:
         )
 
 
+def write_source_templates(evidence_dir: Path, *, force: bool = False) -> JsonObject:
+    _write_source_templates(evidence_dir, force=force)
+    source_dir = evidence_dir / "source"
+    templates = [
+        {
+            "name": filename,
+            "path": str((source_dir / filename).resolve()),
+        }
+        for filename in sorted(_source_template_payloads())
+    ]
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS",
+        "evidence_dir": str(evidence_dir.resolve()),
+        "templates": templates,
+    }
+
+
 def write_template(evidence_dir: Path, *, force: bool = False) -> Path:
     evidence_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = evidence_dir / DEFAULT_MANIFEST.name
@@ -3200,6 +3404,21 @@ def _handle_init_template(path: Path, *, force: bool) -> int:
         sys.stdout.write(f"{exc}\n")
         return 1
     sys.stdout.write(f"wrote template: {manifest_path}\n")
+    return 0
+
+
+def _handle_write_source_templates(evidence_dir: Path | None, *, force: bool) -> int:
+    try:
+        receipt = write_source_templates(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            force=force,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write("wrote source evidence templates\n")
+    for template in cast(list[JsonObject], receipt["templates"]):
+        sys.stdout.write(f"  - {template['path']}\n")
     return 0
 
 
@@ -3330,6 +3549,25 @@ def _handle_latest_github_release_preflight(
         return 1
     sys.stdout.write(f"latest successful publish run: {repo}#{run_id}\n")
     _print_github_release_preflight(report)
+    return 0 if report["status"] == "PASS" else 1
+
+
+def _handle_current_environment_preflight(
+    evidence_dir: Path | None,
+    *,
+    repo: str,
+    workflow: str,
+) -> int:
+    try:
+        report = preflight_current_environment(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            repo=repo,
+            workflow=workflow,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    _print_environment_preflight(report)
     return 0 if report["status"] == "PASS" else 1
 
 
@@ -3497,6 +3735,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evidence-dir", type=Path)
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     parser.add_argument("--init-template", type=Path)
+    parser.add_argument("--write-source-templates", action="store_true")
     parser.add_argument("--force-template", action="store_true")
     parser.add_argument("--sync-hashes", action="store_true")
     parser.add_argument("--status", action="store_true")
@@ -3506,6 +3745,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--capture-latest-github-release-evidence", action="store_true")
     parser.add_argument("--preflight-github-release-evidence")
     parser.add_argument("--preflight-latest-github-release-evidence", action="store_true")
+    parser.add_argument("--preflight-current-environment", action="store_true")
     parser.add_argument("--github-repo", default=DEFAULT_GITHUB_REPO)
     parser.add_argument("--github-workflow", default=DEFAULT_GITHUB_WORKFLOW)
     parser.add_argument("--capture-audit-export-sample")
@@ -3537,6 +3777,8 @@ def _dispatch_maintenance_command(args: argparse.Namespace) -> int | None:
         return 0
     if args.init_template is not None:
         return _handle_init_template(args.init_template, force=args.force_template)
+    if args.write_source_templates:
+        return _handle_write_source_templates(args.evidence_dir, force=args.force_template)
     if args.sync_hashes:
         return _handle_sync_hashes(args.manifest, args.evidence_dir)
     if args.status:
@@ -3645,10 +3887,7 @@ def _evidence_lock_dir(args: argparse.Namespace) -> Path:
     return cast(Path, args.manifest).parent
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
+def _dispatch_lock_free_command(args: argparse.Namespace) -> int | None:
     if args.list:
         _list_requirements()
         return 0
@@ -3662,6 +3901,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo=args.github_repo,
             workflow=args.github_workflow,
         )
+    if args.preflight_current_environment:
+        return _handle_current_environment_preflight(
+            args.evidence_dir,
+            repo=args.github_repo,
+            workflow=args.github_workflow,
+        )
+    return None
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    lock_free_exit = _dispatch_lock_free_command(args)
+    if lock_free_exit is not None:
+        return lock_free_exit
 
     with _evidence_lock(_evidence_lock_dir(args)):
         maintenance_exit = _dispatch_maintenance_command(args)
@@ -3697,6 +3952,27 @@ def _print_github_release_preflight(report: JsonObject) -> None:
         sys.stdout.write(f"url: {run['url']}\n")
     for issue in cast(list[str], report["issues"]):
         sys.stdout.write(f"  - {issue}\n")
+
+
+def _print_environment_preflight(report: JsonObject) -> None:
+    checks = cast(Mapping[str, JsonObject], report["checks"])
+    sys.stdout.write(f"Enterprise readiness environment preflight: {report['status']}\n")
+    for key, check in checks.items():
+        sys.stdout.write(f"{key}: {check['status']}\n")
+        for issue in cast(list[str], check.get("issues", [])):
+            sys.stdout.write(f"  - {issue}\n")
+
+        if key == "desktop_mcp_clients":
+            for client in cast(list[JsonObject], check.get("clients", [])):
+                sys.stdout.write(f"  - {client['key']}: {client['status']}\n")
+        elif key == "local_kubernetes":
+            for context in cast(list[JsonObject], check.get("contexts", [])):
+                sys.stdout.write(f"  - {context['context']}: {context['status']}\n")
+        elif key == "source_templates":
+            for template in cast(list[JsonObject], check.get("templates", [])):
+                sys.stdout.write(f"  - {template['name']}: {template['status']}\n")
+        elif key == "release_evidence" and check.get("run_id"):
+            sys.stdout.write(f"  - latest run: {check['repo']}#{check['run_id']}\n")
 
 
 if __name__ == "__main__":
