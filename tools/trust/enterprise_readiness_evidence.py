@@ -1376,7 +1376,8 @@ def capture_mcp_client_smoke_evidence(
 
     captured_items: JsonObject = {}
     clients = cast(Mapping[str, Mapping[str, object]], summary["clients"])
-    for client_key, (evidence_key, display_name) in MCP_CLIENT_EVIDENCE.items():
+    for client_key, client_summary in clients.items():
+        evidence_key, display_name = MCP_CLIENT_EVIDENCE[client_key]
         client_dir = evidence_dir / evidence_key
         client_dir.mkdir(parents=True, exist_ok=True)
         receipt_path = client_dir / "receipt.md"
@@ -1386,7 +1387,7 @@ def capture_mcp_client_smoke_evidence(
                 client_key=client_key,
                 display_name=display_name,
                 evidence_key=evidence_key,
-                client_summary=clients[client_key],
+                client_summary=client_summary,
                 captured_by=captured_by,
                 artifact_path=smoke_artifact,
             ),
@@ -1939,16 +1940,24 @@ def _mcp_smoke_summary(payload: Mapping[str, object]) -> JsonObject:
         msg = "MCP client smoke receipt must include clients"
         raise EvidenceFailure(msg)
 
+    summaries: dict[str, JsonObject] = {}
+    client_payloads = cast(Mapping[str, object], clients)
+    for client_key, (_, display_name) in MCP_CLIENT_EVIDENCE.items():
+        if client_key not in client_payloads:
+            continue
+        summaries[client_key] = _mcp_client_summary(
+            client_payloads.get(client_key),
+            client_key=client_key,
+            display_name=display_name,
+        )
+    if not summaries:
+        supported = ", ".join(sorted(MCP_CLIENT_EVIDENCE))
+        msg = f"MCP client smoke receipt must include at least one supported client: {supported}"
+        raise EvidenceFailure(msg)
+
     return {
         "runtime": runtime,
-        "clients": {
-            client_key: _mcp_client_summary(
-                cast(Mapping[str, object], clients).get(client_key),
-                client_key=client_key,
-                display_name=display_name,
-            )
-            for client_key, (_, display_name) in MCP_CLIENT_EVIDENCE.items()
-        },
+        "clients": summaries,
     }
 
 

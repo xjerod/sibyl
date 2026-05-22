@@ -1081,11 +1081,42 @@ def test_capture_mcp_client_smoke_evidence_updates_manifest(tmp_path: Path) -> N
     assert "Cursor listed Sibyl tools" in cursor_receipt.read_text(encoding="utf-8")
 
 
-def test_capture_mcp_client_smoke_evidence_rejects_missing_client(
+def test_capture_mcp_client_smoke_evidence_accepts_partial_client_receipts(
+    tmp_path: Path,
+) -> None:
+    evidence_dir = tmp_path / "evidence"
+    payload = _mcp_smoke_payload()
+    payload["clients"].pop("claude_desktop")
+    source = _write_mcp_smoke_receipt(tmp_path / "mcp-smoke.json", payload)
+
+    receipt = evidence.capture_mcp_client_smoke_evidence(
+        evidence_dir,
+        source_receipt=source,
+        captured_by="Nova",
+    )
+    manifest_path = Path(str(receipt["manifest"]))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["items"]["mcp_cursor_auth"]["status"] == "PASS"
+    assert manifest["items"]["mcp_claude_code_auth"]["status"] == "PASS"
+    assert manifest["items"]["mcp_claude_desktop_auth"]["status"] == "TODO"
+    assert "mcp-client-smoke-receipt.json" not in json.dumps(
+        manifest["items"]["mcp_claude_desktop_auth"]
+    )
+
+
+def test_capture_mcp_client_smoke_evidence_rejects_unknown_clients(
     tmp_path: Path,
 ) -> None:
     payload = _mcp_smoke_payload()
-    payload["clients"].pop("claude_desktop")
+    payload["clients"] = {
+        "other": {
+            "status": "PASS",
+            "auth_method": "scoped API key",
+            "tools_listed": True,
+            "tool_call_succeeded": True,
+        }
+    }
     source = _write_mcp_smoke_receipt(tmp_path / "mcp-smoke.json", payload)
 
     with pytest.raises(evidence.EvidenceFailure) as exc_info:
@@ -1095,7 +1126,7 @@ def test_capture_mcp_client_smoke_evidence_rejects_missing_client(
             captured_by="Nova",
         )
 
-    assert "must include clients.claude_desktop" in str(exc_info.value)
+    assert "must include at least one supported client" in str(exc_info.value)
 
 
 def test_capture_mcp_client_smoke_evidence_rejects_unlisted_tools(
