@@ -23,6 +23,7 @@ from sibyl_core.retrieval.query_ranking import (
     extract_primary_text_from_text,
     generic_assistant_marker_count,
     rank_by_query_coverage,
+    should_accept_query_coverage_refinement,
 )
 from sibyl_core.retrieval.temporal import (
     get_entity_timestamp,
@@ -110,7 +111,7 @@ def _apply_query_coverage_rerank(
     results: list[tuple[Any, float]],
     *,
     temporal_target: datetime | None = None,
-) -> tuple[list[tuple[Any, float]], bool]:
+) -> tuple[list[tuple[Any, float]], bool, bool]:
     candidates = [
         QueryCoverageCandidate(
             item=entity,
@@ -124,8 +125,28 @@ def _apply_query_coverage_rerank(
     ]
     ranking = rank_by_query_coverage(query, candidates, temporal_target=temporal_target)
     if not ranking.applied:
-        return results, False
-    return [(ranked.item, ranked.score) for ranked in ranking.ranked], ranking.changed
+        return results, False, False
+
+    refined_candidates = [
+        QueryCoverageCandidate(
+            item=ranked.item,
+            stable_id=ranked.stable_id,
+            text=_entity_text(ranked.item),
+            prior_score=ranked.score,
+            original_rank=index + 1,
+            timestamp=get_entity_timestamp(ranked.item),
+        )
+        for index, ranked in enumerate(ranking.ranked)
+    ]
+    refined = rank_by_query_coverage(
+        query,
+        refined_candidates,
+        temporal_target=temporal_target,
+    )
+    if should_accept_query_coverage_refinement(ranking, refined):
+        return [(ranked.item, ranked.score) for ranked in refined.ranked], True, True
+
+    return [(ranked.item, ranked.score) for ranked in ranking.ranked], ranking.changed, False
 
 
 @dataclass
@@ -583,8 +604,13 @@ async def hybrid_search(
             )
 
     query_coverage_rerank_applied = False
+    query_coverage_refinement_applied = False
     if config.apply_query_coverage_rerank and merged:
-        merged, query_coverage_rerank_applied = _apply_query_coverage_rerank(
+        (
+            merged,
+            query_coverage_rerank_applied,
+            query_coverage_refinement_applied,
+        ) = _apply_query_coverage_rerank(
             query,
             merged,
             temporal_target=temporal_target,
@@ -606,6 +632,7 @@ async def hybrid_search(
         "reranking_applied": reranking_applied,
         "keyword_boost_applied": keyword_boost_applied,
         "query_coverage_rerank_applied": query_coverage_rerank_applied,
+        "query_coverage_refinement_applied": query_coverage_refinement_applied,
         "temporal_applied": config.apply_temporal,
         "temporal_target": temporal_target.isoformat() if temporal_target else None,
     }

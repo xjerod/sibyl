@@ -148,6 +148,10 @@ _ARTIFACT_EVIDENCE_MIN_SIGNAL = 0.65
 _ARTIFACT_EVIDENCE_INSERT_MARGIN = 0.36
 _TEMPORAL_TARGET_WEIGHT = 0.34
 _QUERY_FRAME_WEIGHT = 0.52
+_QUERY_COVERAGE_REFINEMENT_WINDOW = 5
+_QUERY_COVERAGE_REFINEMENT_GUARD_WINDOW = 10
+_QUERY_COVERAGE_REFINEMENT_MIN_TOP_GAIN = 0.05
+_QUERY_COVERAGE_REFINEMENT_MAX_GUARD_LOSS = 0.05
 
 _EVIDENCE_SET_QUERY_PATTERN = re.compile(
     r"\b(how many|how much|total number|number of|count of|order of|sequence of)\b",
@@ -517,8 +521,6 @@ _CONCEPT_GROUPS = (
             "bike",
             "charity",
             "completed",
-            "event",
-            "events",
             "participated",
             "ride",
             "run",
@@ -635,6 +637,34 @@ class QueryCoverageResult[T]:
     changed: bool
 
 
+def should_accept_query_coverage_refinement[T](
+    initial: QueryCoverageResult[T],
+    refined: QueryCoverageResult[T],
+) -> bool:
+    if not initial.applied or not refined.applied or not refined.changed:
+        return False
+
+    top_gain = _coverage_signal_sum(
+        refined.ranked,
+        _QUERY_COVERAGE_REFINEMENT_WINDOW,
+    ) - _coverage_signal_sum(initial.ranked, _QUERY_COVERAGE_REFINEMENT_WINDOW)
+    guard_loss = _coverage_signal_sum(
+        initial.ranked,
+        _QUERY_COVERAGE_REFINEMENT_GUARD_WINDOW,
+    ) - _coverage_signal_sum(refined.ranked, _QUERY_COVERAGE_REFINEMENT_GUARD_WINDOW)
+    return (
+        top_gain >= _QUERY_COVERAGE_REFINEMENT_MIN_TOP_GAIN
+        and guard_loss <= _QUERY_COVERAGE_REFINEMENT_MAX_GUARD_LOSS
+    )
+
+
+def _coverage_signal_sum[T](
+    ranked: list[QueryCoverageRankedCandidate[T]],
+    limit: int,
+) -> float:
+    return sum(max(0.0, candidate.overlap) for candidate in ranked[:limit])
+
+
 def extract_keywords(query: str) -> list[str]:
     tokens = re.findall(r"[a-zA-Z0-9][a-zA-Z0-9'-]{2,}", query.lower())
     keywords: list[str] = []
@@ -650,6 +680,8 @@ def extract_keywords(query: str) -> list[str]:
 
 def normalize_keyword_token(token: str) -> str:
     token = token.strip("'\"")
+    if token == "buisiness":
+        return "business"
     if len(token) > 4 and token.endswith("ies"):
         return f"{token[:-3]}y"
     if len(token) > 4 and token.endswith(("ches", "shes", "xes", "zes")):

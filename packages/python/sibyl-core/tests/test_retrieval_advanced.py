@@ -36,8 +36,11 @@ from sibyl_core.retrieval.hybrid import (
 )
 from sibyl_core.retrieval.query_ranking import (
     QueryCoverageCandidate,
+    QueryCoverageRankedCandidate,
+    QueryCoverageResult,
     extract_keywords,
     rank_by_query_coverage,
+    should_accept_query_coverage_refinement,
 )
 from sibyl_core.services.native_graph import NativeSurrealGraphClient
 
@@ -75,6 +78,14 @@ def test_query_coverage_keywords_drop_temporal_chatter() -> None:
     keywords = extract_keywords("How long will I be working in my current role tonight?")
 
     assert keywords == ["working", "role"]
+
+
+def test_query_coverage_keywords_normalize_common_business_typo() -> None:
+    keywords = extract_keywords(
+        "What was the significant buisiness milestone I mentioned four weeks ago?"
+    )
+
+    assert keywords == ["business", "milestone"]
 
 
 def test_query_coverage_keywords_strip_quoted_answer_terms() -> None:
@@ -339,6 +350,31 @@ def test_query_coverage_promotes_personal_sports_event_with_temporal_target() ->
     assert "soccer" in [candidate.stable_id for candidate in result.ranked[:5]]
 
 
+def test_query_coverage_treats_generic_events_as_weak_sports_evidence() -> None:
+    result = rank_by_query_coverage(
+        "What is the order of the three sports events I participated in?",
+        [
+            QueryCoverageCandidate(
+                item="generic",
+                stable_id="generic",
+                text="User: Can you suggest family-friendly events for kids to attend?",
+                prior_score=1.0,
+                original_rank=1,
+            ),
+            QueryCoverageCandidate(
+                item="run",
+                stable_id="run",
+                text="User: I just finished a 5K run with a personal best time.",
+                prior_score=0.99,
+                original_rank=2,
+            ),
+        ],
+    )
+    overlap_by_id = {candidate.stable_id: candidate.overlap for candidate in result.ranked}
+
+    assert overlap_by_id["generic"] < overlap_by_id["run"]
+
+
 def test_query_coverage_promotes_business_milestone_evidence() -> None:
     ranked = _rank_query_ids(
         "What was the significant business milestone I mentioned four weeks ago?",
@@ -348,6 +384,21 @@ def test_query_coverage_promotes_business_milestone_evidence() -> None:
             "User: I launched my website and created a business plan outline.",
             "User: I asked about indoor plants.",
             "User: I signed a contract with my first freelance client today.",
+        ],
+    )
+
+    assert {"2", "4"} <= set(ranked[:5])
+
+
+def test_query_coverage_promotes_business_milestone_with_common_typo() -> None:
+    ranked = _rank_query_ids(
+        "What was the significant buisiness milestone I mentioned four weeks ago?",
+        [
+            "User: My supervisor Rachel helped me settle into my new role.",
+            "User: I read articles about European politics.",
+            "User: I just launched my website and created a business plan outline.",
+            "User: Which industries in Ibadan are growing fastest?",
+            "User: I just signed a contract with my first freelance client today.",
         ],
     )
 
@@ -410,6 +461,74 @@ def test_query_coverage_completes_evidence_sets_over_low_signal_distractors() ->
     assert {"3", "5", "6"} <= set(ranked[:5])
 
 
+def test_query_coverage_refinement_accepts_top_window_signal_gain() -> None:
+    initial = _coverage_result(
+        [
+            ("answer-current", 1.0),
+            ("related", 0.67),
+            ("specific-distractor", 1.0),
+            ("personal-evidence", 1.0),
+            ("weak-top", 0.67),
+            ("answer-tail", 1.0),
+            ("tail-a", 0.33),
+            ("tail-b", 0.33),
+            ("tail-c", 1.0),
+            ("tail-d", 0.33),
+        ],
+    )
+    refined = _coverage_result(
+        [
+            ("answer-current", 1.0),
+            ("related", 0.67),
+            ("specific-distractor", 1.0),
+            ("personal-evidence", 1.0),
+            ("answer-tail", 1.0),
+            ("weak-top", 0.67),
+            ("tail-a", 0.33),
+            ("tail-b", 0.33),
+            ("tail-c", 1.0),
+            ("tail-d", 0.33),
+        ],
+        changed=True,
+    )
+
+    assert should_accept_query_coverage_refinement(initial, refined) is True
+
+
+def test_query_coverage_refinement_rejects_top_ten_signal_loss() -> None:
+    initial = _coverage_result(
+        [
+            ("answer-current", 1.0),
+            ("related", 0.67),
+            ("specific-distractor", 1.0),
+            ("personal-evidence", 1.0),
+            ("weak-top", 0.67),
+            ("answer-tail", 1.0),
+            ("tail-a", 0.33),
+            ("tail-b", 0.33),
+            ("tail-c", 1.0),
+            ("tail-d", 1.0),
+        ],
+    )
+    refined = _coverage_result(
+        [
+            ("answer-current", 1.0),
+            ("related", 0.67),
+            ("specific-distractor", 1.0),
+            ("personal-evidence", 1.0),
+            ("answer-tail", 1.0),
+            ("weak-top", 0.67),
+            ("tail-a", 0.33),
+            ("tail-b", 0.33),
+            ("tail-c", 1.0),
+            ("low-signal", 0.0),
+        ],
+        changed=True,
+    )
+
+    assert should_accept_query_coverage_refinement(initial, refined) is False
+
+
 def _rank_query_ids(query: str, texts: list[str]) -> list[str]:
     result = rank_by_query_coverage(
         query,
@@ -425,6 +544,27 @@ def _rank_query_ids(query: str, texts: list[str]) -> list[str]:
         ],
     )
     return [ranked.stable_id for ranked in result.ranked]
+
+
+def _coverage_result(
+    rows: list[tuple[str, float]],
+    *,
+    changed: bool = False,
+) -> QueryCoverageResult[str]:
+    return QueryCoverageResult(
+        ranked=[
+            QueryCoverageRankedCandidate(
+                item=stable_id,
+                stable_id=stable_id,
+                score=1.0 - (index * 0.01),
+                original_rank=index + 1,
+                overlap=overlap,
+            )
+            for index, (stable_id, overlap) in enumerate(rows)
+        ],
+        applied=True,
+        changed=changed,
+    )
 
 
 @dataclass
