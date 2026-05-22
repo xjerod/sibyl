@@ -513,6 +513,27 @@ def test_main_status_reports_incomplete_manifest(
     assert "summary: 0 PASS, 13 INCOMPLETE" in captured.out
 
 
+def test_main_serializes_manifest_access(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = evidence.write_template(tmp_path)
+    flock_calls: list[int] = []
+
+    def fake_flock(_fd: int, operation: int) -> None:
+        flock_calls.append(operation)
+
+    monkeypatch.setattr(evidence.fcntl, "flock", fake_flock)
+
+    exit_code = evidence.main(["--manifest", str(manifest_path), "--status"])
+    capsys.readouterr()
+
+    assert exit_code == 1
+    assert flock_calls == [evidence.fcntl.LOCK_EX, evidence.fcntl.LOCK_UN]
+    assert (tmp_path / evidence.LOCK_FILENAME).is_file()
+
+
 def test_main_status_reports_valid_manifest(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

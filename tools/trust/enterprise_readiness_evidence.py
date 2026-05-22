@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import hashlib
 import io
 import json
@@ -12,7 +13,8 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EVIDENCE_DIR = REPO_ROOT / ".moon/cache/enterprise-readiness-evidence"
 DEFAULT_MANIFEST = DEFAULT_EVIDENCE_DIR / "enterprise-readiness-evidence.json"
 DEFAULT_RECEIPT = DEFAULT_EVIDENCE_DIR / "receipt.json"
+LOCK_FILENAME = ".enterprise-readiness-evidence.lock"
 SCHEMA_VERSION = "enterprise-readiness-evidence/v1"
 PACKAGE_LOCK_DEPENDENCIES = ("authlib", "pyjwt", "argon2-cffi")
 PACKAGE_LOCK_PATHS = ("apps/api/pyproject.toml", "uv.lock")
@@ -3417,23 +3420,53 @@ def _dispatch_capture_command(args: argparse.Namespace) -> int | None:
     return exit_code
 
 
+@contextmanager
+def _evidence_lock(evidence_dir: Path) -> Iterator[None]:
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = evidence_dir / LOCK_FILENAME
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _evidence_lock_dir(args: argparse.Namespace) -> Path:
+    if args.evidence_dir is not None:
+        return cast(Path, args.evidence_dir)
+    if args.init_template is not None:
+        return cast(Path, args.init_template)
+    return cast(Path, args.manifest).parent
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    maintenance_exit = _dispatch_maintenance_command(args)
-    if maintenance_exit is not None:
-        return maintenance_exit
+    if args.list:
+        _list_requirements()
+        return 0
+    if args.preflight_github_release_evidence is not None:
+        return _handle_github_release_preflight(
+            run_id=args.preflight_github_release_evidence,
+            repo=args.github_repo,
+        )
 
-    capture_exit = _dispatch_capture_command(args)
-    if capture_exit is not None:
-        return capture_exit
+    with _evidence_lock(_evidence_lock_dir(args)):
+        maintenance_exit = _dispatch_maintenance_command(args)
+        if maintenance_exit is not None:
+            return maintenance_exit
 
-    return run_gate(
-        manifest_path=args.manifest,
-        evidence_dir=args.evidence_dir,
-        receipt_path=args.receipt,
-    )
+        capture_exit = _dispatch_capture_command(args)
+        if capture_exit is not None:
+            return capture_exit
+
+        return run_gate(
+            manifest_path=args.manifest,
+            evidence_dir=args.evidence_dir,
+            receipt_path=args.receipt,
+        )
 
 
 def _print_status_report(report: JsonObject) -> None:
