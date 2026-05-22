@@ -62,8 +62,6 @@ EXPECTED_LEGACY_TERM_SCAN_PATHS = {
     "pnpm-workspace.yaml",
     "pyproject.toml",
     "skills/agent-activity-audit/EXAMPLES.md",
-    "skills/sibyl/EXAMPLES.md",
-    "skills/sibyl/SKILL.md",
     "setup-dev.sh",
     "tools/dev/run-surreal-dev.sh",
 }

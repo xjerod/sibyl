@@ -163,6 +163,15 @@ install_sibyl() {
     install_tool "sibyl-dev" "sibyl" "Sibyl CLI"
 }
 
+install_skill_stub() {
+    info "Installing Sibyl agent skill..."
+    if sibyl skill install --quiet; then
+        success "Sibyl skill installed"
+    else
+        warn "Skill install failed. Run 'sibyl skill install' after installation."
+    fi
+}
+
 install_sibyld() {
     install_tool "sibyld" "sibyld" "Sibyl local daemon"
 }
@@ -294,6 +303,7 @@ main() {
     echo
     install_uv
     install_sibyl
+    install_skill_stub
 
     case "$MODE" in
         server)

@@ -156,19 +156,28 @@ allowed-tools: Bash, Grep, Glob, Read
 
 ## Installing Skills
 
-For one-shot setup from the repo root, install both skills and hooks with:
+Install the stable `/sibyl` loader skill with:
 
 ```bash
-moon run cli:setup-assistants
+sibyl skill install
 ```
 
-### Using moon
+The loader points agents back to the installed CLI. Load the version-matched core guidance with:
 
 ```bash
-moon run skills:install
+sibyl skill get core
 ```
 
-This copies the skill to `~/.claude/skills/` and `~/.codex/skills/`.
+Additional bundled markdown packs are available with:
+
+```bash
+sibyl skill list
+sibyl skill get workflows
+sibyl skill get examples
+```
+
+Hooks are separate from skills because they execute automatically on prompt and session events.
+Install hooks only when that automation is explicitly desired.
 
 ### Manual Installation
 
@@ -187,10 +196,11 @@ Skills are stored in:
 ```
 ~/.claude/skills/
 └── sibyl/
-    ├── SKILL.md
-    ├── WORKFLOWS.md
-    └── EXAMPLES.md
+    └── SKILL.md
 ```
+
+`SKILL.md` is a small loader. The full version-matched guidance is served from the installed CLI
+with `sibyl skill get core` and related pack commands.
 
 Codex installs the same skill to:
 

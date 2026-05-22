@@ -7,19 +7,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_packaged_skill_and_hook_assets_match_repo_sources() -> None:
-    """Embedded CLI assets should mirror the repo-local copies exactly."""
+    """Embedded stub and hook assets should mirror repo-local copies exactly."""
     file_pairs = [
         (
             REPO_ROOT / "skills" / "sibyl" / "SKILL.md",
             REPO_ROOT / "apps" / "cli" / "src" / "sibyl_cli" / "data" / "skills" / "sibyl" / "SKILL.md",
-        ),
-        (
-            REPO_ROOT / "skills" / "sibyl" / "EXAMPLES.md",
-            REPO_ROOT / "apps" / "cli" / "src" / "sibyl_cli" / "data" / "skills" / "sibyl" / "EXAMPLES.md",
-        ),
-        (
-            REPO_ROOT / "skills" / "sibyl" / "WORKFLOWS.md",
-            REPO_ROOT / "apps" / "cli" / "src" / "sibyl_cli" / "data" / "skills" / "sibyl" / "WORKFLOWS.md",
         ),
         (
             REPO_ROOT / "hooks" / "session-start.py",
@@ -38,3 +30,14 @@ def test_packaged_skill_and_hook_assets_match_repo_sources() -> None:
     ]
 
     assert mismatches == []
+
+
+def test_cli_bundle_contains_versioned_skill_packs() -> None:
+    """Full skill guidance should live in packaged markdown packs."""
+    pack_dir = REPO_ROOT / "apps" / "cli" / "src" / "sibyl_cli" / "data" / "skill-packs"
+
+    assert (pack_dir / "core.md").read_text().startswith("# Sibyl")
+    assert "Agent Rules (READ FIRST)" in (pack_dir / "core.md").read_text()
+    assert "Sibyl CLI Workflows" in (pack_dir / "workflows.md").read_text()
+    assert "Sibyl CLI Examples" in (pack_dir / "examples.md").read_text()
+    assert "migration" in (pack_dir / "migration.md").read_text().lower()

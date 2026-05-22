@@ -265,6 +265,7 @@ def legacy_term_allowlist_records(
 GRAPHITI_COMPATIBILITY_ALLOWLIST: tuple[GraphitiCompatibilityRecord, ...] = ()
 
 ARCHITECTURE_LEGACY_TERM_FILES = (
+    "docs/architecture/PACKAGING_PLAN_2026-05-19.md",
     "docs/architecture/PERMISSION_SYSTEM_AUDIT.md",
     "docs/architecture/SIBYL_1_0_ROADMAP.md",
     "docs/architecture/SIBYL_NORTHSTAR.md",
@@ -324,13 +325,12 @@ APP_LEGACY_TERM_FILES = (
     "apps/api/examples/README.md",
     "apps/api/README.md",
     "apps/cli/README.md",
-    "apps/cli/src/sibyl_cli/data/skills/sibyl/EXAMPLES.md",
-    "apps/cli/src/sibyl_cli/data/skills/sibyl/SKILL.md",
+    "apps/cli/src/sibyl_cli/data/skill-packs/core.md",
+    "apps/cli/src/sibyl_cli/data/skill-packs/examples.md",
+    "apps/cli/src/sibyl_cli/data/skill-packs/migration.md",
 )
 SKILL_SOURCE_LEGACY_TERM_FILES = (
     "skills/agent-activity-audit/EXAMPLES.md",
-    "skills/sibyl/EXAMPLES.md",
-    "skills/sibyl/SKILL.md",
 )
 DEPLOYMENT_CONFIG_LEGACY_TERM_FILES = (
     "apps/api/pyproject.toml",

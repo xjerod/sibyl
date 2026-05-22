@@ -138,16 +138,12 @@ tasks:
     deps:
       - cli:install
       - api:install
-      - skills:install
-      - hooks:install
     preset: server
 
   install-dev:
     deps:
       - cli:install-dev
       - api:install-dev
-      - skills:install
-      - hooks:install
     preset: server
 
   # ==========================================================================
@@ -518,11 +514,29 @@ tasks:
 
   python-package-build:
     script: |
+      set -euo pipefail
       rm -rf dist
       mkdir -p dist
       uv build --package sibyl-core --out-dir dist/
       uv build --package sibyl-dev --out-dir dist/
       uv build --package sibyld --out-dir dist/
+      python - <<'PY'
+      from pathlib import Path
+      from zipfile import ZipFile
+
+      wheel = next(Path("dist").glob("sibyl_dev-*.whl"))
+      required = {
+          "sibyl_cli/data/skills/sibyl/SKILL.md",
+          "sibyl_cli/data/skill-packs/core.md",
+          "sibyl_cli/data/skill-packs/examples.md",
+          "sibyl_cli/data/skill-packs/migration.md",
+          "sibyl_cli/data/skill-packs/workflows.md",
+      }
+      with ZipFile(wheel) as archive:
+          missing = sorted(required - set(archive.namelist()))
+      if missing:
+          raise SystemExit("Missing CLI bundle data: " + ", ".join(missing))
+      PY
       ls -la dist/
     inputs:
       - VERSION
@@ -534,6 +548,7 @@ tasks:
       - apps/cli/README.md
       - apps/cli/pyproject.toml
       - apps/cli/src/**/*.py
+      - apps/cli/src/sibyl_cli/data/**/*
       - packages/python/sibyl-core/README.md
       - packages/python/sibyl-core/pyproject.toml
       - packages/python/sibyl-core/src/**/*.py

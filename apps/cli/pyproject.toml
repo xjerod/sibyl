@@ -67,7 +67,7 @@ Repository = "https://github.com/hyperb1iss/sibyl"
 [tool.hatch.build.targets.wheel]
 packages = ["src/sibyl_cli"]
 # Include all files in package (not just .py) for data directory
-artifacts = ["*.md", "*.py"]
+artifacts = ["src/sibyl_cli/data/**/*"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/tests", "/README.md"]

@@ -121,9 +121,25 @@ def test_install_script_defaults_to_server_ui_story() -> None:
     assert "set -- up" in installer
     assert 'install_tool "sibyl-dev" "sibyl" "Sibyl CLI"' in installer
     assert 'install_tool "sibyld" "sibyld" "Sibyl local daemon"' in installer
+    assert "sibyl skill install --quiet" in installer
     assert "--remote|remote|--cli|cli" in installer
     assert "sibyl local setup" not in installer
     assert "uv tool upgrade" not in installer
+
+
+def test_python_package_build_verifies_cli_bundle_data() -> None:
+    task = _root_task("python-package-build")
+    input_paths = {
+        cast(str, entry.get("file") or entry.get("glob"))
+        for entry in task["inputs"]
+    }
+    script = task["script"]
+
+    assert "set -euo pipefail" in script
+    assert "apps/cli/src/sibyl_cli/data/**/*" in input_paths
+    assert "sibyl_cli/data/skills/sibyl/SKILL.md" in script
+    assert "sibyl_cli/data/skill-packs/core.md" in script
+    assert "sibyl_cli/data/skill-packs/workflows.md" in script
 
 
 def test_python_package_build_covers_cli_core_and_daemon() -> None:

@@ -23,16 +23,18 @@ instead of a blank slate.
 
 ## Setting Up Your Environment
 
-### 1. Install Skills and Hooks
+### 1. Install Skills
 
-Skills teach your agent HOW to use Sibyl. Hooks inject context AUTOMATICALLY.
+Skills teach your agent HOW to use Sibyl. The installed skill is a tiny pointer, and the CLI serves
+the full markdown guidance for the installed version.
 
 ```bash
-# From the sibyl directory
-moon run cli:setup-assistants   # Installs Claude/Codex skills and Claude hooks
+sibyl skill install
+sibyl skill get core
 ```
 
-Restart Claude Code after installation.
+Hooks inject context automatically, but they execute on session and prompt events. Add them only
+when you explicitly want that behavior.
 
 ### 2. Configure Your CLAUDE.md
 

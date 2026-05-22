@@ -343,15 +343,16 @@ The skill teaches the agent:
 
 ### Skill Files
 
-Skills are defined in `skills/` directory:
+The repo keeps the installed loader in `skills/`:
 
 ```
 skills/
 └── sibyl/
-    ├── SKILL.md
-    ├── WORKFLOWS.md
-    └── EXAMPLES.md
+    └── SKILL.md
 ```
+
+The full `/sibyl` guidance stays in bundled CLI markdown packs. Use `sibyl skill get core` to print
+the version matched contract that the loader points agents toward.
 
 ## Agent Patterns
 

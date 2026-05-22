@@ -334,11 +334,14 @@ Sibyl ships with [skills](https://docs.anthropic.com/en/docs/claude-code/skills)
 [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) for built-in Claude Code integration.
 
 ```bash
-moon run skills:install    # Install the /sibyl skill
-moon run hooks:install     # Install context hooks
+sibyl skill install        # Install the tiny /sibyl loader skill
+sibyl skill get core       # Print version-matched guidance from the CLI bundle
+moon run hooks:install     # Optional Claude Code context hooks for repo dev
 ```
 
-The `/sibyl` skill gives Claude Code full CLI access. Hooks inject context automatically:
+The installed `/sibyl` skill is intentionally tiny. It points agents back to the installed CLI,
+which serves the full markdown skill packs for the exact Sibyl version on the machine. Hooks inject
+context automatically:
 
 | Hook                 | Trigger        | Action                                                                |
 | -------------------- | -------------- | --------------------------------------------------------------------- |

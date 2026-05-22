@@ -121,7 +121,7 @@ Auth, organizations, configuration, and operations.
 | `sibyl local`             | Legacy local Docker stack commands                |
 | `sibyl dev`               | Devcontainer shell and lifecycle commands         |
 | `sibyl update`            | Update Sibyl components                           |
-| `sibyl skill`             | Print or install the canonical Sibyl skill        |
+| `sibyl skill`             | Install the loader skill and print bundled packs  |
 
 ## Global Options
 
