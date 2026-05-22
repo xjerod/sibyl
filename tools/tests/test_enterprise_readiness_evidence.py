@@ -99,6 +99,10 @@ def test_template_contains_every_required_item(tmp_path: Path) -> None:
         assert receipt.is_file()
         assert f"# {requirement.key}" in receipt.read_text(encoding="utf-8")
         assert requirement.description in receipt.read_text(encoding="utf-8")
+        assert (
+            payload["items"][requirement.key]["artifacts"][0]["sha256"]
+            == hashlib.sha256(receipt.read_bytes()).hexdigest()
+        )
 
 
 def test_template_refuses_to_overwrite_existing_manifest(tmp_path: Path) -> None:
@@ -116,9 +120,14 @@ def test_template_preserves_receipts_without_force(tmp_path: Path) -> None:
     receipt = tmp_path / "entra_happy_path" / "receipt.md"
     receipt.write_text("real receipt", encoding="utf-8")
 
-    evidence.write_template(tmp_path)
+    manifest_path = evidence.write_template(tmp_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert receipt.read_text(encoding="utf-8") == "real receipt"
+    assert (
+        payload["items"]["entra_happy_path"]["artifacts"][0]["sha256"]
+        == hashlib.sha256(b"real receipt").hexdigest()
+    )
 
 
 def test_template_force_regenerates_receipts(tmp_path: Path) -> None:
@@ -163,10 +172,7 @@ def test_inspect_manifest_reports_template_incomplete(tmp_path: Path) -> None:
 
     assert report["status"] == "INCOMPLETE"
     assert report["summary"] == {"PASS": 0, "INCOMPLETE": 13}
-    assert report["items"][0]["issues"] == [
-        "status is 'TODO', not PASS",
-        "artifact hash mismatch: entra_happy_path/receipt.md",
-    ]
+    assert report["items"][0]["issues"] == ["status is 'TODO', not PASS"]
 
 
 def test_inspect_manifest_reports_multiple_issues(tmp_path: Path) -> None:
@@ -285,6 +291,8 @@ def test_main_sync_hashes_updates_manifest(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     manifest_path = evidence.write_template(tmp_path)
+    receipt = tmp_path / "entra_happy_path" / "receipt.md"
+    receipt.write_text("real receipt", encoding="utf-8")
 
     exit_code = evidence.main(["--manifest", str(manifest_path), "--sync-hashes"])
     captured = capsys.readouterr()
@@ -292,8 +300,9 @@ def test_main_sync_hashes_updates_manifest(
 
     assert exit_code == 0
     assert "synced artifact hashes: 13" in captured.out
-    assert payload["items"]["entra_happy_path"]["artifacts"][0]["sha256"] != (
-        "<fill-after-capture>"
+    assert (
+        payload["items"]["entra_happy_path"]["artifacts"][0]["sha256"]
+        == hashlib.sha256(b"real receipt").hexdigest()
     )
 
 

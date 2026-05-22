@@ -1578,7 +1578,7 @@ def _manual_evidence_receipt(
     return "\n".join(lines) + "\n"
 
 
-def build_template_payload() -> JsonObject:
+def build_template_payload(evidence_dir: Path | None = None) -> JsonObject:
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -1587,17 +1587,28 @@ def build_template_payload() -> JsonObject:
                 "gate": requirement.gate,
                 "status": "TODO",
                 "description": requirement.description,
-                "artifacts": [
-                    {
-                        "path": f"{requirement.key}/receipt.md",
-                        "sha256": "<fill-after-capture>",
-                    }
-                ],
+                "artifacts": [_template_artifact_entry(evidence_dir, requirement)],
                 "notes": "",
             }
             for requirement in REQUIRED_EVIDENCE
         },
     }
+
+
+def _template_artifact_entry(
+    evidence_dir: Path | None,
+    requirement: EvidenceRequirement,
+) -> JsonObject:
+    relative_path = f"{requirement.key}/receipt.md"
+    artifact: JsonObject = {
+        "path": relative_path,
+        "sha256": "<fill-after-capture>",
+    }
+    if evidence_dir is not None:
+        receipt_path = evidence_dir / relative_path
+        if receipt_path.is_file() and receipt_path.stat().st_size > 0:
+            artifact["sha256"] = _sha256(receipt_path)
+    return artifact
 
 
 def _receipt_template(requirement: EvidenceRequirement) -> str:
@@ -1615,10 +1626,10 @@ def _receipt_template(requirement: EvidenceRequirement) -> str:
 - Related artifact paths:
 
 Replace this stub with the real receipt before marking the manifest item PASS.
-After capture, update the manifest sha256 for this file:
+After manual edits, update manifest artifact hashes:
 
 ```bash
-shasum -a 256 {requirement.key}/receipt.md
+moon run enterprise-readiness-evidence -- --sync-hashes
 ```
 """
 
@@ -1630,17 +1641,17 @@ def write_template(evidence_dir: Path, *, force: bool = False) -> Path:
         msg = f"manifest already exists: {manifest_path}; pass --force-template to overwrite"
         raise EvidenceFailure(msg)
 
-    manifest_path.write_text(
-        json.dumps(build_template_payload(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-
     for requirement in REQUIRED_EVIDENCE:
         receipt_path = evidence_dir / requirement.key / "receipt.md"
         if receipt_path.exists() and not force:
             continue
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(_receipt_template(requirement), encoding="utf-8")
+
+    manifest_path.write_text(
+        json.dumps(build_template_payload(evidence_dir), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     return manifest_path
 
