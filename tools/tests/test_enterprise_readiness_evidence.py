@@ -875,6 +875,148 @@ def test_capture_audit_export_sample_accepts_csv(
     assert item["artifacts"][1]["path"] == "audit_export_sample/audit-export.csv"
 
 
+def _entra_smoke_payload() -> dict[str, Any]:
+    return {
+        "provider": "entra",
+        "status": "PASS",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "runtime": "https://sibyl.example.com",
+        "role_claim": "roles",
+        "happy_path": {
+            "status": "PASS",
+            "tid": "11111111-1111-1111-1111-111111111111",
+            "oid": "22222222-2222-2222-2222-222222222222",
+            "roles": ["Sibyl.Member"],
+        },
+        "missing_role_denial": {
+            "status": "PASS",
+            "roles": [],
+            "http_status": 403,
+            "reason": "missing Sibyl role",
+        },
+    }
+
+
+def _write_entra_smoke_receipt(path: Path, payload: dict[str, Any]) -> Path:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_capture_entra_smoke_evidence_updates_manifest(tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "evidence"
+    source = _write_entra_smoke_receipt(
+        tmp_path / "entra-smoke.json",
+        _entra_smoke_payload(),
+    )
+
+    receipt = evidence.capture_entra_smoke_evidence(
+        evidence_dir,
+        source_receipt=source,
+        captured_by="Nova",
+    )
+    manifest_path = Path(str(receipt["manifest"]))
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    happy_item = payload["items"]["entra_happy_path"]
+    denial_item = payload["items"]["entra_missing_role_denial"]
+    happy_receipt = evidence_dir / "entra_happy_path" / "receipt.md"
+    denial_receipt = evidence_dir / "entra_missing_role_denial" / "receipt.md"
+
+    assert happy_item["status"] == "PASS"
+    assert denial_item["status"] == "PASS"
+    assert happy_item["artifacts"][1]["path"] == "entra_oidc_smoke/entra-smoke-receipt.json"
+    assert denial_item["artifacts"][1]["path"] == "entra_oidc_smoke/entra-smoke-receipt.json"
+    assert "role(s): Sibyl.Member" in happy_receipt.read_text(encoding="utf-8")
+    assert "missing Sibyl role" in denial_receipt.read_text(encoding="utf-8")
+
+
+def test_capture_entra_smoke_evidence_rejects_missing_happy_role(
+    tmp_path: Path,
+) -> None:
+    payload = _entra_smoke_payload()
+    payload["happy_path"]["roles"] = ["Other.Role"]
+    source = _write_entra_smoke_receipt(tmp_path / "entra-smoke.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_entra_smoke_evidence(
+            tmp_path / "evidence",
+            source_receipt=source,
+            captured_by="Nova",
+        )
+
+    assert "happy_path.roles must include Sibyl.Member or higher" in str(exc_info.value)
+
+
+def test_capture_entra_smoke_evidence_rejects_missing_provider(
+    tmp_path: Path,
+) -> None:
+    payload = _entra_smoke_payload()
+    payload.pop("provider")
+    source = _write_entra_smoke_receipt(tmp_path / "entra-smoke.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_entra_smoke_evidence(
+            tmp_path / "evidence",
+            source_receipt=source,
+            captured_by="Nova",
+        )
+
+    assert "Entra smoke provider must be 'entra'" in str(exc_info.value)
+
+
+def test_capture_entra_smoke_evidence_rejects_mismatched_tenant(
+    tmp_path: Path,
+) -> None:
+    payload = _entra_smoke_payload()
+    payload["happy_path"]["tid"] = "33333333-3333-3333-3333-333333333333"
+    source = _write_entra_smoke_receipt(tmp_path / "entra-smoke.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_entra_smoke_evidence(
+            tmp_path / "evidence",
+            source_receipt=source,
+            captured_by="Nova",
+        )
+
+    assert "happy_path.tid must match tenant_id" in str(exc_info.value)
+
+
+def test_capture_entra_smoke_evidence_rejects_undenied_missing_role(
+    tmp_path: Path,
+) -> None:
+    payload = _entra_smoke_payload()
+    payload["missing_role_denial"]["http_status"] = 200
+    source = _write_entra_smoke_receipt(tmp_path / "entra-smoke.json", payload)
+
+    with pytest.raises(evidence.EvidenceFailure) as exc_info:
+        evidence.capture_entra_smoke_evidence(
+            tmp_path / "evidence",
+            source_receipt=source,
+            captured_by="Nova",
+        )
+
+    assert "missing_role_denial must prove denied=true or HTTP 401/403" in str(exc_info.value)
+
+
+def test_main_capture_entra_smoke_evidence_requires_json(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    source = tmp_path / "entra-smoke.txt"
+    source.write_text("not JSON", encoding="utf-8")
+
+    exit_code = evidence.main(
+        [
+            "--evidence-dir",
+            str(tmp_path / "evidence"),
+            "--capture-entra-smoke-evidence",
+            str(source),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Entra smoke receipt must be a JSON file" in captured.out
+
+
 def _restore_drill_payload() -> dict[str, Any]:
     return {
         "status": "PASS",

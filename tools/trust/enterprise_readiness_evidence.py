@@ -45,14 +45,13 @@ AUDIT_EXPORT_CSV_COLUMNS = (
 )
 MANUAL_EVIDENCE_KEYS = frozenset(
     {
-        "entra_happy_path",
-        "entra_missing_role_denial",
         "mcp_cursor_auth",
         "mcp_claude_code_auth",
         "mcp_claude_desktop_auth",
         "idp_role_claim_evidence",
     }
 )
+SIBYL_IDP_ROLES = frozenset({"Sibyl.Member", "Sibyl.Admin", "Sibyl.Owner"})
 SIBYL_HELM_RENDER_ARGS = (
     "template",
     "enterprise",
@@ -1205,6 +1204,92 @@ def capture_audit_export_sample(
     }
 
 
+def capture_entra_smoke_evidence(
+    evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
+    *,
+    source_receipt: Path,
+    captured_by: str,
+) -> JsonObject:
+    captured_by = _require_manual_field("captured by", captured_by)
+    payload = _load_entra_smoke_payload(source_receipt)
+    summary = _entra_smoke_summary(payload)
+
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = evidence_dir / DEFAULT_MANIFEST.name
+    if not manifest_path.exists():
+        write_template(evidence_dir)
+    manifest_payload = _load_manifest(manifest_path)
+    items = _manifest_items(manifest_payload)
+
+    smoke_dir = evidence_dir / "entra_oidc_smoke"
+    happy_dir = evidence_dir / "entra_happy_path"
+    denial_dir = evidence_dir / "entra_missing_role_denial"
+    smoke_dir.mkdir(parents=True, exist_ok=True)
+    happy_dir.mkdir(parents=True, exist_ok=True)
+    denial_dir.mkdir(parents=True, exist_ok=True)
+
+    smoke_artifact = _copy_entra_smoke_artifact(
+        source_receipt,
+        target_path=smoke_dir / "entra-smoke-receipt.json",
+    )
+    happy_receipt = happy_dir / "receipt.md"
+    denial_receipt = denial_dir / "receipt.md"
+    happy_receipt.write_text(
+        _entra_happy_path_receipt(
+            summary=summary,
+            captured_by=captured_by,
+            artifact_path=smoke_artifact,
+        ),
+        encoding="utf-8",
+    )
+    denial_receipt.write_text(
+        _entra_missing_role_receipt(
+            summary=summary,
+            captured_by=captured_by,
+            artifact_path=smoke_artifact,
+        ),
+        encoding="utf-8",
+    )
+
+    _update_manifest_item(
+        items=items,
+        key="entra_happy_path",
+        gate="auth",
+        description="Real Entra dev-tenant OIDC login reaches Sibyl with a valid role claim.",
+        artifacts=[
+            _artifact_entry(evidence_dir, happy_receipt),
+            _artifact_entry(evidence_dir, smoke_artifact),
+        ],
+        notes="Captured from a structured Entra OIDC smoke-test receipt.",
+    )
+    _update_manifest_item(
+        items=items,
+        key="entra_missing_role_denial",
+        gate="auth",
+        description="Real Entra dev-tenant OIDC login without a Sibyl role is denied.",
+        artifacts=[
+            _artifact_entry(evidence_dir, denial_receipt),
+            _artifact_entry(evidence_dir, smoke_artifact),
+        ],
+        notes="Captured from a structured Entra OIDC smoke-test receipt.",
+    )
+    manifest_path.write_text(
+        json.dumps(manifest_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "PASS",
+        "captured_at": datetime.now(UTC).isoformat(),
+        "manifest": str(manifest_path),
+        "evidence_dir": str(evidence_dir.resolve()),
+        "items": {
+            "entra_happy_path": items["entra_happy_path"],
+            "entra_missing_role_denial": items["entra_missing_role_denial"],
+        },
+    }
+
+
 def capture_restore_drill_evidence(
     evidence_dir: Path = DEFAULT_EVIDENCE_DIR,
     *,
@@ -1464,6 +1549,123 @@ def _validate_audit_csv_export(body: bytes) -> int:
         msg = "audit CSV export events must include an action"
         raise EvidenceFailure(msg)
     return len(rows)
+
+
+def _load_entra_smoke_payload(path: Path) -> JsonObject:
+    if path.suffix.lower() != ".json":
+        msg = "Entra smoke receipt must be a JSON file"
+        raise EvidenceFailure(msg)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        msg = f"Entra smoke receipt not found: {path}"
+        raise EvidenceFailure(msg) from exc
+    except json.JSONDecodeError as exc:
+        msg = f"Entra smoke receipt is not valid JSON: {exc}"
+        raise EvidenceFailure(msg) from exc
+
+    if not isinstance(payload, dict):
+        msg = "Entra smoke receipt root must be an object"
+        raise EvidenceFailure(msg)
+    return cast(JsonObject, payload)
+
+
+def _entra_smoke_summary(payload: Mapping[str, object]) -> JsonObject:
+    provider = payload.get("provider")
+    if provider != "entra":
+        msg = f"Entra smoke provider must be 'entra', got {provider!r}"
+        raise EvidenceFailure(msg)
+    if payload.get("status") != "PASS":
+        msg = f"Entra smoke status must be PASS, got {payload.get('status')!r}"
+        raise EvidenceFailure(msg)
+
+    tenant_id = _entra_string_field(payload.get("tenant_id"), "tenant_id")
+    runtime = _entra_string_field(payload.get("runtime"), "runtime")
+    role_claim = _entra_string_field(payload.get("role_claim"), "role_claim")
+    if role_claim != "roles":
+        msg = f"Entra smoke role_claim must be 'roles', got {role_claim!r}"
+        raise EvidenceFailure(msg)
+
+    return {
+        "tenant_id": tenant_id,
+        "runtime": runtime,
+        "role_claim": role_claim,
+        "happy_path": _entra_happy_path(payload.get("happy_path"), tenant_id=tenant_id),
+        "missing_role_denial": _entra_missing_role_denial(payload.get("missing_role_denial")),
+    }
+
+
+def _entra_happy_path(value: object, *, tenant_id: str) -> JsonObject:
+    if not isinstance(value, dict):
+        msg = "Entra smoke receipt must include happy_path"
+        raise EvidenceFailure(msg)
+    flow = cast(Mapping[str, object], value)
+    if flow.get("status") != "PASS":
+        msg = f"Entra happy_path status must be PASS, got {flow.get('status')!r}"
+        raise EvidenceFailure(msg)
+
+    tid = _entra_string_field(flow.get("tid"), "happy_path.tid")
+    if tid != tenant_id:
+        msg = f"Entra happy_path.tid must match tenant_id, got {tid!r}"
+        raise EvidenceFailure(msg)
+    roles = _entra_roles(flow.get("roles"), "happy_path.roles")
+    granted_roles = sorted(SIBYL_IDP_ROLES.intersection(roles))
+    if not granted_roles:
+        msg = "Entra happy_path.roles must include Sibyl.Member or higher"
+        raise EvidenceFailure(msg)
+    return {
+        "tid": tid,
+        "oid": _entra_string_field(flow.get("oid"), "happy_path.oid"),
+        "roles": sorted(roles),
+        "granted_roles": granted_roles,
+    }
+
+
+def _entra_missing_role_denial(value: object) -> JsonObject:
+    if not isinstance(value, dict):
+        msg = "Entra smoke receipt must include missing_role_denial"
+        raise EvidenceFailure(msg)
+    flow = cast(Mapping[str, object], value)
+    if flow.get("status") != "PASS":
+        msg = f"Entra missing_role_denial status must be PASS, got {flow.get('status')!r}"
+        raise EvidenceFailure(msg)
+
+    roles = _entra_roles(flow.get("roles"), "missing_role_denial.roles")
+    granted_roles = SIBYL_IDP_ROLES.intersection(roles)
+    if granted_roles:
+        msg = "Entra missing_role_denial.roles must not include Sibyl roles"
+        raise EvidenceFailure(msg)
+
+    http_status = flow.get("http_status")
+    denied = flow.get("denied") is True or http_status in (401, 403)
+    if not denied:
+        msg = "Entra missing_role_denial must prove denied=true or HTTP 401/403"
+        raise EvidenceFailure(msg)
+
+    reason = flow.get("reason") or flow.get("error") or flow.get("message")
+    return {
+        "roles": sorted(roles),
+        "http_status": http_status,
+        "reason": _entra_string_field(reason, "missing_role_denial.reason"),
+    }
+
+
+def _entra_roles(value: object, label: str) -> set[str]:
+    if not isinstance(value, list):
+        msg = f"Entra smoke {label} must be a list"
+        raise EvidenceFailure(msg)
+    roles = {role.strip() for role in value if isinstance(role, str) and role.strip()}
+    if len(roles) != len(value):
+        msg = f"Entra smoke {label} must contain only non-empty strings"
+        raise EvidenceFailure(msg)
+    return roles
+
+
+def _entra_string_field(value: object, label: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    msg = f"Entra smoke receipt must include {label}"
+    raise EvidenceFailure(msg)
 
 
 def _load_restore_drill_payload(path: Path) -> JsonObject:
@@ -1769,6 +1971,19 @@ def _copy_manual_artifact(source_path: Path, *, artifact_dir: Path) -> Path:
     return target_path
 
 
+def _copy_entra_smoke_artifact(source_path: Path, *, target_path: Path) -> Path:
+    source_path = source_path.expanduser().resolve()
+    if not source_path.is_file():
+        msg = f"Entra smoke receipt not found: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path.stat().st_size == 0:
+        msg = f"Entra smoke receipt is empty: {source_path}"
+        raise EvidenceFailure(msg)
+    if source_path != target_path.resolve():
+        copy2(source_path, target_path)
+    return target_path
+
+
 def _copy_restore_drill_artifact(source_path: Path, *, target_path: Path) -> Path:
     source_path = source_path.expanduser().resolve()
     if not source_path.is_file():
@@ -1945,6 +2160,56 @@ def _audit_export_receipt(
 - Redactions: bearer token omitted
 - Related artifact paths:
   - audit_export_sample/audit-export.{export_format}
+"""
+
+
+def _entra_happy_path_receipt(
+    *,
+    summary: Mapping[str, object],
+    captured_by: str,
+    artifact_path: Path,
+) -> str:
+    happy_path = cast(Mapping[str, object], summary["happy_path"])
+    return f"""# entra_happy_path
+
+- Gate: auth
+- Status: PASS
+- Required proof: Real Entra dev-tenant OIDC login reaches Sibyl with a valid role claim.
+- Captured at: {datetime.now(UTC).isoformat()}
+- Captured by: {captured_by}
+- Runtime or environment: {summary["runtime"]}
+- Tenant ID: {summary["tenant_id"]}
+- Role claim: {summary["role_claim"]}
+- Stable identity: tid={happy_path["tid"]}, oid={happy_path["oid"]}
+- Observed result: login reached Sibyl with role(s): {", ".join(cast(list[str], happy_path["granted_roles"]))}.
+- Redactions: source receipt may redact user and tenant display names
+- Related artifact paths:
+  - entra_oidc_smoke/{artifact_path.name}
+"""
+
+
+def _entra_missing_role_receipt(
+    *,
+    summary: Mapping[str, object],
+    captured_by: str,
+    artifact_path: Path,
+) -> str:
+    denial = cast(Mapping[str, object], summary["missing_role_denial"])
+    return f"""# entra_missing_role_denial
+
+- Gate: auth
+- Status: PASS
+- Required proof: Real Entra dev-tenant OIDC login without a Sibyl role is denied.
+- Captured at: {datetime.now(UTC).isoformat()}
+- Captured by: {captured_by}
+- Runtime or environment: {summary["runtime"]}
+- Tenant ID: {summary["tenant_id"]}
+- Role claim: {summary["role_claim"]}
+- Observed result: login without a Sibyl role was denied ({denial["reason"]}).
+- HTTP status: {denial["http_status"]}
+- Redactions: source receipt may redact user and tenant display names
+- Related artifact paths:
+  - entra_oidc_smoke/{artifact_path.name}
 """
 
 
@@ -2258,6 +2523,26 @@ def _handle_audit_export_capture(
     return 0
 
 
+def _handle_entra_smoke_capture(
+    evidence_dir: Path | None,
+    *,
+    source_receipt: Path,
+    captured_by: str,
+) -> int:
+    try:
+        receipt = capture_entra_smoke_evidence(
+            DEFAULT_EVIDENCE_DIR if evidence_dir is None else evidence_dir,
+            source_receipt=source_receipt,
+            captured_by=captured_by,
+        )
+    except EvidenceFailure as exc:
+        sys.stdout.write(f"{exc}\n")
+        return 1
+    sys.stdout.write("captured Entra happy-path and missing-role evidence\n")
+    sys.stdout.write(f"manifest: {receipt['manifest']}\n")
+    return 0
+
+
 def _handle_restore_drill_capture(
     evidence_dir: Path | None,
     *,
@@ -2308,7 +2593,7 @@ def _handle_manual_evidence_capture(
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--evidence-dir", type=Path)
@@ -2325,6 +2610,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--audit-export-format", choices=AUDIT_EXPORT_FORMATS, default="json")
     parser.add_argument("--audit-export-limit", type=int, default=1000)
     parser.add_argument("--audit-export-token-env", default="SIBYL_ACCESS_TOKEN")
+    parser.add_argument("--capture-entra-smoke-evidence", type=Path)
     parser.add_argument("--capture-restore-drill-evidence", type=Path)
     parser.add_argument("--capture-manual-evidence")
     parser.add_argument("--manual-artifact", type=Path, action="append", default=[])
@@ -2335,6 +2621,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--manual-redactions", default="none")
     parser.add_argument("--head-ref", default="HEAD")
     parser.add_argument("--list", action="store_true")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _build_parser()
     args = parser.parse_args(argv)
 
     if args.list:
@@ -2367,6 +2658,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             token_env=args.audit_export_token_env,
             export_format=args.audit_export_format,
             limit=args.audit_export_limit,
+        )
+    elif args.capture_entra_smoke_evidence is not None:
+        exit_code = _handle_entra_smoke_capture(
+            args.evidence_dir,
+            source_receipt=args.capture_entra_smoke_evidence,
+            captured_by=args.manual_captured_by,
         )
     elif args.capture_restore_drill_evidence is not None:
         exit_code = _handle_restore_drill_capture(
