@@ -6,9 +6,19 @@ import hmac
 import secrets
 from dataclasses import dataclass
 from hashlib import pbkdf2_hmac
+from typing import Literal
 from uuid import UUID
 
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
+from argon2.low_level import Type
+
 from sibyl_core.auth.memory_policy import memory_scope_policy_key
+
+API_KEY_ARGON2ID_MARKER = "argon2id"
+API_KEY_PBKDF2_ALGORITHM = "pbkdf2-sha256"
+
+_API_KEY_HASHER = PasswordHasher(type=Type.ID)
 
 
 def api_key_memory_scope_key(memory_scope: object, scope_key: object | None) -> str:
@@ -36,15 +46,28 @@ def hash_api_key(
     *,
     salt: bytes | None = None,
     iterations: int = 210_000,
+    algorithm: Literal["argon2id", "pbkdf2-sha256"] = API_KEY_ARGON2ID_MARKER,
 ) -> tuple[str, str]:
     if not key:
         raise ApiKeyError("Key is empty")
+    if algorithm == API_KEY_ARGON2ID_MARKER:
+        return API_KEY_ARGON2ID_MARKER, _API_KEY_HASHER.hash(key)
+    if algorithm != API_KEY_PBKDF2_ALGORITHM:
+        msg = f"Unsupported API key hash algorithm: {algorithm}"
+        raise ApiKeyError(msg)
     salt_bytes = salt or secrets.token_bytes(16)
     dk = pbkdf2_hmac("sha256", key.encode("utf-8"), salt_bytes, iterations, dklen=32)
     return salt_bytes.hex(), dk.hex()
 
 
 def verify_api_key(key: str, *, salt_hex: str, hash_hex: str, iterations: int = 210_000) -> bool:
+    if not key:
+        return False
+    if salt_hex == API_KEY_ARGON2ID_MARKER or hash_hex.startswith("$argon2"):
+        try:
+            return _API_KEY_HASHER.verify(hash_hex, key)
+        except (InvalidHashError, VerificationError, TypeError, ValueError):
+            return False
     try:
         salt = bytes.fromhex(salt_hex)
         expected = bytes.fromhex(hash_hex)
