@@ -32,6 +32,7 @@ Usage: moon run dev -- [options]
 
 Options:
   --ignore-legacy   Start SurrealDB dev even if local legacy data is detected
+  --lan             Bind the API for access from other devices on the local network
   --print-env       Print resolved runtime environment and exit
   --help            Show this help
 EOF
@@ -253,7 +254,11 @@ wait_for_commands() {
 
 wait_for_api_ready() {
   local pid="${1:-}"
-  local url="http://${SIBYL_SERVER_HOST}:${SIBYL_SERVER_PORT}/api/health"
+  local ready_host="$SIBYL_SERVER_HOST"
+  if [[ "$ready_host" == "0.0.0.0" || "$ready_host" == "::" ]]; then
+    ready_host="127.0.0.1"
+  fi
+  local url="http://${ready_host}:${SIBYL_SERVER_PORT}/api/health"
   local deadline=$((SECONDS + ${SIBYL_DEV_API_READY_TIMEOUT:-30}))
 
   while ((SECONDS < deadline)); do
@@ -271,6 +276,63 @@ wait_for_api_ready() {
 
   echo "Timed out waiting for API readiness at $url" >&2
   return 1
+}
+
+resolve_lan_host() {
+  local candidate=""
+  local iface=""
+
+  if [[ -n "${SIBYL_LAN_HOST:-}" ]]; then
+    printf '%s\n' "$SIBYL_LAN_HOST"
+    return
+  fi
+
+  if command -v route >/dev/null 2>&1 && command -v ipconfig >/dev/null 2>&1; then
+    iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}' || true)"
+    if [[ -n "$iface" ]]; then
+      candidate="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+      if [[ -n "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return
+      fi
+    fi
+  fi
+
+  if command -v ipconfig >/dev/null 2>&1; then
+    for iface in en0 en1 bridge100; do
+      candidate="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+      if [[ -n "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return
+      fi
+    done
+  fi
+
+  if command -v hostname >/dev/null 2>&1; then
+    candidate="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    if [[ -n "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    candidate="$(
+      python3 - <<'PY' 2>/dev/null || true
+import socket
+
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+    sock.connect(("8.8.8.8", 80))
+    print(sock.getsockname()[0])
+PY
+    )"
+    if [[ -n "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  fi
+
+  printf 'localhost\n'
 }
 
 cleanup() {
@@ -344,6 +406,7 @@ cleanup() {
 main() {
   local print_env=false
   local ignore_legacy=false
+  local lan_mode=false
 
   while (($# > 0)); do
     case "$1" in
@@ -353,6 +416,10 @@ main() {
         ;;
       --ignore-legacy)
         ignore_legacy=true
+        shift
+        ;;
+      --lan)
+        lan_mode=true
         shift
         ;;
       --help|-h)
@@ -381,8 +448,19 @@ main() {
     export SIBYL_AUTH_STORE="surreal"
   fi
   export SIBYL_COORDINATION_BACKEND="${SIBYL_COORDINATION_BACKEND:-auto}"
-  export SIBYL_SERVER_HOST="${SIBYL_SERVER_HOST:-127.0.0.1}"
   export SIBYL_SERVER_PORT="${SIBYL_SERVER_PORT:-3334}"
+  export SIBYL_WEB_PORT="${SIBYL_WEB_PORT:-3337}"
+  local lan_host=""
+  if [[ "$lan_mode" == true ]]; then
+    lan_host="$(resolve_lan_host)"
+    export SIBYL_SERVER_HOST="${SIBYL_SERVER_HOST:-0.0.0.0}"
+    export SIBYL_PUBLIC_URL="${SIBYL_PUBLIC_URL:-http://${lan_host}:${SIBYL_WEB_PORT}}"
+    export SIBYL_SERVER_URL="${SIBYL_SERVER_URL:-http://${lan_host}:${SIBYL_SERVER_PORT}}"
+    export SIBYL_FRONTEND_URL="${SIBYL_FRONTEND_URL:-http://${lan_host}:${SIBYL_WEB_PORT}/}"
+    export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://${lan_host}:${SIBYL_SERVER_PORT}}"
+  else
+    export SIBYL_SERVER_HOST="${SIBYL_SERVER_HOST:-127.0.0.1}"
+  fi
   export SIBYL_BACKEND_URL="${SIBYL_BACKEND_URL:-http://127.0.0.1:3334}"
   export SIBYL_API_URL="${SIBYL_API_URL:-http://127.0.0.1:3334/api}"
   export SIBYL_EMAIL_OUTBOX_PATH="${SIBYL_EMAIL_OUTBOX_PATH:-$repo_root/.moon/cache/auth-flow-email-outbox.jsonl}"
@@ -462,6 +540,24 @@ main() {
     printf 'SIBYL_STORE=%s\n' "$SIBYL_STORE"
     printf 'SIBYL_AUTH_STORE=%s\n' "$SIBYL_AUTH_STORE"
     printf 'SIBYL_COORDINATION_BACKEND=%s\n' "$coordination_backend"
+    printf 'SIBYL_SERVER_HOST=%s\n' "$SIBYL_SERVER_HOST"
+    printf 'SIBYL_SERVER_PORT=%s\n' "$SIBYL_SERVER_PORT"
+    printf 'SIBYL_WEB_PORT=%s\n' "$SIBYL_WEB_PORT"
+    if [[ -n "$lan_host" ]]; then
+      printf 'SIBYL_LAN_HOST=%s\n' "$lan_host"
+    fi
+    if [[ -n "${SIBYL_PUBLIC_URL:-}" ]]; then
+      printf 'SIBYL_PUBLIC_URL=%s\n' "$SIBYL_PUBLIC_URL"
+    fi
+    if [[ -n "${SIBYL_SERVER_URL:-}" ]]; then
+      printf 'SIBYL_SERVER_URL=%s\n' "$SIBYL_SERVER_URL"
+    fi
+    if [[ -n "${SIBYL_FRONTEND_URL:-}" ]]; then
+      printf 'SIBYL_FRONTEND_URL=%s\n' "$SIBYL_FRONTEND_URL"
+    fi
+    if [[ -n "${NEXT_PUBLIC_API_URL:-}" ]]; then
+      printf 'NEXT_PUBLIC_API_URL=%s\n' "$NEXT_PUBLIC_API_URL"
+    fi
     if [[ -n "${SIBYL_SURREAL_URL:-}" ]]; then
       printf 'SIBYL_SURREAL_URL=%s\n' "$SIBYL_SURREAL_URL"
     fi
@@ -492,6 +588,10 @@ main() {
   echo "💎 Email outbox: $SIBYL_EMAIL_OUTBOX_PATH"
   if [[ "$coordination_backend" == "redis" ]]; then
     echo "🛠️  Redis: ${SIBYL_REDIS_HOST}:${SIBYL_REDIS_PORT}"
+  fi
+  if [[ "$lan_mode" == true ]]; then
+    echo "🌐 LAN Web: http://${lan_host}:${SIBYL_WEB_PORT}"
+    echo "🌐 LAN API: http://${lan_host}:${SIBYL_SERVER_PORT}/api"
   fi
 
   if [[ -z "${SIBYL_DEV_API_COMMAND:-}" ]]; then
