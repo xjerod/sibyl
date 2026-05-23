@@ -26,6 +26,11 @@ from sibyl_core.retrieval.dedup import (
     get_deduplicator,
     jaccard_similarity,
 )
+from sibyl_core.retrieval.fact_frames import (
+    extract_evidence_fact_frames,
+    extract_query_fact_frames,
+    score_fact_frame_match,
+)
 from sibyl_core.retrieval.hybrid import (
     HybridConfig,
     HybridResult,
@@ -649,6 +654,142 @@ def test_query_coverage_promotes_recurring_frequency() -> None:
     )
 
     assert "5" in ranked[:5]
+
+
+def test_fact_frames_extract_generic_service_usage() -> None:
+    query_frames = extract_query_fact_frames(
+        "What audio app have I been using lately?"
+    )
+    evidence_frames = extract_evidence_fact_frames(
+        "User: I've been listening to history podcasts through Pocket Casts lately."
+    )
+
+    assert any("service" in frame.categories for frame in query_frames)
+    assert any({"service", "media"} <= frame.categories for frame in evidence_frames)
+    assert score_fact_frame_match(
+        "What audio app have I been using lately?",
+        "User: I've been listening to history podcasts through Pocket Casts lately.",
+    ) >= 0.8
+
+
+def test_fact_frames_ignore_calendar_prepositions_as_services() -> None:
+    frames = extract_query_fact_frames("What time did I reach the clinic on Monday?")
+
+    assert not frames
+
+
+def test_query_coverage_uses_fact_frames_for_service_usage() -> None:
+    ranked = _rank_query_ids(
+        "What audio app have I been using lately?",
+        [
+            "User: I compared Bluetooth speakers for my desk.",
+            "User: I read a forum thread about phone app permissions.",
+            "User: I asked for podcast microphone recommendations.",
+            "User: I updated a playlist for a road trip.",
+            "User: I organized my notes about local concerts.",
+            "User: I've been listening to history podcasts through Pocket Casts lately.",
+        ],
+    )
+
+    assert "5" in ranked[:5]
+
+
+def test_query_coverage_uses_fact_frames_for_relative_life_event() -> None:
+    ranked = _rank_query_ids(
+        "Which life event for a relative did I attend?",
+        [
+            "User: I compared train routes for a spring trip.",
+            "User: I helped a friend choose a birthday gift.",
+            "User: I read about family history archives.",
+            "User: I planned a work dinner downtown.",
+            "User: I watched a documentary about graduation traditions.",
+            "User: I came back from my aunt's graduation ceremony.",
+        ],
+    )
+
+    assert "5" in ranked[:5]
+
+
+def test_query_coverage_uses_fact_frames_for_profile_recommendations() -> None:
+    ranked = _rank_query_ids(
+        "Can you recommend publications or conferences I might find interesting?",
+        [
+            "User: I asked for science fiction reading recommendations.",
+            "User: I saved a generic essay about higher education.",
+            "User: I compared social media workshop formats.",
+            "User: I drafted a resume for a retail position.",
+            "User: I bookmarked a public lecture series.",
+            "User: I am working in computational biology and protein modeling.",
+        ],
+    )
+
+    assert "5" in ranked[:5]
+
+
+def test_query_coverage_uses_fact_frames_for_acquired_object_category() -> None:
+    ranked = _rank_query_ids(
+        "Which workshop tool did I buy?",
+        [
+            "User: I organized old hardware receipts.",
+            "User: I bought coffee beans before the workshop.",
+            "User: I asked for home office lighting ideas.",
+            "User: I compared maker-space class schedules.",
+            "User: I cleaned the garage after dinner.",
+            "User: I picked up a cordless drill for the workshop.",
+        ],
+    )
+
+    assert "5" in ranked[:5]
+
+
+def test_query_coverage_keeps_temporal_no_target_on_conservative_path() -> None:
+    ranked = _rank_query_ids(
+        "Which workshop tool did I buy last week?",
+        [
+            "User: I organized old hardware receipts last week.",
+            "User: I bought coffee beans before the workshop.",
+            "User: I asked for home office lighting ideas.",
+            "User: I compared maker-space class schedules.",
+            "User: I cleaned the garage after dinner.",
+            "User: I picked up a cordless drill for the workshop last week.",
+        ],
+    )
+
+    assert "5" not in ranked[:5]
+
+
+def test_query_coverage_keeps_multi_evidence_queries_on_existing_path() -> None:
+    ranked = _rank_query_ids(
+        "Which two workshop tools did I buy?",
+        [
+            "User: I organized old hardware receipts.",
+            "User: I bought coffee beans before the workshop.",
+            "User: I asked for home office lighting ideas.",
+            "User: I compared maker-space class schedules.",
+            "User: I cleaned the garage after dinner.",
+            "User: I scheduled a workshop kickoff.",
+            "User: I reviewed safety rules for the maker space.",
+            "User: I picked up a cordless drill for the workshop.",
+        ],
+    )
+
+    assert "7" not in ranked[:5]
+
+
+def test_query_coverage_keeps_temporal_profile_requests_on_existing_path() -> None:
+    ranked = _rank_query_ids(
+        "Recommend, from earliest to latest, publications I might enjoy",
+        [
+            "User: I asked for science fiction reading recommendations.",
+            "User: I saved a generic essay about higher education.",
+            "User: I compared social media workshop formats.",
+            "User: I drafted a resume for a retail position.",
+            "User: I bookmarked a public lecture series.",
+            "User: I am working in computational biology and protein modeling.",
+        ],
+    )
+
+    assert "5" not in ranked[:5]
 
 
 def test_query_coverage_refinement_accepts_top_window_signal_gain() -> None:

@@ -10,6 +10,12 @@ from datetime import UTC, datetime
 from itertools import pairwise
 from typing import Any
 
+from sibyl_core.retrieval.fact_frames import (
+    FactFrame,
+    extract_query_fact_frames,
+    score_fact_frame_match_for_query,
+)
+
 _KEYWORD_STOPWORDS = {
     "any",
     "about",
@@ -182,6 +188,9 @@ _ARTIFACT_EVIDENCE_MIN_SIGNAL = 0.65
 _ARTIFACT_EVIDENCE_INSERT_MARGIN = 0.36
 _TEMPORAL_TARGET_WEIGHT = 0.34
 _QUERY_FRAME_WEIGHT = 0.52
+_FACT_FRAME_MIN_SIGNAL = 0.80
+_FACT_FRAME_INSERT_MARGIN = 0.06
+_FACT_FRAME_RESCUE_WEIGHT = 0.42
 _QUERY_COVERAGE_REFINEMENT_WINDOW = 5
 _QUERY_COVERAGE_REFINEMENT_GUARD_WINDOW = 10
 _QUERY_COVERAGE_REFINEMENT_MIN_TOP_GAIN = 0.05
@@ -1081,6 +1090,7 @@ def rank_by_query_coverage[T](
         )
 
     query_terms = set(keywords)
+    query_fact_frames = extract_query_fact_frames(query)
     token_rows: list[
         tuple[
             QueryCoverageCandidate[T],
@@ -1092,14 +1102,16 @@ def rank_by_query_coverage[T](
             set[str],
             str,
             str,
+            str,
             bool,
             bool,
         ]
     ] = []
     for candidate in candidates:
-        text = candidate.text.lower()
+        text = candidate.text
         tokens = keyword_tokens_from_text(text)
-        primary_text, has_primary_text = _extract_query_focus_text(query, text)
+        primary_text_raw, has_primary_text = _extract_query_focus_text(query, text)
+        primary_text = primary_text_raw.lower()
         primary_tokens = keyword_tokens_from_text(primary_text) if has_primary_text else []
         memory_text, has_memory_text = _extract_memory_evidence_text(primary_text)
         memory_tokens = keyword_tokens_from_text(memory_text) if has_memory_text else []
@@ -1114,6 +1126,7 @@ def rank_by_query_coverage[T](
                 set(memory_tokens),
                 primary_text,
                 memory_text,
+                primary_text_raw,
                 has_primary_text,
                 has_memory_text,
             )
@@ -1137,6 +1150,7 @@ def rank_by_query_coverage[T](
             _memory_token_set,
             _primary_text,
             _memory_text,
+            _primary_text_raw,
             has_primary_text,
             _has_memory_text,
         ) in token_rows
@@ -1144,6 +1158,7 @@ def rank_by_query_coverage[T](
     rank_span = max(1, len(candidates) - 1)
     max_prior_score = max((candidate.prior_score for candidate in candidates), default=0.0) or 1.0
     scored: list[tuple[QueryCoverageRankedCandidate[T], int]] = []
+    fact_frame_scores_by_id: dict[str, float] = {}
     has_text_signal = False
     for index, (
         candidate,
@@ -1155,6 +1170,7 @@ def rank_by_query_coverage[T](
         memory_token_set,
         primary_text,
         memory_text,
+        primary_text_raw,
         has_primary_text,
         has_memory_text,
     ) in enumerate(token_rows):
@@ -1217,6 +1233,11 @@ def rank_by_query_coverage[T](
             primary_text=primary_text,
             memory_text=memory_text,
         )
+        fact_frame_score = score_fact_frame_match_for_query(
+            query_fact_frames,
+            primary_text_raw if has_primary_text else candidate.text,
+        )
+        fact_frame_scores_by_id[candidate.stable_id] = fact_frame_score
         preference_signal = (
             _preference_evidence_score(primary_text)
             if is_preference_query and has_primary_text
@@ -1305,6 +1326,7 @@ def rank_by_query_coverage[T](
             or memory_overlap > 0.0
             or memory_concept_overlap > 0.0
             or query_frame_score > 0.0
+            or fact_frame_score >= _FACT_FRAME_MIN_SIGNAL
             or preference_signal > 0.0
             or (temporal_alignment > 0.0 and coverage_signal > 0.0)
         )
@@ -1331,7 +1353,21 @@ def rank_by_query_coverage[T](
     if _is_evidence_cluster_query(query):
         scored = _apply_evidence_cluster_affinity(scored, affinity_tokens_by_id)
 
-    if is_preference_query:
+    has_strong_fact_frame_signal = bool(
+        query_fact_frames
+        and any(score >= _FACT_FRAME_MIN_SIGNAL for score in fact_frame_scores_by_id.values())
+    )
+
+    use_profile_fact_rescue = (
+        has_strong_fact_frame_signal
+        and _is_profile_recommendation_fact_query(query_fact_frames)
+        and not _is_temporal_instruction_query(query)
+        and not _is_multi_evidence_order_query(query)
+    )
+
+    if use_profile_fact_rescue:
+        ranked = _stabilize_fact_frame_ranking(scored, fact_frame_scores_by_id)
+    elif is_preference_query:
         ranked = _stabilize_preference_ranking(scored)
     elif is_evidence_set_query:
         ranked = _stabilize_evidence_set_ranking(scored)
@@ -1341,6 +1377,8 @@ def rank_by_query_coverage[T](
         ranked = _stabilize_temporal_evidence_ranking(scored)
     elif _is_temporal_instruction_query(query):
         ranked = _rank_preserving_window(scored)
+    elif has_strong_fact_frame_signal and not _is_multi_evidence_order_query(query):
+        ranked = _stabilize_fact_frame_ranking(scored, fact_frame_scores_by_id)
     else:
         ranked = [
             ranked for ranked, _index in sorted(scored, key=lambda item: (-item[0].score, item[1]))
@@ -1475,6 +1513,25 @@ def _is_evidence_cluster_query(query: str) -> bool:
         query
     ) or bool(
         _AGE_ARITHMETIC_QUERY_PATTERN.search(query)
+    )
+
+
+def _is_profile_recommendation_fact_query(query_frames: Sequence[FactFrame]) -> bool:
+    return any(
+        "recommend" in frame.actions and "profile" in frame.actions
+        for frame in query_frames
+    )
+
+
+def _is_multi_evidence_order_query(query: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:order|sequence|earliest|latest)\b|"
+            r"\bfrom first to last\b|"
+            r"\bwhich\s+(?:two|three|four|five|six|\d+)\b",
+            query,
+            re.IGNORECASE,
+        )
     )
 
 
@@ -1681,6 +1738,66 @@ def _stabilize_artifact_evidence_ranking[T](
         ),
     )
     return window + ranked[window_size:]
+
+
+def _stabilize_fact_frame_ranking[T](
+    scores: list[tuple[QueryCoverageRankedCandidate[T], int]],
+    fact_frame_scores_by_id: dict[str, float],
+) -> list[QueryCoverageRankedCandidate[T]]:
+    window_size = min(_EVIDENCE_SET_WINDOW, len(scores))
+    selected = list(scores[:window_size])
+    selected_ids = {ranked.stable_id for ranked, _index in selected}
+    ranked_by_score = sorted(scores, key=lambda item: (-item[0].score, item[1]))
+
+    def fact_signal(item: tuple[QueryCoverageRankedCandidate[T], int]) -> float:
+        ranked, _index = item
+        return fact_frame_scores_by_id.get(ranked.stable_id, 0.0)
+
+    for candidate in ranked_by_score:
+        ranked, _index = candidate
+        candidate_signal = fact_signal(candidate)
+        if ranked.stable_id in selected_ids or candidate_signal < _FACT_FRAME_MIN_SIGNAL:
+            continue
+
+        low_signal = [
+            item
+            for item in enumerate(selected)
+            if fact_signal(item[1]) < _FACT_FRAME_MIN_SIGNAL
+        ]
+        if not low_signal:
+            continue
+
+        worst_index, worst = min(
+            low_signal,
+            key=lambda item: (fact_signal(item[1]), item[1][0].score, -item[1][1]),
+        )
+        worst_ranked, _worst_original_index = worst
+        worst_signal = fact_signal(worst)
+        dominance_allowed = (
+            candidate_signal >= worst_signal + _SIGNAL_DOMINANCE_INSERT_MARGIN
+        )
+        candidate_effective_score = ranked.score + (
+            _FACT_FRAME_RESCUE_WEIGHT * candidate_signal
+        )
+        worst_effective_score = worst_ranked.score + (
+            _FACT_FRAME_RESCUE_WEIGHT * worst_signal
+        )
+        if (
+            not dominance_allowed
+            or candidate_effective_score + _FACT_FRAME_INSERT_MARGIN < worst_effective_score
+        ):
+            continue
+
+        selected[worst_index] = candidate
+        selected_ids.remove(worst_ranked.stable_id)
+        selected_ids.add(ranked.stable_id)
+
+    selected = sorted(selected, key=lambda item: (-item[0].score, item[1]))
+    return [ranked for ranked, _index in selected] + [
+        ranked
+        for ranked, _index in ranked_by_score
+        if ranked.stable_id not in selected_ids
+    ]
 
 
 def _stabilize_top_window_ranking[T](
