@@ -25,6 +25,8 @@ LLM reranking. Per-question physical tenant isolation. Full artifact and diagnos
 
 - [LongMemEval Results](./longmemeval.md) — the headline eval claim, full per-type breakdown,
   configuration, latency, score progression, reproduction commands, claim boundary.
+- [LongMemEval-V2](./longmemeval-v2.md) — the official full-suite harness path, live Sibyl memory
+  adapter contract, and honest-run requirements.
 - [AI Memory Landscape](./ai-memory-landscape.md) — honest competitive positioning. The
   retrieval-vs-QA-accuracy distinction, where Sibyl sits in the field, what we trail academic SOTA
   on.

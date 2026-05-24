@@ -1,0 +1,444 @@
+"""Sibyl live-API memory backend for the official LongMemEval-V2 harness."""
+
+from __future__ import annotations
+
+import itertools
+import os
+import re
+import sys
+import threading
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+from uuid import uuid4
+
+import httpx
+
+ROOT = Path(__file__).resolve().parents[2]
+CORE_SRC = ROOT / "packages" / "python" / "sibyl-core" / "src"
+if str(CORE_SRC) not in sys.path:
+    sys.path.insert(0, str(CORE_SRC))
+
+from sibyl_core.evals.longmemeval_v2 import (  # noqa: E402
+    LongMemEvalV2State,
+    LongMemEvalV2Trajectory,
+)
+
+try:
+    from memory_modules.memory import Memory, MemoryContextItem, register_memory
+except ModuleNotFoundError:
+    MemoryContextItem = dict[str, str]  # type: ignore[misc,assignment]
+
+    class Memory:  # type: ignore[no-redef]
+        memory_type = ""
+
+        def __init__(self, memory_params: dict[str, object]) -> None:
+            self.memory_params = dict(memory_params)
+            self._query_context = {}
+
+        def get_query_context(self) -> dict[str, object]:
+            return dict(self._query_context)
+
+    def register_memory(memory_cls: type[Memory]) -> type[Memory]:
+        return memory_cls
+
+
+DEFAULT_API_URL = "http://127.0.0.1:3334/api"
+DEFAULT_CONTENT_MAX_CHARS = 50_000
+DEFAULT_SEARCH_LIMIT = 12
+DEFAULT_CONTEXT_ITEMS = 8
+DEFAULT_CONTEXT_CHARS_PER_ITEM = 18_000
+MAX_BULK_CREATE = 128
+
+_AUTH_CACHE: dict[tuple[str, str, str], dict[str, str]] = {}
+_AUTH_LOCK = threading.Lock()
+_INSTANCE_COUNTER = itertools.count(1)
+
+
+def build_entity_payloads_for_trajectory(
+    trajectory_raw: dict[str, object],
+    *,
+    project_id: str,
+    run_id: str,
+    content_max_chars: int = DEFAULT_CONTENT_MAX_CHARS,
+    include_screenshot_refs: bool = False,
+) -> list[dict[str, object]]:
+    trajectory = LongMemEvalV2Trajectory.from_mapping(trajectory_raw)
+    chunks = _trajectory_text_chunks(
+        trajectory,
+        max_chars=content_max_chars,
+        include_screenshot_refs=include_screenshot_refs,
+    )
+    payloads: list[dict[str, object]] = []
+    for chunk_index, content in enumerate(chunks):
+        payloads.append(
+            {
+                "name": _entity_name(trajectory.id, chunk_index, len(chunks)),
+                "description": f"{trajectory.goal} ({trajectory.outcome})",
+                "content": content,
+                "entity_type": "session",
+                "skip_conflicts": True,
+                "metadata": {
+                    "project_id": project_id,
+                    "longmemeval_v2_run_id": run_id,
+                    "longmemeval_v2_trajectory_id": trajectory.id,
+                    "longmemeval_v2_chunk_index": chunk_index,
+                    "longmemeval_v2_chunk_count": len(chunks),
+                    "longmemeval_v2_domain": trajectory.domain,
+                    "longmemeval_v2_environment": trajectory.environment,
+                    "longmemeval_v2_goal": trajectory.goal,
+                    "longmemeval_v2_outcome": trajectory.outcome,
+                    "capture_surface": "longmemeval-v2-official",
+                    "entity_content_projection_policy": "v2-trajectory-state-chunks-v1",
+                },
+                "tags": ["longmemeval-v2", trajectory.domain, trajectory.environment],
+            }
+        )
+    return payloads
+
+
+def search_results_to_memory_context(
+    results: list[dict[str, object]],
+    *,
+    max_items: int = DEFAULT_CONTEXT_ITEMS,
+    max_chars_per_item: int = DEFAULT_CONTEXT_CHARS_PER_ITEM,
+) -> list[MemoryContextItem]:
+    context: list[MemoryContextItem] = []
+    for rank, result in enumerate(results[:max_items], start=1):
+        content = _stripped_str(result.get("content"))
+        if not content:
+            continue
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        trajectory_id = _stripped_str(metadata.get("longmemeval_v2_trajectory_id"))
+        chunk_index = metadata.get("longmemeval_v2_chunk_index")
+        score = result.get("score")
+        header = [
+            f"Retrieved evidence rank {rank}",
+            f"Trajectory: {trajectory_id or 'unknown'}",
+            f"Chunk: {chunk_index if isinstance(chunk_index, int) else 'unknown'}",
+            f"Score: {score if isinstance(score, int | float) else 'unknown'}",
+        ]
+        context.append(
+            {
+                "type": "text",
+                "value": "\n".join(header) + "\n\n" + content[:max_chars_per_item].rstrip(),
+            }
+        )
+    return context
+
+
+@register_memory
+class SibylLiveApiMemory(Memory):
+    memory_type = "sibyl_live_api"
+
+    def __init__(self, memory_params: dict[str, object]) -> None:
+        super().__init__(memory_params)
+        self.api_url = _normalize_api_url(_param_str(memory_params, "api_url", DEFAULT_API_URL))
+        self.run_id = _param_str(memory_params, "run_id", f"lme-v2-{uuid4().hex[:12]}")
+        self.allow_localhost = _param_bool(memory_params, "allow_localhost", False)
+        self.content_max_chars = _param_int(
+            memory_params,
+            "content_max_chars",
+            DEFAULT_CONTENT_MAX_CHARS,
+        )
+        self.search_limit = _param_int(memory_params, "search_limit", DEFAULT_SEARCH_LIMIT)
+        self.max_context_items = _param_int(
+            memory_params,
+            "max_context_items",
+            DEFAULT_CONTEXT_ITEMS,
+        )
+        self.max_context_chars_per_item = _param_int(
+            memory_params,
+            "max_context_chars_per_item",
+            DEFAULT_CONTEXT_CHARS_PER_ITEM,
+        )
+        self.include_screenshot_refs = _param_bool(
+            memory_params,
+            "include_screenshot_refs",
+            False,
+        )
+        self.project_id = _param_str(memory_params, "project_id", "")
+        self.inserted_trajectories = 0
+        self.created_entities = 0
+        self._client = _new_http_client(self.api_url)
+        self._closed = False
+        self._authenticate(memory_params)
+        if not self.project_id:
+            self.project_id = self._create_project()
+
+    def insert(self, trajectory: dict[str, object]) -> None:
+        payloads = build_entity_payloads_for_trajectory(
+            trajectory,
+            project_id=self.project_id,
+            run_id=self.run_id,
+            content_max_chars=self.content_max_chars,
+            include_screenshot_refs=self.include_screenshot_refs,
+        )
+        for batch in _batches(payloads, MAX_BULK_CREATE):
+            created = self._request_json(
+                "POST",
+                "/entities/bulk",
+                json={"entities": batch},
+            )
+            self.created_entities += int(created.get("created") or 0)
+        self.inserted_trajectories += 1
+
+    def query(self, query: str, query_image: str | None = None) -> list[MemoryContextItem]:
+        payload = {
+            "query": query,
+            "types": ["session"],
+            "project": self.project_id,
+            "include_documents": False,
+            "include_graph": True,
+            "include_content": True,
+            "use_enhanced": True,
+            "boost_recent": False,
+            "limit": min(max(self.search_limit, self.max_context_items), 50),
+        }
+        response = self._request_json("POST", "/search", json=payload)
+        raw_results = response.get("results")
+        results = [item for item in raw_results if isinstance(item, dict)] if isinstance(raw_results, list) else []
+        return search_results_to_memory_context(
+            results,
+            max_items=self.max_context_items,
+            max_chars_per_item=self.max_context_chars_per_item,
+        )
+
+    def post_query_hook(
+        self,
+        *,
+        query: str,
+        query_image: str | None,
+        memory_context: list[MemoryContextItem],
+    ) -> dict[str, object] | None:
+        return {
+            "memory_type": self.memory_type,
+            "api_url": self.api_url,
+            "project_id": self.project_id,
+            "run_id": self.run_id,
+            "inserted_trajectories": self.inserted_trajectories,
+            "created_entities": self.created_entities,
+            "returned_context_items": len(memory_context),
+        }
+
+    def _authenticate(self, memory_params: dict[str, object]) -> None:
+        if _is_loopback_url(self.api_url) and not self.allow_localhost:
+            msg = "Refusing to mutate localhost without allow_localhost=true"
+            raise RuntimeError(msg)
+        token = _param_str(memory_params, "api_token", "") or os.environ.get("SIBYL_API_TOKEN", "")
+        if token:
+            self._client.headers.update({"Authorization": f"Bearer {token}"})
+            return
+        email = _param_str(memory_params, "email", "") or os.environ.get("LME_SIBYL_EMAIL", "")
+        password = _param_str(memory_params, "password", "") or os.environ.get(
+            "LME_SIBYL_PASSWORD",
+            "",
+        )
+        if not email:
+            email = f"longmemeval-v2-{self.run_id}@example.invalid"
+        if not password:
+            password = f"SibylLongMemEvalV2-{self.run_id}-password"
+        cache_key = (self.api_url, email, password)
+        with _AUTH_LOCK:
+            cached = _AUTH_CACHE.get(cache_key)
+            if cached is not None:
+                self._client.headers.update({"Authorization": f"Bearer {cached['access_token']}"})
+                return
+            issued = self._login_or_signup(
+                email=email,
+                password=password,
+                allow_signup=_param_bool(memory_params, "allow_signup", True),
+            )
+            _AUTH_CACHE[cache_key] = issued
+            self._client.headers.update({"Authorization": f"Bearer {issued['access_token']}"})
+
+    def _login_or_signup(
+        self,
+        *,
+        email: str,
+        password: str,
+        allow_signup: bool,
+    ) -> dict[str, str]:
+        login = self._auth_request("/auth/local/login", email=email, password=password)
+        if login is not None:
+            return login
+        if not allow_signup:
+            msg = "Could not log in to Sibyl and allow_signup=false"
+            raise RuntimeError(msg)
+        signup = self._auth_request(
+            "/auth/local/signup",
+            email=email,
+            password=password,
+            name="LongMemEval V2 Runner",
+        )
+        if signup is not None:
+            return signup
+        second_login = self._auth_request("/auth/local/login", email=email, password=password)
+        if second_login is not None:
+            return second_login
+        msg = "Could not authenticate Sibyl benchmark user"
+        raise RuntimeError(msg)
+
+    def _auth_request(self, path: str, **payload: str) -> dict[str, str] | None:
+        response = self._client.post(path, json=payload)
+        if response.status_code >= 400:
+            return None
+        body = response.json()
+        if not isinstance(body, dict) or not body.get("access_token"):
+            return None
+        return {"access_token": str(body["access_token"])}
+
+    def _create_project(self) -> str:
+        sequence = next(_INSTANCE_COUNTER)
+        response = self._request_json(
+            "POST",
+            "/entities",
+            params={"sync": "true"},
+            json={
+                "name": f"LongMemEval V2 {self.run_id} memory {sequence}",
+                "description": "Isolated LongMemEval-V2 memory workspace",
+                "content": "LongMemEval-V2 isolated memory workspace.",
+                "entity_type": "project",
+                "skip_conflicts": True,
+                "metadata": {
+                    "longmemeval_v2_run_id": self.run_id,
+                    "capture_surface": "longmemeval-v2-official",
+                },
+            },
+        )
+        project_id = _stripped_str(response.get("id"))
+        if not project_id:
+            msg = "Sibyl project creation did not return an id"
+            raise RuntimeError(msg)
+        return project_id
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, object],
+        params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        response = self._client.request(method, path, json=json, params=params)
+        if response.status_code >= 400:
+            msg = f"{path} failed with HTTP {response.status_code}: {response.text[:500]}"
+            raise RuntimeError(msg)
+        body = response.json()
+        if not isinstance(body, dict):
+            msg = f"{path} returned non-object JSON"
+            raise RuntimeError(msg)
+        return body
+
+
+def _trajectory_text_chunks(
+    trajectory: LongMemEvalV2Trajectory,
+    *,
+    max_chars: int,
+    include_screenshot_refs: bool,
+) -> list[str]:
+    header = "\n".join(
+        [
+            f"Trajectory: {trajectory.id}",
+            f"Domain: {trajectory.domain}",
+            f"Environment: {trajectory.environment}",
+            f"Outcome: {trajectory.outcome}",
+            f"Goal: {trajectory.goal}",
+            f"Start URL: {trajectory.start_url}",
+        ]
+    )
+    chunks: list[str] = []
+    current = header
+    for state in trajectory.states:
+        block = _state_text(state, include_screenshot_refs=include_screenshot_refs)
+        candidate = f"{current}\n\n{block}"
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current != header:
+            chunks.append(current)
+            current = f"{header}\n\n{block}"
+            if len(current) <= max_chars:
+                continue
+        chunks.extend(_split_oversized_block(header, block, max_chars=max_chars))
+        current = header
+    if current != header or not chunks:
+        chunks.append(current)
+    return chunks
+
+
+def _state_text(state: LongMemEvalV2State, *, include_screenshot_refs: bool) -> str:
+    parts = [
+        f"State {state.state_index}",
+        f"URL: {state.url}",
+    ]
+    if state.action:
+        parts.append(f"Action: {state.action}")
+    if state.thought:
+        parts.append(f"Thought: {state.thought}")
+    if include_screenshot_refs and state.screenshot:
+        parts.append(f"Screenshot: {state.screenshot}")
+    parts.append(f"Accessibility tree:\n{state.accessibility_tree}")
+    return "\n".join(parts)
+
+
+def _split_oversized_block(header: str, block: str, *, max_chars: int) -> list[str]:
+    prefix = f"{header}\n\n"
+    budget = max(1, max_chars - len(prefix))
+    return [prefix + block[index : index + budget] for index in range(0, len(block), budget)]
+
+
+def _entity_name(trajectory_id: str, chunk_index: int, chunk_count: int) -> str:
+    suffix = f" chunk {chunk_index + 1} of {chunk_count}" if chunk_count > 1 else ""
+    return f"LongMemEval-V2 trajectory {trajectory_id}{suffix}"[:200]
+
+
+def _batches(items: list[dict[str, object]], size: int) -> list[list[dict[str, object]]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _new_http_client(api_url: str) -> httpx.Client:
+    return httpx.Client(base_url=api_url, timeout=120.0, follow_redirects=True)
+
+
+def _normalize_api_url(raw_url: str) -> str:
+    url = raw_url.rstrip("/")
+    if not url.endswith("/api"):
+        url = f"{url}/api"
+    return url
+
+
+def _is_loopback_url(api_url: str) -> bool:
+    host = urlparse(api_url).hostname
+    if host is None:
+        return False
+    return host in {"localhost", "::1"} or host.startswith("127.")
+
+
+def _param_str(params: dict[str, object], key: str, default: str) -> str:
+    value = params.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
+def _param_bool(params: dict[str, object], key: str, default: bool) -> bool:
+    value = params.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return default
+
+
+def _param_int(params: dict[str, object], key: str, default: int) -> int:
+    value = params.get(key)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return max(1, value)
+    if isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
+        return max(1, int(value))
+    return default
+
+
+def _stripped_str(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""

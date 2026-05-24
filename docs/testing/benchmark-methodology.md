@@ -87,6 +87,21 @@ This is the offline baseline.
 
 Use this for offline comparison work, and label it clearly as such.
 
+### `moon run bench-longmemeval-v2-official`
+
+This is the official LongMemEval-V2 harness path for Sibyl.
+
+- Registers `sibyl_live_api` as a LongMemEval-V2 `Memory` backend.
+- Ingests trajectories through the live Sibyl `/api/entities/bulk` surface.
+- Uses project isolation for each official memory instance.
+- Queries the live `/api/search` surface for reader context.
+- Delegates answer generation and scoring to the official harness.
+- Supports `--plan-only` to materialize inputs and verify run shape without model calls.
+
+Use this for V2 full-suite work. A citable V2 result requires both `web` and `enterprise` domains at
+the same tier, using the official reader and evaluator settings. See
+[LongMemEval-V2](./longmemeval-v2.md) for the command sequence and requirements.
+
 The committed `benchmarks/results/ai-memory/longmemeval_sibyl_raw_20260513.json` and
 `benchmarks/results/ai-memory/longmemeval_sibyl_hybrid_20260513.json` artifacts are full
 `longmemeval-offline-v2` outputs as of the v0.7 Surreal release work. Re-run the benchmark before

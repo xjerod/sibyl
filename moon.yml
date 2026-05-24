@@ -595,7 +595,7 @@ tasks:
     command:
       uv run pytest tools/tests/test_bench_gate.py tools/tests/test_longmemeval_bench.py
       tools/tests/test_longmemeval_live.py tools/tests/test_longmemeval_replay.py
-      tools/tests/test_longmemeval_v2_probe.py -v
+      tools/tests/test_longmemeval_v2_probe.py tools/tests/test_longmemeval_v2_official.py -v
     inputs:
       - tools/**/*.py
       - .github/workflows/eval.yml
@@ -604,6 +604,8 @@ tasks:
       - benchmarks/longmemeval_live.py
       - benchmarks/longmemeval_replay.py
       - benchmarks/longmemeval_v2_probe.py
+      - benchmarks/longmemeval_v2_official.py
+      - benchmarks/longmemeval_v2_memory/**/*.py
       - benchmarks/results/ai-memory/*.json
       - pyproject.toml
 
@@ -1011,18 +1013,33 @@ tasks:
 
   bench-live:
     command: uv run python benchmarks/live_runtime_eval.py
+    options:
+      cache: false
 
   bench-longmemeval-live:
     command: uv run python benchmarks/longmemeval_live.py
+    options:
+      cache: false
 
   bench-longmemeval-replay:
     command: uv run python benchmarks/longmemeval_replay.py
+    options:
+      cache: false
 
   bench-longmemeval-v2-probe:
     command: uv run python benchmarks/longmemeval_v2_probe.py
+    options:
+      cache: false
+
+  bench-longmemeval-v2-official:
+    command: uv run python benchmarks/longmemeval_v2_official.py
+    options:
+      cache: false
 
   bench-live-smoke:
     command: uv run pytest packages/python/sibyl-core/tests/test_retrieval_live.py -v -s
+    options:
+      cache: false
 
   # ==========================================================================
   # E2E Testing
