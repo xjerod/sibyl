@@ -191,6 +191,7 @@ _QUERY_FRAME_WEIGHT = 0.52
 _FACT_FRAME_MIN_SIGNAL = 0.80
 _FACT_FRAME_INSERT_MARGIN = 0.06
 _FACT_FRAME_RESCUE_WEIGHT = 0.42
+_FACT_FRAME_WEIGHT = 0.26
 _QUERY_COVERAGE_REFINEMENT_WINDOW = 5
 _QUERY_COVERAGE_REFINEMENT_GUARD_WINDOW = 10
 _QUERY_COVERAGE_REFINEMENT_MIN_TOP_GAIN = 0.05
@@ -1091,6 +1092,11 @@ def rank_by_query_coverage[T](
 
     query_terms = set(keywords)
     query_fact_frames = extract_query_fact_frames(query)
+    suppress_fact_frame_rank_signal = (
+        is_evidence_set_query
+        or _is_multi_evidence_order_query(query)
+        or (_is_temporal_instruction_query(query) and temporal_target is None)
+    )
     token_rows: list[
         tuple[
             QueryCoverageCandidate[T],
@@ -1238,6 +1244,9 @@ def rank_by_query_coverage[T](
             primary_text_raw if has_primary_text else candidate.text,
         )
         fact_frame_scores_by_id[candidate.stable_id] = fact_frame_score
+        fact_frame_rank_signal = (
+            0.0 if suppress_fact_frame_rank_signal else fact_frame_score
+        )
         preference_signal = (
             _preference_evidence_score(primary_text)
             if is_preference_query and has_primary_text
@@ -1262,6 +1271,7 @@ def rank_by_query_coverage[T](
             primary_concept_overlap,
             memory_relevance,
             query_frame_score,
+            fact_frame_rank_signal,
             preference_signal,
         )
         memory_multiplier = 0.0 if is_preference_query else 1.0
@@ -1280,6 +1290,7 @@ def rank_by_query_coverage[T](
             + (_CONCEPT_OVERLAP_WEIGHT * concept_overlap)
             + (_PRIMARY_CONCEPT_WEIGHT * primary_concept_overlap)
             + (_QUERY_FRAME_WEIGHT * query_frame_score)
+            + (_FACT_FRAME_WEIGHT * fact_frame_rank_signal)
             + (
                 memory_multiplier
                 * (
@@ -1326,7 +1337,7 @@ def rank_by_query_coverage[T](
             or memory_overlap > 0.0
             or memory_concept_overlap > 0.0
             or query_frame_score > 0.0
-            or fact_frame_score >= _FACT_FRAME_MIN_SIGNAL
+            or fact_frame_rank_signal >= _FACT_FRAME_MIN_SIGNAL
             or preference_signal > 0.0
             or (temporal_alignment > 0.0 and coverage_signal > 0.0)
         )
@@ -1706,6 +1717,7 @@ def _stabilize_evidence_set_ranking[T](
         min_overlap=_EVIDENCE_SET_MIN_OVERLAP,
         insert_margin=_EVIDENCE_SET_INSERT_MARGIN,
         dominance_score_margin=_EVIDENCE_SET_SIGNAL_DOMINANCE_SCORE_MARGIN,
+        replace_strong_window=False,
     )
 
 
@@ -1807,6 +1819,7 @@ def _stabilize_top_window_ranking[T](
     insert_margin: float,
     dominance_score_margin: float | None = None,
     protected_original_rank: int | None = None,
+    replace_strong_window: bool = True,
 ) -> list[QueryCoverageRankedCandidate[T]]:
     window_size = min(_EVIDENCE_SET_WINDOW, len(scores))
     selected = list(scores[:window_size])
@@ -1851,6 +1864,9 @@ def _stabilize_top_window_ranking[T](
                 selected_ids.remove(worst_ranked.stable_id)
                 selected_ids.add(ranked.stable_id)
                 continue
+
+        if not replace_strong_window:
+            continue
 
         replaceable = [
             item for item in enumerate(selected) if not protected(item[1])

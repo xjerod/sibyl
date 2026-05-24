@@ -23,10 +23,17 @@ _PROFILE_PATTERN = re.compile(
     r"my (?:work|research|field|specialty|profession|job|role))\b",
     re.I,
 )
+_RECENCY_PATTERN = re.compile(r"\b(?:lately|recently|currently|now|these days)\b", re.I)
 _SERVICE_USE_PATTERN = re.compile(
     r"\b(?:using|use|uses|via|through|subscribed to|relying on|"
     r"listening to|watching|playing|following)\s+(?:my|the|a|an|their|our)?"
     r"\s*[A-Z0-9][A-Za-z0-9&'.-]{2,}(?:\s+[A-Z0-9][A-Za-z0-9&'.-]{2,}){0,3}\b"
+    r"|\b(?:listening|watching|streaming|playing|reading)\b[^.?!]{0,80}"
+    r"\b(?:on|via|through)\s+"
+    r"(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|"
+    r"January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)\b)"
+    r"[A-Z0-9][A-Za-z0-9&'.-]{2,}(?:\s+[A-Z0-9][A-Za-z0-9&'.-]{2,}){0,3}\b"
 )
 
 _STOPWORDS = {
@@ -125,8 +132,8 @@ _NORMALIZED_TOKEN_ALIASES = {
     "relying": "rely",
     "researched": "research",
     "researching": "research",
-    "serviced": "service",
-    "servicing": "service",
+    "serviced": "repair",
+    "servicing": "repair",
     "studied": "study",
     "studying": "study",
     "subscribed": "subscribe",
@@ -165,7 +172,7 @@ _ACTION_TERMS: dict[str, frozenset[str]] = {
     ),
     "create": frozenset({"build", "compose", "create", "draft", "generate", "make", "write"}),
     "profile": frozenset({"field", "focus", "profession", "research", "role", "specialty"}),
-    "repair": frozenset({"fix", "repair", "replace", "service"}),
+    "repair": frozenset({"fix", "repair", "replace"}),
     "use": frozenset(
         {
             "choose",
@@ -369,7 +376,7 @@ def score_fact_frame_match_for_query(
 def _extract_fact_frames(text: str, *, query: bool) -> tuple[FactFrame, ...]:
     frames: list[FactFrame] = []
     spans = [span.strip() for span in _SPAN_SPLIT_PATTERN.split(text) if span.strip()]
-    if len(spans) > 1:
+    if query and len(spans) > 1:
         spans.append(text)
 
     for span in spans or [text]:
@@ -396,9 +403,12 @@ def _frame_from_span(span: str, *, query: bool) -> FactFrame | None:
     if _PROFILE_PATTERN.search(span):
         actions.add("profile")
         categories.add("professional_domain")
-    if _SERVICE_USE_PATTERN.search(span):
+    service_use_match = _SERVICE_USE_PATTERN.search(span)
+    if service_use_match:
         actions.add("use")
         categories.add("service")
+        if re.search(r"\b(?:listening|watching|streaming|playing|reading)\b", lowered):
+            categories.add("media")
     if query and re.search(r"\b(?:what|which|name)\b[^?]{0,100}\bservice\b", lowered):
         categories.add("service")
         actions.add("use")
@@ -406,6 +416,8 @@ def _frame_from_span(span: str, *, query: bool) -> FactFrame | None:
         categories.add("life_event")
     if query and "relative" in terms:
         relations.add("relative")
+    if _RECENCY_PATTERN.search(span):
+        relations.add("recency")
     if query and "recommend" in actions and categories & {"professional_domain", "service"}:
         actions.add("profile")
 
@@ -458,12 +470,13 @@ def _score_pair(query_frame: FactFrame, evidence_frame: FactFrame) -> float:
         query_frame.categories & {"service"}
         and evidence_frame.categories & {"service"}
         and action_overlap > 0.0
-        and (
-            query_frame.categories & evidence_frame.categories & {"media", "service"}
-            or term_overlap > 0.0
-        )
     ):
-        score = max(score, 0.9)
+        requires_media = "media" in query_frame.categories
+        if not requires_media or "media" in evidence_frame.categories:
+            service_score = 0.9
+            if "recency" in query_frame.relations and "recency" in evidence_frame.relations:
+                service_score = 0.98
+            score = max(score, service_score)
 
     if (
         query_frame.actions & {"acquire"}

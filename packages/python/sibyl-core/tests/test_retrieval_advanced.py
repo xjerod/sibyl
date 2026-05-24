@@ -552,6 +552,23 @@ def test_query_coverage_completes_evidence_sets_over_low_signal_distractors() ->
     assert {"3", "5", "6"} <= set(ranked[:5])
 
 
+def test_query_coverage_keeps_strong_aggregate_evidence_window_stable() -> None:
+    ranked = _rank_query_ids(
+        "How many incidents did I document across project notes?",
+        [
+            "User: I documented one production incident in the project journal.",
+            "User: I documented a second project incident after the deploy.",
+            "User: I added notes about a billing incident in the project log.",
+            "User: I documented the support incident in project notes.",
+            "User: I wrote project notes after another incident review.",
+            "User: I documented project notes about an incident after lunch.",
+        ],
+    )
+
+    assert set(ranked[:5]) == {"0", "1", "2", "3", "4"}
+    assert "5" not in ranked[:5]
+
+
 def test_query_coverage_promotes_event_action_evidence() -> None:
     ranked = _rank_query_ids(
         "How many different events did I volunteer at, present at, or attend?",
@@ -672,6 +689,27 @@ def test_fact_frames_extract_generic_service_usage() -> None:
     ) >= 0.8
 
 
+def test_fact_frames_extract_media_platform_usage_from_on_phrase() -> None:
+    evidence_frames = extract_evidence_fact_frames(
+        "User: I've been listening to their songs a lot on Spotify lately."
+    )
+
+    assert any({"service", "media"} <= frame.categories for frame in evidence_frames)
+    assert score_fact_frame_match(
+        "What is the name of the music streaming service have I been using lately?",
+        "User: I've been listening to their songs a lot on Spotify lately.",
+    ) >= 0.8
+
+
+def test_fact_frames_do_not_treat_plain_service_as_repair_action() -> None:
+    assert score_fact_frame_match(
+        "What music streaming service have I been using lately?",
+        "Assistant: Music collectors often compare rare records. "
+        "Vinyl Me, Please is a popular online vinyl subscription service "
+        "that offers appraisal services.",
+    ) < 0.8
+
+
 def test_fact_frames_ignore_calendar_prepositions_as_services() -> None:
     frames = extract_query_fact_frames("What time did I reach the clinic on Monday?")
 
@@ -688,6 +726,38 @@ def test_query_coverage_uses_fact_frames_for_service_usage() -> None:
             "User: I updated a playlist for a road trip.",
             "User: I organized my notes about local concerts.",
             "User: I've been listening to history podcasts through Pocket Casts lately.",
+        ],
+    )
+
+    assert "5" in ranked[:5]
+
+
+def test_query_coverage_uses_fact_frames_for_media_platform_usage() -> None:
+    ranked = _rank_query_ids(
+        "What is the name of the music streaming service have I been using lately?",
+        [
+            "User: I asked for music theory resources.",
+            "User: I compared airline services after a long flight.",
+            "User: I'm looking for local concert recommendations.",
+            "User: I updated permissions for a phone app.",
+            "User: I read about streaming equipment for microphones.",
+            "User: I've been listening to their songs a lot on Spotify lately.",
+        ],
+    )
+
+    assert "5" in ranked[:5]
+
+
+def test_query_coverage_blends_fact_frames_into_recommendation_ranking() -> None:
+    ranked = _rank_query_ids(
+        "I've got some free time tonight, any documentary recommendations?",
+        [
+            "User: I'm looking for book recommendations this weekend.",
+            "User: Can you recommend gaming accessories for my console?",
+            "User: I asked for restaurant recommendations for a trip.",
+            "User: I want a board game recommendation for game night.",
+            "User: Can you recommend a cafe near my apartment?",
+            "User: I've been watching a lot of documentaries lately, especially on Netflix.",
         ],
     )
 
