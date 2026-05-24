@@ -10,6 +10,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.request import urlopen
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,6 +96,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--question-ids", nargs="*", default=None)
     parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument("--save-memory", action="store_true")
+    parser.add_argument("--skip-evaluation", action="store_true")
+    parser.add_argument("--load-memory-dir", default=None)
 
     parser.add_argument("--api-url", default=os.getenv("SIBYL_API_URL", "http://127.0.0.1:3334/api"))
     parser.add_argument("--api-token", default=os.getenv("SIBYL_API_TOKEN", ""))
@@ -270,6 +274,9 @@ def build_run_plan(
         "memory_config_path": str(memory_config_path),
         "official_repo": args.official_repo,
         "plan_only": args.plan_only,
+        "save_memory": args.save_memory,
+        "skip_evaluation": args.skip_evaluation,
+        "load_memory_dir": args.load_memory_dir,
         "trajectory_path": str(data_root / "trajectories.jsonl"),
         "trajectory_path_exists": (data_root / "trajectories.jsonl").exists(),
         "question_count": len(selected_questions),
@@ -302,9 +309,22 @@ def build_requirement_status(*, args: argparse.Namespace, data_root: Path) -> di
         ),
         "trajectories_jsonl_exists": (data_root / "trajectories.jsonl").exists(),
         "reader_api_key_env_set": bool(os.getenv(args.reader_api_key_env)),
+        "reader_endpoint_reachable": reader_endpoint_reachable(args.reader_base_url),
         "evaluator_api_key_env_set": bool(os.getenv(args.evaluator_api_key_env)),
         "transformers_available": importlib.util.find_spec("transformers") is not None,
+        "torch_available": importlib.util.find_spec("torch") is not None,
     }
+
+
+def reader_endpoint_reachable(base_url: str) -> bool:
+    if not base_url:
+        return True
+    models_url = f"{base_url.rstrip('/')}/models"
+    try:
+        with urlopen(models_url, timeout=2) as response:
+            return 200 <= int(response.status) < 500
+    except Exception:
+        return False
 
 
 def build_harness_argv(
@@ -360,6 +380,12 @@ def build_harness_argv(
         "--evaluator-timeout-seconds",
         str(args.evaluator_timeout_seconds),
     ]
+    if args.save_memory:
+        argv.append("--save-memory")
+    if args.skip_evaluation:
+        argv.append("--skip-evaluation")
+    if args.load_memory_dir:
+        argv.extend(["--load-memory-dir", args.load_memory_dir])
     if args.reader_base_url:
         argv.extend(["--base-url", args.reader_base_url])
     if args.reader_disable_thinking:

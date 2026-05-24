@@ -16,8 +16,11 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE_SRC = ROOT / "packages" / "python" / "sibyl-core" / "src"
+CLI_SRC = ROOT / "apps" / "cli" / "src"
 if str(CORE_SRC) not in sys.path:
     sys.path.insert(0, str(CORE_SRC))
+if str(CLI_SRC) not in sys.path:
+    sys.path.insert(0, str(CLI_SRC))
 
 from sibyl_core.evals.longmemeval_v2 import (  # noqa: E402
     LongMemEvalV2State,
@@ -34,6 +37,12 @@ except ModuleNotFoundError:
 
         def __init__(self, memory_params: dict[str, object]) -> None:
             self.memory_params = dict(memory_params)
+            self._query_context = {}
+
+        def set_query_context(self, **kwargs: object) -> None:
+            self._query_context = dict(kwargs)
+
+        def clear_query_context(self) -> None:
             self._query_context = {}
 
         def get_query_context(self) -> dict[str, object]:
@@ -162,9 +171,22 @@ class SibylLiveApiMemory(Memory):
         self.created_entities = 0
         self._client = _new_http_client(self.api_url)
         self._closed = False
+        self._refresh_token = ""
+        self._cli_auth: dict[str, str] = {}
         self._authenticate(memory_params)
         if not self.project_id:
             self.project_id = self._create_project()
+
+    def set_query_context(self, **kwargs: object) -> None:
+        question_item = kwargs.get("question_item")
+        if isinstance(question_item, dict):
+            kwargs = {
+                **kwargs,
+                "question_item": {
+                    key: value for key, value in question_item.items() if key != "answer"
+                },
+            }
+        super().set_query_context(**kwargs)
 
     def insert(self, trajectory: dict[str, object]) -> None:
         payloads = build_entity_payloads_for_trajectory(
@@ -229,6 +251,13 @@ class SibylLiveApiMemory(Memory):
         if token:
             self._client.headers.update({"Authorization": f"Bearer {token}"})
             return
+        cli_auth = _load_cli_auth(self.api_url)
+        cli_token = cli_auth.get("access_token", "")
+        if cli_token:
+            self._refresh_token = cli_auth.get("refresh_token", "")
+            self._cli_auth = cli_auth
+            self._client.headers.update({"Authorization": f"Bearer {cli_token}"})
+            return
         email = _param_str(memory_params, "email", "") or os.environ.get("LME_SIBYL_EMAIL", "")
         password = _param_str(memory_params, "password", "") or os.environ.get(
             "LME_SIBYL_PASSWORD",
@@ -243,6 +272,7 @@ class SibylLiveApiMemory(Memory):
             cached = _AUTH_CACHE.get(cache_key)
             if cached is not None:
                 self._client.headers.update({"Authorization": f"Bearer {cached['access_token']}"})
+                self._refresh_token = cached.get("refresh_token", "")
                 return
             issued = self._login_or_signup(
                 email=email,
@@ -251,6 +281,7 @@ class SibylLiveApiMemory(Memory):
             )
             _AUTH_CACHE[cache_key] = issued
             self._client.headers.update({"Authorization": f"Bearer {issued['access_token']}"})
+            self._refresh_token = issued.get("refresh_token", "")
 
     def _login_or_signup(
         self,
@@ -286,7 +317,10 @@ class SibylLiveApiMemory(Memory):
         body = response.json()
         if not isinstance(body, dict) or not body.get("access_token"):
             return None
-        return {"access_token": str(body["access_token"])}
+        issued = {"access_token": str(body["access_token"])}
+        if body.get("refresh_token"):
+            issued["refresh_token"] = str(body["refresh_token"])
+        return issued
 
     def _create_project(self) -> str:
         sequence = next(_INSTANCE_COUNTER)
@@ -321,6 +355,8 @@ class SibylLiveApiMemory(Memory):
         params: dict[str, object] | None = None,
     ) -> dict[str, object]:
         response = self._client.request(method, path, json=json, params=params)
+        if response.status_code == 401 and self._refresh_token and self._refresh_access_token():
+            response = self._client.request(method, path, json=json, params=params)
         if response.status_code >= 400:
             msg = f"{path} failed with HTTP {response.status_code}: {response.text[:500]}"
             raise RuntimeError(msg)
@@ -329,6 +365,20 @@ class SibylLiveApiMemory(Memory):
             msg = f"{path} returned non-object JSON"
             raise RuntimeError(msg)
         return body
+
+    def _refresh_access_token(self) -> bool:
+        response = self._client.post("/auth/refresh", json={"refresh_token": self._refresh_token})
+        if response.status_code != 200:
+            return False
+        body = response.json()
+        if not isinstance(body, dict) or not body.get("access_token"):
+            return False
+        access_token = str(body["access_token"])
+        refresh_token = str(body.get("refresh_token") or self._refresh_token)
+        self._refresh_token = refresh_token
+        self._client.headers.update({"Authorization": f"Bearer {access_token}"})
+        _store_cli_auth(self._cli_auth, access_token, refresh_token, body.get("expires_in"))
+        return True
 
 
 def _trajectory_text_chunks(
@@ -413,6 +463,74 @@ def _is_loopback_url(api_url: str) -> bool:
     if host is None:
         return False
     return host in {"localhost", "::1"} or host.startswith("127.")
+
+
+def _api_url_variants(api_url: str) -> list[str]:
+    variants = [api_url]
+    parsed = urlparse(api_url)
+    if parsed.hostname == "127.0.0.1":
+        variants.append(api_url.replace("127.0.0.1", "localhost", 1))
+    elif parsed.hostname == "localhost":
+        variants.append(api_url.replace("localhost", "127.0.0.1", 1))
+    return list(dict.fromkeys(variants))
+
+
+def _load_cli_auth(api_url: str) -> dict[str, str]:
+    try:
+        from sibyl_cli import config_store
+        from sibyl_cli.auth_store import credential_scope, read_server_credentials
+    except Exception:
+        return {}
+
+    scopes: list[str | None] = [None]
+    try:
+        active = config_store.get_active_context()
+    except Exception:
+        active = None
+    if active is not None:
+        scopes.insert(0, credential_scope(active.name, active.org_slug))
+
+    for candidate_url in _api_url_variants(api_url):
+        for scope in scopes:
+            try:
+                credentials = read_server_credentials(candidate_url, credential_scope=scope)
+            except Exception:
+                continue
+            access_token = _stripped_str(credentials.get("access_token"))
+            if not access_token:
+                continue
+            return {
+                "access_token": access_token,
+                "refresh_token": _stripped_str(credentials.get("refresh_token")),
+                "api_url": candidate_url,
+                "credential_scope": scope or "",
+            }
+    return {}
+
+
+def _store_cli_auth(
+    cli_auth: dict[str, str],
+    access_token: str,
+    refresh_token: str,
+    expires_in: object,
+) -> None:
+    if not cli_auth:
+        return
+    try:
+        from sibyl_cli.auth_store import set_tokens
+    except Exception:
+        return
+    expires = expires_in if isinstance(expires_in, int) and not isinstance(expires_in, bool) else None
+    try:
+        set_tokens(
+            cli_auth["api_url"],
+            access_token,
+            refresh_token=refresh_token,
+            expires_in=expires,
+            credential_scope=cli_auth.get("credential_scope") or None,
+        )
+    except Exception:
+        return
 
 
 def _param_str(params: dict[str, object], key: str, default: str) -> str:

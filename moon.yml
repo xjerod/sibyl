@@ -1031,8 +1031,20 @@ tasks:
     options:
       cache: false
 
+  bench-longmemeval-v2-download:
+    command: uv run --with huggingface-hub python benchmarks/longmemeval_v2_download.py
+    options:
+      cache: false
+
   bench-longmemeval-v2-official:
     command: uv run python benchmarks/longmemeval_v2_official.py
+    options:
+      cache: false
+
+  bench-longmemeval-v2-official-full:
+    command:
+      uv run --with huggingface-hub --with numpy --with openai --with pillow --with tqdm --with
+      transformers --with torch python benchmarks/longmemeval_v2_official.py
     options:
       cache: false
 

@@ -98,6 +98,10 @@ This is the official LongMemEval-V2 harness path for Sibyl.
 - Delegates answer generation and scoring to the official harness.
 - Supports `--plan-only` to materialize inputs and verify run shape without model calls.
 
+Use `moon run bench-longmemeval-v2-official-full` for actual scored runs. It adds the official
+runtime dependencies, including `transformers` and `torch`, through `uv run --with` without making
+them normal Sibyl application dependencies.
+
 Use this for V2 full-suite work. A citable V2 result requires both `web` and `enterprise` domains at
 the same tier, using the official reader and evaluator settings. See
 [LongMemEval-V2](./longmemeval-v2.md) for the command sequence and requirements.

@@ -11,10 +11,21 @@ trajectories, returns compact context for a question, a fixed reader model answe
 scorers grade the answer.
 
 Sibyl's V2 path therefore uses the official `Memory` interface instead of a benchmark-only oracle.
-The adapter writes trajectories through the live Sibyl API and queries `/api/search`; it never sees
-the gold answer or gold trajectory IDs.
+The adapter writes trajectories through the live Sibyl API and queries `/api/search`; it strips the
+gold answer from official query context before backend code can read it, and it never sees gold
+trajectory IDs.
 
 ## Current Commands
+
+Download the text-context dataset slice:
+
+```bash
+moon run bench-longmemeval-v2-download -- \
+  --data-root .moon/cache/benchmarks/longmemeval-v2-full
+```
+
+Add `--include-trajectory-screenshots` only when testing a memory backend that returns image context
+items.
 
 Fast metadata check:
 
@@ -37,10 +48,10 @@ moon run bench-longmemeval-v2-official -- \
   --allow-localhost
 ```
 
-Run one official domain:
+Run one official domain with the official runtime dependencies:
 
 ```bash
-moon run bench-longmemeval-v2-official -- \
+moon run bench-longmemeval-v2-official-full -- \
   --official-repo /path/to/LongMemEval-V2 \
   --data-root /path/to/longmemeval-v2 \
   --domain enterprise \
@@ -53,11 +64,26 @@ moon run bench-longmemeval-v2-official -- \
   --evaluator-model gpt-5.2
 ```
 
+Test live Sibyl ingestion without reader or evaluator model calls:
+
+```bash
+moon run bench-longmemeval-v2-official-full -- \
+  --official-repo /path/to/LongMemEval-V2 \
+  --data-root .moon/cache/benchmarks/longmemeval-v2-full \
+  --domain enterprise \
+  --tier small \
+  --output-dir runs/sibyl_enterprise_ingest_1 \
+  --limit 1 \
+  --allow-localhost \
+  --save-memory \
+  --skip-evaluation
+```
+
 A leaderboard-valid operating point needs both domains at the same tier and method:
 
 ```bash
-moon run bench-longmemeval-v2-official -- ... --domain enterprise --tier small
-moon run bench-longmemeval-v2-official -- ... --domain web --tier small
+moon run bench-longmemeval-v2-official-full -- ... --domain enterprise --tier small
+moon run bench-longmemeval-v2-official-full -- ... --domain web --tier small
 
 python /path/to/LongMemEval-V2/leaderboard/combine_aggregated_metrics.py \
   runs/sibyl_enterprise_small/aggregated_metrics.json \

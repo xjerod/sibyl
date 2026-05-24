@@ -32,6 +32,25 @@ def _load_memory_module() -> ModuleType:
     )
 
 
+def _load_download_module() -> ModuleType:
+    return _load_module(
+        Path(__file__).parents[2] / "benchmarks" / "longmemeval_v2_download.py",
+        "longmemeval_v2_download",
+    )
+
+
+def test_longmemeval_v2_download_patterns_default_to_text_context() -> None:
+    module = _load_download_module()
+
+    text_context_patterns = module.download_patterns(include_trajectory_screenshots=False)
+    full_patterns = module.download_patterns(include_trajectory_screenshots=True)
+
+    assert "trajectories.jsonl" in text_context_patterns
+    assert "question_screenshots/*.png" in text_context_patterns
+    assert "trajectory_screenshots/*.tar.gz" not in text_context_patterns
+    assert "trajectory_screenshots/*.tar.gz" in full_patterns
+
+
 def test_official_runner_plan_materializes_honest_runtime_inputs(tmp_path: Path) -> None:
     module = _load_runner_module()
     data_root = tmp_path / "data"
@@ -79,6 +98,8 @@ def test_official_runner_plan_materializes_honest_runtime_inputs(tmp_path: Path)
     assert plan["required_trajectory_count"] == EXPECTED_REQUIRED_TRAJECTORIES
     assert plan["requirements"]["trajectories_jsonl_exists"] is True
     assert plan["requirements"]["official_repo_configured"] is False
+    assert "reader_endpoint_reachable" in plan["requirements"]
+    assert "torch_available" in plan["requirements"]
 
 
 def test_sibyl_memory_payloads_chunk_trajectory_by_state() -> None:
@@ -131,6 +152,27 @@ def test_sibyl_memory_context_formats_retrieved_content() -> None:
             ),
         }
     ]
+
+
+def test_sibyl_memory_query_context_strips_gold_answer() -> None:
+    module = _load_memory_module()
+    memory = module.SibylLiveApiMemory.__new__(module.SibylLiveApiMemory)
+    module.Memory.__init__(memory, {})
+
+    memory.set_query_context(
+        question_id="q1",
+        question_item={
+            "id": "q1",
+            "question": "Which filter was selected?",
+            "answer": "Priority",
+        },
+    )
+
+    context = memory.get_query_context()
+    assert context["question_item"] == {
+        "id": "q1",
+        "question": "Which filter was selected?",
+    }
 
 
 def _write_dataset(root: Path) -> None:
