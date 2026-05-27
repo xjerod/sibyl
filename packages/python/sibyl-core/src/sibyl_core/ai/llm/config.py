@@ -15,6 +15,7 @@ from sibyl_core.ai.registry import ProviderName
 
 LLMProviderName = Literal["anthropic", "gemini", "openai"]
 
+
 class LLMSurface(StrEnum):
     DEFAULT = "default"
     CRAWLER = "crawler"
@@ -116,7 +117,9 @@ class EnvConfigSource:
 
         return ConfigField(value=default, source="default")
 
-    def _resolve_float(self, surface: LLMSurface, field: str, *, default: float) -> ConfigField[float]:
+    def _resolve_float(
+        self, surface: LLMSurface, field: str, *, default: float
+    ) -> ConfigField[float]:
         resolved = self._resolve_optional_env(surface, field)
         if resolved is None:
             return ConfigField(value=default, source="default")

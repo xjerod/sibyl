@@ -209,7 +209,6 @@ async def _project_accessible_for_policy(
     return {str(project_id) for project_id in accessible_projects or set()}
 
 
-
 async def _authorize_project_scope_write(
     *,
     ctx: AuthContext,
@@ -225,6 +224,7 @@ async def _authorize_project_scope_write(
         required_role=ProjectRole.CONTRIBUTOR,
         require_existing_project=True,
     )
+
 
 def _api_key_memory_scope_allowed(
     ctx: AuthContext,
@@ -943,9 +943,9 @@ def _dedupe_audit_rows(rows: list[dict[str, object]], *, limit: int) -> list[dic
         deduped.append(row)
     fallback = datetime.min.replace(tzinfo=UTC)
     deduped.sort(
-        key=lambda row: row.get("created_at")
-        if isinstance(row.get("created_at"), datetime)
-        else fallback,
+        key=lambda row: (
+            row.get("created_at") if isinstance(row.get("created_at"), datetime) else fallback
+        ),
         reverse=True,
     )
     return deduped[:limit]

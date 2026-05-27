@@ -21,9 +21,9 @@ AgentCacheKey = tuple[str, str, str, tuple[str, ...], int | None]
 # loop is garbage-collected, which matters because CPython will happily reuse
 # a closed loop's id() for the next event loop and we'd otherwise return the
 # stale Agent bound to the dead loop's resources.
-_agent_cache: WeakKeyDictionary[
-    asyncio.AbstractEventLoop, dict[AgentCacheKey, Agent[Any, Any]]
-] = WeakKeyDictionary()
+_agent_cache: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[AgentCacheKey, Agent[Any, Any]]] = (
+    WeakKeyDictionary()
+)
 
 
 async def get_agent(

@@ -138,9 +138,7 @@ class TestConnectionRetry:
         assert _is_transient_connection_error(TimeoutError("timed out during opening handshake"))
 
     def test_detects_surreal_query_id_keyerror_as_transient(self) -> None:
-        assert _is_transient_connection_error(
-            KeyError("c87ffcce-66d3-4c07-aa06-7e40f3a9e67f")
-        )
+        assert _is_transient_connection_error(KeyError("c87ffcce-66d3-4c07-aa06-7e40f3a9e67f"))
         assert not _is_transient_connection_error(KeyError("missing_field"))
 
     def test_retryable_queries_are_read_only(self) -> None:

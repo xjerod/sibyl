@@ -298,8 +298,7 @@ WHERE source_id = NONE OR target_id = NONE;
 
 
 CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS = (
-    ENTITY_DENORMALIZATION_MAINTENANCE_DEFINITIONS
-    + RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+    ENTITY_DENORMALIZATION_MAINTENANCE_DEFINITIONS + RELATION_ENDPOINT_BACKFILL_DEFINITIONS
 )
 
 
@@ -315,9 +314,7 @@ GRAPH_SCHEMA_MIGRATIONS = (
         name="relation_endpoint_denormalization",
         statements=tuple(
             split_statements(
-                RELATION_ENDPOINT_SCHEMA_DEFINITIONS
-                + "\n"
-                + RELATION_ENDPOINT_BACKFILL_DEFINITIONS
+                RELATION_ENDPOINT_SCHEMA_DEFINITIONS + "\n" + RELATION_ENDPOINT_BACKFILL_DEFINITIONS
             )
         ),
     ),
@@ -327,8 +324,7 @@ GRAPH_SCHEMA_MIGRATIONS = (
 def _is_relation_cleanup_statement(statement: str) -> bool:
     normalized = statement.lstrip().lower()
     return any(
-        normalized.startswith(f"delete from {table}")
-        or normalized.startswith(f"update {table}")
+        normalized.startswith(f"delete from {table}") or normalized.startswith(f"update {table}")
         for table in GRAPH_EDGES
     )
 

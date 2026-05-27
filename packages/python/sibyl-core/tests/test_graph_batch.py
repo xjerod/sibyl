@@ -229,9 +229,7 @@ class TestBatchUpdateNodes:
     """Tests for batch_update_nodes function."""
 
     @pytest.mark.asyncio
-    async def test_updates_nodes_through_manager(
-        self, mock_client: MagicMock, org_id: str
-    ) -> None:
+    async def test_updates_nodes_through_manager(self, mock_client: MagicMock, org_id: str) -> None:
         """Updates multiple nodes through EntityManager."""
         updates = [
             {"uuid": "id1", "properties": {"status": "done"}},
@@ -292,9 +290,7 @@ class TestBatchDeleteNodes:
     """Tests for batch_delete_nodes function."""
 
     @pytest.mark.asyncio
-    async def test_deletes_nodes_through_manager(
-        self, mock_client: MagicMock, org_id: str
-    ) -> None:
+    async def test_deletes_nodes_through_manager(self, mock_client: MagicMock, org_id: str) -> None:
         """Deletes multiple nodes through EntityManager."""
         uuids = ["id1", "id2", "id3"]
         entity_manager = MagicMock()

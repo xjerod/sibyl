@@ -48,11 +48,7 @@ def _install_provider(monkeypatch: pytest.MonkeyPatch) -> OIDCProviderSettings:
 
 
 def _set_cookie_headers(response) -> list[str]:
-    return [
-        value.decode()
-        for name, value in response.raw_headers
-        if name.lower() == b"set-cookie"
-    ]
+    return [value.decode() for name, value in response.raw_headers if name.lower() == b"set-cookie"]
 
 
 @pytest.mark.asyncio

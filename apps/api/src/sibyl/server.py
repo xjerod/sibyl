@@ -1200,9 +1200,7 @@ def _register_tools(mcp: FastMCP) -> None:
             organization_id=ctx.org_id,
             principal_id=getattr(ctx, "user_id", None),
             allowed_memory_scope_keys=(
-                set(api_key_memory_scope_keys)
-                if api_key_memory_scope_keys is not None
-                else None
+                set(api_key_memory_scope_keys) if api_key_memory_scope_keys is not None else None
             ),
         )
         return _to_dict(result)

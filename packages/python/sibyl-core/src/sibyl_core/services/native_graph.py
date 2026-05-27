@@ -2227,7 +2227,9 @@ async def _entities_with_native_embeddings(
         return list(entities)
 
     updated_entities = list(entities)
-    pending_indexes = [index for index, entity in enumerate(updated_entities) if not entity.embedding]
+    pending_indexes = [
+        index for index, entity in enumerate(updated_entities) if not entity.embedding
+    ]
     if not pending_indexes:
         return updated_entities
 
@@ -2319,9 +2321,7 @@ async def _embed_texts_with_timeout(
     timeout_seconds: float | None = None,
 ) -> list[list[float]]:
     timeout_seconds = (
-        settings.graph_embedding_timeout_seconds
-        if timeout_seconds is None
-        else timeout_seconds
+        settings.graph_embedding_timeout_seconds if timeout_seconds is None else timeout_seconds
     )
     started = time.perf_counter()
     if timeout_seconds > 0:
@@ -2373,9 +2373,7 @@ async def _replace_entity(
         _prepared_groups.discard(client.group_id)
         await prepare_native_graph_schema(client)
         result = await _execute_replace_entity_query(client, record)
-    rows = normalize_records(
-        result
-    )
+    rows = normalize_records(result)
     if rows:
         return rows[0]
     stored = await _select_one(

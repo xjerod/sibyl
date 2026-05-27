@@ -169,7 +169,6 @@ class TestProductionPasswordSecurity:
                 cookie_secure=False,
             )
 
-
     def test_placeholder_surreal_credentials_forbidden_in_production(self) -> None:
         with pytest.raises(ValueError, match="Default SurrealDB credentials are forbidden"):
             Settings(

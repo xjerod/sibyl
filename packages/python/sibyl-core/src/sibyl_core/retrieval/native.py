@@ -1414,8 +1414,10 @@ def _candidate_from_raw_memory(
     scope: NativeScopeSpec,
 ) -> NativeRetrievalCandidate:
     source = memory.source_id or memory.capture_surface
-    project_id = memory.metadata.get("project_id") or memory.project_id or (
-        memory.scope_key if memory.memory_scope is MemoryScope.PROJECT else None
+    project_id = (
+        memory.metadata.get("project_id")
+        or memory.project_id
+        or (memory.scope_key if memory.memory_scope is MemoryScope.PROJECT else None)
     )
     metadata = {
         "source_id": source,

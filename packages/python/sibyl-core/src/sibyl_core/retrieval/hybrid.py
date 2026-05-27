@@ -465,9 +465,7 @@ async def hybrid_search(
     link_search_skipped = False
     link_attempt = _VectorSearchAttempt([], True)
     should_link_entities = (
-        entity_types
-        and config.apply_query_entity_linking
-        and config.graph_weight > 0
+        entity_types and config.apply_query_entity_linking and config.graph_weight > 0
     )
     if should_link_entities:
         if len(vector_results) >= MIN_PRIMARY_SEEDS_BEFORE_LINKING:

@@ -253,6 +253,5 @@ def test_memory_extraction_telemetry_records_enqueue_and_run() -> None:
 
     assert snapshot["summaries"]["memory_extraction"]["count"] == 2
     assert any(
-        metric["name"] == "sibyl_memory_extraction_runs_total"
-        for metric in snapshot["metrics"]
+        metric["name"] == "sibyl_memory_extraction_runs_total" for metric in snapshot["metrics"]
     )

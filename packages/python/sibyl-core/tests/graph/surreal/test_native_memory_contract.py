@@ -436,7 +436,11 @@ async def test_post_reflection_recall_promotes_review_candidate_into_native_cont
         assert (promotion.promoted_id, "BELONGS_TO", "project_native") in relationship_keys
         assert (promotion.promoted_id, "RELATED_TO", "task_native") in relationship_keys
         assert (promotion.promoted_id, "SUPERSEDES", "decision_legacy_recall") in relationship_keys
-        assert (promotion.promoted_id, "SUPERSEDES", "decision_other_project") not in relationship_keys
+        assert (
+            promotion.promoted_id,
+            "SUPERSEDES",
+            "decision_other_project",
+        ) not in relationship_keys
         supersedes_row = next(row for row in relationship_rows if row["name"] == "SUPERSEDES")
         assert supersedes_row["attributes"]["source_id"] == reflection.source_id
         assert supersedes_row["attributes"]["raw_source_ids"] == [reflection.source_id]

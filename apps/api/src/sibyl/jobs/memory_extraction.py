@@ -338,7 +338,7 @@ def _limited_entities(
     result: SourceMemoryExtraction,
     max_entities: int,
 ) -> list[ExtractedMemoryEntity]:
-    return result.entities[:max(1, max_entities)]
+    return result.entities[: max(1, max_entities)]
 
 
 async def _project_extracted_entities(

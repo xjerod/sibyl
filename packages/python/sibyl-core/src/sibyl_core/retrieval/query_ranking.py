@@ -775,9 +775,8 @@ def should_accept_query_coverage_refinement[T](
         and top_score_gain >= _QUERY_COVERAGE_REFINEMENT_MIN_SCORE_GAIN
     )
     return (
-        (top_gain >= _QUERY_COVERAGE_REFINEMENT_MIN_TOP_GAIN or top_score_refinement)
-        and guard_loss <= _QUERY_COVERAGE_REFINEMENT_MAX_GUARD_LOSS
-    )
+        top_gain >= _QUERY_COVERAGE_REFINEMENT_MIN_TOP_GAIN or top_score_refinement
+    ) and guard_loss <= _QUERY_COVERAGE_REFINEMENT_MAX_GUARD_LOSS
 
 
 def _coverage_signal_sum[T](
@@ -812,11 +811,7 @@ def normalize_keyword_token(token: str) -> str:
         return token[:-2]
     if len(token) > 4 and token.endswith(("ces", "ses")):
         return token[:-1]
-    if (
-        len(token) > 3
-        and token.endswith("s")
-        and not token.endswith(("is", "ous", "ss", "us"))
-    ):
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("is", "ous", "ss", "us")):
         return token[:-1]
     return token
 
@@ -894,17 +889,23 @@ def _query_frame_score(
             "uses",
             "using",
         }
-        if object_terms and object_terms & evidence_tokens and _BRAND_EVIDENCE_PATTERN.search(
-            evidence_text
+        if (
+            object_terms
+            and object_terms & evidence_tokens
+            and _BRAND_EVIDENCE_PATTERN.search(evidence_text)
         ):
             score = max(score, 1.0)
 
-    if _PURCHASE_ACTION_PATTERN.search(query) or {
-        "buy",
-        "bought",
-        "purchase",
-        "purchased",
-    } & query_terms:
+    if (
+        _PURCHASE_ACTION_PATTERN.search(query)
+        or {
+            "buy",
+            "bought",
+            "purchase",
+            "purchased",
+        }
+        & query_terms
+    ):
         if _PURCHASE_ACTION_PATTERN.search(evidence_text) and category_score > 0.0:
             score = max(score, 1.0)
         elif category_score >= 0.5:
@@ -995,9 +996,11 @@ def _query_frame_score(
     if artifact_score > 0.0:
         score = max(score, artifact_score)
 
-    if {"high", "school", "reunion", "nostalgic"} & query_terms and (
-        "high" in evidence_tokens or "school" in evidence_tokens
-    ) and _NOSTALGIA_EVIDENCE_PATTERN.search(evidence_text):
+    if (
+        {"high", "school", "reunion", "nostalgic"} & query_terms
+        and ("high" in evidence_tokens or "school" in evidence_tokens)
+        and _NOSTALGIA_EVIDENCE_PATTERN.search(evidence_text)
+    ):
         score = max(score, 0.95)
 
     return min(score, 1.0)
@@ -1005,9 +1008,7 @@ def _query_frame_score(
 
 def _action_evidence_score(query: str, evidence_tokens: set[str]) -> float:
     query_tokens = set(keyword_tokens_from_text(query))
-    query_action_groups = [
-        group for group in _ACTION_EVIDENCE_GROUPS if query_tokens & group
-    ]
+    query_action_groups = [group for group in _ACTION_EVIDENCE_GROUPS if query_tokens & group]
     if not query_action_groups:
         return 0.0
 
@@ -1068,9 +1069,7 @@ def rank_by_query_coverage[T](
     is_evidence_set_query = bool(_EVIDENCE_SET_QUERY_PATTERN.search(query.lower()))
     if is_preference_query:
         focused_keywords = [
-            keyword
-            for keyword in keywords
-            if keyword not in _PREFERENCE_QUERY_SCAFFOLDING_TERMS
+            keyword for keyword in keywords if keyword not in _PREFERENCE_QUERY_SCAFFOLDING_TERMS
         ]
         if len(focused_keywords) >= 3:
             keywords = focused_keywords
@@ -1244,9 +1243,7 @@ def rank_by_query_coverage[T](
             primary_text_raw if has_primary_text else candidate.text,
         )
         fact_frame_scores_by_id[candidate.stable_id] = fact_frame_score
-        fact_frame_rank_signal = (
-            0.0 if suppress_fact_frame_rank_signal else fact_frame_score
-        )
+        fact_frame_rank_signal = 0.0 if suppress_fact_frame_rank_signal else fact_frame_score
         preference_signal = (
             _preference_evidence_score(primary_text)
             if is_preference_query and has_primary_text
@@ -1503,9 +1500,7 @@ def _is_assistant_evidence_query(query: str) -> bool:
 
 
 def _is_personal_memory_query(query: str) -> bool:
-    return bool(_PRIMARY_PERSONAL_PATTERN.search(query)) and not _is_assistant_evidence_query(
-        query
-    )
+    return bool(_PRIMARY_PERSONAL_PATTERN.search(query)) and not _is_assistant_evidence_query(query)
 
 
 def _is_generated_artifact_query(query: str, query_terms: set[str]) -> bool:
@@ -1520,17 +1515,16 @@ def _is_temporal_instruction_query(query: str) -> bool:
 
 def _is_evidence_cluster_query(query: str) -> bool:
     lowered = query.lower()
-    return bool(_EVIDENCE_SET_QUERY_PATTERN.search(lowered)) or _is_temporal_instruction_query(
-        query
-    ) or bool(
-        _AGE_ARITHMETIC_QUERY_PATTERN.search(query)
+    return (
+        bool(_EVIDENCE_SET_QUERY_PATTERN.search(lowered))
+        or _is_temporal_instruction_query(query)
+        or bool(_AGE_ARITHMETIC_QUERY_PATTERN.search(query))
     )
 
 
 def _is_profile_recommendation_fact_query(query_frames: Sequence[FactFrame]) -> bool:
     return any(
-        "recommend" in frame.actions and "profile" in frame.actions
-        for frame in query_frames
+        "recommend" in frame.actions and "profile" in frame.actions for frame in query_frames
     )
 
 
@@ -1607,8 +1601,7 @@ def _apply_evidence_cluster_affinity[T](
 
         affinity = max(
             (
-                _token_jaccard(tokens, anchor_tokens)
-                * (0.65 + (0.35 * max(anchor.overlap, 0.0)))
+                _token_jaccard(tokens, anchor_tokens) * (0.65 + (0.35 * max(anchor.overlap, 0.0)))
                 for anchor, anchor_tokens in anchors
             ),
             default=0.0,
@@ -1772,9 +1765,7 @@ def _stabilize_fact_frame_ranking[T](
             continue
 
         low_signal = [
-            item
-            for item in enumerate(selected)
-            if fact_signal(item[1]) < _FACT_FRAME_MIN_SIGNAL
+            item for item in enumerate(selected) if fact_signal(item[1]) < _FACT_FRAME_MIN_SIGNAL
         ]
         if not low_signal:
             continue
@@ -1785,15 +1776,9 @@ def _stabilize_fact_frame_ranking[T](
         )
         worst_ranked, _worst_original_index = worst
         worst_signal = fact_signal(worst)
-        dominance_allowed = (
-            candidate_signal >= worst_signal + _SIGNAL_DOMINANCE_INSERT_MARGIN
-        )
-        candidate_effective_score = ranked.score + (
-            _FACT_FRAME_RESCUE_WEIGHT * candidate_signal
-        )
-        worst_effective_score = worst_ranked.score + (
-            _FACT_FRAME_RESCUE_WEIGHT * worst_signal
-        )
+        dominance_allowed = candidate_signal >= worst_signal + _SIGNAL_DOMINANCE_INSERT_MARGIN
+        candidate_effective_score = ranked.score + (_FACT_FRAME_RESCUE_WEIGHT * candidate_signal)
+        worst_effective_score = worst_ranked.score + (_FACT_FRAME_RESCUE_WEIGHT * worst_signal)
         if (
             not dominance_allowed
             or candidate_effective_score + _FACT_FRAME_INSERT_MARGIN < worst_effective_score
@@ -1806,9 +1791,7 @@ def _stabilize_fact_frame_ranking[T](
 
     selected = sorted(selected, key=lambda item: (-item[0].score, item[1]))
     return [ranked for ranked, _index in selected] + [
-        ranked
-        for ranked, _index in ranked_by_score
-        if ranked.stable_id not in selected_ids
+        ranked for ranked, _index in ranked_by_score if ranked.stable_id not in selected_ids
     ]
 
 
@@ -1852,8 +1835,7 @@ def _stabilize_top_window_ranking[T](
             worst_ranked, _worst_original_index = worst
             dominance_allowed = (
                 ranked.overlap >= min_overlap
-                and ranked.overlap
-                >= worst_ranked.overlap + _SIGNAL_DOMINANCE_INSERT_MARGIN
+                and ranked.overlap >= worst_ranked.overlap + _SIGNAL_DOMINANCE_INSERT_MARGIN
                 and (
                     dominance_score_margin is None
                     or ranked.score + dominance_score_margin >= worst_ranked.score
@@ -1868,9 +1850,7 @@ def _stabilize_top_window_ranking[T](
         if not replace_strong_window:
             continue
 
-        replaceable = [
-            item for item in enumerate(selected) if not protected(item[1])
-        ]
+        replaceable = [item for item in enumerate(selected) if not protected(item[1])]
         if not replaceable:
             continue
         worst_index, worst = min(
@@ -1887,7 +1867,5 @@ def _stabilize_top_window_ranking[T](
 
     selected = sorted(selected, key=lambda item: (-item[0].score, item[1]))
     return [ranked for ranked, _index in selected] + [
-        ranked
-        for ranked, _index in ranked_by_coverage
-        if ranked.stable_id not in selected_ids
+        ranked for ranked, _index in ranked_by_coverage if ranked.stable_id not in selected_ids
     ]

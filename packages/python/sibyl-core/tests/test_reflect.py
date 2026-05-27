@@ -215,9 +215,7 @@ async def test_reflect_memory_can_persist_review_queue(
         "same_scope_write_allowed",
     ]
     assert calls[1][1]["memory_scope"] is MemoryScope.PROJECT
-    assert calls[1][1]["extraction_prompt_metadata"]["extractor"] == (
-        "sibyl_reflection_extractor"
-    )
+    assert calls[1][1]["extraction_prompt_metadata"]["extractor"] == ("sibyl_reflection_extractor")
     assert add_fn.await_count == 0
 
 

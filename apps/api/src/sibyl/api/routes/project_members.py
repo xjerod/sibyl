@@ -27,14 +27,12 @@ class MemberRoleUpdateRequest(BaseModel):
 
 class ProjectMembershipSubject(Protocol):
     @property
-    def owner_user_id(self) -> UUID | None:
-        ...
+    def owner_user_id(self) -> UUID | None: ...
 
 
 class ProjectMembershipActor(Protocol):
     @property
-    def id(self) -> UUID:
-        ...
+    def id(self) -> UUID: ...
 
 
 def _can_manage_members(

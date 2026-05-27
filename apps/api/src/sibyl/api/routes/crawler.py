@@ -96,7 +96,9 @@ def _enum_value(value: object) -> str:
     return str(enum_value if enum_value is not None else value)
 
 
-async def _get_org_source(session: object, source_id: str, org: AuthOrganization) -> CrawlSourceRecord:
+async def _get_org_source(
+    session: object, source_id: str, org: AuthOrganization
+) -> CrawlSourceRecord:
     """Get a source and verify it belongs to the organization.
 
     Args:
@@ -197,9 +199,7 @@ async def _source_import_policy_context(
     accessible_projects = None
     if memory_scope == "project":
         project_ids = await list_accessible_project_graph_ids(ctx) or set()
-        accessible_projects = {
-            str(project_id) for project_id in project_ids
-        }
+        accessible_projects = {str(project_id) for project_id in project_ids}
     return memory_policy_context_payload(
         ctx.to_memory_policy_context(
             memory_space=memory_scope,

@@ -122,8 +122,6 @@ async def test_get_entity_uses_knowledge_service_for_graph_entities() -> None:
     get_entity_graph_runtime.assert_not_awaited()
 
 
-
-
 @pytest.mark.asyncio
 async def test_get_entity_denies_private_memory_projection_for_non_owner() -> None:
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
@@ -151,6 +149,8 @@ async def test_get_entity_denies_private_memory_projection_for_non_owner() -> No
         await get_entity("person-1", org=org, ctx=_ctx(), service=service)
 
     assert exc.value.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_get_entity_keeps_project_summary_enrichment() -> None:
     org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))

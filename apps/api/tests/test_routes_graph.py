@@ -69,9 +69,7 @@ class TestGraphRoutes:
                 )
             ),
         )
-        adapter = SimpleNamespace(
-            get_connection_counts=AsyncMock(return_value={"task-1": 2})
-        )
+        adapter = SimpleNamespace(get_connection_counts=AsyncMock(return_value={"task-1": 2}))
 
         with (
             patch(

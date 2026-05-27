@@ -43,12 +43,8 @@ def _is_connection_closed_error(exc: BaseException) -> bool:
     class_names = {type(exc).__name__, type(exc).__qualname__}
     module = type(exc).__module__
     message = str(exc).lower()
-    return (
-        "ConnectionClosed" in "".join(class_names)
-        or (
-            "websockets" in module
-            and ("closed" in message or "keepalive ping timeout" in message)
-        )
+    return "ConnectionClosed" in "".join(class_names) or (
+        "websockets" in module and ("closed" in message or "keepalive ping timeout" in message)
     )
 
 
@@ -67,9 +63,9 @@ def _can_retry_query(query: str) -> bool:
     if not statements:
         return False
     tokens = _query_tokens(query)
-    return all(_first_token(statement) in _READ_ONLY_QUERY_TOKENS for statement in statements) and not (
-        set(tokens) & _WRITE_QUERY_TOKENS
-    )
+    return all(
+        _first_token(statement) in _READ_ONLY_QUERY_TOKENS for statement in statements
+    ) and not (set(tokens) & _WRITE_QUERY_TOKENS)
 
 
 def _can_retry_raw_query(query: str) -> bool:
@@ -77,9 +73,9 @@ def _can_retry_raw_query(query: str) -> bool:
     if not statements:
         return False
     tokens = _query_tokens(query)
-    return all(_first_token(statement) in _RAW_READ_ONLY_QUERY_TOKENS for statement in statements) and not (
-        set(tokens) & _WRITE_QUERY_TOKENS
-    )
+    return all(
+        _first_token(statement) in _RAW_READ_ONLY_QUERY_TOKENS for statement in statements
+    ) and not (set(tokens) & _WRITE_QUERY_TOKENS)
 
 
 __all__ = [

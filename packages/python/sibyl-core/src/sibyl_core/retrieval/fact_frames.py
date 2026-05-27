@@ -523,9 +523,7 @@ def _normalize_token(token: str) -> str:
         return token[:-2]
     if len(token) > 4 and token.endswith(("ces", "ses")):
         return token[:-1]
-    if len(token) > 3 and token.endswith("s") and not token.endswith(
-        ("is", "ous", "ss", "us")
-    ):
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("is", "ous", "ss", "us")):
         return token[:-1]
     return token
 

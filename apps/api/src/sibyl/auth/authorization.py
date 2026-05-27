@@ -298,7 +298,9 @@ async def filter_accessible_entities[EntityT](
     result: list[EntityT] = []
     for entity in entities:
         project_id = (
-            project_id_getter(entity) if project_id_getter is not None else _entity_project_id(entity)
+            project_id_getter(entity)
+            if project_id_getter is not None
+            else _entity_project_id(entity)
         )
         # Include if: no project (unassigned) or project is accessible
         if project_id is None or project_id in accessible_graph_ids:

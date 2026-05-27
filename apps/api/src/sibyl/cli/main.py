@@ -161,9 +161,7 @@ def serve(
             run_server(host=host, port=port, transport=transport)
         else:
             with embedded_lock:
-                console.print(
-                    f"[{NEON_CYAN}]Embedded SurrealDB:[/{NEON_CYAN}] {embedded_data_dir}"
-                )
+                console.print(f"[{NEON_CYAN}]Embedded SurrealDB:[/{NEON_CYAN}] {embedded_data_dir}")
                 run_server(host=host, port=port, transport=transport)
     except KeyboardInterrupt:
         console.print(f"\n[{NEON_CYAN}]Shutting down...[/{NEON_CYAN}]")

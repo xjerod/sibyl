@@ -70,7 +70,9 @@ class AccessSessionCache:
     ) -> None:
         current = _naive_utc(now) if now is not None else _utcnow()
         state = self._entries.get(session_id)
-        expiry = expires_at or (state.expires_at if state is not None else current + timedelta(minutes=5))
+        expiry = expires_at or (
+            state.expires_at if state is not None else current + timedelta(minutes=5)
+        )
         expiry = _naive_utc(expiry)
         if expiry <= current:
             expiry = current + timedelta(minutes=5)

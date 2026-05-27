@@ -202,9 +202,7 @@ class EmbeddingService:
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i : i + self.batch_size]
 
-            embeddings.extend(
-                await self._embed_texts_with_config(batch, config, kind="document")
-            )
+            embeddings.extend(await self._embed_texts_with_config(batch, config, kind="document"))
 
             log.debug(
                 "Embedded batch",

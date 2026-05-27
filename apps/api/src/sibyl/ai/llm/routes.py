@@ -38,9 +38,7 @@ from sibyl_core.ai.validation import (
 router = APIRouter(prefix="/settings/ai", tags=["ai-settings"])
 
 ConfigSourceName = Literal["env", "db", "default"]
-_UPDATABLE_FIELDS = frozenset(
-    {"provider", "model", "temperature", "max_tokens", "timeout_seconds"}
-)
+_UPDATABLE_FIELDS = frozenset({"provider", "model", "temperature", "max_tokens", "timeout_seconds"})
 
 
 class ConfigValueField(BaseModel):
@@ -119,10 +117,7 @@ async def get_llm_settings(request: Request) -> LLMSettingsResponse:
 
     source = get_config_source()
     service = get_settings_service()
-    surfaces = {
-        surface: _surface_settings(await source.resolve(surface))
-        for surface in LLMSurface
-    }
+    surfaces = {surface: _surface_settings(await source.resolve(surface)) for surface in LLMSurface}
     return LLMSettingsResponse(
         surfaces=surfaces,
         budgets=await _budget_settings(service),

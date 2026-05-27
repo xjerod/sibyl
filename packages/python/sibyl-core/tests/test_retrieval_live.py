@@ -19,9 +19,7 @@ import pytest
 
 SIBYL_API = "http://localhost:3334"
 STRICT_LIVE_PERF = os.environ.get("SIBYL_ASSERT_LIVE_LATENCY") == "1"
-LIVE_RETRIEVAL_TESTS = (
-    os.environ.get("SIBYL_LIVE_RETRIEVAL_TESTS") == "1" or STRICT_LIVE_PERF
-)
+LIVE_RETRIEVAL_TESTS = os.environ.get("SIBYL_LIVE_RETRIEVAL_TESTS") == "1" or STRICT_LIVE_PERF
 
 
 def _get_client_headers() -> dict[str, str]:

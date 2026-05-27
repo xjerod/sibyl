@@ -187,9 +187,7 @@ async def test_plan_synthesis_route_verifies_explicit_project() -> None:
 
     verify_project.assert_awaited_once()
     assert response.request.project == "project-sibyl"
-    assert response.source_packs[0].freshness == {
-        "source:context": "2026-05-14T12:00:00Z"
-    }
+    assert response.source_packs[0].freshness == {"source:context": "2026-05-14T12:00:00Z"}
 
 
 @pytest.mark.asyncio

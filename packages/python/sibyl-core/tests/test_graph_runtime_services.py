@@ -27,12 +27,15 @@ async def test_get_graph_runtime_binds_native_store_managers() -> None:
         relationship_manager=relationship_manager,
     )
 
-    with patch(
-        "sibyl_core.services.graph_runtime.get_native_graph_runtime",
-        AsyncMock(return_value=native_runtime),
-    ) as get_native_runtime, patch(
-        "sibyl_core.services.graph_runtime.configured_native_embedding_provider",
-        MagicMock(return_value=None),
+    with (
+        patch(
+            "sibyl_core.services.graph_runtime.get_native_graph_runtime",
+            AsyncMock(return_value=native_runtime),
+        ) as get_native_runtime,
+        patch(
+            "sibyl_core.services.graph_runtime.configured_native_embedding_provider",
+            MagicMock(return_value=None),
+        ),
     ):
         runtime = await get_graph_runtime("org-123")
 

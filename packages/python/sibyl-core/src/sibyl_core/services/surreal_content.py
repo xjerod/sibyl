@@ -1064,9 +1064,9 @@ async def list_reflection_candidate_reviews(
     ]
     memories = sorted(
         memories,
-        key=lambda memory: memory.captured_at
-        or memory.created_at
-        or datetime.min.replace(tzinfo=UTC),
+        key=lambda memory: (
+            memory.captured_at or memory.created_at or datetime.min.replace(tzinfo=UTC)
+        ),
     )
     return memories[:limit]
 
@@ -1097,8 +1097,7 @@ async def list_reflection_dream_source_memories(
         memory
         for memory in memories
         if raw_memory_recallable(memory)
-        and _raw_memory_capture_surface(memory)
-        not in {"reflection_candidate", "reflection_source"}
+        and _raw_memory_capture_surface(memory) not in {"reflection_candidate", "reflection_source"}
         and not memory.metadata.get("reflection_dream_processed_at")
     ][:limit]
 

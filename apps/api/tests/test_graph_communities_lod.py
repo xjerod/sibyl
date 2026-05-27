@@ -287,7 +287,6 @@ async def test_get_graph_snapshot_cancels_inflight_load_on_request_cancel(
     assert communities.GRAPH_SNAPSHOT_LOADS == {}
 
 
-
 @pytest.mark.asyncio
 async def test_get_graph_snapshot_joiner_cancel_does_not_cancel_shared_load(
     monkeypatch: pytest.MonkeyPatch,

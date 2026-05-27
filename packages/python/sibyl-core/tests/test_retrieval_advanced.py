@@ -255,8 +255,7 @@ def test_query_coverage_promotes_brand_lookup_evidence() -> None:
             "User: I organized my bathroom cleaning schedule.",
             "User: I compared hair dryers and towels.",
             "User: I asked for generic hair care tips.",
-            "User: I've been using a lavender scented shampoo that I picked up "
-            "at Trader Joe's.",
+            "User: I've been using a lavender scented shampoo that I picked up at Trader Joe's.",
         ],
     )
 
@@ -674,19 +673,20 @@ def test_query_coverage_promotes_recurring_frequency() -> None:
 
 
 def test_fact_frames_extract_generic_service_usage() -> None:
-    query_frames = extract_query_fact_frames(
-        "What audio app have I been using lately?"
-    )
+    query_frames = extract_query_fact_frames("What audio app have I been using lately?")
     evidence_frames = extract_evidence_fact_frames(
         "User: I've been listening to history podcasts through Pocket Casts lately."
     )
 
     assert any("service" in frame.categories for frame in query_frames)
     assert any({"service", "media"} <= frame.categories for frame in evidence_frames)
-    assert score_fact_frame_match(
-        "What audio app have I been using lately?",
-        "User: I've been listening to history podcasts through Pocket Casts lately.",
-    ) >= 0.8
+    assert (
+        score_fact_frame_match(
+            "What audio app have I been using lately?",
+            "User: I've been listening to history podcasts through Pocket Casts lately.",
+        )
+        >= 0.8
+    )
 
 
 def test_fact_frames_extract_media_platform_usage_from_on_phrase() -> None:
@@ -695,19 +695,25 @@ def test_fact_frames_extract_media_platform_usage_from_on_phrase() -> None:
     )
 
     assert any({"service", "media"} <= frame.categories for frame in evidence_frames)
-    assert score_fact_frame_match(
-        "What is the name of the music streaming service have I been using lately?",
-        "User: I've been listening to their songs a lot on Spotify lately.",
-    ) >= 0.8
+    assert (
+        score_fact_frame_match(
+            "What is the name of the music streaming service have I been using lately?",
+            "User: I've been listening to their songs a lot on Spotify lately.",
+        )
+        >= 0.8
+    )
 
 
 def test_fact_frames_do_not_treat_plain_service_as_repair_action() -> None:
-    assert score_fact_frame_match(
-        "What music streaming service have I been using lately?",
-        "Assistant: Music collectors often compare rare records. "
-        "Vinyl Me, Please is a popular online vinyl subscription service "
-        "that offers appraisal services.",
-    ) < 0.8
+    assert (
+        score_fact_frame_match(
+            "What music streaming service have I been using lately?",
+            "Assistant: Music collectors often compare rare records. "
+            "Vinyl Me, Please is a popular online vinyl subscription service "
+            "that offers appraisal services.",
+        )
+        < 0.8
+    )
 
 
 def test_fact_frames_ignore_calendar_prepositions_as_services() -> None:
@@ -2275,8 +2281,7 @@ class TestHybridSearch:
         answer = make_entity_for_test(
             "answer",
             description=(
-                f"{filler} {filler} I was making dinner with my favorite "
-                "Japanese short grain rice."
+                f"{filler} {filler} I was making dinner with my favorite Japanese short grain rice."
             ),
         )
         tail = [
@@ -2417,8 +2422,7 @@ class TestHybridSearch:
         answer = make_entity_for_test(
             "answer",
             description=(
-                "User: I keep my portable power bank and wireless charging pad "
-                "in a travel pouch."
+                "User: I keep my portable power bank and wireless charging pad in a travel pouch."
             ),
         )
         tail = [
@@ -2637,9 +2641,7 @@ class TestHybridSearch:
             config=HybridConfig(apply_temporal=False, apply_keyword_boost=False),
         )
 
-        assert [entity.id for entity in result.entities] == [
-            session.id for session in sessions[:5]
-        ]
+        assert [entity.id for entity in result.entities] == [session.id for session in sessions[:5]]
         assert result.metadata["link_count"] == 0
         assert result.metadata["link_search_skipped"] is True
         assert [call["entity_types"] for call in manager.search_calls] == [[EntityType.SESSION]]

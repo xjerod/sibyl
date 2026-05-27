@@ -177,7 +177,9 @@ def test_graph_relation_tables_are_enforced() -> None:
     assert "relates_to SCHEMAFULL TYPE RELATION IN entity OUT entity ENFORCED" in EDGE_DEFINITIONS
     assert "mentions SCHEMAFULL TYPE RELATION IN episode OUT entity ENFORCED" in EDGE_DEFINITIONS
     assert "has_episode SCHEMAFULL TYPE RELATION IN saga OUT episode ENFORCED" in EDGE_DEFINITIONS
-    assert "next_episode SCHEMAFULL TYPE RELATION IN episode OUT episode ENFORCED" in EDGE_DEFINITIONS
+    assert (
+        "next_episode SCHEMAFULL TYPE RELATION IN episode OUT episode ENFORCED" in EDGE_DEFINITIONS
+    )
     assert (
         "has_member SCHEMAFULL TYPE RELATION IN community OUT entity | community ENFORCED"
         in EDGE_DEFINITIONS
@@ -240,7 +242,9 @@ async def test_graph_bootstrap_cleans_relations_before_enforcement() -> None:
         if "DEFINE TABLE OVERWRITE relates_to" in statement
     )
     cleanup_index = next(
-        index for index, statement in enumerate(client.calls) if "DELETE FROM relates_to" in statement
+        index
+        for index, statement in enumerate(client.calls)
+        if "DELETE FROM relates_to" in statement
     )
     assert cleanup_index < relation_define_index
 

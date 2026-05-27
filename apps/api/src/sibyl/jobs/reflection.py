@@ -310,7 +310,9 @@ async def _drain_dream_candidate(
 ) -> dict[str, Any]:
     target_scope = _candidate_target_scope(candidate)
     target_scope_key = _candidate_target_scope_key(candidate, target_scope)
-    project = _candidate_project(candidate, target_scope=target_scope, target_scope_key=target_scope_key)
+    project = _candidate_project(
+        candidate, target_scope=target_scope, target_scope_key=target_scope_key
+    )
     accessible_projects = await _accessible_projects_for_candidate(
         group_id=group_id,
         candidate=candidate,
@@ -585,8 +587,7 @@ def _archiveable_exception(
 
 def _candidate_target_scope(candidate: RawMemory) -> str:
     return (
-        _metadata_str(candidate.metadata, "suggested_memory_scope")
-        or candidate.memory_scope.value
+        _metadata_str(candidate.metadata, "suggested_memory_scope") or candidate.memory_scope.value
     )
 
 

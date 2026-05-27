@@ -228,8 +228,8 @@ async def test_project_extracted_memory_entities_materializes_llm_mentions() -> 
     assert relationships[0].relationship_type == RelationshipType.MENTIONS
     assert relationships[0].source_id == "created-session"
     assert relationships[0].metadata["projection_extractor"] == "llm"
-    assert relationships[0].metadata["fact"].endswith(
-        "SurrealDB: SurrealDB 3.0 RRF helped retrieval."
+    assert (
+        relationships[0].metadata["fact"].endswith("SurrealDB: SurrealDB 3.0 RRF helped retrieval.")
     )
 
 

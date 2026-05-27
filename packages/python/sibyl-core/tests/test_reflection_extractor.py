@@ -55,9 +55,7 @@ async def test_heuristic_extractor_structures_claims_tasks_artifacts_and_sensiti
     claim = next(candidate for candidate in candidates if candidate.kind == "claim")
     sensitive = next(candidate for candidate in candidates if candidate.sensitivity_flags)
     project_relationship = next(
-        relationship
-        for candidate in candidates
-        for relationship in candidate.relationship_records
+        relationship for candidate in candidates for relationship in candidate.relationship_records
     )
 
     assert {"artifact", "claim", "procedure", "task"} <= kinds
@@ -146,9 +144,7 @@ async def test_reflect_memory_persists_claim_receipts_with_source_grounding(
     assert claim.source_ids == ["raw-source-1"]
     assert finding.source_ids == ["raw-source-1"]
     assert stored_candidate.metadata["claim_records"][0]["source_ids"] == ["raw-source-1"]
-    assert stored_candidate.metadata["reflection_findings"][0]["source_ids"] == [
-        "raw-source-1"
-    ]
+    assert stored_candidate.metadata["reflection_findings"][0]["source_ids"] == ["raw-source-1"]
 
 
 @pytest.mark.asyncio

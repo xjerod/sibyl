@@ -226,9 +226,7 @@ class TestBackupInventory:
         } == {"topic"}
         assert result.backup_data.relationships[0]["relationship_type"] == "MENTIONS"
         assert result.backup_data.relationships[0]["weight"] == 0.75
-        assert result.backup_data.relationships[0]["metadata"] == {
-            "source_ids": ["source:doc"]
-        }
+        assert result.backup_data.relationships[0]["metadata"] == {"source_ids": ["source:doc"]}
         assert result.backup_data.relationships[0]["created_at"] == "2026-04-19T00:00:00Z"
         assert result.backup_data.episodes[0]["uuid"] == "episode-1"
         assert result.backup_data.mentions[0]["uuid"] == "mention-1"
@@ -1119,9 +1117,7 @@ class TestBackfillEpisodeTaskRelationships:
 
         entity_manager.list_by_type = AsyncMock(side_effect=list_by_type)
         entity_manager.get = AsyncMock(
-            side_effect=lambda task_id: (
-                None if task_id == "task-3" else SimpleNamespace(id=task_id)
-            )
+            side_effect=lambda task_id: None if task_id == "task-3" else SimpleNamespace(id=task_id)
         )
         relationship_manager.get_for_entity = AsyncMock(
             side_effect=[

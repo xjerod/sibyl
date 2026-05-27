@@ -656,9 +656,10 @@ class TestListEntitiesRoute:
         ]
         assert response.total == 3
 
-
     @pytest.mark.asyncio
-    async def test_untyped_entity_list_hides_private_memory_projection_from_other_user(self) -> None:
+    async def test_untyped_entity_list_hides_private_memory_projection_from_other_user(
+        self,
+    ) -> None:
         org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
         manager = MagicMock()
         manager._surreal_entity_node_ops.return_value = object()

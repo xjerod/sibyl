@@ -91,8 +91,7 @@ def test_coverage_rerank_uses_query_terms_without_answer_oracle() -> None:
         *(f"tail-{index}" for index in range(4)),
     ]
     haystack_sessions = [
-        [{"role": "user", "content": "I need generic travel planning help."}]
-        for _ in range(5)
+        [{"role": "user", "content": "I need generic travel planning help."}] for _ in range(5)
     ]
     haystack_sessions.append(
         [
@@ -103,8 +102,7 @@ def test_coverage_rerank_uses_query_terms_without_answer_oracle() -> None:
         ]
     )
     haystack_sessions.extend(
-        [{"role": "user", "content": "I saved an unrelated cookbook note."}]
-        for _ in range(4)
+        [{"role": "user", "content": "I saved an unrelated cookbook note."}] for _ in range(4)
     )
     entry = {
         "question_id": "q1",
@@ -275,8 +273,7 @@ def test_coverage_rerank_uses_best_local_segment() -> None:
         ]
     )
     haystack_sessions.extend(
-        [{"role": "user", "content": "I saved an unrelated cookbook note."}]
-        for _index in range(4)
+        [{"role": "user", "content": "I saved an unrelated cookbook note."}] for _index in range(4)
     )
     entry = {
         "question_id": "q1",
@@ -324,8 +321,7 @@ def test_coverage_rerank_uses_primary_user_turn_signal() -> None:
             {
                 "role": "assistant",
                 "content": (
-                    "Here are tips about what time people usually get home from "
-                    "work on weeknights."
+                    "Here are tips about what time people usually get home from work on weeknights."
                 ),
             },
         ]
@@ -341,8 +337,7 @@ def test_coverage_rerank_uses_primary_user_turn_signal() -> None:
         ]
     )
     haystack_sessions.extend(
-        [{"role": "user", "content": "I saved an unrelated cookbook note."}]
-        for _index in range(5)
+        [{"role": "user", "content": "I saved an unrelated cookbook note."}] for _index in range(5)
     )
     entry = {
         "question_id": "q1",
@@ -399,15 +394,12 @@ def test_coverage_rerank_uses_assistant_turn_for_retrospective_answer() -> None:
             {"role": "user", "content": "Do you have any recommendations for resources?"},
             {
                 "role": "assistant",
-                "content": (
-                    "MusicTheory.net offers free lessons and exercises for music theory."
-                ),
+                "content": ("MusicTheory.net offers free lessons and exercises for music theory."),
             },
         ]
     )
     haystack_sessions.extend(
-        [{"role": "user", "content": "I saved an unrelated note."}]
-        for _index in range(5)
+        [{"role": "user", "content": "I saved an unrelated note."}] for _index in range(5)
     )
     entry = {
         "question_id": "q1",

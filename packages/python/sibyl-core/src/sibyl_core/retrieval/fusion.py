@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+
 @dataclass
 class FusionConfig:
     """Configuration for RRF fusion.

@@ -135,9 +135,7 @@ _SENSITIVE_MARKERS = (
 )
 _NEAR_DUPLICATE_THRESHOLD = 0.92
 _STALE_MARKERS = ("deprecated", "no longer", "obsolete", "outdated", "stale")
-_SUPERSESSION_PATTERN = re.compile(
-    r"(?i)\b(?:supersedes|replaces|obsoletes)\s+([A-Za-z0-9_./:-]+)"
-)
+_SUPERSESSION_PATTERN = re.compile(r"(?i)\b(?:supersedes|replaces|obsoletes)\s+([A-Za-z0-9_./:-]+)")
 _STALE_TARGET_PATTERN = re.compile(
     r"(?i)\b([A-Za-z0-9_./:-]+)\s+(?:is|was|became)?\s*(?:stale|outdated|obsolete|deprecated)\b"
 )
@@ -146,9 +144,7 @@ _POLARITY_PATTERNS = (
         r"(?i)^(?P<subject>.+?)\s+(?:is|are|stays|stay)\s+"
         r"(?P<polarity>enabled|disabled|allowed|blocked|required|forbidden)\b"
     ),
-    re.compile(
-        r"(?i)^(?P<polarity>use|avoid|skip|disable|enable)\s+(?P<subject>.+)$"
-    ),
+    re.compile(r"(?i)^(?P<polarity>use|avoid|skip|disable|enable)\s+(?P<subject>.+)$"),
 )
 _POLARITY_VALUES = {
     "allowed": True,

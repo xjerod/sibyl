@@ -106,7 +106,9 @@ class DedicatedSurrealClient:
             try:
                 await client.close()
             except Exception as exc:
-                logger.debug("SurrealDB dedicated client close after connection failure failed: %s", exc)
+                logger.debug(
+                    "SurrealDB dedicated client close after connection failure failed: %s", exc
+                )
 
     async def _execute(self, query: str, *, params: QueryParams, raw: bool) -> object:
         started_at = query_start()

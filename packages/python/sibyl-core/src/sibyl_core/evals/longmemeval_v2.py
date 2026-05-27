@@ -86,10 +86,7 @@ class LongMemEvalV2Trajectory:
 
 
 def load_longmemeval_v2_questions(path: str | Path) -> list[LongMemEvalV2Question]:
-    return [
-        LongMemEvalV2Question.from_mapping(row)
-        for row in _iter_jsonl_mappings(Path(path))
-    ]
+    return [LongMemEvalV2Question.from_mapping(row) for row in _iter_jsonl_mappings(Path(path))]
 
 
 def load_longmemeval_v2_haystack(path: str | Path) -> dict[str, list[str]]:

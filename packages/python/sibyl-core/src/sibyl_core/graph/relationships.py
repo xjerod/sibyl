@@ -572,7 +572,8 @@ class RelationshipManager:
                         limit=1000,
                     )
                     if any(
-                        edge.name == relationship.relationship_type.value and edge.group_id == self._group_id
+                        edge.name == relationship.relationship_type.value
+                        and edge.group_id == self._group_id
                         for edge in existing
                     ):
                         skipped += 1

@@ -40,7 +40,9 @@ def reset_budget_enforcer() -> None:
 
 @pytest.mark.asyncio
 async def test_extractor_returns_parsed_model() -> None:
-    agent = Agent(TestModel(custom_output_args={"name": "Sibyl", "score": 0.9}), output_type=Payload)
+    agent = Agent(
+        TestModel(custom_output_args={"name": "Sibyl", "score": 0.9}), output_type=Payload
+    )
     extractor = Extractor(Payload, agent=agent)
 
     result = await extractor.extract("extract")
@@ -70,7 +72,9 @@ async def test_extractor_maps_rate_limit_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_extract_many_returns_partial_errors() -> None:
-    extractor = Extractor(Payload, agent=Agent(FunctionModel(_prompt_sensitive_response), output_type=Payload))
+    extractor = Extractor(
+        Payload, agent=Agent(FunctionModel(_prompt_sensitive_response), output_type=Payload)
+    )
 
     results = await extractor.extract_many(["good", "bad"], max_concurrent=2)
 
@@ -108,7 +112,9 @@ async def test_extractor_applies_max_tokens_model_settings() -> None:
 async def test_extractor_reserves_budget_before_provider_call() -> None:
     enforcer = RecordingBudgetEnforcer()
     set_budget_enforcer(enforcer)
-    agent = Agent(TestModel(custom_output_args={"name": "Sibyl", "score": 0.9}), output_type=Payload)
+    agent = Agent(
+        TestModel(custom_output_args={"name": "Sibyl", "score": 0.9}), output_type=Payload
+    )
     extractor = Extractor(Payload, agent=agent, max_tokens=10)
 
     with llm_budget_context(user_id="user-1", organization_id="org-1"):

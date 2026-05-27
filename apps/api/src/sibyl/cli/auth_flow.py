@@ -665,9 +665,7 @@ def _record_session_observations(
     if not isinstance(sessions, list):
         raise AuthFlowError(f"{step} did not return sessions")
     current_count = sum(
-        1
-        for session in sessions
-        if isinstance(session, dict) and session.get("is_current") is True
+        1 for session in sessions if isinstance(session, dict) and session.get("is_current") is True
     )
     _record_observation(
         observations,
