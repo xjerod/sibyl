@@ -6,6 +6,10 @@
 # =============================================================================
 
 [tool.uv]
+override-dependencies = [
+    # crawl4ai currently caps lxml below the CVE-2026-41066 fix.
+    "lxml>=6.1.0",
+]
 
 # =============================================================================
 # Version Constraints (enforced across all workspace members)

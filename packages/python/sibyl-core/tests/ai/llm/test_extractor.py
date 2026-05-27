@@ -52,7 +52,7 @@ async def test_extractor_returns_parsed_model() -> None:
 
 @pytest.mark.asyncio
 async def test_extractor_maps_validation_failure() -> None:
-    agent = Agent(FunctionModel(_invalid_json_response), output_type=Payload, output_retries=0)
+    agent = Agent(FunctionModel(_invalid_json_response), output_type=Payload, retries={"output": 0})
     extractor = Extractor(Payload, agent=agent, output_retries=0)
 
     with pytest.raises(LLMValidationError):

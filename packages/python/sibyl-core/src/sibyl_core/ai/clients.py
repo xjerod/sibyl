@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from typing import Any
 from weakref import WeakKeyDictionary
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, AgentRetries
 from pydantic_ai.output import PromptedOutput
 
 from sibyl_core.ai.llm.config import LLMConfig, LLMSurface, resolve_llm_config
@@ -55,7 +55,7 @@ async def get_agent(
             model=build_model(config),
             output_type=_provider_output_type(config, output_type),
             instructions=normalized_prompt,
-            output_retries=output_retries,
+            retries=output_retry_budget(output_retries),
         )
     return loop_bucket[key]
 
@@ -73,6 +73,12 @@ def invalidate_agent_cache(surface: LLMSurface | None = None) -> None:
 
 def agent_cache_size() -> int:
     return sum(len(bucket) for bucket in _agent_cache.values())
+
+
+def output_retry_budget(output_retries: int | None) -> AgentRetries | None:
+    if output_retries is None:
+        return None
+    return {"output": output_retries}
 
 
 def _normalize_system_prompt(system_prompt: str | Sequence[str] | None) -> tuple[str, ...]:

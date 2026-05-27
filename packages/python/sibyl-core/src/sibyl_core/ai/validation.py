@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, SecretStr
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 
+from sibyl_core.ai.clients import output_retry_budget
 from sibyl_core.ai.errors import classify_llm_exception
 from sibyl_core.ai.llm.config import LLMConfig, LLMConfigSource, LLMProviderName, LLMSurface
 from sibyl_core.ai.providers import build_model, resolve_provider_model_id
@@ -180,7 +181,11 @@ async def test_surface_config(
     config = resolved.to_llm_config()
     started_at = time.perf_counter()
     try:
-        agent = Agent(build_model(config), output_type=_SurfaceProbe, output_retries=1)
+        agent = Agent(
+            build_model(config),
+            output_type=_SurfaceProbe,
+            retries=output_retry_budget(1),
+        )
         result = await agent.run(
             "Return ok=true and a short summary confirming this Sibyl LLM surface is ready."
         )
@@ -226,7 +231,7 @@ async def test_surface_config(
 
 
 async def _run_text_probe(config: LLMConfig):
-    agent = Agent(build_model(config), output_type=str, output_retries=0)
+    agent = Agent(build_model(config), output_type=str, retries=output_retry_budget(0))
     return await agent.run("Reply with the single word ok.")
 
 
