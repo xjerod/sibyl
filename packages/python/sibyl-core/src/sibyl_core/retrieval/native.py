@@ -40,6 +40,7 @@ EDGE_FULLTEXT_MATCH_HEADROOM = 8
 EDGE_FULLTEXT_MIN_MATCH_LIMIT = 32
 _ACTIVE_TASK_STATUSES = {"doing", "in_progress", "review"}
 _RAW_MEMORY_CONTEXT_TYPES = {"raw_memory", "session", "episode", "note"}
+_EDGE_CONTEXT_TYPES = {"claim", "relationship"}
 log = structlog.get_logger()
 
 
@@ -138,6 +139,7 @@ class NativeRetrievalPlan:
 
 @dataclass(frozen=True, slots=True)
 class NativeSearchFilter:
+    node_types: tuple[str, ...] = ()
     node_labels: tuple[str, ...] = ()
     project_ids: tuple[str, ...] = ()
     edge_uuids: tuple[str, ...] = ()
@@ -301,56 +303,80 @@ async def native_context_search(
     from sibyl_core.tools.responses import SearchResponse
 
     limit = max(1, min(limit, 50))
-    runtime = await _get_read_only_graph_runtime(plan.organization_id)
+    search_plan = replace(
+        plan,
+        candidate_limits=_candidate_limits_for_limit(plan.candidate_limits, limit),
+    )
+    runtime = await _get_read_only_graph_runtime(search_plan.organization_id)
     client = runtime.client
-    search_filter = _search_filter_for_plan(plan)
     requested_types = {value.lower() for value in types or ()}
+    search_filter = _search_filter_for_plan(search_plan, requested_types=requested_types)
 
     raw_task = _recall_raw_candidates(
-        plan=plan,
+        plan=search_plan,
         facet=facet,
         requested_types=requested_types,
-        limit=plan.candidate_limits.raw_lexical,
+        limit=search_plan.candidate_limits.raw_lexical,
         recall_fn=raw_memory_recall_fn,
     )
+    node_sources_allowed = _node_sources_allowed(requested_types)
+    episode_sources_allowed = _episode_sources_allowed(requested_types)
+    edge_sources_allowed = _edge_sources_allowed(requested_types)
     graph_tasks = [
-        _node_fulltext_candidates(
-            client=client,
-            plan=plan,
-            search_filter=search_filter,
-            limit=plan.candidate_limits.node_fulltext,
+        (
+            _node_fulltext_candidates(
+                client=client,
+                plan=search_plan,
+                search_filter=search_filter,
+                limit=search_plan.candidate_limits.node_fulltext,
+            )
+            if node_sources_allowed
+            else _empty_candidate_source()
         ),
-        _episode_fulltext_candidates(
-            client=client,
-            plan=plan,
-            search_filter=search_filter,
-            limit=plan.candidate_limits.episode_fulltext,
+        (
+            _episode_fulltext_candidates(
+                client=client,
+                plan=search_plan,
+                search_filter=search_filter,
+                limit=search_plan.candidate_limits.episode_fulltext,
+            )
+            if episode_sources_allowed
+            else _empty_candidate_source()
         ),
-        _edge_fulltext_candidates(
-            client=client,
-            plan=plan,
-            search_filter=search_filter,
-            limit=plan.candidate_limits.edge_fulltext,
+        (
+            _edge_fulltext_candidates(
+                client=client,
+                plan=search_plan,
+                search_filter=search_filter,
+                limit=search_plan.candidate_limits.edge_fulltext,
+            )
+            if edge_sources_allowed
+            else _empty_candidate_source()
         ),
     ]
     raw_candidates, graph_candidate_lists = await _gather_candidate_sources(raw_task, graph_tasks)
 
+    vector_plan = _vector_scoped_plan(
+        search_plan,
+        include_nodes=node_sources_allowed,
+        include_edges=edge_sources_allowed,
+    )
     vector_candidate_lists = await _vector_candidate_sources(
         client=client,
-        plan=plan,
+        plan=vector_plan,
         search_filter=search_filter,
         embedding_provider=embedding_provider,
     )
     graph_expansion_candidates = await _graph_expansion_candidates(
         client=client,
-        plan=plan,
+        plan=search_plan,
         search_filter=search_filter,
         seed_candidates=[
             candidate
             for source in [*graph_candidate_lists, *vector_candidate_lists]
             for candidate in source
         ],
-        limit=plan.candidate_limits.graph_expansion,
+        limit=search_plan.candidate_limits.graph_expansion,
     )
 
     source_lists = [
@@ -370,7 +396,7 @@ async def native_context_search(
                 for candidate in candidates
                 if _candidate_allowed(
                     candidate,
-                    plan=plan,
+                    plan=search_plan,
                     requested_types=requested_types,
                     facet=facet,
                 )
@@ -382,7 +408,7 @@ async def native_context_search(
     fused = await _fuse_candidates_for_plan(
         client=client,
         source_lists=filtered_lists,
-        plan=plan,
+        plan=search_plan,
         limit=limit,
         fusion_backend=fusion_backend,
     )
@@ -401,7 +427,7 @@ async def native_context_search(
         query=plan.query,
         filters={
             "types": list(types) if types else None,
-            "project": plan.project,
+            "project": search_plan.project,
             "retrieval_mode": NativeRetrievalMode.NATIVE.value,
             "fusion_backend": fusion_backend.value,
         },
@@ -509,8 +535,68 @@ def _candidate_list_or_empty(result: object) -> list[NativeRetrievalCandidate]:
     return cast("list[NativeRetrievalCandidate]", result)
 
 
-def _search_filter_for_plan(plan: NativeRetrievalPlan) -> NativeSearchFilter:
-    return NativeSearchFilter(project_ids=_authorized_project_ids(plan))
+async def _empty_candidate_source() -> list[NativeRetrievalCandidate]:
+    return []
+
+
+def _candidate_limits_for_limit(
+    candidate_limits: NativeCandidateLimits,
+    limit: int,
+) -> NativeCandidateLimits:
+    source_limit = max(1, min(int(limit), 50))
+    return NativeCandidateLimits(
+        raw_lexical=max(1, min(candidate_limits.raw_lexical, source_limit)),
+        node_fulltext=max(1, min(candidate_limits.node_fulltext, source_limit)),
+        episode_fulltext=max(1, min(candidate_limits.episode_fulltext, source_limit)),
+        edge_fulltext=max(1, min(candidate_limits.edge_fulltext, source_limit)),
+        node_vector=max(1, min(candidate_limits.node_vector, source_limit)),
+        edge_vector=max(1, min(candidate_limits.edge_vector, source_limit)),
+        graph_expansion=max(1, min(candidate_limits.graph_expansion, source_limit)),
+    )
+
+
+def _node_sources_allowed(requested_types: set[str]) -> bool:
+    return not requested_types or bool(_node_types_for_requested_types(requested_types))
+
+
+def _episode_sources_allowed(requested_types: set[str]) -> bool:
+    return not requested_types or "episode" in requested_types
+
+
+def _edge_sources_allowed(requested_types: set[str]) -> bool:
+    return not requested_types or bool(requested_types & _EDGE_CONTEXT_TYPES)
+
+
+def _node_types_for_requested_types(requested_types: set[str]) -> tuple[str, ...]:
+    return tuple(sorted(requested_types - {"raw_memory", "relationship"}))
+
+
+def _vector_scoped_plan(
+    plan: NativeRetrievalPlan,
+    *,
+    include_nodes: bool,
+    include_edges: bool,
+) -> NativeRetrievalPlan:
+    signals: list[NativeRetrievalSignal] = []
+    for signal in plan.signals:
+        if signal is NativeRetrievalSignal.NODE_VECTOR and not include_nodes:
+            continue
+        if signal is NativeRetrievalSignal.EDGE_VECTOR and not include_edges:
+            continue
+        signals.append(signal)
+    return replace(plan, signals=tuple(signals))
+
+
+def _search_filter_for_plan(
+    plan: NativeRetrievalPlan,
+    *,
+    requested_types: set[str] | None = None,
+) -> NativeSearchFilter:
+    requested_types = requested_types or set()
+    return NativeSearchFilter(
+        node_types=_node_types_for_requested_types(requested_types),
+        project_ids=_authorized_project_ids(plan),
+    )
 
 
 def _authorized_project_ids(plan: NativeRetrievalPlan) -> tuple[str, ...]:
@@ -992,6 +1078,9 @@ def _where_clause(clauses: Sequence[str]) -> str:
 def _node_filter_clause(search_filter: NativeSearchFilter) -> tuple[list[str], dict[str, Any]]:
     clauses: list[str] = []
     params: dict[str, Any] = {}
+    if search_filter.node_types:
+        clauses.append("entity_type IN $node_types")
+        params["node_types"] = list(search_filter.node_types)
     if search_filter.node_labels:
         clauses.append("labels CONTAINS $node_label")
         params["node_label"] = search_filter.node_labels[0]
@@ -1685,6 +1774,8 @@ def _candidate_matches_types(
 ) -> bool:
     if candidate.type in requested_types:
         return True
+    if candidate.type == "claim" and "relationship" in requested_types:
+        return bool(candidate.metadata.get("relationship"))
     return candidate.type == "raw_memory" and facet is ContextFacet.RECENT_MEMORY
 
 

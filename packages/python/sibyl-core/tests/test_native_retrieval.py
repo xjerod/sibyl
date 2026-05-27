@@ -118,6 +118,27 @@ def test_build_native_context_retrieval_plan_records_scopes_and_weights() -> Non
     assert plan.filter_selectivity == 1.0
 
 
+def test_search_filter_for_plan_carries_requested_entity_types() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="task context",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+        limit=6,
+    )
+
+    search_filter = native_module._search_filter_for_plan(
+        plan,
+        requested_types={"task", "epic"},
+    )
+
+    assert search_filter.node_types == ("epic", "task")
+    assert search_filter.project_ids == ("project_123",)
+
+
 def test_build_native_context_retrieval_plan_denies_unverified_project_scope() -> None:
     plan = build_native_context_retrieval_plan(
         query="private only",
@@ -519,6 +540,39 @@ def test_candidate_allowed_accepts_claim_edge_when_both_endpoints_accessible() -
     )
 
 
+def test_candidate_allowed_treats_relationship_as_edge_claim_alias() -> None:
+    plan = build_native_context_retrieval_plan(
+        query="edge permissions",
+        organization_id="org-123",
+        facets=[ContextFacet.DOMAIN],
+        facet_types={ContextFacet.DOMAIN: ["relationship"]},
+        principal_id="user-123",
+        project="project_A",
+        accessible_projects={"project_A"},
+    )
+    candidate = NativeRetrievalCandidate(
+        id="edge-1",
+        type="claim",
+        name="In-project relationship",
+        content="Safe relationship",
+        score=1.0,
+        source=None,
+        metadata={
+            "relationship": "RELATED_TO",
+            "source_node_project_id": "project_A",
+            "target_node_project_id": "project_A",
+        },
+        project_id=None,
+    )
+
+    assert native_module._candidate_allowed(
+        candidate,
+        plan=plan,
+        requested_types={"relationship"},
+        facet=ContextFacet.DOMAIN,
+    )
+
+
 def test_native_plan_estimates_project_filter_selectivity() -> None:
     accessible_projects = {f"project_{index}" for index in range(20)}
     plan = build_native_context_retrieval_plan(
@@ -825,6 +879,72 @@ class _VectorClient:
                 }
             ]
         return []
+
+
+class _FacetSearchClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
+        self.calls.append((query, params))
+        return []
+
+
+@pytest.mark.asyncio
+async def test_native_context_search_pushes_facet_types_into_graph_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = build_native_context_retrieval_plan(
+        query="active task followup",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+        limit=12,
+    )
+    provider = DeterministicNativeEmbeddingProvider(
+        NativeEmbeddingMetadata(
+            provider="deterministic",
+            model="unit-test",
+            dimensions=4,
+            cache_namespace="retrieval-test",
+            tokenizer_estimate_method="utf8-byte-length",
+        )
+    )
+    client = _FacetSearchClient()
+
+    class Runtime:
+        pass
+
+    runtime = Runtime()
+    runtime.client = client
+
+    async def fake_runtime(_organization_id: str, **_kwargs: object) -> Runtime:
+        return runtime
+
+    async def fake_raw_recall(**_kwargs: object) -> list[RawMemory]:
+        raise AssertionError("active-work facet should not recall raw memories")
+
+    monkeypatch.setattr(native_module, "get_native_graph_runtime", fake_runtime)
+
+    await native_module.native_context_search(
+        plan=plan,
+        types=["task"],
+        facet=ContextFacet.ACTIVE_WORK,
+        limit=3,
+        embedding_provider=provider,
+        raw_memory_recall_fn=fake_raw_recall,
+    )
+
+    assert client.calls
+    assert all("FROM relates_to" not in query for query, _ in client.calls)
+    assert all("FROM episode" not in query for query, _ in client.calls)
+    assert all(params["node_types"] == ["task"] for _, params in client.calls)
+    assert all(params["limit"] == 3 for _, params in client.calls)
+    assert any("entity_type IN $node_types" in query for query, _ in client.calls)
+    assert any("name_embedding <|3, 40|> $query_embedding" in query for query, _ in client.calls)
 
 
 @pytest.mark.asyncio
