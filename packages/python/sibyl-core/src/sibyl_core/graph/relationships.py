@@ -10,7 +10,7 @@ import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import structlog
@@ -27,15 +27,27 @@ _MISSING = object()
 VALID_RELATIONSHIP_TYPES = frozenset(rt.value for rt in RelationshipType)
 
 
-def _result_count(rows: list[dict[str, Any]], key: str = "deleted") -> int:
-    if not rows:
-        return 0
-    value = rows[0].get(key, 0)
+def _coerce_count(value: object) -> int:
     if isinstance(value, bool):
         return int(value)
     if isinstance(value, int | float | str):
-        return int(value)
+        try:
+            return int(value)
+        except ValueError:
+            return 0
     return 0
+
+
+def _result_count(rows: object, key: str = "deleted") -> int:
+    if not isinstance(rows, list) or not rows:
+        return 0
+    first = rows[0]
+    if isinstance(first, dict):
+        row = cast("dict[str, object]", first)
+        return _coerce_count(row.get(key, 0))
+    if isinstance(first, list | tuple):
+        return _coerce_count(first[0]) if first else 0
+    return _coerce_count(first)
 
 
 @dataclass(slots=True)
