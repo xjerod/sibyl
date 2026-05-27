@@ -73,24 +73,29 @@ class RedisEventBus:
         self._subscribers.clear()
         log.info("redis_event_bus_disconnected")
 
-    async def subscribe(self, subscriber: EventSubscriber) -> None:
-        """Subscribe to the Redis channel and forward messages locally."""
+    async def _require_redis(self) -> Redis:
         if self._redis is None:
             await self.connect()
+        if self._redis is None:
+            raise RuntimeError("Redis event bus is not connected")
+        return self._redis
+
+    async def subscribe(self, subscriber: EventSubscriber) -> None:
+        """Subscribe to the Redis channel and forward messages locally."""
+        redis = await self._require_redis()
 
         if subscriber not in self._subscribers:
             self._subscribers.append(subscriber)
 
         if self._pubsub is None:
-            self._pubsub = self._redis.pubsub()  # type: ignore[union-attr]
+            self._pubsub = redis.pubsub()
             await self._pubsub.subscribe(PUBSUB_CHANNEL)
             self._listener_task = asyncio.create_task(self._listen())
             log.info("redis_event_bus_subscribed", channel=PUBSUB_CHANNEL)
 
     async def publish(self, event: str, data: dict[str, Any], org_id: str | None = None) -> None:
         """Publish an event to the Redis channel."""
-        if self._redis is None:
-            await self.connect()
+        redis = await self._require_redis()
 
         message = {
             "event": event,
@@ -100,7 +105,7 @@ class RedisEventBus:
         }
 
         try:
-            await self._redis.publish(PUBSUB_CHANNEL, json.dumps(message))  # type: ignore[union-attr]
+            await redis.publish(PUBSUB_CHANNEL, json.dumps(message))
             log.debug("redis_event_bus_published", ws_event=event, org_id=org_id)
         except Exception:
             log.exception("redis_event_bus_publish_failed", ws_event=event)

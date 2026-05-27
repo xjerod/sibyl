@@ -222,33 +222,31 @@ async def batch_update_nodes(
         return 0
 
     # Validate and serialize
-    serialized = []
+    serialized: list[tuple[str, dict[str, Any]]] = []
     for i, update in enumerate(updates):
         if "uuid" not in update:
             raise ValueError(f"Update at index {i} missing 'uuid'")
         if "properties" not in update:
             raise ValueError(f"Update at index {i} missing 'properties'")
 
-        serialized.append(
-            {
-                "uuid": str(update["uuid"]),
-                "properties": update["properties"],
-            }
-        )
+        properties = update["properties"]
+        if not isinstance(properties, dict):
+            raise ValueError(f"Update at index {i} has non-dict 'properties'")
+        serialized.append((str(update["uuid"]), properties))
 
     entity_manager = EntityManager(client, group_id=organization_id)
 
     try:
         updated = 0
-        for update in serialized:
+        for uuid, properties in serialized:
             if label:
                 try:
-                    existing = await entity_manager.get(update["uuid"])
+                    existing = await entity_manager.get(uuid)
                 except Exception:
                     continue
                 if not _entity_matches_label(existing, label):
                     continue
-            if await entity_manager.update(update["uuid"], update["properties"]) is not None:
+            if await entity_manager.update(uuid, properties) is not None:
                 updated += 1
         return updated
 

@@ -185,6 +185,13 @@ def _record_uuid(record: dict[str, object]) -> str | None:
     return str(uuid)
 
 
+def _record_score(record: dict[str, object]) -> float:
+    score = record.get("score")
+    if isinstance(score, int | float) and not isinstance(score, bool):
+        return float(score)
+    return 0.0
+
+
 def _normalize_record(record: object) -> SurrealRecord | None:
     if record is None or not isinstance(record, dict):
         return None
@@ -575,7 +582,7 @@ class SurrealSearchInterface:
         for record in match_records:
             uuid = _record_uuid(record)
             if uuid is not None:
-                match_scores[uuid] = float(record.get("score") or 0.0)
+                match_scores[uuid] = _record_score(record)
         match_uuids = list(match_scores)
         if not match_uuids:
             return []
@@ -956,7 +963,7 @@ class SurrealSearchInterface:
         )
         scores = {uuid: 0.0 for uuid in sorted_uuids}
         for record in records:
-            uuid = record.get("uuid")
+            uuid = _record_uuid(record)
             if uuid in scores:
                 scores[uuid] += 1.0
 

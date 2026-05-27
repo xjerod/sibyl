@@ -19,7 +19,7 @@ from sibyl_core.graph.surreal.compat.ops._common import (
     build_node_bulk_upsert_query,
     build_node_upsert_query,
     normalize_records,
-    parse_db_date,
+    require_db_date,
     run_query,
 )
 
@@ -50,7 +50,7 @@ def _saga_from_record(record: SurrealRecord) -> SagaNode:
         uuid=str(record["uuid"]),
         name=str(record["name"]),
         group_id=str(record["group_id"]),
-        created_at=parse_db_date(record["created_at"]),
+        created_at=require_db_date(record["created_at"]),
     )
 
 

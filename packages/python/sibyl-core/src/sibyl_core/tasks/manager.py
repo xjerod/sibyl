@@ -221,16 +221,16 @@ class TaskManager:
             )
 
         # Extract actual hours from similar tasks
-        efforts = []
+        efforts: list[tuple[float, float, str, str]] = []
         for similar_task, similarity in similar:
             if similar_task.actual_hours:
                 efforts.append(
-                    {
-                        "hours": similar_task.actual_hours,
-                        "weight": similarity,
-                        "task_id": similar_task.id,
-                        "task_title": similar_task.title,
-                    }
+                    (
+                        float(similar_task.actual_hours),
+                        float(similarity),
+                        similar_task.id,
+                        similar_task.title,
+                    )
                 )
 
         if not efforts:
@@ -241,8 +241,8 @@ class TaskManager:
             )
 
         # Weighted average
-        total_weight = sum(e["weight"] for e in efforts)
-        weighted_avg = sum(e["hours"] * e["weight"] for e in efforts) / total_weight
+        total_weight = sum(weight for _, weight, _, _ in efforts)
+        weighted_avg = sum(hours * weight for hours, weight, _, _ in efforts) / total_weight
 
         # Confidence based on number of samples and avg similarity
         avg_similarity = total_weight / len(efforts)
@@ -254,12 +254,12 @@ class TaskManager:
             based_on_tasks=len(efforts),
             similar_tasks=[
                 SimilarTaskInfo(
-                    task_id=e["task_id"],
-                    title=e["task_title"],
-                    actual_hours=e["hours"],
-                    similarity_score=e["weight"],
+                    task_id=task_id,
+                    title=title,
+                    actual_hours=hours,
+                    similarity_score=weight,
                 )
-                for e in efforts[:5]  # Top 5
+                for hours, weight, task_id, title in efforts[:5]
             ],
         )
 

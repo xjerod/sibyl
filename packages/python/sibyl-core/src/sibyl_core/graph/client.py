@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -288,7 +289,7 @@ class GraphClient:
 
     async def query_with_timeout(
         self,
-        query_coro: object,
+        query_coro: Awaitable[Any],
         operation_name: str = "graph_query",
     ) -> object:
         """Execute a query coroutine with timeout protection.
@@ -301,10 +302,22 @@ class GraphClient:
             Query result
         """
         timeout = TIMEOUTS.get(operation_name, TIMEOUTS["graph_query"])
-        return await with_timeout(query_coro, timeout, operation_name)  # type: ignore[arg-type]
+        return await with_timeout(query_coro, timeout, operation_name)
 
     @staticmethod
-    def normalize_result(result: object) -> list[dict]:
+    def _dict_record(record: object) -> dict[str, Any] | None:
+        if not isinstance(record, dict):
+            return None
+        return {str(key): value for key, value in record.items()}
+
+    @staticmethod
+    def _dict_records(records: object) -> list[dict[str, Any]]:
+        if not isinstance(records, list):
+            return []
+        return [row for item in records if (row := GraphClient._dict_record(item)) is not None]
+
+    @staticmethod
+    def normalize_result(result: object) -> list[dict[str, Any]]:
         """Normalize graph driver query results to a consistent list of dicts.
 
         SurrealDB often returns a single dict or list, and some call sites
@@ -320,11 +333,12 @@ class GraphClient:
             return []
         if isinstance(result, tuple):
             records = result[0] if len(result) > 0 else []
-            return records if records else []  # type: ignore[return-value]
+            return GraphClient._dict_records(records)
         if isinstance(result, list):
-            return result  # type: ignore[return-value]
+            return GraphClient._dict_records(result)
         if isinstance(result, dict):
-            return [result]
+            row = GraphClient._dict_record(result)
+            return [row] if row is not None else []
         return []
 
     def get_org_driver(self, organization_id: str) -> SurrealDriver:

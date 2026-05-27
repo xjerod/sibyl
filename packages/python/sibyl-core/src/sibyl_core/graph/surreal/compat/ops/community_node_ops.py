@@ -16,6 +16,7 @@ from sibyl_core.graph.surreal.compat.ops._common import (
     Transaction,
     build_node_bulk_upsert_query,
     build_node_upsert_query,
+    normalize_embedding,
     normalize_records,
     parse_db_date,
     run_query,
@@ -242,7 +243,7 @@ class SurrealCommunityNodeOperations:
         )
         if not records:
             raise NodeNotFoundError(node.uuid)
-        node.name_embedding = records[0].get("name_embedding")
+        node.name_embedding = normalize_embedding(records[0].get("name_embedding"))
 
 
 __all__ = ["SurrealCommunityNodeOperations"]

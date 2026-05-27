@@ -11,7 +11,7 @@ about conflicting information before it's added.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 __all__ = ["detect_conflicts", "find_similar_entities"]
+
+type ConflictType = Literal["semantic_overlap", "potential_contradiction", "duplicate"]
 
 
 async def get_graph_runtime(group_id: str):
@@ -102,7 +104,7 @@ def classify_conflict(
     existing_name: str,
     existing_content: str,
     similarity_score: float,
-) -> tuple[str, str | None]:
+) -> tuple[ConflictType, str | None]:
     """Classify the type of conflict between new and existing content.
 
     Uses heuristics based on similarity score and content overlap.
@@ -283,7 +285,7 @@ async def detect_conflicts(
                 existing_name=entity_name,
                 existing_content=entity_content[:200],
                 similarity_score=score,
-                conflict_type=conflict_type,  # type: ignore[arg-type]
+                conflict_type=conflict_type,
                 explanation=explanation,
             )
         )

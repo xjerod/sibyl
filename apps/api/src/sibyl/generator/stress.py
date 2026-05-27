@@ -179,7 +179,7 @@ class StressTestGenerator(BaseGenerator):
             name = name_template.format(n=i + 1)
 
             # Build minimal metadata
-            metadata = {
+            metadata: dict[str, object] = {
                 "_generated": True,
                 "_stress_test": True,
                 "_batch_index": i,

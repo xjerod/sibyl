@@ -360,13 +360,13 @@ class TemplateCataloger:
         Returns:
             List of key field names.
         """
-        key_fields = []
+        key_fields: list[str] = []
 
         if suffix in (".yaml", ".yml"):
             try:
                 data = yaml.safe_load(content)
                 if isinstance(data, dict):
-                    key_fields = list(data.keys())[:20]
+                    key_fields = [str(key) for key in list(data.keys())[:20]]
             except yaml.YAMLError:
                 pass
         elif suffix == ".toml":
@@ -383,7 +383,7 @@ class TemplateCataloger:
             try:
                 data = json.loads(content)
                 if isinstance(data, dict):
-                    key_fields = list(data.keys())[:20]
+                    key_fields = [str(key) for key in list(data.keys())[:20]]
             except json.JSONDecodeError:
                 pass
 

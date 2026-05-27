@@ -4,16 +4,17 @@ import asyncio
 import functools
 import random
 from collections.abc import Awaitable, Callable
-from typing import ParamSpec, TypeVar
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 import structlog
 
-# Import Redis timeout error for retry handling
-try:
-    from redis.exceptions import TimeoutError as RedisTimeoutError
-except ImportError:
-    # Fallback if redis not installed
-    RedisTimeoutError = TimeoutError  # type: ignore[misc,assignment]
+if TYPE_CHECKING:
+    RedisTimeoutError = TimeoutError
+else:
+    try:
+        from redis.exceptions import TimeoutError as RedisTimeoutError
+    except ImportError:
+        RedisTimeoutError = TimeoutError
 
 log = structlog.get_logger()
 

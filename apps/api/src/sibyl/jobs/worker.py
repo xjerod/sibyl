@@ -69,6 +69,22 @@ def get_redis_settings() -> RedisSettings:
     )
 
 
+def build_cron_jobs() -> list:
+    """Build cron job list based on settings."""
+    return [
+        cron(
+            spec.function,
+            minute=spec.minute,
+            hour=spec.hour,
+            day=spec.day,
+            month=spec.month,
+            weekday=spec.weekday,
+            unique=True,
+        )
+        for spec in get_schedule_specs()
+    ]
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     """Worker startup - initialize resources."""
     from sibyl.banner import log_banner
@@ -271,23 +287,8 @@ class WorkerSettings:
     ]
 
     # Cron jobs for scheduled tasks
-    @staticmethod
-    def get_cron_jobs() -> list:
-        """Build cron job list based on settings."""
-        return [
-            cron(
-                spec.function,
-                minute=spec.minute,
-                hour=spec.hour,
-                day=spec.day,
-                month=spec.month,
-                weekday=spec.weekday,
-                unique=True,
-            )
-            for spec in get_schedule_specs()
-        ]
-
-    cron_jobs = get_cron_jobs.__func__()  # type: ignore[attr-defined]
+    get_cron_jobs = staticmethod(build_cron_jobs)
+    cron_jobs = build_cron_jobs()
 
     # Lifecycle hooks
     on_startup = startup
@@ -329,7 +330,7 @@ async def run_worker_async() -> None:
             on_startup=WorkerSettings.on_startup,
             on_shutdown=WorkerSettings.on_shutdown,
             on_job_start=WorkerSettings.on_job_start,
-            on_job_end=WorkerSettings.on_job_end,
+            after_job_end=WorkerSettings.after_job_end,
             max_jobs=WorkerSettings.max_jobs,
             job_timeout=WorkerSettings.job_timeout,
             keep_result=WorkerSettings.keep_result,

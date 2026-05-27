@@ -301,6 +301,7 @@ class SurrealUserRepository(_SurrealAuthRepository):
         if existing is not None and existing.get("deleted_at") is not None:
             raise ValueError("User is scheduled for deletion")
         now = _utcnow()
+        record: SurrealRecord
         if existing is None:
             record = {
                 "uuid": str(uuid4()),

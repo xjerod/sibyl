@@ -292,7 +292,8 @@ def _normalize_raw_statement_records(
             and statements
             and all(isinstance(statement, dict) for statement in statements)
         ):
-            statement = statements[statement_index]
+            raw_statement = cast("Mapping[object, object]", statements[statement_index])
+            statement = {str(key): value for key, value in raw_statement.items()}
             if "result" in statement:
                 return _normalize_records(statement.get("result"))
             return _normalize_records(statement)
@@ -746,7 +747,7 @@ class SurrealSessionRepository(_SurrealRepository):
         location: str | None = None,
     ) -> AuthSession:
         now = _utcnow()
-        record = {
+        record: SurrealRecord = {
             "uuid": str(session_id or uuid4()),
             "user_id": str(user_id),
             "organization_id": _uuid_str(organization_id),
@@ -3097,7 +3098,7 @@ async def create_project_record(
             return existing
 
         now = _utcnow()
-        record = {
+        record: SurrealRecord = {
             "uuid": str(uuid4()),
             "organization_id": str(organization_id),
             "owner_user_id": str(owner_user_id),
@@ -4027,6 +4028,15 @@ async def confirm_password_reset(token: str, new_password: str) -> None:
         )
         payload = _record_payload(payload)
         token_record = _normalize_record(payload.get("token"))
+        if token_record is None:
+            await _log_login_history(
+                client,
+                user_id=None,
+                event_type="password_reset_confirm",
+                success=False,
+                failure_reason="token_not_found",
+            )
+            raise HTTPException(status_code=400, detail="Invalid or expired reset link")
         reset_token = _password_reset_namespace(token_record)
         if reset_token is None:
             await _log_login_history(
@@ -4059,7 +4069,7 @@ async def confirm_password_reset(token: str, new_password: str) -> None:
         }
         await repo.replace_record("users", uuid=reset_token.user_id, record=updated_user)
 
-        updated_token = {**token_record, "used_at": now}
+        updated_token: SurrealRecord = {**token_record, "used_at": now}
         await repo.replace_record(
             "password_reset_tokens",
             uuid=reset_token.id,

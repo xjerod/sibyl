@@ -27,6 +27,17 @@ _MISSING = object()
 VALID_RELATIONSHIP_TYPES = frozenset(rt.value for rt in RelationshipType)
 
 
+def _result_count(rows: list[dict[str, Any]], key: str = "deleted") -> int:
+    if not rows:
+        return 0
+    value = rows[0].get(key, 0)
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float | str):
+        return int(value)
+    return 0
+
+
 @dataclass(slots=True)
 class _RelationshipEdge:
     uuid: str
@@ -1062,11 +1073,7 @@ class RelationshipManager:
             )
 
             rows = self._client.normalize_result(result)
-            deleted = (
-                rows[0]["deleted"]
-                if rows and isinstance(rows[0], dict)
-                else (rows[0][0] if rows else 0)
-            )
+            deleted = _result_count(rows)
 
             if deleted > 0:
                 log.info("Deleted relationship", relationship_id=relationship_id)
@@ -1145,11 +1152,7 @@ class RelationshipManager:
             )
 
             rows = self._client.normalize_result(result)
-            deleted = (
-                rows[0]["deleted"]
-                if rows and isinstance(rows[0], dict)
-                else (rows[0][0] if rows else 0)
-            )
+            deleted = _result_count(rows)
 
             log.info(
                 "Deleted relationships between entities",
@@ -1217,11 +1220,7 @@ class RelationshipManager:
             )
 
             rows = self._client.normalize_result(result)
-            deleted = (
-                rows[0]["deleted"]
-                if rows and isinstance(rows[0], dict)
-                else (rows[0][0] if rows else 0)
-            )
+            deleted = _result_count(rows)
 
             log.info("Deleted relationships for entity", entity_id=entity_id, count=deleted)
             return deleted

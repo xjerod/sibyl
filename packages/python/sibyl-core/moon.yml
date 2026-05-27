@@ -8,10 +8,11 @@ tasks:
     inputs:
     - '@group(configs)'
   lint:
-    command: uv run ruff check src/ tests/
+    script: uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/
     inputs:
     - '@group(sources)'
     - '@group(tests)'
+    - '@group(configs)'
   format:
     command: uv run ruff format src/ tests/
     inputs:
@@ -33,6 +34,7 @@ tasks:
     command: uv run ty check src/
     inputs:
     - '@group(sources)'
+    - '@group(configs)'
   test:
     command:
       uv run pytest tests/ -v
@@ -214,5 +216,6 @@ fileGroups:
   - tests/**/*.py
   configs:
   - pyproject.toml
+  - /pyproject.toml
   - moon.yml
 layer: library

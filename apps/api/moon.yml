@@ -13,11 +13,13 @@ fileGroups:
     - tests/**/*
   configs:
     - pyproject.toml
+    - /pyproject.toml
+    - moon.yml
 
 tasks:
   # Linting & Formatting
   lint:
-    command: uv run ruff check src tests
+    script: uv run ruff check src tests && uv run ruff format --check src tests
     inputs:
       - "@group(sources)"
       - "@group(tests)"

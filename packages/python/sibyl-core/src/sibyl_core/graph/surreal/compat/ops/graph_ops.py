@@ -158,8 +158,9 @@ class SurrealGraphMaintenanceOperations:
                 "AS group_ids;",
             )
             rows = normalize_records(raw)
-            if rows and isinstance(rows[0].get("group_ids"), list):
-                group_ids = list(rows[0]["group_ids"])
+            raw_group_ids = rows[0].get("group_ids") if rows else None
+            if isinstance(raw_group_ids, list):
+                group_ids = [str(group_id) for group_id in raw_group_ids if group_id is not None]
             else:
                 group_ids = []
 

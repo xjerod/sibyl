@@ -8,7 +8,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn
 from uuid import UUID
 
 import structlog
@@ -639,7 +639,7 @@ class LocalQueueBroker:
     def _require_queue(self) -> asyncio.Queue[str]:
         if self._queue is None:
             self._raise_unsupported()
-        return cast("asyncio.Queue[str]", self._queue)
+        return self._queue
 
     def _raise_unsupported(self) -> NoReturn:
         raise RuntimeError(LOCAL_BROKER_ERROR)

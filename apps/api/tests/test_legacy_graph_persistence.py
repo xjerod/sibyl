@@ -97,7 +97,7 @@ async def test_delete_graph_data_falls_back_to_surreal_table_deletes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_graph_data_uses_legacy_write_for_non_surreal_driver() -> None:
+async def test_delete_graph_data_rejects_non_surreal_driver() -> None:
     client = MagicMock()
     client.execute_write_org = AsyncMock()
 
@@ -107,13 +107,14 @@ async def test_delete_graph_data_uses_legacy_write_for_non_surreal_driver() -> N
             AsyncMock(return_value=SimpleNamespace(client=client)),
         ),
         patch("sibyl.persistence.graph_runtime._surreal_driver_for", return_value=None),
+        pytest.raises(
+            RuntimeError,
+            match="Supported graph runtime requires native Surreal graph operations",
+        ),
     ):
         await delete_graph_data("org-1")
 
-    client.execute_write_org.assert_awaited_once_with(
-        "MATCH (n) DETACH DELETE n RETURN count(n) AS deleted",
-        "org-1",
-    )
+    client.execute_write_org.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -15,8 +15,8 @@ from sibyl_core.graph.surreal.compat.ops._common import (
     Transaction,
     build_relation_save_query,
     normalize_records,
-    parse_db_date,
     relation_record_id,
+    require_db_date,
     resolve_record_id,
     run_query,
 )
@@ -35,7 +35,7 @@ def _next_episode_edge_from_record(record: SurrealRecord) -> NextEpisodeEdge:
         group_id=str(record["group_id"]),
         source_node_uuid=str(record["source_node_uuid"]),
         target_node_uuid=str(record["target_node_uuid"]),
-        created_at=parse_db_date(record["created_at"]),
+        created_at=require_db_date(record["created_at"]),
     )
 
 

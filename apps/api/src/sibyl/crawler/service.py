@@ -212,7 +212,7 @@ class CrawlerService:
             raise RuntimeError("Crawler not started. Use 'async with' or call start()")
 
         config = self._get_run_config(cache_mode=cache_mode)
-        result = await self._crawler.arun(url=url, config=config)
+        result = cast("CrawlResult", await self._crawler.arun(url=url, config=config))
 
         log.debug(
             "Crawled page",
@@ -221,7 +221,7 @@ class CrawlerService:
             content_length=len(result.markdown) if result.markdown else 0,
         )
 
-        return result  # type: ignore[return-value]
+        return result
 
     async def crawl_source(
         self,

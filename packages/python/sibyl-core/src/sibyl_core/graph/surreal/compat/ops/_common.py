@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from surrealdb import RecordID
 
@@ -60,7 +60,7 @@ async def resolve_record_id(
     first = result[0]
     if not isinstance(first, dict):
         return None
-    return first.get("id")
+    return cast(dict[str, object], first).get("id")
 
 
 def build_relation_save_query(
@@ -180,6 +180,13 @@ def parse_db_date(input_date: object) -> datetime | None:
     return None
 
 
+def require_db_date(input_date: object) -> datetime:
+    value = parse_db_date(input_date)
+    if value is None:
+        raise ValueError("missing database timestamp")
+    return value
+
+
 def normalize_embedding(value: object) -> list[float] | None:
     if not isinstance(value, list):
         return None
@@ -203,6 +210,7 @@ __all__ = [
     "normalize_records",
     "parse_db_date",
     "relation_record_id",
+    "require_db_date",
     "resolve_record_id",
     "run_query",
 ]

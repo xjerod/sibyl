@@ -37,7 +37,7 @@ from sibyl_core.models.tasks import (
     Team,
 )
 from sibyl_core.utils.log_safety import query_log_fields
-from sibyl_core.utils.resilience import GRAPHITI_RETRY
+from sibyl_core.utils.resilience import GRAPHITI_RETRY, RedisTimeoutError
 
 log = structlog.get_logger()
 _MISSING = object()
@@ -1060,12 +1060,6 @@ class EntityManager:
         This is separated out to apply retry logic - add_episode can take 60-90s
         under load and may fail with Redis timeouts during edge_fulltext_search.
         """
-        # Import here to get RedisTimeoutError for type annotation
-        try:
-            from redis.exceptions import TimeoutError as RedisTimeoutError
-        except ImportError:
-            RedisTimeoutError = TimeoutError  # type: ignore[misc,assignment]
-
         # Retry wrapper - applied inline since @retry decorator doesn't work well with methods
         last_error: Exception | None = None
         for attempt in range(GRAPHITI_RETRY.max_attempts):

@@ -112,6 +112,9 @@ unsupported-operator = "warn"
 # Runtime length checks not visible to static analysis
 index-out-of-bounds = "warn"
 
+[tool.ty.terminal]
+error-on-warning = true
+
 [tool.ty.src]
 include = ["apps/*/src/**/*.py", "packages/python/*/src/**/*.py", "hooks/*.py", "tools/**/*.py"]
 exclude = ["**/build/**", "**/.venv/**", "**/migrations/**"]
@@ -121,6 +124,12 @@ exclude = ["**/build/**", "**/.venv/**", "**/migrations/**"]
 include = ["hooks/*.py"]
 [tool.ty.overrides.rules]
 invalid-argument-type = "ignore"
+
+# Typer's public command-building API is dynamically exported.
+[[tool.ty.overrides]]
+include = ["apps/cli/src/**/*.py"]
+[tool.ty.overrides.rules]
+unresolved-attribute = "ignore"
 
 # Compatibility graph code still uses dynamic runtime driver wiring.
 [[tool.ty.overrides]]

@@ -130,6 +130,19 @@ def _coerce_float(value: object, *, default: float = 1.0) -> float:
     return default
 
 
+def _coerce_int(value: object, *, default: int = 0) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float | str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
 def _coerce_relationship(row: dict[str, object]) -> Relationship:
     relationship_name = str(row.get("rel_type") or row.get("name") or "RELATED_TO")
     try:
@@ -160,7 +173,7 @@ async def _surreal_group_count(driver: Any, table: str, group_id: str) -> int:
         f"SELECT count() AS cnt FROM {table} WHERE group_id = $group_id GROUP ALL;",  # noqa: S608
         group_id=group_id,
     )
-    return int(rows[0].get("cnt", 0)) if rows else 0
+    return _coerce_int(rows[0].get("cnt")) if rows else 0
 
 
 def _surreal_nested_rows(value: object) -> list[dict[str, object]]:
@@ -427,7 +440,7 @@ class GraphEntityStore(EntityStore):
                     group_id=self._group_id,
                 )
             )
-            return int(rows[0].get("cnt", 0)) if rows else 0
+            return _coerce_int(rows[0].get("cnt")) if rows else 0
 
         rows = _normalize_result(
             await self._driver.execute_query(
@@ -439,7 +452,7 @@ class GraphEntityStore(EntityStore):
                 group_id=self._group_id,
             )
         )
-        return int(rows[0].get("cnt", 0)) if rows else 0
+        return _coerce_int(rows[0].get("cnt")) if rows else 0
 
 
 class GraphRelationshipStore(RelationshipStore):
@@ -594,7 +607,7 @@ class GraphRelationshipStore(RelationshipStore):
                     group_id=self._group_id,
                 )
             )
-            return int(rows[0].get("cnt", 0)) if rows else 0
+            return _coerce_int(rows[0].get("cnt")) if rows else 0
 
         rows = _normalize_result(
             await self._driver.execute_query(
@@ -606,7 +619,7 @@ class GraphRelationshipStore(RelationshipStore):
                 group_id=self._group_id,
             )
         )
-        return int(rows[0].get("cnt", 0)) if rows else 0
+        return _coerce_int(rows[0].get("cnt")) if rows else 0
 
 
 class GraphSearchIndex(SearchIndex):
@@ -672,7 +685,7 @@ class GraphSearchIndex(SearchIndex):
             )
 
             entities_by_type = {
-                str(row.get("entity_type")): int(row.get("cnt", 0))
+                str(row.get("entity_type")): _coerce_int(row.get("cnt"))
                 for row in entity_rows
                 if row.get("entity_type")
             }
@@ -684,9 +697,9 @@ class GraphSearchIndex(SearchIndex):
                     entities_by_type[table] = count
 
             relationships_by_type = {
-                str(row.get("relationship_type") or "RELATED_TO"): int(row.get("cnt", 0))
+                str(row.get("relationship_type") or "RELATED_TO"): _coerce_int(row.get("cnt"))
                 for row in relates_to_rows
-                if int(row.get("cnt", 0))
+                if _coerce_int(row.get("cnt"))
             }
             for table in GRAPH_EDGES:
                 if table == "relates_to":
@@ -724,10 +737,11 @@ class GraphSearchIndex(SearchIndex):
         )
 
         entities_by_type = {
-            str(row.get("entity_type") or "unknown"): int(row.get("cnt", 0)) for row in node_rows
+            str(row.get("entity_type") or "unknown"): _coerce_int(row.get("cnt"))
+            for row in node_rows
         }
         relationships_by_type = {
-            str(row.get("relationship_type") or "RELATED_TO"): int(row.get("cnt", 0))
+            str(row.get("relationship_type") or "RELATED_TO"): _coerce_int(row.get("cnt"))
             for row in relationship_rows
         }
 
@@ -1279,10 +1293,7 @@ async def delete_graph_data(group_id: str) -> None:
             await driver.execute_query(query, group_id=group_id)
         return
 
-    await runtime.client.execute_write_org(
-        "MATCH (n) DETACH DELETE n RETURN count(n) AS deleted",
-        group_id,
-    )
+    raise RuntimeError("Supported graph runtime requires native Surreal graph operations")
 
 
 def graph_stats_payload(stats: GraphStats) -> dict[str, object]:

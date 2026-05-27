@@ -70,6 +70,13 @@ class EntityLockManager:
     def _lock_value(self) -> str:
         return f"{self._lock_id}:{time.time()}"
 
+    async def _require_redis(self) -> Redis:
+        if self._redis is None:
+            await self.connect()
+        if self._redis is None:
+            raise RuntimeError("Redis lock manager is not connected")
+        return self._redis
+
     async def acquire(
         self,
         org_id: str,
@@ -78,8 +85,7 @@ class EntityLockManager:
         blocking: bool = True,
     ) -> str | None:
         """Acquire a distributed lock on an entity."""
-        if self._redis is None:
-            await self.connect()
+        redis = await self._require_redis()
 
         key = self._lock_key(org_id, entity_id)
         value = self._lock_value()
@@ -87,9 +93,7 @@ class EntityLockManager:
         retries = 0
 
         while True:
-            acquired = await self._redis.set(  # type: ignore[union-attr]
-                key, value, nx=True, ex=LOCK_TTL_SECONDS
-            )
+            acquired = await redis.set(key, value, nx=True, ex=LOCK_TTL_SECONDS)
 
             if acquired:
                 log.debug(
@@ -115,9 +119,9 @@ class EntityLockManager:
 
             retries += 1
             if retries > LOCK_MAX_RETRIES:
-                ttl = await self._redis.ttl(key)
+                ttl = await redis.ttl(key)
                 if ttl == -1:
-                    await self._redis.expire(key, LOCK_TTL_SECONDS)
+                    await redis.expire(key, LOCK_TTL_SECONDS)
                     log.warning("entity_lock_repaired_ttl", entity_id=entity_id)
 
             delay = LOCK_RETRY_DELAY_BASE * (2 ** min(retries, 4))

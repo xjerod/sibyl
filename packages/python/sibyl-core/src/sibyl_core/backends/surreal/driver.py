@@ -574,7 +574,12 @@ async def _execute_graphiti_edge_fulltext_query(
     for record in match_records:
         uuid = record.get("uuid")
         if uuid is not None and uuid != "":
-            match_scores[str(uuid)] = float(record.get("score") or 0.0)
+            score = record.get("score")
+            match_scores[str(uuid)] = (
+                float(score)
+                if isinstance(score, int | float) and not isinstance(score, bool)
+                else 0.0
+            )
     match_uuids = list(match_scores)
     if not match_uuids:
         return []
