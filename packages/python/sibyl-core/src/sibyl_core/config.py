@@ -226,12 +226,6 @@ class CoreConfig(BaseSettings):
         le=10_000,
         description="Surreal KNN query effort for graph vector retrieval.",
     )
-    graphiti_semaphore_limit: int = Field(
-        default=50,
-        ge=1,
-        le=100,
-        description="Compatibility Graphiti operation limit (controls SEMAPHORE_LIMIT when enabled).",
-    )
 
     # Retrieval: cross-encoder reranking
     rerank_enabled: bool = Field(

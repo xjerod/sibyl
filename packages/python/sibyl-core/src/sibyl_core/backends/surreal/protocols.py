@@ -21,4 +21,15 @@ class SurrealClient(Protocol):
     async def close(self) -> None: ...
 
 
-__all__ = ["QueryParams", "SurrealClient"]
+class SchemaDriver(Protocol):
+    """Minimal contract schema bootstrap needs: connection URL, org scope, query execution."""
+
+    _url: str
+
+    @property
+    def group_id(self) -> str: ...
+
+    async def execute_query(self, query: str, **params: object) -> object: ...
+
+
+__all__ = ["QueryParams", "SchemaDriver", "SurrealClient"]

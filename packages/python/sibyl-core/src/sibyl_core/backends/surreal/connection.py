@@ -78,7 +78,18 @@ def _can_retry_raw_query(query: str) -> bool:
     ) and not (set(tokens) & _WRITE_QUERY_TOKENS)
 
 
+class SurrealQueryError(RuntimeError):
+    """Raised when SurrealDB returns an error envelope instead of result rows."""
+
+    def __init__(self, query: str, message: str) -> None:
+        snippet = (query[:120] + "…") if len(query) > 120 else query
+        super().__init__(f"SurrealDB query failed: {message} (query: {snippet!r})")
+        self.query = query
+        self.surreal_message = message
+
+
 __all__ = [
+    "SurrealQueryError",
     "_can_retry_query",
     "_can_retry_raw_query",
     "_is_connection_closed_error",

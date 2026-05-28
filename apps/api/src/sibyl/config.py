@@ -556,12 +556,6 @@ class Settings(BaseSettings):
         le=3072,
         description="Graph embedding dimensions; also sizes native Surreal vector indexes",
     )
-    graphiti_semaphore_limit: int = Field(
-        default=10,
-        ge=1,
-        le=50,
-        description="Compatibility Graphiti operation limit (controls SEMAPHORE_LIMIT when enabled)",
-    )
     auto_extract_entities: bool = Field(
         default=False,
         description="Queue LLM-powered entity extraction for prose-bearing memories",

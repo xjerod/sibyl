@@ -19,7 +19,7 @@ from sibyl_core.backends.surreal.schema_version import (
 from sibyl_core.config import core_config
 
 if TYPE_CHECKING:
-    from sibyl_core.backends.surreal.driver import SurrealDriver
+    from sibyl_core.backends.surreal.protocols import SchemaDriver
 
 logger = structlog.get_logger()
 
@@ -341,7 +341,7 @@ def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
 
 
 async def bootstrap_schema(
-    driver: SurrealDriver,
+    driver: SchemaDriver,
     *,
     reset: bool = False,
     force: bool = False,
@@ -387,7 +387,7 @@ async def bootstrap_schema(
 
 
 async def _execute_graph_schema_block(
-    driver: SurrealDriver,
+    driver: SchemaDriver,
     block: str,
     *,
     ignore_missing_relation_tables: bool = False,
@@ -417,7 +417,7 @@ async def _execute_graph_schema_block(
     return skipped_missing_relation_table
 
 
-async def drop_all_indexes(driver: SurrealDriver) -> None:
+async def drop_all_indexes(driver: SchemaDriver) -> None:
     if not driver.group_id:
         return
 

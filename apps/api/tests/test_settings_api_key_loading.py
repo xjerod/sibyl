@@ -162,26 +162,6 @@ class TestSettingsHotReload:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     @pytest.mark.asyncio
-    @pytest.mark.legacy_graph_contract
-    async def test_update_settings_resets_graph_client(self) -> None:
-        """Verify GraphClient is reset after API key update."""
-        reset_called = False
-
-        async def mock_reset_graph_client():
-            nonlocal reset_called
-            reset_called = True
-
-        with patch(
-            "sibyl_core.graph.client.reset_graph_client", side_effect=mock_reset_graph_client
-        ):
-            # Simulate the reset call from settings.py
-            from sibyl_core.graph.client import reset_graph_client
-
-            await reset_graph_client()
-
-        assert reset_called is True
-
-    @pytest.mark.asyncio
     async def test_delete_setting_clears_env_var(self, monkeypatch) -> None:
         """Verify deleting a setting clears it from os.environ."""
         monkeypatch.setenv("OPENAI_API_KEY", "sk-to-be-deleted")

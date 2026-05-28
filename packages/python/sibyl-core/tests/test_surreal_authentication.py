@@ -7,8 +7,9 @@ from typing import Any
 
 import pytest
 
-from sibyl_core.backends.surreal import SurrealAuthClient, SurrealContentClient, SurrealDriver
+from sibyl_core.backends.surreal import SurrealAuthClient, SurrealContentClient
 from sibyl_core.backends.surreal.connection import _can_retry_raw_query
+from sibyl_core.services.native_graph import NativeSurrealGraphClient
 
 
 @pytest.fixture
@@ -51,15 +52,16 @@ def fake_surreal(monkeypatch) -> list[tuple[str, object]]:
 
 
 @pytest.mark.asyncio
-async def test_surreal_driver_prefers_token_auth(fake_surreal) -> None:
-    driver = SurrealDriver(
-        "ws://localhost:8000/rpc",
+async def test_native_graph_client_prefers_token_auth(fake_surreal) -> None:
+    client = NativeSurrealGraphClient(
+        group_id="org-123",
+        url="ws://localhost:8000/rpc",
         username="root",
         password="root",
         token="token-123",
-    ).clone("org-123")
+    )
 
-    await driver.execute_query("RETURN true;")
+    await client.execute_query("RETURN true;")
 
     assert ("authenticate", "token-123") in fake_surreal
     assert not any(call[0] == "signin" for call in fake_surreal)
@@ -67,14 +69,15 @@ async def test_surreal_driver_prefers_token_auth(fake_surreal) -> None:
 
 
 @pytest.mark.asyncio
-async def test_surreal_driver_falls_back_to_username_password(fake_surreal) -> None:
-    driver = SurrealDriver(
-        "ws://localhost:8000/rpc",
+async def test_native_graph_client_falls_back_to_username_password(fake_surreal) -> None:
+    client = NativeSurrealGraphClient(
+        group_id="org-123",
+        url="ws://localhost:8000/rpc",
         username="root",
         password="root",
-    ).clone("org-123")
+    )
 
-    await driver.execute_query("RETURN true;")
+    await client.execute_query("RETURN true;")
 
     assert ("signin", {"username": "root", "password": "root"}) in fake_surreal
     assert not any(call[0] == "authenticate" for call in fake_surreal)

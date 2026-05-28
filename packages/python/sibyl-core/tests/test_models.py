@@ -1,7 +1,5 @@
 """Tests for sibyl-core models."""
 
-import pytest
-
 from sibyl_core.models import EntityType, Task, TaskComplexity, TaskPriority, TaskStatus
 
 
@@ -9,13 +7,6 @@ def test_entity_type_accepts_guide_alias() -> None:
     assert EntityType.GUIDE.value == "guide"
     assert EntityType("guide") is EntityType.GUIDE
     assert EntityType("GUIDE") is EntityType.GUIDE
-
-
-@pytest.mark.legacy_graph_contract
-def test_surreal_entity_type_filters_use_guide_rows() -> None:
-    from sibyl_core.graph.entities import _entity_type_filter_values
-
-    assert _entity_type_filter_values([EntityType.GUIDE]) == ["guide"]
 
 
 class TestTaskModel:

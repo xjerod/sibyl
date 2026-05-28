@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import traceback
 from importlib import import_module
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from sibyl_core.errors import SearchError
-from sibyl_core.graph.entities import EntityManager
 from sibyl_core.utils.log_safety import fingerprint_text, query_log_fields, text_log_fields
 
 
@@ -102,39 +98,3 @@ async def test_hybrid_search_logs_fingerprint_query(monkeypatch: pytest.MonkeyPa
         assert "query" not in fields
         assert query not in str(fields)
         assert "secret" not in str(fields)
-
-
-@pytest.mark.asyncio
-async def test_entity_search_failure_suppresses_raw_exception_text(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from sibyl_core.graph import entities as entities_module
-
-    fake_log = FakeLog()
-    monkeypatch.setattr(entities_module, "log", fake_log)
-    database_secret = "secret literal token from database"
-    user_secret = "secret literal token from user"
-    graphiti_client = MagicMock()
-    graphiti_client.search_ = AsyncMock(side_effect=RuntimeError(database_secret))
-    driver = MagicMock()
-    graph_client = MagicMock()
-    graph_client.client = graphiti_client
-    graph_client.get_org_driver = MagicMock(return_value=driver)
-    manager = EntityManager(graph_client, group_id="org_123")
-
-    with pytest.raises(SearchError) as exc_info:
-        await manager.search(user_secret)
-
-    rendered = "".join(
-        traceback.format_exception(
-            type(exc_info.value),
-            exc_info.value,
-            exc_info.value.__traceback__,
-        )
-    )
-    _level, event, fields = fake_log.events[-1]
-    assert event == "Search failed"
-    assert fields["error_type"] == "RuntimeError"
-    assert "secret literal token" not in str(fields)
-    assert "secret literal token" not in str(exc_info.value)
-    assert "secret literal token" not in rendered

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from sibyl_core.backends.surreal import observability
-from sibyl_core.backends.surreal.driver import SurrealQueryError
+from sibyl_core.backends.surreal.connection import SurrealQueryError
 from sibyl_core.observability import telemetry_registry
 
 
