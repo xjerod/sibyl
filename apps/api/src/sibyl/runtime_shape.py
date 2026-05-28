@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, cast
 
-RuntimeStore = Literal["legacy", "surreal"]
+RuntimeStore = Literal["surreal"]
 AuthStore = Literal["surreal"]
 ConfiguredCoordinationBackend = Literal["auto", "local", "redis"]
 ResolvedCoordinationBackend = Literal["local", "redis"]
@@ -47,7 +47,7 @@ def resolve_coordination_backend(
 
 def resolve_object_store(value: object, *, default: RuntimeStore) -> RuntimeStore:
     store = getattr(value, "store", None)
-    if store in {"legacy", "surreal"}:
+    if store == "surreal":
         return cast("RuntimeStore", store)
     return default
 

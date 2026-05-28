@@ -144,7 +144,7 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level",
     )
-    store: Literal["legacy", "surreal"] = Field(
+    store: Literal["surreal"] = Field(
         default="surreal",
         description="Active persistence runtime for this process",
     )

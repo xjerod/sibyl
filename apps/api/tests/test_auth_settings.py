@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from sibyl.config import Settings
 
@@ -48,17 +49,11 @@ def test_settings_store_defaults_to_surreal() -> None:
     assert s.resolved_coordination_backend == "local"
 
 
-def test_settings_store_uses_store_env(monkeypatch) -> None:
+def test_settings_store_rejects_removed_legacy_value(monkeypatch) -> None:
     monkeypatch.setenv("SIBYL_STORE", "legacy")
 
-    s = Settings(_env_file=None)
-
-    assert s.store == "legacy"
-    assert s.auth_store == "surreal"
-    assert s.fully_surreal is False
-    assert s.uses_relational_auth is False
-    assert s.requires_relational_support is False
-    assert s.resolved_coordination_backend == "local"
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
 
 
 def test_settings_store_ignores_removed_graph_backend_alias(monkeypatch) -> None:

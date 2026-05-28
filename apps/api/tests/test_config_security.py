@@ -39,7 +39,7 @@ class TestDisableAuthSecurity:
             kwargs: dict[str, object] = {
                 "environment": env,
                 "disable_auth": False,
-                "store": "legacy",
+                "store": "surreal",
                 "auth_store": "surreal",
             }
             if env == "production":
@@ -71,7 +71,7 @@ class TestEnvironmentValidation:
         for env in ["development", "staging", "production"]:
             kwargs: dict[str, object] = {
                 "environment": env,
-                "store": "legacy",
+                "store": "surreal",
                 "auth_store": "surreal",
             }
             if env == "production":
@@ -100,7 +100,7 @@ class TestProductionPasswordSecurity:
             Settings(
                 _env_file=None,
                 environment="production",
-                store="legacy",
+                store="surreal",
                 auth_store="surreal",
                 postgres_password="sibyl_dev",
                 surreal_url="",
@@ -204,7 +204,7 @@ class TestProductionPasswordSecurity:
         """Non-default passwords should work in production."""
         settings = Settings(
             environment="production",
-            store="legacy",
+            store="surreal",
             auth_store="surreal",
             postgres_password="my_secure_postgres",
             surreal_url="ws://surrealdb:8000/rpc",

@@ -39,7 +39,7 @@ class CoreConfig(BaseSettings):
         description="Server/instance name for identification",
     )
 
-    store: Literal["legacy", "surreal"] = Field(
+    store: Literal["surreal"] = Field(
         default="surreal",
         description="Active persistence runtime for this process",
     )

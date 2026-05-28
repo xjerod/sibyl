@@ -121,7 +121,6 @@ def create_combined_app(  # noqa: PLR0915
         import contextlib
 
         log = structlog.get_logger()
-        legacy_runtime = settings.store == "legacy"
         coordination_backend = settings.resolved_coordination_backend
 
         log.info(
@@ -224,11 +223,7 @@ def create_combined_app(  # noqa: PLR0915
         # Optionally start embedded arq worker (dev mode only)
         worker_task = None
         if embed_worker:
-            if legacy_runtime:
-                from sibyl.jobs.worker import run_worker_async
-
-                worker_task = asyncio.create_task(run_worker_async())
-            elif coordination_backend == "local":
+            if coordination_backend == "local":
                 log.info("Local queue broker runs in-process; no embedded worker task needed")
             else:
                 log.warning("Embedded worker disabled in surreal mode", store=settings.store)
