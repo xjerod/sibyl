@@ -1557,7 +1557,10 @@ async def prepare_native_graph_schema(client: NativeSurrealGraphClient) -> None:
 
 
 def _namespace_for_group(prefix: str, group_id: str) -> str:
-    sanitized = group_id.replace("-", "").lower() if group_id else "default"
+    if not group_id:
+        msg = "group_id is required to resolve a SurrealDB namespace"
+        raise ValueError(msg)
+    sanitized = group_id.replace("-", "").lower()
     return f"{prefix}{sanitized}"
 
 

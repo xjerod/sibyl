@@ -12,6 +12,7 @@ from sibyl_core.backends.surreal.schema_version import (
     GRAPH_SCHEMA_CURRENT_VERSION,
     SCHEMA_VERSION_TABLE,
     SchemaMigration,
+    _validate_identifier,
     apply_schema_migrations,
     ensure_schema_version_table,
     get_schema_version,
@@ -428,6 +429,7 @@ async def drop_all_indexes(driver: SchemaDriver) -> None:
             index_names = _index_names_from_info(info[0])
 
         for index_name in index_names:
+            _validate_identifier(index_name)
             await driver.execute_query(f"REMOVE INDEX IF EXISTS {index_name} ON TABLE {table};")
 
 
