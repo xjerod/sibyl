@@ -6,7 +6,7 @@ proto = "~0.54"
 moon = "2.2.3"
 python = "3.13"
 node = "24"
-pnpm = "10"
+pnpm = "11"
 uv = "0.9"
 
 [settings]

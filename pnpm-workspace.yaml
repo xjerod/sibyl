@@ -2,6 +2,19 @@ packages:
   - "apps/web"
   - "docs"
 
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+# pnpm v11 replaced ignoredBuiltDependencies/onlyBuiltDependencies with
+# a single allowBuilds map. Each entry explicitly opts in (true) or out
+# (false) of running that package's install lifecycle scripts.
+allowBuilds:
+  esbuild: true        # vite bundler needs the platform-specific binary
+  msw: true            # service worker tooling for apps/web tests
+  sharp: false         # preserved from prior ignoredBuiltDependencies
+  unrs-resolver: false # preserved from prior ignoredBuiltDependencies
+
+overrides:
+  postcss: ^8.5.15
+
+# Skip minimumReleaseAge re-verification of the committed lockfile. The
+# 24h cooldown still applies during fresh resolution (and lockfile diffs
+# are reviewed in PRs), so trusting an already-vetted lockfile is safe.
+trustLockfile: true
