@@ -75,7 +75,7 @@ def compose_config(
             "restart": "unless-stopped",
         },
         "surrealdb": {
-            "image": "${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.0.5}",
+            "image": "${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.1.0}",
             "container_name": "sibyl-surrealdb",
             "command": [
                 "start",
