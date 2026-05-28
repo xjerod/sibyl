@@ -198,26 +198,26 @@ def _extract_indented_block(path: Path, marker: str) -> tuple[int, str]:
 
 
 def _source_semantics() -> dict[str, Any]:
-    native_graph = ROOT / "packages/python/sibyl-core/src/sibyl_core/services/native_graph.py"
+    graph_source = ROOT / "packages/python/sibyl-core/src/sibyl_core/services/graph.py"
     context_tool = ROOT / "packages/python/sibyl-core/src/sibyl_core/tools/context.py"
-    native_start, native_search = _extract_indented_block(native_graph, "    async def search(")
-    _vector_start, native_vector_search = _extract_indented_block(
-        native_graph,
+    graph_start, graph_search = _extract_indented_block(graph_source, "    async def search(")
+    _vector_start, graph_vector_search = _extract_indented_block(
+        graph_source,
         "    async def _vector_search(",
     )
     context_start, selected_search = _extract_indented_block(
         context_tool,
         "    async def selected_search_fn",
     )
-    native_search_surface = "\n".join((native_search, native_vector_search))
+    graph_search_surface = "\n".join((graph_search, graph_vector_search))
     return {
         "api_search_graph_function": {
-            "path": str(native_graph.relative_to(ROOT)),
-            "line": native_start,
-            "uses_fulltext_scores": "search::score" in native_search_surface
-            and "@0@" in native_search_surface,
-            "uses_knn_vector": "name_embedding <|" in native_search_surface,
-            "uses_embedding_provider": "embed_texts" in native_search_surface,
+            "path": str(graph_source.relative_to(ROOT)),
+            "line": graph_start,
+            "uses_fulltext_scores": "search::score" in graph_search_surface
+            and "@0@" in graph_search_surface,
+            "uses_knn_vector": "name_embedding <|" in graph_search_surface,
+            "uses_embedding_provider": "embed_texts" in graph_search_surface,
         },
         "context_pack_native_function": {
             "path": str(context_tool.relative_to(ROOT)),

@@ -8,12 +8,12 @@ from typing import Protocol
 
 from sibyl_core.embeddings.native import configured_native_embedding_provider
 from sibyl_core.models.entities import EntityType
-from sibyl_core.services.native_graph import (
-    NativeEntityManager,
-    NativeRelationshipManager,
-    NativeSurrealGraphClient,
-    get_native_graph_client,
-    get_native_graph_runtime,
+from sibyl_core.services.graph import (
+    EntityManager,
+    RelationshipManager,
+    SurrealGraphClient,
+    get_surreal_graph_client,
+    get_surreal_graph_runtime,
     normalize_records,
 )
 from sibyl_core.utils.query import upper_query_tokens
@@ -37,9 +37,9 @@ class EntityManagerLike(Protocol):
 class ActiveGraphRuntime:
     """Bound graph collaborators for a single organization."""
 
-    client: NativeSurrealGraphClient
-    entity_manager: NativeEntityManager
-    relationship_manager: NativeRelationshipManager
+    client: SurrealGraphClient
+    entity_manager: EntityManager
+    relationship_manager: RelationshipManager
 
 
 def _query_tokens(query: str) -> set[str]:
@@ -64,10 +64,10 @@ def _count_value(value: object) -> int:
     return 0
 
 
-async def get_graph_client(group_id: str = "default") -> NativeSurrealGraphClient:
+async def get_graph_client(group_id: str = "default") -> SurrealGraphClient:
     """Return the native graph client for the requested organization."""
 
-    client = await get_native_graph_client(str(group_id))
+    client = await get_surreal_graph_client(str(group_id))
     await client.connect()
     return client
 
@@ -77,9 +77,9 @@ async def get_graph_runtime(group_id: str) -> ActiveGraphRuntime:
 
     embedding_provider = configured_native_embedding_provider()
     if embedding_provider is None:
-        runtime = await get_native_graph_runtime(str(group_id))
+        runtime = await get_surreal_graph_runtime(str(group_id))
     else:
-        runtime = await get_native_graph_runtime(
+        runtime = await get_surreal_graph_runtime(
             str(group_id),
             embedding_provider=embedding_provider,
         )

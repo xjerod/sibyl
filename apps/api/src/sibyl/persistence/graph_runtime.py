@@ -13,13 +13,13 @@ from sibyl_core.embeddings.native import configured_native_embedding_provider
 from sibyl_core.errors import EntityNotFoundError
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.services import KnowledgeReadService, KnowledgeWriteService
-from sibyl_core.services.native_graph import (
-    NativeEntityManager,
-    NativeGraphRuntime,
-    NativeRelationshipManager,
-    NativeSurrealGraphClient,
+from sibyl_core.services.graph import (
+    EntityManager,
+    GraphRuntime,
+    RelationshipManager,
+    SurrealGraphClient,
     entity_from_surreal_row,
-    get_native_graph_runtime,
+    get_surreal_graph_runtime,
     normalize_records,
     relationship_from_surreal_row,
 )
@@ -40,8 +40,8 @@ from sibyl_core.storage import (
 log = structlog.get_logger()
 
 
-async def _get_graph_runtime(group_id: str) -> NativeGraphRuntime:
-    return await get_native_graph_runtime(
+async def _get_graph_runtime(group_id: str) -> GraphRuntime:
+    return await get_surreal_graph_runtime(
         group_id,
         embedding_provider=configured_native_embedding_provider(),
     )
@@ -82,11 +82,11 @@ def _native_driver_for_client(client: Any, group_id: str) -> Any:
 
 
 def _entity_manager_for(client: Any, group_id: str) -> Any:
-    return NativeEntityManager(_native_driver_for_client(client, group_id), group_id=group_id)
+    return EntityManager(_native_driver_for_client(client, group_id), group_id=group_id)
 
 
 def _relationship_manager_for(client: Any, group_id: str) -> Any:
-    return NativeRelationshipManager(_native_driver_for_client(client, group_id), group_id=group_id)
+    return RelationshipManager(_native_driver_for_client(client, group_id), group_id=group_id)
 
 
 def _decode_cursor(cursor: str | None) -> int:
@@ -223,7 +223,7 @@ async def _surreal_rows_or_empty(
 
 
 def _surreal_driver_for(driver: Any) -> Any | None:
-    return driver if isinstance(driver, NativeSurrealGraphClient) else None
+    return driver if isinstance(driver, SurrealGraphClient) else None
 
 
 def _assert_legacy_graph_query_allowed(driver: Any, operation: str) -> None:
@@ -248,7 +248,7 @@ class GraphEntityStore(EntityStore):
         )
 
     @classmethod
-    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+    def from_runtime(cls, runtime: GraphRuntime, group_id: str) -> Self:
         return cls(runtime.entity_manager, driver=runtime.client, group_id=group_id)
 
     async def get(self, entity_id: str) -> Entity | None:
@@ -385,7 +385,7 @@ class GraphRelationshipStore(RelationshipStore):
         )
 
     @classmethod
-    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+    def from_runtime(cls, runtime: GraphRuntime, group_id: str) -> Self:
         return cls(runtime.relationship_manager, driver=runtime.client, group_id=group_id)
 
     async def get(self, relationship_id: str) -> Relationship | None:
@@ -691,7 +691,7 @@ class ActiveGraphStore(GraphStore):
         )
 
     @classmethod
-    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+    def from_runtime(cls, runtime: GraphRuntime, group_id: str) -> Self:
         entities = GraphEntityStore.from_runtime(runtime, group_id)
         relationships = GraphRelationshipStore.from_runtime(runtime, group_id)
         return cls(
@@ -724,7 +724,7 @@ class GraphReadServiceAdapter(KnowledgeReadService):
         return cls(ActiveGraphStore.from_client(client, group_id))
 
     @classmethod
-    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+    def from_runtime(cls, runtime: GraphRuntime, group_id: str) -> Self:
         return cls(ActiveGraphStore.from_runtime(runtime, group_id))
 
     async def get_entity(self, entity_id: str) -> Entity | None:
@@ -780,7 +780,7 @@ class GraphWriteServiceAdapter(KnowledgeWriteService):
         return cls(ActiveGraphStore.from_client(client, group_id))
 
     @classmethod
-    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+    def from_runtime(cls, runtime: GraphRuntime, group_id: str) -> Self:
         return cls(ActiveGraphStore.from_runtime(runtime, group_id))
 
     async def upsert_entity(self, entity: Entity) -> Entity:
@@ -823,7 +823,7 @@ class GraphQueryAdapter:
         self._relationships = relationship_manager or _relationship_manager_for(client, group_id)
 
     @classmethod
-    def from_runtime(cls, runtime: NativeGraphRuntime, group_id: str) -> Self:
+    def from_runtime(cls, runtime: GraphRuntime, group_id: str) -> Self:
         return cls(
             runtime.client,
             group_id,
@@ -1218,7 +1218,7 @@ def graph_stats_payload(stats: GraphStats) -> dict[str, object]:
     }
 
 
-async def _native_graph_stats_payload(group_id: str) -> dict[str, object]:
+async def _graph_stats_payload(group_id: str) -> dict[str, object]:
     from sibyl_core.backends.surreal.schema import GRAPH_TABLES
 
     runtime = await _get_graph_runtime(group_id)
@@ -1275,10 +1275,10 @@ async def _native_graph_stats_payload(group_id: str) -> dict[str, object]:
 
 async def get_graph_stats_payload(group_id: str) -> dict[str, object]:
     try:
-        return await _native_graph_stats_payload(group_id)
+        return await _graph_stats_payload(group_id)
     except Exception as exc:
         if not _is_surreal_missing_table_error(exc):
-            log.warning("native_graph_stats_payload_failed", group_id=group_id, error=str(exc))
+            log.warning("graph_stats_payload_failed", group_id=group_id, error=str(exc))
         service = await get_knowledge_read_adapter(group_id)
         stats = await service.stats()
         return graph_stats_payload(stats)
@@ -1289,9 +1289,9 @@ async def ensure_graph_indexes(group_id: str) -> None:
 
 
 async def reset_graph_runtime() -> None:
-    from sibyl_core.services.native_graph import close_native_graph_clients
+    from sibyl_core.services.graph import close_graph_clients
 
-    await close_native_graph_clients()
+    await close_graph_clients()
 
 
 async def execute_debug_query(

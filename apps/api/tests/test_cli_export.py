@@ -176,7 +176,7 @@ def test_export_graph_pages_entities_and_relationships(tmp_path: Path, monkeypat
     )
 
     with patch(
-        "sibyl_core.services.native_graph.get_native_graph_runtime",
+        "sibyl_core.services.graph.get_surreal_graph_runtime",
         AsyncMock(return_value=runtime),
     ):
         result = runner.invoke(

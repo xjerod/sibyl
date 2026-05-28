@@ -32,19 +32,19 @@ DOCUMENT_SEARCH_GRAPH_JOIN_TIMEOUT_SECONDS = min(2.0, DOCUMENT_SEARCH_TIMEOUT_SE
 
 
 async def get_graph_runtime(group_id: str):
-    from sibyl_core.services.native_graph import get_native_graph_runtime
+    from sibyl_core.services.graph import get_surreal_graph_runtime
 
     kwargs = {
         "embedding_provider": configured_native_embedding_provider(),
         "ensure_schema": False,
     }
     try:
-        return await get_native_graph_runtime(group_id, **kwargs)
+        return await get_surreal_graph_runtime(group_id, **kwargs)
     except TypeError as error:
         if "unexpected keyword argument 'ensure_schema'" not in str(error):
             raise
         kwargs.pop("ensure_schema")
-        return await get_native_graph_runtime(group_id, **kwargs)
+        return await get_surreal_graph_runtime(group_id, **kwargs)
 
 
 __all__ = [

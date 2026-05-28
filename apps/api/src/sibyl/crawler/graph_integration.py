@@ -34,11 +34,11 @@ from sibyl_core.models.entities import Entity, EntityType, Relationship, Relatio
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from sibyl_core.services.native_graph import (
-        NativeEntityManager,
-        NativeGraphRuntime,
-        NativeRelationshipManager,
-        NativeSurrealGraphClient,
+    from sibyl_core.services.graph import (
+        EntityManager,
+        GraphRuntime,
+        RelationshipManager,
+        SurrealGraphClient,
     )
 
 log = structlog.get_logger()
@@ -53,24 +53,22 @@ _EXTRACTED_TYPE_MAP: dict[str, EntityType] = {
 }
 
 
-def _entity_manager(client: NativeSurrealGraphClient, group_id: str) -> NativeEntityManager:
-    from sibyl_core.services.native_graph import NativeEntityManager
+def _entity_manager(client: SurrealGraphClient, group_id: str) -> EntityManager:
+    from sibyl_core.services.graph import EntityManager
 
-    return NativeEntityManager(client, group_id=group_id)
-
-
-def _relationship_manager(
-    client: NativeSurrealGraphClient, group_id: str
-) -> NativeRelationshipManager:
-    from sibyl_core.services.native_graph import NativeRelationshipManager
-
-    return NativeRelationshipManager(client, group_id=group_id)
+    return EntityManager(client, group_id=group_id)
 
 
-async def get_graph_runtime(organization_id: str) -> NativeGraphRuntime:
-    from sibyl_core.services.native_graph import get_native_graph_runtime
+def _relationship_manager(client: SurrealGraphClient, group_id: str) -> RelationshipManager:
+    from sibyl_core.services.graph import RelationshipManager
 
-    return await get_native_graph_runtime(organization_id)
+    return RelationshipManager(client, group_id=group_id)
+
+
+async def get_graph_runtime(organization_id: str) -> GraphRuntime:
+    from sibyl_core.services.graph import get_surreal_graph_runtime
+
+    return await get_surreal_graph_runtime(organization_id)
 
 
 async def create_graph_integration_service(
@@ -380,14 +378,14 @@ class EntityLinker:
 
     def __init__(
         self,
-        graph_client: NativeSurrealGraphClient,
+        graph_client: SurrealGraphClient,
         organization_id: str,
         similarity_threshold: float = 0.75,
     ):
         """Initialize the linker.
 
         Args:
-            graph_client: Connected NativeSurrealGraphClient
+            graph_client: Connected SurrealGraphClient
             organization_id: Organization ID for graph operations
             similarity_threshold: Minimum similarity for linking
         """
@@ -395,7 +393,7 @@ class EntityLinker:
         self.organization_id = organization_id
         self.similarity_threshold = similarity_threshold
         self._entity_cache: dict[str, list[dict]] = {}
-        self._entity_manager: NativeEntityManager | None = None
+        self._entity_manager: EntityManager | None = None
 
     def invalidate_cache(self, *entity_types: str) -> None:
         """Invalidate cached entity lists after graph writes."""
@@ -407,7 +405,7 @@ class EntityLinker:
         for entity_type in entity_types:
             self._entity_cache.pop(entity_type, None)
 
-    def _get_entity_manager(self) -> NativeEntityManager:
+    def _get_entity_manager(self) -> EntityManager:
         if self._entity_manager is None:
             self._entity_manager = _entity_manager(self.graph_client, self.organization_id)
         return self._entity_manager
@@ -580,7 +578,7 @@ class GraphIntegrationService:
 
     def __init__(
         self,
-        graph_client: NativeSurrealGraphClient,
+        graph_client: SurrealGraphClient,
         organization_id: str,
         *,
         extract_entities: bool = True,
@@ -589,7 +587,7 @@ class GraphIntegrationService:
         """Initialize the integration service.
 
         Args:
-            graph_client: Connected NativeSurrealGraphClient
+            graph_client: Connected SurrealGraphClient
             organization_id: Organization ID for graph operations
             extract_entities: Whether to extract entities from chunks
             create_new_entities: Whether to create new graph entities for unlinked
@@ -604,17 +602,17 @@ class GraphIntegrationService:
         self.entity_manager = (
             _entity_manager(graph_client, organization_id) if create_new_entities else None
         )
-        self.relationship_manager: NativeRelationshipManager | None = None
+        self.relationship_manager: RelationshipManager | None = None
 
-    def _get_entity_manager(self) -> NativeEntityManager:
+    def _get_entity_manager(self) -> EntityManager:
         if self.entity_manager is None:
             self.entity_manager = _entity_manager(self.graph_client, self.organization_id)
         return self.entity_manager
 
-    def get_entity_manager(self) -> NativeEntityManager:
+    def get_entity_manager(self) -> EntityManager:
         return self._get_entity_manager()
 
-    def _get_relationship_manager(self) -> NativeRelationshipManager:
+    def _get_relationship_manager(self) -> RelationshipManager:
         if self.relationship_manager is None:
             self.relationship_manager = _relationship_manager(
                 self.graph_client,

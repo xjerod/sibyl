@@ -9,7 +9,7 @@ import pytest
 
 from sibyl_core.backends.surreal import SurrealAuthClient, SurrealContentClient
 from sibyl_core.backends.surreal.connection import _can_retry_raw_query
-from sibyl_core.services.native_graph import NativeSurrealGraphClient
+from sibyl_core.services.graph import SurrealGraphClient
 
 
 @pytest.fixture
@@ -52,8 +52,8 @@ def fake_surreal(monkeypatch) -> list[tuple[str, object]]:
 
 
 @pytest.mark.asyncio
-async def test_native_graph_client_prefers_token_auth(fake_surreal) -> None:
-    client = NativeSurrealGraphClient(
+async def test_graph_client_prefers_token_auth(fake_surreal) -> None:
+    client = SurrealGraphClient(
         group_id="org-123",
         url="ws://localhost:8000/rpc",
         username="root",
@@ -69,8 +69,8 @@ async def test_native_graph_client_prefers_token_auth(fake_surreal) -> None:
 
 
 @pytest.mark.asyncio
-async def test_native_graph_client_falls_back_to_username_password(fake_surreal) -> None:
-    client = NativeSurrealGraphClient(
+async def test_graph_client_falls_back_to_username_password(fake_surreal) -> None:
+    client = SurrealGraphClient(
         group_id="org-123",
         url="ws://localhost:8000/rpc",
         username="root",

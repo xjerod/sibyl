@@ -961,7 +961,7 @@ async def test_compile_context_native_ranks_agent_diary_by_relevance(
             ]
         return []
 
-    monkeypatch.setattr(native_module, "get_native_graph_runtime", fake_native_runtime)
+    monkeypatch.setattr(native_module, "get_surreal_graph_runtime", fake_native_runtime)
 
     pack = await compile_context(
         "What should Nova recall from the diary for delegated handoff?",

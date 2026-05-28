@@ -7,10 +7,10 @@ from uuid import uuid4
 import pytest
 
 from sibyl_core.models.entities import Entity, EntityType
-from sibyl_core.services.native_graph import (
-    NativeEntityManager,
-    NativeSurrealGraphClient,
-    prepare_native_graph_schema,
+from sibyl_core.services.graph import (
+    EntityManager,
+    SurrealGraphClient,
+    prepare_graph_schema,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -23,16 +23,16 @@ pytestmark = pytest.mark.skipif(
 async def test_live_surreal_server_round_trips_native_entity() -> None:
     group_id = str(uuid4())
     entity_id = f"nightly-{uuid4().hex}"
-    client = NativeSurrealGraphClient(
+    client = SurrealGraphClient(
         group_id=group_id,
         url=os.environ.get("SIBYL_SURREAL_URL", "memory://"),
         username=os.environ.get("SIBYL_SURREAL_USERNAME", ""),
         password=os.environ.get("SIBYL_SURREAL_PASSWORD", ""),
     )
-    manager = NativeEntityManager(client, group_id=group_id)
+    manager = EntityManager(client, group_id=group_id)
 
     try:
-        await prepare_native_graph_schema(client)
+        await prepare_graph_schema(client)
         await manager.create_direct(
             Entity(
                 id=entity_id,

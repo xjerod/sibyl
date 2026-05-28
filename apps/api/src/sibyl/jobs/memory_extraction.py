@@ -24,7 +24,7 @@ from sibyl_core.models.memory_extraction import (
 )
 from sibyl_core.observability import elapsed_ms, telemetry_registry
 from sibyl_core.projection import project_extracted_memory_entities
-from sibyl_core.services.native_graph import get_native_graph_runtime
+from sibyl_core.services.graph import get_surreal_graph_runtime
 
 log = structlog.get_logger()
 
@@ -353,7 +353,7 @@ async def _project_extracted_entities(
 
     try:
         sources = [Entity.model_validate(source.source) for source in source_payloads]
-        runtime = await get_native_graph_runtime(
+        runtime = await get_surreal_graph_runtime(
             group_id,
             embedding_provider=configured_native_embedding_provider(),
         )

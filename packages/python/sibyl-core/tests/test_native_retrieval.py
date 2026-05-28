@@ -68,7 +68,7 @@ async def test_read_only_graph_runtime_supports_legacy_runtime_factory(
         calls.append(organization_id)
         return Runtime()
 
-    monkeypatch.setattr(native_module, "get_native_graph_runtime", fake_runtime)
+    monkeypatch.setattr(native_module, "get_surreal_graph_runtime", fake_runtime)
 
     runtime = await native_module._get_read_only_graph_runtime("org-123")
 
@@ -961,7 +961,7 @@ async def test_native_context_search_pushes_facet_types_into_graph_queries(
     async def fake_raw_recall(**_kwargs: object) -> list[RawMemory]:
         raise AssertionError("active-work facet should not recall raw memories")
 
-    monkeypatch.setattr(native_module, "get_native_graph_runtime", fake_runtime)
+    monkeypatch.setattr(native_module, "get_surreal_graph_runtime", fake_runtime)
 
     await native_module.native_context_search(
         plan=plan,

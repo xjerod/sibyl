@@ -34,7 +34,7 @@ from sibyl_core.models.entities import (
 )
 from sibyl_core.models.sources import Community, Document, Source
 from sibyl_core.models.tasks import Epic, ErrorPattern, Milestone, Note, Project, Task, Team
-from sibyl_core.services.native_graph import normalize_records
+from sibyl_core.services.graph import normalize_records
 
 log = structlog.get_logger()
 

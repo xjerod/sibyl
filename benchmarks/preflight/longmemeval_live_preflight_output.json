@@ -42,7 +42,7 @@
     },
     "retrieval_path_semantics": {
       "api_search_graph_function": {
-        "path": "packages/python/sibyl-core/src/sibyl_core/services/native_graph.py",
+        "path": "packages/python/sibyl-core/src/sibyl_core/services/graph.py",
         "line": 217,
         "uses_fulltext_scores": true,
         "uses_knn_vector": false,

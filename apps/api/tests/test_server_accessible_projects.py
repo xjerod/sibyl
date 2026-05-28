@@ -735,7 +735,7 @@ async def test_manage_mcp_action_scopes_task_metadata() -> None:
         patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
         patch("sibyl.server._get_accessible_projects", AsyncMock(return_value={"project-a"})),
         patch(
-            "sibyl_core.services.native_graph.get_native_graph_runtime",
+            "sibyl_core.services.graph.get_surreal_graph_runtime",
             AsyncMock(return_value=runtime),
         ),
         patch("sibyl_core.tools.manage.manage", manage),
@@ -786,7 +786,7 @@ async def test_manage_mcp_project_id_action_allows_admin_scope() -> None:
     with (
         patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
         patch("sibyl.server._get_accessible_projects", AsyncMock(return_value=None)),
-        patch("sibyl_core.services.native_graph.get_native_graph_runtime", AsyncMock()) as runtime,
+        patch("sibyl_core.services.graph.get_surreal_graph_runtime", AsyncMock()) as runtime,
         patch("sibyl_core.tools.manage.manage", manage),
     ):
         result = await _manage_mcp_action(
@@ -825,7 +825,7 @@ async def test_manage_mcp_action_denies_inaccessible_task_project() -> None:
         patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
         patch("sibyl.server._get_accessible_projects", AsyncMock(return_value={"project-a"})),
         patch(
-            "sibyl_core.services.native_graph.get_native_graph_runtime",
+            "sibyl_core.services.graph.get_surreal_graph_runtime",
             AsyncMock(return_value=runtime),
         ),
         patch("sibyl_core.tools.manage.manage", manage),
@@ -857,7 +857,7 @@ async def test_manage_mcp_action_denies_missing_actor_with_policy_reason() -> No
     with (
         patch("sibyl.server._require_mcp_context", AsyncMock(return_value=ctx)),
         patch(
-            "sibyl_core.services.native_graph.get_native_graph_runtime",
+            "sibyl_core.services.graph.get_surreal_graph_runtime",
             AsyncMock(return_value=runtime),
         ),
         patch("sibyl_core.tools.manage.manage", manage),

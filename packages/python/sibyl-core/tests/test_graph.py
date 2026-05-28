@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import sibyl_core.services.native_graph as native_graph_module
+import sibyl_core.services.graph as graph_module
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
 from sibyl_core.embeddings.native import (
     DeterministicNativeEmbeddingProvider,
@@ -18,15 +18,15 @@ from sibyl_core.embeddings.native import (
 )
 from sibyl_core.models.entities import Entity, EntityType, Procedure, Relationship, RelationshipType
 from sibyl_core.retrieval.dedup import EntityDeduplicator
-from sibyl_core.services.native_graph import (
-    NativeEntityManager,
-    NativeRelationshipManager,
-    NativeSurrealGraphClient,
+from sibyl_core.services.graph import (
+    EntityManager,
+    RelationshipManager,
+    SurrealGraphClient,
     _validate_native_embedding_dimensions,
     entity_from_surreal_row,
-    get_native_graph_runtime,
+    get_surreal_graph_runtime,
     normalize_records,
-    prepare_native_graph_schema,
+    prepare_graph_schema,
     relationship_from_surreal_row,
 )
 
@@ -293,10 +293,10 @@ class _SlowEmbeddingProvider:
 
 
 @pytest.mark.asyncio
-async def test_native_graph_client_cache_evicts_oldest_client(
+async def test_graph_client_cache_evicts_oldest_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await native_graph_module.close_native_graph_clients()
+    await graph_module.close_graph_clients()
     closed: list[str] = []
 
     class FakeNativeGraphClient:
@@ -306,19 +306,19 @@ async def test_native_graph_client_cache_evicts_oldest_client(
         async def close(self) -> None:
             closed.append(self.group_id)
 
-    monkeypatch.setattr(native_graph_module, "NativeSurrealGraphClient", FakeNativeGraphClient)
-    monkeypatch.setattr(native_graph_module.settings, "surreal_native_graph_client_cache_size", 2)
+    monkeypatch.setattr(graph_module, "SurrealGraphClient", FakeNativeGraphClient)
+    monkeypatch.setattr(graph_module.settings, "surreal_graph_client_cache_size", 2)
 
-    await native_graph_module.get_native_graph_client("org-a")
-    await native_graph_module.get_native_graph_client("org-b")
-    native_graph_module._prepared_groups.update({"org-a", "org-b"})
-    await native_graph_module.get_native_graph_client("org-c")
+    await graph_module.get_surreal_graph_client("org-a")
+    await graph_module.get_surreal_graph_client("org-b")
+    graph_module._prepared_groups.update({"org-a", "org-b"})
+    await graph_module.get_surreal_graph_client("org-c")
 
     assert closed == ["org-a"]
-    assert list(native_graph_module._clients) == ["org-b", "org-c"]
-    assert "org-a" not in native_graph_module._prepared_groups
+    assert list(graph_module._clients) == ["org-b", "org-c"]
+    assert "org-a" not in graph_module._prepared_groups
 
-    await native_graph_module.close_native_graph_clients()
+    await graph_module.close_graph_clients()
 
 
 @pytest.mark.asyncio
@@ -327,17 +327,17 @@ async def test_replace_entity_retries_transient_surreal_query_id_keyerror(
 ) -> None:
     client = _TransientEntityWriteClient()
     bootstrap_schema = AsyncMock()
-    monkeypatch.setattr(native_graph_module, "bootstrap_schema", bootstrap_schema)
-    native_graph_module._prepared_groups.add(client.group_id)
+    monkeypatch.setattr(graph_module, "bootstrap_schema", bootstrap_schema)
+    graph_module._prepared_groups.add(client.group_id)
 
     try:
-        row = await native_graph_module._replace_entity(
+        row = await graph_module._replace_entity(
             cast("Any", client),
             Entity(id="entity-retry", entity_type=EntityType.SESSION, name="Retry Session"),
             group_id=client.group_id,
         )
     finally:
-        native_graph_module._prepared_groups.discard(client.group_id)
+        graph_module._prepared_groups.discard(client.group_id)
 
     assert row["uuid"] == "entity-retry"
     assert client.calls == 2
@@ -345,19 +345,19 @@ async def test_replace_entity_retries_transient_surreal_query_id_keyerror(
 
 
 @pytest.mark.asyncio
-async def test_native_graph_runtime_can_skip_schema_preparation(
+async def test_graph_runtime_can_skip_schema_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _EmbeddingWriteClient()
     bootstrap_schema = AsyncMock()
-    monkeypatch.setattr(native_graph_module, "bootstrap_schema", bootstrap_schema)
+    monkeypatch.setattr(graph_module, "bootstrap_schema", bootstrap_schema)
     monkeypatch.setattr(
-        native_graph_module,
-        "get_native_graph_client",
+        graph_module,
+        "get_surreal_graph_client",
         AsyncMock(return_value=client),
     )
 
-    runtime = await get_native_graph_runtime(client.group_id, ensure_schema=False)
+    runtime = await get_surreal_graph_runtime(client.group_id, ensure_schema=False)
 
     assert runtime.client is client
     bootstrap_schema.assert_not_awaited()
@@ -468,8 +468,8 @@ def test_entity_from_surreal_row_preserves_native_policy_metadata() -> None:
 async def test_native_entity_manager_generates_embeddings_with_native_provider() -> None:
     client = _EmbeddingWriteClient()
     provider = _deterministic_provider()
-    manager = NativeEntityManager(
-        cast(NativeSurrealGraphClient, client),
+    manager = EntityManager(
+        cast(SurrealGraphClient, client),
         group_id=client.group_id,
         embedding_provider=provider,
     )
@@ -496,8 +496,8 @@ async def test_native_entity_manager_generates_embeddings_with_native_provider()
 async def test_native_entity_manager_bulk_generates_embeddings_in_batches() -> None:
     client = _EmbeddingWriteClient()
     provider = _deterministic_provider()
-    manager = NativeEntityManager(
-        cast(NativeSurrealGraphClient, client),
+    manager = EntityManager(
+        cast(SurrealGraphClient, client),
         group_id=client.group_id,
         embedding_provider=provider,
     )
@@ -538,8 +538,8 @@ async def test_native_entity_manager_bulk_generates_embeddings_in_batches() -> N
 @pytest.mark.asyncio
 async def test_native_entity_manager_bulk_writes_without_embedding_on_provider_failure() -> None:
     client = _EmbeddingWriteClient()
-    manager = NativeEntityManager(
-        cast(NativeSurrealGraphClient, client),
+    manager = EntityManager(
+        cast(SurrealGraphClient, client),
         group_id=client.group_id,
         embedding_provider=_FailingEmbeddingProvider(),
     )
@@ -575,13 +575,13 @@ async def test_native_entity_manager_search_uses_short_query_embedding_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _EmbeddingWriteClient()
-    manager = NativeEntityManager(
-        cast(NativeSurrealGraphClient, client),
+    manager = EntityManager(
+        cast(SurrealGraphClient, client),
         group_id=client.group_id,
         embedding_provider=_SlowEmbeddingProvider(),
     )
     monkeypatch.setattr(
-        native_graph_module.settings,
+        graph_module.settings,
         "graph_search_embedding_timeout_seconds",
         0.01,
     )
@@ -595,10 +595,10 @@ async def test_native_entity_manager_search_uses_short_query_embedding_timeout(
 
 @pytest.mark.asyncio
 async def test_native_entity_manager_bulk_writes_entities_in_one_surreal_batch() -> None:
-    client = NativeSurrealGraphClient(group_id="org-native-bulk-write", url="memory://")
+    client = SurrealGraphClient(group_id="org-native-bulk-write", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        manager = NativeEntityManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        manager = EntityManager(client, group_id=client.group_id)
 
         created_ids = await manager.create_direct_bulk(
             [
@@ -658,7 +658,7 @@ async def test_native_entity_manager_bulk_writes_entities_in_one_surreal_batch()
 
 @pytest.mark.asyncio
 async def test_native_project_summary_sorts_critical_tasks_by_priority() -> None:
-    entity_manager = NativeEntityManager(cast(Any, object()), group_id="org-native-graph")
+    entity_manager = EntityManager(cast(Any, object()), group_id="org-native-graph")
     entity_manager.list_by_type = AsyncMock(  # type: ignore[method-assign]
         return_value=[
             Entity(
@@ -701,8 +701,8 @@ async def test_native_project_summary_sorts_critical_tasks_by_priority() -> None
 async def test_native_relationship_manager_generates_fact_embeddings() -> None:
     client = _EmbeddingWriteClient()
     provider = _deterministic_provider()
-    manager = NativeRelationshipManager(
-        cast(NativeSurrealGraphClient, client),
+    manager = RelationshipManager(
+        cast(SurrealGraphClient, client),
         group_id=client.group_id,
         embedding_provider=provider,
     )
@@ -826,10 +826,10 @@ def test_relationship_from_surreal_row_preserves_temporal_provenance() -> None:
 
 @pytest.mark.asyncio
 async def test_native_entity_lists_order_by_updated_at_before_created_at() -> None:
-    client = NativeSurrealGraphClient(group_id="org-native-ordering", url="memory://")
+    client = SurrealGraphClient(group_id="org-native-ordering", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
 
         await entity_manager.create_direct(
             Entity(
@@ -879,10 +879,10 @@ async def test_native_entity_lists_order_by_updated_at_before_created_at() -> No
 
 @pytest.mark.asyncio
 async def test_native_entity_lists_can_omit_heavy_content_fields() -> None:
-    client = NativeSurrealGraphClient(group_id="org-native-light-list", url="memory://")
+    client = SurrealGraphClient(group_id="org-native-light-list", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
 
         await entity_manager.create_direct(
             Entity(
@@ -912,10 +912,10 @@ async def test_native_entity_lists_can_omit_heavy_content_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_native_entity_manager_counts_by_type_without_listing_entities() -> None:
-    client = NativeSurrealGraphClient(group_id="org-native-counts", url="memory://")
+    client = SurrealGraphClient(group_id="org-native-counts", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
 
         await entity_manager.create_direct(
             Entity(
@@ -960,11 +960,11 @@ async def test_hierarchical_graph_uses_native_managers_without_graphiti(
     import sibyl_core.services.graph_communities as communities
 
     _block_graphiti_imports(monkeypatch)
-    client = NativeSurrealGraphClient(group_id="org-native-hierarchy", url="memory://")
+    client = SurrealGraphClient(group_id="org-native-hierarchy", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=client.group_id)
-        relationship_manager = NativeRelationshipManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
+        relationship_manager = RelationshipManager(client, group_id=client.group_id)
 
         await entity_manager.create_direct(
             Entity(
@@ -1019,11 +1019,11 @@ async def test_hierarchical_graph_uses_native_managers_without_graphiti(
 
 
 @pytest.mark.asyncio
-async def test_native_graph_filters_recheck_metadata_only_denormalized_fields() -> None:
-    client = NativeSurrealGraphClient(group_id="org-native-legacy-filters", url="memory://")
+async def test_graph_filters_recheck_metadata_only_denormalized_fields() -> None:
+    client = SurrealGraphClient(group_id="org-native-legacy-filters", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
 
         await entity_manager.create_direct(
             Entity(
@@ -1098,11 +1098,11 @@ async def test_native_graph_filters_recheck_metadata_only_denormalized_fields() 
 
 @pytest.mark.asyncio
 async def test_native_relationship_manager_batches_related_entity_lookup() -> None:
-    client = NativeSurrealGraphClient(group_id="org-native-batch-related", url="memory://")
+    client = SurrealGraphClient(group_id="org-native-batch-related", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=client.group_id)
-        relationship_manager = NativeRelationshipManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
+        relationship_manager = RelationshipManager(client, group_id=client.group_id)
 
         for entity_id, entity_type in (
             ("task_seed_a", EntityType.TASK),
@@ -1168,8 +1168,8 @@ async def test_native_relationship_manager_batches_related_entity_lookup() -> No
 @pytest.mark.asyncio
 async def test_native_relationship_batch_uses_indexed_set_reads() -> None:
     client = _RelatedBatchClient()
-    relationship_manager = NativeRelationshipManager(
-        cast("NativeSurrealGraphClient", client),
+    relationship_manager = RelationshipManager(
+        cast("SurrealGraphClient", client),
         group_id=client.group_id,
     )
 
@@ -1198,8 +1198,8 @@ async def test_native_relationship_batch_uses_indexed_set_reads() -> None:
 @pytest.mark.asyncio
 async def test_native_relationship_batch_tops_up_underfilled_seeds_when_capped() -> None:
     client = _CappedRelatedBatchClient()
-    relationship_manager = NativeRelationshipManager(
-        cast("NativeSurrealGraphClient", client),
+    relationship_manager = RelationshipManager(
+        cast("SurrealGraphClient", client),
         group_id=client.group_id,
     )
 
@@ -1223,15 +1223,15 @@ async def test_native_relationship_batch_tops_up_underfilled_seeds_when_capped()
 
 
 @pytest.mark.asyncio
-async def test_native_graph_writes_entities_and_relationships_without_graphiti(
+async def test_graph_writes_entities_and_relationships_without_graphiti(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _block_graphiti_imports(monkeypatch)
-    client = NativeSurrealGraphClient(group_id="org-native-graph", url="memory://")
+    client = SurrealGraphClient(group_id="org-native-graph", url="memory://")
     try:
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=client.group_id)
-        relationship_manager = NativeRelationshipManager(client, group_id=client.group_id)
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
+        relationship_manager = RelationshipManager(client, group_id=client.group_id)
 
         await entity_manager.create_direct(
             Entity(

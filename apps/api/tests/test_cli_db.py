@@ -28,15 +28,15 @@ def test_clear_requires_org_id() -> None:
     assert "--org-id is required for graph operations" in result.output
 
 
-def test_clear_uses_native_graph_tables() -> None:
+def test_clear_uses_graph_tables() -> None:
     client = SimpleNamespace(execute_query=AsyncMock(return_value=[]))
 
     with (
         patch(
-            "sibyl_core.services.native_graph.get_native_graph_client",
+            "sibyl_core.services.graph.get_surreal_graph_client",
             AsyncMock(return_value=client),
         ),
-        patch("sibyl_core.services.native_graph.prepare_native_graph_schema", AsyncMock()),
+        patch("sibyl_core.services.graph.prepare_graph_schema", AsyncMock()),
     ):
         result = runner.invoke(db_cli.app, ["clear", "--yes", "--org-id", "org-123"])
 
@@ -208,7 +208,7 @@ def test_prepare_graph_runtime_bootstraps_native_schema_and_clears_rows() -> Non
 
     with (
         patch(
-            "sibyl_core.services.native_graph.get_native_graph_client",
+            "sibyl_core.services.graph.get_surreal_graph_client",
             AsyncMock(return_value=client),
         ),
         patch("sibyl_core.backends.surreal.schema.bootstrap_schema", bootstrap_schema),

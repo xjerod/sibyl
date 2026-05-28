@@ -308,7 +308,7 @@ GRAPH_EDGES = ("relates_to", "mentions", "has_episode", "next_episode", "has_mem
 GRAPH_SCHEMA_MIGRATIONS = (
     SchemaMigration(
         version=2,
-        name="native_graph_schema_bootstrap",
+        name="graph_schema_bootstrap",
     ),
     SchemaMigration(
         version=GRAPH_SCHEMA_CURRENT_VERSION,

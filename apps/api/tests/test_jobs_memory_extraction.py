@@ -88,7 +88,7 @@ async def test_extract_memory_entities_runs_bounded_llm_extraction(
         )
 
     monkeypatch.setattr(memory_extraction, "memory_batch_entity_extractor", lambda **_: fake)
-    monkeypatch.setattr(memory_extraction, "get_native_graph_runtime", fake_runtime)
+    monkeypatch.setattr(memory_extraction, "get_surreal_graph_runtime", fake_runtime)
 
     result = await memory_extraction.extract_memory_entities(
         {},

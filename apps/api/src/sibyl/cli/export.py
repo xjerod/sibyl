@@ -121,10 +121,10 @@ def export_graph(
 
     @run_async
     async def _export() -> None:
-        from sibyl_core.services.native_graph import get_native_graph_runtime
+        from sibyl_core.services.graph import get_surreal_graph_runtime
 
         try:
-            runtime = await get_native_graph_runtime(org_id)
+            runtime = await get_surreal_graph_runtime(org_id)
             entity_mgr = runtime.entity_manager
             rel_mgr = runtime.relationship_manager
 

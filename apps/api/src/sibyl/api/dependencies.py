@@ -23,10 +23,10 @@ from sibyl_core.services import KnowledgeReadService
 
 if TYPE_CHECKING:
     from sibyl.persistence.graph_runtime import ActiveGraphStore as ActiveGraphStoreType
-    from sibyl_core.services.native_graph import (
-        NativeEntityManager,
-        NativeRelationshipManager,
-        NativeSurrealGraphClient,
+    from sibyl_core.services.graph import (
+        EntityManager,
+        RelationshipManager,
+        SurrealGraphClient,
     )
     from sibyl_core.storage import GraphStore
 
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 class _ActiveGraphStoreProxy:
     @staticmethod
     def from_client(
-        client: NativeSurrealGraphClient,
+        client: SurrealGraphClient,
         group_id: str,
     ) -> ActiveGraphStoreType:
         from sibyl.persistence.graph_runtime import ActiveGraphStore
@@ -59,13 +59,13 @@ ActiveGraphStore = _ActiveGraphStoreProxy
 GraphReadServiceAdapter = _GraphReadServiceAdapterProxy
 
 
-async def get_graph_client() -> NativeSurrealGraphClient:
+async def get_graph_client() -> SurrealGraphClient:
     from sibyl_core.services.graph_runtime import get_graph_client as _get_graph_client
 
     return await _get_graph_client()
 
 
-async def get_graph() -> NativeSurrealGraphClient:
+async def get_graph() -> SurrealGraphClient:
     """Get the shared graph client.
 
     This is a thin wrapper around get_graph_client for use as a FastAPI
@@ -79,7 +79,7 @@ async def get_graph() -> NativeSurrealGraphClient:
 
 async def get_entity_manager(
     org: AuthOrganization = Depends(get_current_organization),
-) -> NativeEntityManager:
+) -> EntityManager:
     """Get a native entity manager scoped to the current organization.
 
     This dependency combines org context resolution with native graph runtime
@@ -106,7 +106,7 @@ async def get_entity_manager(
 
 async def get_relationship_manager(
     org: AuthOrganization = Depends(get_current_organization),
-) -> NativeRelationshipManager:
+) -> RelationshipManager:
     """Get a native relationship manager scoped to the current organization.
 
     Similar to get_entity_manager but for relationship operations.

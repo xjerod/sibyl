@@ -65,12 +65,12 @@ async def main():
     )
     from sibyl.ingestion.extractor import ExtractedEntity, ExtractedEntityType
     from sibyl.ingestion.relationships import ExtractedRelationship, RelationType
-    from sibyl_core.services.native_graph import (
-        NativeEntityManager,
-        NativeGraphRuntime,
-        NativeRelationshipManager,
-        NativeSurrealGraphClient,
-        prepare_native_graph_schema,
+    from sibyl_core.services.graph import (
+        EntityManager,
+        GraphRuntime,
+        RelationshipManager,
+        SurrealGraphClient,
+        prepare_graph_schema,
     )
     import sibyl_core.retrieval.native as native_retrieval
     import sibyl_core.services.native_memory as native_memory
@@ -92,13 +92,13 @@ async def main():
     group_id = "no-graphiti-default-loop"
     principal_id = "principal-no-graphiti"
     project_title = "No Graphiti Project"
-    client = NativeSurrealGraphClient(group_id=group_id, url="memory://")
+    client = SurrealGraphClient(group_id=group_id, url="memory://")
     await client.connect()
-    await prepare_native_graph_schema(client)
-    runtime = NativeGraphRuntime(
+    await prepare_graph_schema(client)
+    runtime = GraphRuntime(
         client=client,
-        entity_manager=NativeEntityManager(client, group_id=group_id),
-        relationship_manager=NativeRelationshipManager(client, group_id=group_id),
+        entity_manager=EntityManager(client, group_id=group_id),
+        relationship_manager=RelationshipManager(client, group_id=group_id),
     )
 
     async def runtime_factory(requested_group_id, **_kwargs):
@@ -108,13 +108,13 @@ async def main():
     async def empty_raw_recall(**_kwargs):
         return []
 
-    add_module.get_native_graph_runtime = runtime_factory
-    context_module.get_native_graph_runtime = runtime_factory
+    add_module.get_surreal_graph_runtime = runtime_factory
+    context_module.get_surreal_graph_runtime = runtime_factory
     explore_module.get_graph_runtime = runtime_factory
     health_module.get_graph_runtime = runtime_factory
     manage_module.get_graph_runtime = runtime_factory
-    native_retrieval.get_native_graph_runtime = runtime_factory
-    native_memory.get_native_graph_runtime = runtime_factory
+    native_retrieval.get_surreal_graph_runtime = runtime_factory
+    native_memory.get_surreal_graph_runtime = runtime_factory
     search_module.get_graph_runtime = runtime_factory
     temporal_module.get_graph_runtime = runtime_factory
     consolidation_module._get_graph_runtime = runtime_factory

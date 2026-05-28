@@ -845,7 +845,7 @@ class TestSearchTool:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Search should not run schema bootstrap on the read path."""
-        from sibyl_core.services import native_graph as native_graph_module
+        from sibyl_core.services import graph as graph_module
         from sibyl_core.tools.search import get_graph_runtime
 
         seen: dict[str, object] = {}
@@ -855,7 +855,7 @@ class TestSearchTool:
             seen.update(kwargs)
             return object()
 
-        monkeypatch.setattr(native_graph_module, "get_native_graph_runtime", fake_runtime)
+        monkeypatch.setattr(graph_module, "get_surreal_graph_runtime", fake_runtime)
 
         await get_graph_runtime("org_123")
 
@@ -867,7 +867,7 @@ class TestSearchTool:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from sibyl_core.services import native_graph as native_graph_module
+        from sibyl_core.services import graph as graph_module
         from sibyl_core.tools.search import get_graph_runtime
 
         seen: dict[str, object] = {}
@@ -882,7 +882,7 @@ class TestSearchTool:
             seen["embedding_provider"] = embedding_provider
             return runtime
 
-        monkeypatch.setattr(native_graph_module, "get_native_graph_runtime", fake_runtime)
+        monkeypatch.setattr(graph_module, "get_surreal_graph_runtime", fake_runtime)
 
         result = await get_graph_runtime("org_123")
 

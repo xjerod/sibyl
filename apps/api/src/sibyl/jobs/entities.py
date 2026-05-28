@@ -14,7 +14,7 @@ from sibyl_core.auth import MemoryPolicyContext, OrganizationRole, authorize_mem
 from sibyl_core.auth.memory_policy import MemoryPolicyAction, MemoryPolicyDecision
 from sibyl_core.embeddings.native import configured_native_embedding_provider
 from sibyl_core.projection import project_memory_entities, project_memory_entity
-from sibyl_core.services.native_graph import get_native_graph_runtime
+from sibyl_core.services.graph import get_surreal_graph_runtime
 from sibyl_core.services.surreal_content import MemoryScope
 from sibyl_core.tasks.distillation import build_learning_episode, build_learning_procedure
 
@@ -310,7 +310,7 @@ async def create_entity(  # noqa: PLR0915
     )
 
     try:
-        runtime = await get_native_graph_runtime(
+        runtime = await get_surreal_graph_runtime(
             group_id,
             embedding_provider=configured_native_embedding_provider(),
         )
@@ -585,7 +585,7 @@ async def project_memory_batch(
     from sibyl_core.models.entities import Entity
 
     sources = [Entity.model_validate(source_data) for source_data in sources_data]
-    runtime = await get_native_graph_runtime(
+    runtime = await get_surreal_graph_runtime(
         group_id,
         embedding_provider=configured_native_embedding_provider(),
     )
@@ -653,7 +653,7 @@ async def create_learning_episode(
             group_id=group_id,
             policy_context_payload=policy_context,
         )
-        runtime = await get_native_graph_runtime(group_id)
+        runtime = await get_surreal_graph_runtime(group_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 
@@ -749,7 +749,7 @@ async def create_learning_procedure(
             group_id=group_id,
             policy_context_payload=policy_context,
         )
-        runtime = await get_native_graph_runtime(group_id)
+        runtime = await get_surreal_graph_runtime(group_id)
         entity_manager = runtime.entity_manager
         relationship_manager = runtime.relationship_manager
 
@@ -895,7 +895,7 @@ async def update_task(
                 log.warning("update_task_lock_failed", task_id=task_id)
                 return {"task_id": task_id, "success": False, "message": "Lock contention"}
 
-            runtime = await get_native_graph_runtime(group_id)
+            runtime = await get_surreal_graph_runtime(group_id)
             entity_manager = runtime.entity_manager
 
             # Perform the entity field update (skip if only dep changes)
@@ -1031,7 +1031,7 @@ async def update_entity(
     )
 
     try:
-        runtime = await get_native_graph_runtime(group_id)
+        runtime = await get_surreal_graph_runtime(group_id)
         entity_manager = runtime.entity_manager
 
         # Perform the update

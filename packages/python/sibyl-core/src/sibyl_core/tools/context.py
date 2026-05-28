@@ -28,7 +28,7 @@ from sibyl_core.retrieval.native import (
     native_context_search,
     native_retrieval_mode_from_env,
 )
-from sibyl_core.services.native_graph import get_native_graph_runtime
+from sibyl_core.services.graph import get_surreal_graph_runtime
 from sibyl_core.services.surreal_content import (
     RawMemory,
     recall_raw_memory,
@@ -229,7 +229,7 @@ def _reason_for(result: SearchResult, facet: ContextFacet) -> str:
 
 
 async def get_graph_runtime(group_id: str):
-    return await get_native_graph_runtime(
+    return await get_surreal_graph_runtime(
         group_id,
         embedding_provider=configured_native_embedding_provider(),
     )

@@ -47,7 +47,7 @@ from sibyl_core.retrieval.query_ranking import (
     rank_by_query_coverage,
     should_accept_query_coverage_refinement,
 )
-from sibyl_core.services.native_graph import NativeSurrealGraphClient
+from sibyl_core.services.graph import SurrealGraphClient
 
 # =============================================================================
 # Test Fixtures and Mock Infrastructure
@@ -1216,8 +1216,8 @@ def make_entity_for_test(
     )
 
 
-def make_native_graph_client(group_id: str = "org-123") -> NativeSurrealGraphClient:
-    return NativeSurrealGraphClient(group_id=group_id, url="memory://")
+def make_graph_client(group_id: str = "org-123") -> SurrealGraphClient:
+    return SurrealGraphClient(group_id=group_id, url="memory://")
 
 
 # =============================================================================
@@ -1677,7 +1677,7 @@ class TestEntityDeduplicatorMerge:
         remaining_pairs = dedup.suggest_merges()
         assert len(remaining_pairs) == 0  # Both pairs contained id2
 
-    def test_relationship_manager_requires_native_graph_client(self) -> None:
+    def test_relationship_manager_requires_graph_client(self) -> None:
         """Relationship redirects fail closed on non-native graph clients."""
         client = MockGraphClientForDedup()
         manager = MockEntityManagerForDedup()
@@ -1855,9 +1855,9 @@ class TestGraphTraversal:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Graph traversal should stay on relationship-manager seams when available."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         relationship_manager = MagicMock()
         near = make_entity_for_test("near", name="Near Entity")
         far = make_entity_for_test("far", name="Far Entity")
@@ -1869,8 +1869,8 @@ class TestGraphTraversal:
         )
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             MagicMock(return_value=relationship_manager),
         )
 
@@ -1895,16 +1895,16 @@ class TestGraphTraversal:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Graph traversal initializes the relationship manager with explicit org scope."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         relationship_manager = MagicMock()
         relationship_manager.get_related_entities = AsyncMock(return_value=[])
         relationship_manager_cls = MagicMock(return_value=relationship_manager)
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             relationship_manager_cls,
         )
 
@@ -1928,9 +1928,9 @@ class TestGraphTraversal:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Graph traversal scores entities by distance."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         relationship_manager = MagicMock()
         near = make_entity_for_test("near", name="Near Entity")
         far = make_entity_for_test("far", name="Far Entity")
@@ -1942,8 +1942,8 @@ class TestGraphTraversal:
         )
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             MagicMock(return_value=relationship_manager),
         )
 
@@ -1966,15 +1966,15 @@ class TestGraphTraversal:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Graph traversal keeps all reads on relationship-manager seams."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         relationship_manager = MagicMock()
         relationship_manager.get_related_entities = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             MagicMock(return_value=relationship_manager),
         )
 
@@ -1990,9 +1990,9 @@ class TestGraphTraversal:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Graph traversal batches each frontier when the manager supports it."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         calls: list[tuple[list[str], int]] = []
         near = make_entity_for_test("near", name="Near Entity")
         far = make_entity_for_test("far", name="Far Entity")
@@ -2014,8 +2014,8 @@ class TestGraphTraversal:
                 }
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             BatchRelationshipManager,
         )
 
@@ -2039,7 +2039,7 @@ class TestGraphTraversal:
             await graph_traversal(["id1"], client, depth=2)  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
-    async def test_graph_traversal_requires_native_graph_client(self) -> None:
+    async def test_graph_traversal_requires_graph_client(self) -> None:
         """Graph traversal fails closed on non-native graph clients."""
         client = MockGraphClientForHybrid()
 
@@ -2851,17 +2851,17 @@ class TestHybridSearch:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Hybrid search derives org scope from the entity manager."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         manager = MockEntityManagerForHybrid()
         relationship_manager = MagicMock()
         relationship_manager.get_related_entities = AsyncMock(return_value=[])
         relationship_manager_cls = MagicMock(return_value=relationship_manager)
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             relationship_manager_cls,
         )
 
@@ -2990,9 +2990,9 @@ class TestHybridWithRRFFusion:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Entities appearing in multiple sources get higher RRF scores."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         manager = MockEntityManagerForHybrid()
 
         seed_entities = [
@@ -3014,8 +3014,8 @@ class TestHybridWithRRFFusion:
         )
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             MagicMock(return_value=relationship_manager),
         )
 
@@ -3097,15 +3097,15 @@ class TestEdgeCases:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Graph traversal returns empty when the relationship seam fails."""
-        import sibyl_core.services.native_graph as native_graph_module
+        import sibyl_core.services.graph as graph_module
 
-        client = make_native_graph_client()
+        client = make_graph_client()
         relationship_manager = MagicMock()
         relationship_manager.get_related_entities = AsyncMock(side_effect=Exception("DB error"))
 
         monkeypatch.setattr(
-            native_graph_module,
-            "NativeRelationshipManager",
+            graph_module,
+            "RelationshipManager",
             MagicMock(return_value=relationship_manager),
         )
 

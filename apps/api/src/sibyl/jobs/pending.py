@@ -29,7 +29,7 @@ from sibyl.coordination.pending import (
 )
 
 if TYPE_CHECKING:
-    from sibyl_core.services.native_graph import NativeEntityManager, NativeRelationshipManager
+    from sibyl_core.services.graph import EntityManager, RelationshipManager
 
 log = structlog.get_logger()
 
@@ -156,7 +156,7 @@ async def process_pending_operations(
     Returns:
         List of processed operations with their results
     """
-    from sibyl_core.services.native_graph import get_native_graph_runtime
+    from sibyl_core.services.graph import get_surreal_graph_runtime
 
     ops = await get_pending_operations(entity_id)
     if not ops:
@@ -164,7 +164,7 @@ async def process_pending_operations(
 
     log.info("process_pending_operations_start", entity_id=entity_id, count=len(ops))
 
-    runtime = await get_native_graph_runtime(group_id)
+    runtime = await get_surreal_graph_runtime(group_id)
     entity_manager = runtime.entity_manager
     relationship_manager = runtime.relationship_manager
 
@@ -214,8 +214,8 @@ async def process_pending_operations(
 async def _process_add_note(
     task_id: str,
     payload: dict[str, Any],
-    entity_manager: NativeEntityManager,
-    relationship_manager: NativeRelationshipManager,
+    entity_manager: EntityManager,
+    relationship_manager: RelationshipManager,
 ) -> dict[str, Any]:
     """Process a queued add_note operation."""
     from sibyl_core.models.entities import Relationship, RelationshipType
@@ -259,7 +259,7 @@ async def _process_add_note(
 async def _process_update(
     entity_id: str,
     payload: dict[str, Any],
-    entity_manager: NativeEntityManager,
+    entity_manager: EntityManager,
 ) -> dict[str, Any]:
     """Process a queued update operation."""
     updates = payload.get("updates", {})
@@ -271,7 +271,7 @@ async def _process_update(
 async def _process_add_relationship(
     entity_id: str,
     payload: dict[str, Any],
-    relationship_manager: NativeRelationshipManager,
+    relationship_manager: RelationshipManager,
 ) -> dict[str, Any]:
     """Process a queued add_relationship operation."""
     from sibyl_core.models.entities import Relationship, RelationshipType

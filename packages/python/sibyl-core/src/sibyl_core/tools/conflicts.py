@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal
 
 import structlog
 
-from sibyl_core.services.native_graph import get_native_graph_runtime
+from sibyl_core.services.graph import get_surreal_graph_runtime
 from sibyl_core.tools.responses import ConflictWarning
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ type ConflictType = Literal["semantic_overlap", "potential_contradiction", "dupl
 
 
 async def get_graph_runtime(group_id: str):
-    return await get_native_graph_runtime(group_id)
+    return await get_surreal_graph_runtime(group_id)
 
 
 # Thresholds for conflict classification

@@ -57,13 +57,13 @@ class _MissingGraphManager:
 
 
 async def _default_get_graph_client(group_id: str | None = None) -> Any:
-    from sibyl_core.services.native_graph import (
-        get_native_graph_client,
-        prepare_native_graph_schema,
+    from sibyl_core.services.graph import (
+        get_surreal_graph_client,
+        prepare_graph_schema,
     )
 
-    client = await get_native_graph_client(str(group_id or "default"))
-    await prepare_native_graph_schema(client)
+    client = await get_surreal_graph_client(str(group_id or "default"))
+    await prepare_graph_schema(client)
     return client
 
 
@@ -97,9 +97,9 @@ async def get_graph_client(group_id: str | None = None) -> Any:
 
 async def get_graph_runtime(group_id: str) -> ManageGraphRuntime:
     if _entity_manager_factory is None and _relationship_manager_factory is None:
-        from sibyl_core.services.native_graph import get_native_graph_runtime
+        from sibyl_core.services.graph import get_surreal_graph_runtime
 
-        native_runtime = await get_native_graph_runtime(str(group_id))
+        native_runtime = await get_surreal_graph_runtime(str(group_id))
         return ManageGraphRuntime(
             client=native_runtime.client,
             entity_manager=native_runtime.entity_manager,

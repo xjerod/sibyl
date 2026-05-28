@@ -22,7 +22,7 @@ from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.config import core_config
 from sibyl_core.embeddings.native import NativeEmbeddingMetadata, NativeEmbeddingProvider
 from sibyl_core.models.context import ContextFacet
-from sibyl_core.services.native_graph import get_native_graph_runtime, normalize_records
+from sibyl_core.services.graph import get_surreal_graph_runtime, normalize_records
 from sibyl_core.services.surreal_content import (
     MemoryScope,
     RawMemory,
@@ -46,11 +46,11 @@ log = structlog.get_logger()
 
 async def _get_read_only_graph_runtime(organization_id: str) -> Any:
     try:
-        return await get_native_graph_runtime(organization_id, ensure_schema=False)
+        return await get_surreal_graph_runtime(organization_id, ensure_schema=False)
     except TypeError as error:
         if "unexpected keyword argument 'ensure_schema'" not in str(error):
             raise
-        return await get_native_graph_runtime(organization_id)
+        return await get_surreal_graph_runtime(organization_id)
 
 
 class NativeRetrievalMode(StrEnum):

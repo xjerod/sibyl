@@ -45,16 +45,16 @@ def _get_graph_managers(
     client: Any,
     organization_id: str,
 ) -> tuple[Any, Any]:
-    from sibyl_core.services.native_graph import (
-        NativeEntityManager,
-        NativeRelationshipManager,
-        NativeSurrealGraphClient,
+    from sibyl_core.services.graph import (
+        EntityManager,
+        RelationshipManager,
+        SurrealGraphClient,
     )
 
-    if isinstance(client, NativeSurrealGraphClient):
+    if isinstance(client, SurrealGraphClient):
         return (
-            NativeEntityManager(client, group_id=organization_id),
-            NativeRelationshipManager(client, group_id=organization_id),
+            EntityManager(client, group_id=organization_id),
+            RelationshipManager(client, group_id=organization_id),
         )
 
     raise RuntimeError("Task dependency traversal requires a native graph client")

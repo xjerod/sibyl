@@ -135,7 +135,7 @@ async def test_process_document_treats_runtime_duplicate_as_race() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_uses_native_graph_integration_service() -> None:
+async def test_start_uses_graph_integration_service() -> None:
     service = MagicMock()
     entity_manager = MagicMock()
     service.get_entity_manager.return_value = entity_manager

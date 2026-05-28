@@ -29,9 +29,9 @@ async def test_get_graph_runtime_binds_native_store_managers() -> None:
 
     with (
         patch(
-            "sibyl_core.services.graph_runtime.get_native_graph_runtime",
+            "sibyl_core.services.graph_runtime.get_surreal_graph_runtime",
             AsyncMock(return_value=native_runtime),
-        ) as get_native_runtime,
+        ) as get_runtime,
         patch(
             "sibyl_core.services.graph_runtime.configured_native_embedding_provider",
             MagicMock(return_value=None),
@@ -43,7 +43,7 @@ async def test_get_graph_runtime_binds_native_store_managers() -> None:
     assert runtime.client is client
     assert runtime.entity_manager is entity_manager
     assert runtime.relationship_manager is relationship_manager
-    get_native_runtime.assert_awaited_once_with("org-123")
+    get_runtime.assert_awaited_once_with("org-123")
 
 
 @pytest.mark.asyncio
@@ -52,13 +52,13 @@ async def test_get_graph_client_connects_native_client() -> None:
     client.connect = AsyncMock()
 
     with patch(
-        "sibyl_core.services.graph_runtime.get_native_graph_client",
+        "sibyl_core.services.graph_runtime.get_surreal_graph_client",
         AsyncMock(return_value=client),
-    ) as get_native_client:
+    ) as get_client:
         result = await get_graph_client("org-123")
 
     assert result is client
-    get_native_client.assert_awaited_once_with("org-123")
+    get_client.assert_awaited_once_with("org-123")
     client.connect.assert_awaited_once()
 
 

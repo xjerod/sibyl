@@ -10,23 +10,23 @@ _server_start_time: float | None = None
 
 
 async def get_graph_client():
-    from sibyl_core.services.native_graph import get_native_graph_client
+    from sibyl_core.services.graph import get_surreal_graph_client
 
-    client = await get_native_graph_client("health")
+    client = await get_surreal_graph_client("health")
     await client.connect()
     return client
 
 
 async def get_graph_runtime(group_id: str):
-    from sibyl_core.services.native_graph import get_native_graph_runtime
+    from sibyl_core.services.graph import get_surreal_graph_runtime
 
-    return await get_native_graph_runtime(group_id)
+    return await get_surreal_graph_runtime(group_id)
 
 
 async def execute_graph_query(
     group_id: str, query: str, **params: object
 ) -> list[dict[str, object]]:
-    from sibyl_core.services.native_graph import normalize_records
+    from sibyl_core.services.graph import normalize_records
 
     runtime = await get_graph_runtime(group_id)
     return normalize_records(await runtime.client.execute_query(query, **params))

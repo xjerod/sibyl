@@ -416,15 +416,15 @@ class EntityDeduplicator:
             return 0
 
     def _get_relationship_manager(self) -> Any:
-        from sibyl_core.services.native_graph import (
-            NativeRelationshipManager,
-            NativeSurrealGraphClient,
+        from sibyl_core.services.graph import (
+            RelationshipManager,
+            SurrealGraphClient,
         )
 
-        if not isinstance(self.client, NativeSurrealGraphClient):
+        if not isinstance(self.client, SurrealGraphClient):
             raise RuntimeError("Entity deduplication requires a native graph client")
 
-        return NativeRelationshipManager(self.client, group_id=self._require_group_id())
+        return RelationshipManager(self.client, group_id=self._require_group_id())
 
     async def _redirect_relationships_via_manager(
         self,

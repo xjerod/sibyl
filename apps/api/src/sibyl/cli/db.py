@@ -42,14 +42,14 @@ def _first_count(rows: object) -> int:
     return 0
 
 
-async def _get_native_graph_client(org_id: str):
-    from sibyl_core.services.native_graph import (
-        get_native_graph_client,
-        prepare_native_graph_schema,
+async def _get_graph_client(org_id: str):
+    from sibyl_core.services.graph import (
+        get_surreal_graph_client,
+        prepare_graph_schema,
     )
 
-    client = await get_native_graph_client(org_id)
-    await prepare_native_graph_schema(client)
+    client = await get_surreal_graph_client(org_id)
+    await prepare_graph_schema(client)
     return client
 
 
@@ -282,7 +282,7 @@ def clear_db(
     @run_async
     async def _clear() -> None:
         try:
-            client = await _get_native_graph_client(org_id)
+            client = await _get_graph_client(org_id)
             await _clear_native_group_data(client, org_id)
 
             success("Database cleared")
@@ -312,7 +312,7 @@ def db_stats(
         from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
 
         try:
-            client = await _get_native_graph_client(org_id)
+            client = await _get_graph_client(org_id)
 
             node_count = 0
             rel_count = 0
@@ -674,9 +674,9 @@ def backfill_episode_relationships(
 async def _prepare_graph_runtime_async(org_id: str, *, clean: bool) -> None:
     """Ensure the target graph runtime is ready for restore."""
     from sibyl_core.backends.surreal.schema import bootstrap_schema
-    from sibyl_core.services.native_graph import get_native_graph_client
+    from sibyl_core.services.graph import get_surreal_graph_client
 
-    client = await get_native_graph_client(org_id)
+    client = await get_surreal_graph_client(org_id)
 
     # Bootstrap the SCHEMAFULL tables + indexes. With reset=True, this also
     # drops existing tables. With reset=False, IF NOT EXISTS lets it run

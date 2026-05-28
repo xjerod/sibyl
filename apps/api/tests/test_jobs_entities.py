@@ -68,7 +68,7 @@ class TestCreateLearningEpisodeJob:
         )
 
         with (
-            patch("sibyl.jobs.entities.get_native_graph_runtime", AsyncMock(return_value=runtime)),
+            patch("sibyl.jobs.entities.get_surreal_graph_runtime", AsyncMock(return_value=runtime)),
             patch("sibyl.jobs.entities._safe_broadcast", AsyncMock()),
             patch("sibyl.jobs.entities.log_memory_audit_event", AsyncMock()) as audit,
         ):
@@ -110,7 +110,7 @@ class TestCreateLearningEpisodeJob:
         )
 
         with (
-            patch("sibyl.jobs.entities.get_native_graph_runtime", AsyncMock()) as runtime,
+            patch("sibyl.jobs.entities.get_surreal_graph_runtime", AsyncMock()) as runtime,
             patch("sibyl.jobs.entities.log_memory_audit_event", AsyncMock()) as audit,
             pytest.raises(ValueError, match="principal_mismatch"),
         ):
@@ -139,7 +139,7 @@ class TestCreateLearningEpisodeJob:
         )
 
         with (
-            patch("sibyl.jobs.entities.get_native_graph_runtime", AsyncMock()) as runtime,
+            patch("sibyl.jobs.entities.get_surreal_graph_runtime", AsyncMock()) as runtime,
             patch("sibyl.jobs.entities.log_memory_audit_event", AsyncMock()) as audit,
             pytest.raises(ValueError, match="organization_mismatch"),
         ):
@@ -172,7 +172,7 @@ class TestCreateLearningEpisodeJob:
         )
 
         with (
-            patch("sibyl.jobs.entities.get_native_graph_runtime", AsyncMock()) as runtime,
+            patch("sibyl.jobs.entities.get_surreal_graph_runtime", AsyncMock()) as runtime,
             patch("sibyl.jobs.entities.log_memory_audit_event", AsyncMock()) as audit,
             pytest.raises(ValueError, match="project_mismatch"),
         ):
@@ -225,7 +225,7 @@ class TestCreateLearningEpisodeJob:
 
         with (
             patch("builtins.__import__", side_effect=guarded_import),
-            patch("sibyl.jobs.entities.get_native_graph_runtime", AsyncMock(return_value=runtime)),
+            patch("sibyl.jobs.entities.get_surreal_graph_runtime", AsyncMock(return_value=runtime)),
             patch("sibyl.jobs.entities._safe_broadcast", AsyncMock()),
             patch("sibyl.jobs.entities.log_memory_audit_event", AsyncMock()),
         ):
@@ -280,7 +280,7 @@ class TestCreateLearningProcedureJob:
         )
 
         with (
-            patch("sibyl.jobs.entities.get_native_graph_runtime", AsyncMock(return_value=runtime)),
+            patch("sibyl.jobs.entities.get_surreal_graph_runtime", AsyncMock(return_value=runtime)),
             patch("sibyl.jobs.entities._safe_broadcast", AsyncMock()),
             patch("sibyl.jobs.entities.log_memory_audit_event", AsyncMock()) as audit,
         ):
@@ -320,7 +320,7 @@ class TestCreateLearningProcedureJob:
         )
 
         with (
-            patch("sibyl.jobs.entities.get_native_graph_runtime", AsyncMock()) as runtime,
+            patch("sibyl.jobs.entities.get_surreal_graph_runtime", AsyncMock()) as runtime,
             patch("sibyl.jobs.entities.log_memory_audit_event", AsyncMock()) as audit,
             pytest.raises(ValueError, match="principal_mismatch"),
         ):

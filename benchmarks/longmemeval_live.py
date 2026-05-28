@@ -256,7 +256,7 @@ def _graph_embedding_runtime_metadata() -> dict[str, Any]:
         "embedding_provider_configured": provider,
         "embedding_provider_status": "enabled" if api_key_present else "missing_key",
         "tokenizer_estimate_method": "provider-default" if api_key_present else "not-applicable",
-        "vector_search_surface": "entity.name_embedding KNN via NativeEntityManager.search",
+        "vector_search_surface": "entity.name_embedding KNN via EntityManager.search",
     }
 
 

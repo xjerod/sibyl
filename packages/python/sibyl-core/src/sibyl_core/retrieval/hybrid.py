@@ -317,9 +317,9 @@ async def graph_traversal(
         return []
 
     resolved_group_id = _require_group_id(group_id, "graph traversal")
-    from sibyl_core.services.native_graph import NativeSurrealGraphClient
+    from sibyl_core.services.graph import SurrealGraphClient
 
-    if not isinstance(client, NativeSurrealGraphClient):
+    if not isinstance(client, SurrealGraphClient):
         raise RuntimeError("Graph traversal requires a native graph client")
 
     try:
@@ -343,15 +343,15 @@ async def _graph_traversal_via_relationship_manager(
     limit: int,
     group_id: str,
 ) -> list[tuple[Entity, float]]:
-    from sibyl_core.services.native_graph import (
-        NativeRelationshipManager,
-        NativeSurrealGraphClient,
+    from sibyl_core.services.graph import (
+        RelationshipManager,
+        SurrealGraphClient,
     )
 
-    if not isinstance(client, NativeSurrealGraphClient):
+    if not isinstance(client, SurrealGraphClient):
         raise RuntimeError("Graph traversal requires a native graph client")
 
-    relationship_manager = NativeRelationshipManager(client, group_id=group_id)
+    relationship_manager = RelationshipManager(client, group_id=group_id)
 
     seed_id_set = {seed_id for seed_id in seed_ids if seed_id}
     frontier = [seed_id for seed_id in seed_ids if seed_id]

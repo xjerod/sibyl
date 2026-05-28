@@ -28,8 +28,8 @@ from sibyl_core.models.reflection import (
     with_memory_lifecycle_metadata,
     with_reflection_finding_metadata,
 )
+from sibyl_core.services.graph import get_surreal_graph_runtime
 from sibyl_core.services.memory_autonomy import reflection_autonomy_candidate_metadata
-from sibyl_core.services.native_graph import get_native_graph_runtime
 from sibyl_core.services.surreal_content import (
     MemoryScope,
     RawMemory,
@@ -277,7 +277,7 @@ async def persist_reflection_candidate_native(
             metadata=policy_metadata,
         )
 
-    runtime = await get_native_graph_runtime(organization_id)
+    runtime = await get_surreal_graph_runtime(organization_id)
     source_ids = _candidate_source_ids(candidate, source_id)
     superseded_ids = await _authorized_superseded_entity_ids(
         runtime=runtime,

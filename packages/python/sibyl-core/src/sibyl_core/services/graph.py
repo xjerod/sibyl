@@ -48,7 +48,7 @@ type SurrealRecord = dict[str, object]
 _prepared_groups: set[str] = set()
 _prepare_lock = asyncio.Lock()
 _client_lock = asyncio.Lock()
-_clients: OrderedDict[str, NativeSurrealGraphClient] = OrderedDict()
+_clients: OrderedDict[str, SurrealGraphClient] = OrderedDict()
 _TASK_PRIORITY_ORDER = {
     "critical": 0,
     "high": 1,
@@ -84,13 +84,13 @@ log = structlog.get_logger()
 
 
 @dataclass(frozen=True, slots=True)
-class NativeGraphRuntime:
-    client: NativeSurrealGraphClient
-    entity_manager: NativeEntityManager
-    relationship_manager: NativeRelationshipManager
+class GraphRuntime:
+    client: SurrealGraphClient
+    entity_manager: EntityManager
+    relationship_manager: RelationshipManager
 
 
-class NativeSurrealGraphClient(DedicatedSurrealClient):
+class SurrealGraphClient(DedicatedSurrealClient):
     """Dedicated SurrealDB graph client scoped to one organization namespace."""
 
     def __init__(
@@ -112,7 +112,7 @@ class NativeSurrealGraphClient(DedicatedSurrealClient):
             token=token,
             namespace=_namespace_for_group(namespace_prefix, group_id),
             database=database,
-            client_kind="native_graph",
+            client_kind="graph",
         )
 
     @property
@@ -120,13 +120,13 @@ class NativeSurrealGraphClient(DedicatedSurrealClient):
         return self._group_id
 
 
-class NativeEntityManager:
+class EntityManager:
     supports_bounded_entity_list = True
     supports_lightweight_entity_list = True
 
     def __init__(
         self,
-        client: NativeSurrealGraphClient,
+        client: SurrealGraphClient,
         *,
         group_id: str,
         embedding_provider: NativeEmbeddingProvider | None = None,
@@ -950,10 +950,10 @@ class NativeEntityManager:
         }
 
 
-class NativeRelationshipManager:
+class RelationshipManager:
     def __init__(
         self,
-        client: NativeSurrealGraphClient,
+        client: SurrealGraphClient,
         *,
         group_id: str,
         embedding_provider: NativeEmbeddingProvider | None = None,
@@ -1472,24 +1472,24 @@ class NativeRelationshipManager:
         return len(rows)
 
 
-async def get_native_graph_runtime(
+async def get_surreal_graph_runtime(
     group_id: str,
     *,
     embedding_provider: NativeEmbeddingProvider | None = None,
     ensure_schema: bool = True,
-) -> NativeGraphRuntime:
-    client = await get_native_graph_client(group_id)
+) -> GraphRuntime:
+    client = await get_surreal_graph_client(group_id)
     if ensure_schema:
-        await prepare_native_graph_schema(client)
+        await prepare_graph_schema(client)
     _validate_native_embedding_dimensions(embedding_provider)
-    return NativeGraphRuntime(
+    return GraphRuntime(
         client=client,
-        entity_manager=NativeEntityManager(
+        entity_manager=EntityManager(
             client,
             group_id=group_id,
             embedding_provider=embedding_provider,
         ),
-        relationship_manager=NativeRelationshipManager(
+        relationship_manager=RelationshipManager(
             client,
             group_id=group_id,
             embedding_provider=embedding_provider,
@@ -1510,12 +1510,12 @@ def _validate_native_embedding_dimensions(
         )
 
 
-async def get_native_graph_client(group_id: str) -> NativeSurrealGraphClient:
-    evicted: list[NativeSurrealGraphClient] = []
+async def get_surreal_graph_client(group_id: str) -> SurrealGraphClient:
+    evicted: list[SurrealGraphClient] = []
     async with _client_lock:
         client = _clients.get(group_id)
         if client is None:
-            client = NativeSurrealGraphClient(
+            client = SurrealGraphClient(
                 group_id=group_id,
                 url=settings.resolved_surreal_url,
                 username=settings.surreal_username,
@@ -1525,7 +1525,7 @@ async def get_native_graph_client(group_id: str) -> NativeSurrealGraphClient:
                 database=settings.surreal_database,
             )
             _clients[group_id] = client
-            while len(_clients) > settings.surreal_native_graph_client_cache_size:
+            while len(_clients) > settings.surreal_graph_client_cache_size:
                 evicted_group_id, evicted_client = _clients.popitem(last=False)
                 _prepared_groups.discard(evicted_group_id)
                 evicted.append(evicted_client)
@@ -1537,7 +1537,7 @@ async def get_native_graph_client(group_id: str) -> NativeSurrealGraphClient:
     return client
 
 
-async def close_native_graph_clients() -> None:
+async def close_graph_clients() -> None:
     async with _client_lock:
         clients = list(_clients.values())
         _clients.clear()
@@ -1545,7 +1545,7 @@ async def close_native_graph_clients() -> None:
     await asyncio.gather(*(client.close() for client in clients), return_exceptions=True)
 
 
-async def prepare_native_graph_schema(client: NativeSurrealGraphClient) -> None:
+async def prepare_graph_schema(client: SurrealGraphClient) -> None:
     group_id = client.group_id
     if group_id in _prepared_groups:
         return
@@ -2237,7 +2237,7 @@ def normalize_records(result: object) -> list[SurrealRecord]:
 
 
 async def _select_one(
-    client: NativeSurrealGraphClient,
+    client: SurrealGraphClient,
     query: str,
     **params: object,
 ) -> SurrealRecord | None:
@@ -2349,7 +2349,7 @@ async def _embed_texts_for_write(
         )
     except Exception as exc:
         log.warning(
-            "native_graph_embedding_failed",
+            "graph_embedding_failed",
             operation=operation,
             provider=provider.metadata.provider,
             model=provider.metadata.model,
@@ -2382,7 +2382,7 @@ async def _embed_texts_with_timeout(
         embeddings = await provider.embed_texts(texts, input_kind=input_kind)
 
     log.info(
-        "native_graph_embedding_complete",
+        "graph_embedding_complete",
         operation=operation,
         provider=provider.metadata.provider,
         model=provider.metadata.model,
@@ -2408,7 +2408,7 @@ def _embedding_vector_from_batch(
 
 
 async def _replace_entity(
-    client: NativeSurrealGraphClient,
+    client: SurrealGraphClient,
     entity: Entity,
     *,
     group_id: str,
@@ -2420,7 +2420,7 @@ async def _replace_entity(
         if not _is_transient_connection_error(exc):
             raise
         _prepared_groups.discard(client.group_id)
-        await prepare_native_graph_schema(client)
+        await prepare_graph_schema(client)
         result = await _execute_replace_entity_query(client, record)
     rows = normalize_records(result)
     if rows:
@@ -2434,7 +2434,7 @@ async def _replace_entity(
 
 
 async def _replace_entities_bulk(
-    client: NativeSurrealGraphClient,
+    client: SurrealGraphClient,
     entities: Sequence[Entity],
     *,
     group_id: str,
@@ -2448,13 +2448,13 @@ async def _replace_entities_bulk(
         if not _is_transient_connection_error(exc):
             raise
         _prepared_groups.discard(client.group_id)
-        await prepare_native_graph_schema(client)
+        await prepare_graph_schema(client)
         result = await _execute_replace_entities_bulk_query(client, records)
     return normalize_records(result)
 
 
 async def _execute_replace_entity_query(
-    client: NativeSurrealGraphClient,
+    client: SurrealGraphClient,
     record: SurrealRecord,
 ) -> object:
     return await client.execute_query(
@@ -2487,7 +2487,7 @@ async def _execute_replace_entity_query(
 
 
 async def _execute_replace_entities_bulk_query(
-    client: NativeSurrealGraphClient,
+    client: SurrealGraphClient,
     records: Sequence[SurrealRecord],
 ) -> object:
     return await client.execute_query(_ENTITY_BULK_UPSERT_QUERY, rows=list(records))
@@ -2540,7 +2540,7 @@ def _entity_record(entity: Entity, *, group_id: str) -> SurrealRecord:
 
 
 async def _replace_relationship(
-    client: NativeSurrealGraphClient,
+    client: SurrealGraphClient,
     relationship: Relationship,
     *,
     group_id: str,
@@ -2597,7 +2597,7 @@ async def _replace_relationship(
     )
 
 
-async def _record_id(client: NativeSurrealGraphClient, uuid: str) -> object | None:
+async def _record_id(client: SurrealGraphClient, uuid: str) -> object | None:
     row = await _select_one(
         client,
         "SELECT id AS record_id FROM entity WHERE uuid = $uuid LIMIT 1;",
@@ -2721,15 +2721,15 @@ def _jsonable(value: object) -> object:
 
 
 __all__ = [
-    "NativeEntityManager",
-    "NativeGraphRuntime",
-    "NativeRelationshipManager",
-    "NativeSurrealGraphClient",
-    "close_native_graph_clients",
+    "EntityManager",
+    "GraphRuntime",
+    "RelationshipManager",
+    "SurrealGraphClient",
+    "close_graph_clients",
     "entity_from_surreal_row",
-    "get_native_graph_client",
-    "get_native_graph_runtime",
+    "get_surreal_graph_client",
+    "get_surreal_graph_runtime",
     "normalize_records",
-    "prepare_native_graph_schema",
+    "prepare_graph_schema",
     "relationship_from_surreal_row",
 ]

@@ -42,10 +42,10 @@ def _count_result_rows(rows: object) -> int:
     return total or len(rows)
 
 
-async def _native_graph_managers(org_id: str) -> tuple[Any, Any]:
-    from sibyl_core.services.native_graph import get_native_graph_runtime
+async def _graph_managers(org_id: str) -> tuple[Any, Any]:
+    from sibyl_core.services.graph import get_surreal_graph_runtime
 
-    runtime = await get_native_graph_runtime(org_id)
+    runtime = await get_surreal_graph_runtime(org_id)
     return runtime.entity_manager, runtime.relationship_manager
 
 
@@ -154,7 +154,7 @@ def generate_realistic(
             # Store in graph
             confirm = typer.confirm("\nStore generated data in the graph?")
             if confirm:
-                entity_mgr, rel_mgr = await _native_graph_managers(org_id)
+                entity_mgr, rel_mgr = await _graph_managers(org_id)
 
                 # Use direct bulk writes for speed.
                 stored_entities, _ = await entity_mgr.bulk_create_direct(
@@ -258,7 +258,7 @@ def generate_stress(
             # Store in graph
             confirm = typer.confirm("\nStore stress test data in the graph?")
             if confirm:
-                entity_mgr, rel_mgr = await _native_graph_managers(org_id)
+                entity_mgr, rel_mgr = await _graph_managers(org_id)
 
                 # Use direct bulk writes for speed.
                 stored, _failed_ents = await entity_mgr.bulk_create_direct(
@@ -384,7 +384,7 @@ def generate_scenario(  # noqa: PLR0915 - complex CLI command
             # Store in graph
             confirm = typer.confirm("\nStore scenario data in the graph?")
             if confirm:
-                entity_mgr, rel_mgr = await _native_graph_managers(org_id)
+                entity_mgr, rel_mgr = await _graph_managers(org_id)
 
                 # Use direct bulk writes for speed.
                 stored_entities, _ = await entity_mgr.bulk_create_direct(
@@ -453,14 +453,14 @@ def clean_generated(
     @run_async
     async def _clean() -> None:
         from sibyl_core.backends.surreal.schema import GRAPH_EDGES, GRAPH_TABLES
-        from sibyl_core.services.native_graph import (
-            get_native_graph_client,
-            prepare_native_graph_schema,
+        from sibyl_core.services.graph import (
+            get_surreal_graph_client,
+            prepare_graph_schema,
         )
 
         try:
-            client = await get_native_graph_client(org_id)
-            await prepare_native_graph_schema(client)
+            client = await get_surreal_graph_client(org_id)
+            await prepare_graph_schema(client)
 
             if preserve_real:
                 rel_rows = await client.execute_query(

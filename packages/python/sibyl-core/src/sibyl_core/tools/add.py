@@ -25,7 +25,7 @@ from sibyl_core.models.tasks import (
     TaskStatus,
 )
 from sibyl_core.projection import project_memory_entity
-from sibyl_core.services.native_graph import get_native_graph_runtime
+from sibyl_core.services.graph import get_surreal_graph_runtime
 from sibyl_core.tools.helpers import (
     MAX_CONTENT_LENGTH,
     MAX_TITLE_LENGTH,
@@ -59,7 +59,7 @@ DIRECT_ENTITY_TYPES = {
 
 
 async def get_graph_runtime(group_id: str):
-    return await get_native_graph_runtime(
+    return await get_surreal_graph_runtime(
         group_id,
         embedding_provider=configured_native_embedding_provider(),
     )

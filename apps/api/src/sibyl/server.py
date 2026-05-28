@@ -880,10 +880,10 @@ async def _add_mcp_entity(
 
 
 async def _mcp_entity_project_id(*, organization_id: str, entity_id: str) -> str | None:
-    from sibyl_core.services.native_graph import get_native_graph_runtime
+    from sibyl_core.services.graph import get_surreal_graph_runtime
     from sibyl_core.tools.helpers import _project_id_for_policy
 
-    runtime = await get_native_graph_runtime(organization_id)
+    runtime = await get_surreal_graph_runtime(organization_id)
     entity = await runtime.entity_manager.get(entity_id)
     if entity is None:
         return None

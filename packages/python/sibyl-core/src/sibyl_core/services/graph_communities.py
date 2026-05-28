@@ -129,13 +129,13 @@ def _attached_manager(client: Any, name: str) -> Any | None:
 
 
 def _entity_manager_for_client(client: Any, organization_id: str) -> Any:
-    from sibyl_core.services.native_graph import NativeEntityManager, NativeSurrealGraphClient
+    from sibyl_core.services.graph import EntityManager, SurrealGraphClient
 
     if _entity_manager_factory is not None:
         return _entity_manager_factory(client, organization_id)
 
-    if isinstance(client, NativeSurrealGraphClient):
-        return NativeEntityManager(client, group_id=organization_id)
+    if isinstance(client, SurrealGraphClient):
+        return EntityManager(client, group_id=organization_id)
 
     manager = _attached_manager(client, "entity_manager")
     if manager is not None:
@@ -147,13 +147,13 @@ def _entity_manager_for_client(client: Any, organization_id: str) -> Any:
 
 
 def _relationship_manager_for_client(client: Any, organization_id: str) -> Any:
-    from sibyl_core.services.native_graph import NativeRelationshipManager, NativeSurrealGraphClient
+    from sibyl_core.services.graph import RelationshipManager, SurrealGraphClient
 
     if _relationship_manager_factory is not None:
         return _relationship_manager_factory(client, organization_id)
 
-    if isinstance(client, NativeSurrealGraphClient):
-        return NativeRelationshipManager(client, group_id=organization_id)
+    if isinstance(client, SurrealGraphClient):
+        return RelationshipManager(client, group_id=organization_id)
 
     manager = _attached_manager(client, "relationship_manager")
     if manager is not None:
@@ -343,13 +343,13 @@ def _count_int(value: object) -> int:
     return 0
 
 
-async def _native_graph_totals(
+async def _graph_totals(
     client: Any,
     organization_id: str,
 ) -> tuple[int, int] | None:
-    from sibyl_core.services.native_graph import NativeSurrealGraphClient, normalize_records
+    from sibyl_core.services.graph import SurrealGraphClient, normalize_records
 
-    if not isinstance(client, NativeSurrealGraphClient):
+    if not isinstance(client, SurrealGraphClient):
         return None
 
     try:
@@ -373,7 +373,7 @@ async def _native_graph_totals(
             )
         )
     except Exception as exc:
-        log.warning("native_graph_totals_failed", org_id=organization_id, error=str(exc))
+        log.warning("graph_totals_failed", org_id=organization_id, error=str(exc))
         return None
 
     if not rows:
@@ -1536,7 +1536,7 @@ async def get_hierarchical_graph(
     relationships = snapshot.relationships
     native_totals = None
     if not project_ids and not entity_types:
-        native_totals = await _native_graph_totals(client, organization_id)
+        native_totals = await _graph_totals(client, organization_id)
     if native_totals is None:
         total_node_count, total_edge_count = _graph_totals_from_snapshot(
             entities,

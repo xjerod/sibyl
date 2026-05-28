@@ -9,12 +9,12 @@ import pytest
 
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.models.tasks import Epic, Project, ProjectStatus, Task, TaskPriority, TaskStatus
-from sibyl_core.services.native_graph import (
-    NativeEntityManager,
-    NativeRelationshipManager,
-    NativeSurrealGraphClient,
+from sibyl_core.services.graph import (
+    EntityManager,
+    RelationshipManager,
+    SurrealGraphClient,
     normalize_records,
-    prepare_native_graph_schema,
+    prepare_graph_schema,
 )
 from sibyl_core.tools import admin as admin_module
 from sibyl_core.tools.admin import (
@@ -99,10 +99,10 @@ class TestBackupInventory:
     @pytest.mark.asyncio
     async def test_create_backup_separates_mentions_from_entity_relationships(self) -> None:
         org_id = "00000000-0000-0000-0000-000000000111"
-        client = NativeSurrealGraphClient(group_id=org_id, url="memory://")
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=org_id)
-        relationship_manager = NativeRelationshipManager(client, group_id=org_id)
+        client = SurrealGraphClient(group_id=org_id, url="memory://")
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=org_id)
+        relationship_manager = RelationshipManager(client, group_id=org_id)
         seed = BackupData(
             version="2.0",
             created_at="2026-04-19T00:00:00Z",
@@ -488,10 +488,10 @@ class TestRestoreBackup:
     @pytest.mark.asyncio
     async def test_restore_rehydrates_episodes_and_mentions(self) -> None:
         org_id = "00000000-0000-0000-0000-000000000111"
-        client = NativeSurrealGraphClient(group_id=org_id, url="memory://")
-        await prepare_native_graph_schema(client)
-        entity_manager = NativeEntityManager(client, group_id=org_id)
-        relationship_manager = NativeRelationshipManager(client, group_id=org_id)
+        client = SurrealGraphClient(group_id=org_id, url="memory://")
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=org_id)
+        relationship_manager = RelationshipManager(client, group_id=org_id)
         backup_data = BackupData(
             version="2.0",
             created_at="2026-04-19T00:00:00Z",

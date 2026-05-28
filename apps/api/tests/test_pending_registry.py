@@ -228,7 +228,7 @@ class TestProcessPendingOperations:
         with (
             patch("sibyl.jobs.pending.get_pending", return_value=mock_registry),
             patch(
-                "sibyl_core.services.native_graph.get_native_graph_runtime",
+                "sibyl_core.services.graph.get_surreal_graph_runtime",
                 AsyncMock(return_value=mock_runtime),
             ),
         ):
@@ -268,7 +268,7 @@ class TestProcessPendingOperations:
         with (
             patch("sibyl.jobs.pending.get_pending", return_value=mock_registry),
             patch(
-                "sibyl_core.services.native_graph.get_native_graph_runtime",
+                "sibyl_core.services.graph.get_surreal_graph_runtime",
                 AsyncMock(return_value=mock_runtime),
             ),
         ):
@@ -310,7 +310,7 @@ class TestProcessPendingOperations:
         with (
             patch("sibyl.jobs.pending.get_pending", return_value=mock_registry),
             patch(
-                "sibyl_core.services.native_graph.get_native_graph_runtime",
+                "sibyl_core.services.graph.get_surreal_graph_runtime",
                 AsyncMock(return_value=mock_runtime),
             ),
         ):

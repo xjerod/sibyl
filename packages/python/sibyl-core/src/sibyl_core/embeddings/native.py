@@ -386,7 +386,7 @@ def configured_native_embedding_provider() -> NativeEmbeddingProvider | None:
         )
 
     if not api_key:
-        log.info("native_graph_embeddings_disabled", provider=provider, reason="missing_key")
+        log.info("graph_embeddings_disabled", provider=provider, reason="missing_key")
         return None
 
     provider_name = cast(NativeEmbeddingProviderName, provider)

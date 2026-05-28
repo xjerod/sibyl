@@ -10,8 +10,8 @@ from sibyl_core.migrate.archive import (
     graph_payload_from_archive,
     validate_archive,
 )
+from sibyl_core.services.graph import normalize_records
 from sibyl_core.services.graph_runtime import get_graph_runtime
-from sibyl_core.services.native_graph import normalize_records
 from sibyl_core.tools.admin import create_backup
 
 
