@@ -17,6 +17,7 @@ from sibyl_core.backends.surreal.content_schema import (
 from sibyl_core.backends.surreal.schema import (
     CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
     EDGE_DEFINITIONS,
+    GRAPH_SCHEMA_MIGRATIONS,
     NODE_DEFINITIONS,
     RELATION_EDGE_CLEANUP_DEFINITIONS,
     RELATION_ENDPOINT_BACKFILL_DEFINITIONS,
@@ -210,7 +211,11 @@ def test_graph_relation_endpoint_backfill_is_versioned() -> None:
     assert "source_id = source_id ?? in.uuid" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
     assert "target_id = target_id ?? out.uuid" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
     assert "UPDATE mentions SET" in RELATION_ENDPOINT_BACKFILL_DEFINITIONS
-    assert RELATION_ENDPOINT_BACKFILL_DEFINITIONS in CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
+    migration_sql = "\n".join(
+        statement for migration in GRAPH_SCHEMA_MIGRATIONS for statement in migration.statements
+    )
+    assert "UPDATE relates_to SET" in migration_sql
+    assert "UPDATE mentions SET" in migration_sql
 
 
 def test_graph_relation_cleanup_covers_all_relation_tables() -> None:
@@ -259,19 +264,16 @@ async def test_graph_bootstrap_skips_missing_relation_cleanup_on_new_schema() ->
 
 
 @pytest.mark.asyncio
-async def test_graph_bootstrap_runs_light_maintenance_when_version_is_current() -> None:
+async def test_graph_bootstrap_skips_maintenance_when_version_is_current() -> None:
     client = _RecordingSchemaClient(schema_version=GRAPH_SCHEMA_CURRENT_VERSION)
 
     await bootstrap_schema(client)  # type: ignore[arg-type]
 
     assert not any("REMOVE INDEX" in statement for statement in client.calls)
-    assert any("UPDATE entity SET" in statement for statement in client.calls)
     assert not any("DEFINE TABLE IF NOT EXISTS entity" in statement for statement in client.calls)
-    assert "description = description ?? attributes.description" in (
-        CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS
-    )
-    assert any("UPDATE relates_to SET" in statement for statement in client.calls)
-    assert any("UPDATE mentions SET" in statement for statement in client.calls)
+    assert not any("UPDATE entity SET" in statement for statement in client.calls)
+    assert not any("UPDATE relates_to SET" in statement for statement in client.calls)
+    assert not any("UPDATE mentions SET" in statement for statement in client.calls)
     assert not any("DELETE FROM relates_to" in statement for statement in client.calls)
     assert not any("DELETE FROM mentions" in statement for statement in client.calls)
 
@@ -286,19 +288,20 @@ async def test_graph_bootstrap_applies_migrations_without_full_rebuild() -> None
     assert not any("DEFINE TABLE OVERWRITE relates_to" in statement for statement in client.calls)
     assert any("idx_relates_group_source_created" in statement for statement in client.calls)
     assert any("idx_mentions_group_source_created" in statement for statement in client.calls)
-    assert any("UPDATE relates_to SET" in statement for statement in client.calls)
+    assert sum("UPDATE relates_to SET" in statement for statement in client.calls) == 1
+    assert sum("UPDATE mentions SET" in statement for statement in client.calls) == 1
     assert not any("DELETE FROM relates_to" in statement for statement in client.calls)
     assert client.schema_version == GRAPH_SCHEMA_CURRENT_VERSION
 
 
 @pytest.mark.asyncio
-async def test_graph_bootstrap_rebuilds_when_current_schema_is_missing_relation() -> None:
+async def test_graph_bootstrap_force_rebuilds_when_current_schema_is_missing_relation() -> None:
     client = _RecordingSchemaClient(
         schema_version=GRAPH_SCHEMA_CURRENT_VERSION,
         missing_tables={"relates_to"},
     )
 
-    await bootstrap_schema(client)  # type: ignore[arg-type]
+    await bootstrap_schema(client, force=True)  # type: ignore[arg-type]
 
     assert any("DEFINE TABLE IF NOT EXISTS entity" in statement for statement in client.calls)
     assert any("DEFINE TABLE OVERWRITE relates_to" in statement for statement in client.calls)

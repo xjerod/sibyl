@@ -357,13 +357,6 @@ async def bootstrap_schema(
         await ensure_schema_version_table(driver.execute_query, group_id=driver.group_id)
         current_version = await get_schema_version(driver.execute_query)
         if current_version >= GRAPH_SCHEMA_CURRENT_VERSION:
-            missing_relation_table = await _execute_graph_schema_block(
-                driver,
-                CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
-                ignore_missing_relation_tables=True,
-            )
-            if missing_relation_table:
-                force = True
             if not force:
                 return
         elif current_version > 0 and not force:
@@ -372,14 +365,7 @@ async def bootstrap_schema(
                 GRAPH_SCHEMA_MIGRATIONS,
                 group_id=driver.group_id,
             )
-            missing_relation_table = await _execute_graph_schema_block(
-                driver,
-                CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
-                ignore_missing_relation_tables=True,
-            )
-            if not missing_relation_table:
-                return
-            force = True
+            return
 
     compatible_blocks = (
         ANALYZER_DEFINITIONS,
