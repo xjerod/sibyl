@@ -730,8 +730,6 @@ def _is_read_only(query: str) -> bool:
 
 
 def _is_supported_debug_dialect(query: str) -> bool:
-    if settings.store != "surreal":
-        return True
     return _query_tokens(query).isdisjoint({"CALL", "MATCH", "UNWIND"})
 
 

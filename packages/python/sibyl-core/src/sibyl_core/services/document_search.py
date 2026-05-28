@@ -4,7 +4,7 @@ import hashlib
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import Protocol, cast
+from typing import Protocol
 from uuid import UUID
 
 import structlog
@@ -32,8 +32,6 @@ DOCUMENT_VECTOR_WEIGHT = 0.7
 DOCUMENT_LEXICAL_WEIGHT = 0.3
 DOCUMENT_EMBEDDING_TIMEOUT_SECONDS = 2.0
 DOCUMENT_EMBEDDING_CACHE_SIZE = 1000
-RUNTIME_SCAN_CHUNK_LIMIT_MULTIPLIER = 25
-RUNTIME_SCAN_CHUNK_LIMIT_MAX = 2000
 
 _document_embedding_provider: NativeEmbeddingProvider | None = None
 _document_embedding_fingerprint: tuple[NativeEmbeddingProviderName, str, int, str] | None = None
@@ -417,79 +415,6 @@ async def _search_documents_surreal_scan(
     )
 
 
-async def _search_documents_runtime_scan(
-    *,
-    query: str,
-    organization_id: str,
-    source_id: str | None,
-    source_name: str | None,
-    language: str | None,
-    limit: int,
-    include_content: bool,
-    query_embedding: list[float] | None,
-) -> list[SearchResult]:
-    from sibyl.persistence.content_runtime import (
-        get_content_read_session,
-        list_source_chunks,
-        list_source_documents,
-        list_sources_for_graph_linking,
-    )
-
-    org_uuid = UUID(organization_id)
-    requested_source_id = UUID(source_id) if source_id else None
-    chunk_budget = min(
-        max(limit, 1) * RUNTIME_SCAN_CHUNK_LIMIT_MULTIPLIER,
-        RUNTIME_SCAN_CHUNK_LIMIT_MAX,
-    )
-
-    async with get_content_read_session() as session:
-        sources = await list_sources_for_graph_linking(
-            session,
-            organization_id=org_uuid,
-            source_id=requested_source_id,
-        )
-        if source_name:
-            normalized_source_name = source_name.lower()
-            sources = [
-                source for source in sources if normalized_source_name in source.name.lower()
-            ]
-
-        documents_by_id: dict[str, DocumentSearchDocument] = {}
-        chunks: list[DocumentSearchChunk] = []
-        for source in sources:
-            documents = await list_source_documents(session, source_id=source.id)
-            for document in documents:
-                documents_by_id[str(document.id)] = cast(DocumentSearchDocument, document)
-            source_chunks = await list_source_chunks(session, source_id=source.id)
-            remaining_budget = chunk_budget - len(chunks)
-            if remaining_budget <= 0:
-                break
-            chunks.extend(
-                cast(DocumentSearchChunk, chunk) for chunk in source_chunks[:remaining_budget]
-            )
-            if len(chunks) >= chunk_budget:
-                break
-
-    if len(chunks) >= chunk_budget:
-        log.warning(
-            "document_runtime_scan_chunk_budget_exhausted",
-            organization_id=organization_id,
-            limit=limit,
-            chunk_budget=chunk_budget,
-        )
-
-    return _search_documents_from_scope(
-        query=query,
-        language=language,
-        limit=limit,
-        include_content=include_content,
-        query_embedding=query_embedding,
-        sources_by_id={str(source.id): cast(DocumentSearchSource, source) for source in sources},
-        documents_by_id=documents_by_id,
-        chunks=chunks,
-    )
-
-
 async def search_documents(
     query: str,
     organization_id: str,
@@ -511,53 +436,41 @@ async def search_documents(
     except Exception as exc:
         log.warning("document_vector_embedding_failed", error_type=type(exc).__name__)
 
-    if settings.store == "surreal":
-        try:
-            vector_rows_raw, lexical_rows_raw = await search_document_chunks(
-                organization_id=organization_id,
-                query_text=query,
-                query_embedding=query_embedding,
-                source_id=source_id,
-                source_name=source_name,
-                language=language,
-                limit=limit,
-            )
-        except RuntimeError as exc:
-            log.warning(
-                "surreal_document_direct_search_failed",
-                error_type=type(exc).__name__,
-            )
-            return await _search_documents_surreal_scan(
-                query=query,
-                organization_id=organization_id,
-                source_id=source_id,
-                source_name=source_name,
-                language=language,
-                limit=limit,
-                include_content=include_content,
-                query_embedding=query_embedding,
-            )
-
-        vector_results = _build_document_results_from_rows(
-            vector_rows_raw,
+    try:
+        vector_rows_raw, lexical_rows_raw = await search_document_chunks(
+            organization_id=organization_id,
+            query_text=query,
+            query_embedding=query_embedding,
+            source_id=source_id,
+            source_name=source_name,
+            language=language,
+            limit=limit,
+        )
+    except RuntimeError as exc:
+        log.warning(
+            "surreal_document_direct_search_failed",
+            error_type=type(exc).__name__,
+        )
+        return await _search_documents_surreal_scan(
+            query=query,
+            organization_id=organization_id,
+            source_id=source_id,
+            source_name=source_name,
+            language=language,
             limit=limit,
             include_content=include_content,
-        )
-        lexical_results = _build_document_results_from_rows(
-            lexical_rows_raw,
-            limit=limit,
-            include_content=include_content,
+            query_embedding=query_embedding,
         )
 
-        return _merge_document_results(vector_results, lexical_results, limit)
-
-    return await _search_documents_runtime_scan(
-        query=query,
-        organization_id=organization_id,
-        source_id=source_id,
-        source_name=source_name,
-        language=language,
+    vector_results = _build_document_results_from_rows(
+        vector_rows_raw,
         limit=limit,
         include_content=include_content,
-        query_embedding=query_embedding,
     )
+    lexical_results = _build_document_results_from_rows(
+        lexical_rows_raw,
+        limit=limit,
+        include_content=include_content,
+    )
+
+    return _merge_document_results(vector_results, lexical_results, limit)

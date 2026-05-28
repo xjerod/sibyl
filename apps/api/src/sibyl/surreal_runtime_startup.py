@@ -33,11 +33,6 @@ async def bootstrap_surreal_content_schema() -> None:
 
 async def bootstrap_surreal_runtime_schemas() -> bool:
     bootstrap_auth = not settings.uses_relational_auth
-    bootstrap_content = settings.store == "surreal"
-
-    if not bootstrap_auth and not bootstrap_content:
-        log.info("Surreal runtime schema bootstrap disabled", store=settings.store)
-        return False
 
     bootstrapped = False
     if bootstrap_auth:
@@ -48,13 +43,12 @@ async def bootstrap_surreal_runtime_schemas() -> bool:
         except Exception as exc:
             log.warning("Surreal auth schema bootstrap failed", error=str(exc))
 
-    if bootstrap_content:
-        try:
-            log.info("Bootstrapping Surreal content schema")
-            await bootstrap_surreal_content_schema()
-            bootstrapped = True
-        except Exception as exc:
-            log.warning("Surreal content schema bootstrap failed", error=str(exc))
+    try:
+        log.info("Bootstrapping Surreal content schema")
+        await bootstrap_surreal_content_schema()
+        bootstrapped = True
+    except Exception as exc:
+        log.warning("Surreal content schema bootstrap failed", error=str(exc))
 
     return bootstrapped
 

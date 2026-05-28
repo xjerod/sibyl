@@ -53,28 +53,6 @@ async def test_bootstrap_surreal_runtime_schemas_bootstraps_auth_when_postgres_r
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_surreal_runtime_schemas_bootstraps_auth_for_legacy_store(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bootstrap_auth = AsyncMock()
-    bootstrap_content = AsyncMock()
-
-    monkeypatch.setattr(surreal_runtime_startup.settings, "store", "legacy")
-    monkeypatch.setattr(surreal_runtime_startup.settings, "auth_store", "postgres")
-    monkeypatch.setattr(surreal_runtime_startup, "bootstrap_surreal_auth_schema", bootstrap_auth)
-    monkeypatch.setattr(
-        surreal_runtime_startup,
-        "bootstrap_surreal_content_schema",
-        bootstrap_content,
-    )
-
-    assert await surreal_runtime_startup.bootstrap_surreal_runtime_schemas() is True
-
-    bootstrap_auth.assert_awaited_once()
-    bootstrap_content.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_bootstrap_surreal_runtime_schemas_continues_after_auth_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

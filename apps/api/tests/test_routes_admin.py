@@ -231,26 +231,6 @@ async def test_debug_query_uses_debug_runner_for_surrealql() -> None:
 
 
 @pytest.mark.asyncio
-async def test_debug_query_allows_legacy_cypher_in_legacy_runtime(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("sibyl.api.routes.admin.settings.store", "legacy")
-    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
-    request = DebugQueryRequest(cypher="MATCH (n) RETURN n LIMIT 1")
-    mock_execute = AsyncMock(return_value=[{"value": ("node",)}])
-
-    with patch("sibyl.api.routes.admin.execute_debug_query", mock_execute):
-        response = await debug_query(request=request, org=org)
-
-    assert response.rows == [{"value": ("node",)}]
-    assert response.row_count == 1
-    mock_execute.assert_awaited_once_with(
-        "MATCH (n) RETURN n LIMIT 1",
-        group_id=str(org.id),
-    )
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "query",
     [
