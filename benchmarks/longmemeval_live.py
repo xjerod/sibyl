@@ -1363,7 +1363,7 @@ def _build_live_report(
             "graph_hnsw_efc_env": os.environ.get("SIBYL_GRAPH_HNSW_EFC", ""),
             "graph_hnsw_m_env": os.environ.get("SIBYL_GRAPH_HNSW_M", ""),
             "graph_knn_ef_env": os.environ.get("SIBYL_GRAPH_KNN_EF", ""),
-            "native_fusion_backend_env": os.environ.get("SIBYL_NATIVE_FUSION_BACKEND", ""),
+            "fusion_backend_env": os.environ.get("SIBYL_FUSION_BACKEND", ""),
         },
         "dataset": {
             "name": dataset_path.stem,
@@ -1499,7 +1499,7 @@ async def run_benchmark(
         flush=True,
     )
     print(
-        f"  Native fusion backend: {os.environ.get('SIBYL_NATIVE_FUSION_BACKEND', 'python_rrf')}",
+        f"  Native fusion backend: {os.environ.get('SIBYL_FUSION_BACKEND', 'python_rrf')}",
         flush=True,
     )
     print(

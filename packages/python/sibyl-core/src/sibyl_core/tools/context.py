@@ -21,12 +21,12 @@ from sibyl_core.models.context import (
     ContextRelatedItem,
     ContextSection,
 )
-from sibyl_core.retrieval.native import (
-    NativeRetrievalMode,
-    build_native_context_retrieval_plan,
-    coerce_native_retrieval_mode,
-    native_context_search,
-    native_retrieval_mode_from_env,
+from sibyl_core.retrieval.search import (
+    RetrievalMode,
+    build_context_retrieval_plan,
+    coerce_retrieval_mode,
+    context_search,
+    retrieval_mode_from_env,
 )
 from sibyl_core.services.graph import get_surreal_graph_runtime
 from sibyl_core.services.surreal_content import (
@@ -746,7 +746,7 @@ async def _compile_native_sections(
     raw_memory_recall_fn: RawMemoryRecallFn,
 ) -> list[ContextSection]:
     search_limit = min(50, max(limit, per_facet_limit * len(facets)))
-    response = await native_context_search(
+    response = await context_search(
         plan=native_plan,
         types=_types_for_facets(facets),
         facet=ContextFacet.RECENT_MEMORY if ContextFacet.RECENT_MEMORY in facets else None,
@@ -854,7 +854,7 @@ async def compile_context(
     search_fn: SearchFn = default_search,
     related_fn: RelatedFn = _default_related_items,
     raw_memory_recall_fn: RawMemoryRecallFn = recall_raw_memory,
-    retrieval_mode: str | NativeRetrievalMode | None = None,
+    retrieval_mode: str | RetrievalMode | None = None,
     allowed_memory_scope_keys: set[str] | None = None,
 ) -> ContextPack:
     """Build a small, structured context pack for an agent goal."""
@@ -874,11 +874,11 @@ async def compile_context(
     facets = _facets_for_layer(normalized_intent, normalized_layer)
     per_facet_limit = max(2, min(8, (limit + len(facets) - 1) // len(facets)))
     normalized_retrieval_mode = (
-        native_retrieval_mode_from_env()
+        retrieval_mode_from_env()
         if retrieval_mode is None
-        else coerce_native_retrieval_mode(retrieval_mode)
+        else coerce_retrieval_mode(retrieval_mode)
     )
-    native_plan = build_native_context_retrieval_plan(
+    native_plan = build_context_retrieval_plan(
         query=query,
         organization_id=organization_id,
         facets=facets,
@@ -893,7 +893,7 @@ async def compile_context(
 
     async def selected_search_fn(**kwargs: Any) -> SearchResponse:
         facet = _facet_for_search_types(kwargs.get("types"))
-        native_response = await native_context_search(
+        native_response = await context_search(
             plan=native_plan,
             types=kwargs.get("types"),
             facet=facet,
@@ -902,7 +902,7 @@ async def compile_context(
             embedding_provider=configured_embedding_provider(),
             raw_memory_recall_fn=raw_memory_recall_fn,
         )
-        if normalized_retrieval_mode is NativeRetrievalMode.COMPARE:
+        if normalized_retrieval_mode is RetrievalMode.COMPARE:
             fallback = await search_fn(**kwargs)
             fallback = _compare_safe_response(
                 fallback,
@@ -919,7 +919,7 @@ async def compile_context(
 
     sections: list[ContextSection] = []
     native_failed = False
-    if normalized_retrieval_mode is NativeRetrievalMode.NATIVE:
+    if normalized_retrieval_mode is RetrievalMode.NATIVE:
         try:
             sections = await _compile_native_sections(
                 native_plan=native_plan,
@@ -963,9 +963,7 @@ async def compile_context(
                 sections.append(ContextSection(facet=facet, title=FACET_TITLES[facet], items=items))
 
     sections = _dedupe_sections(sections, limit)
-    if not sections and (
-        normalized_retrieval_mode is not NativeRetrievalMode.NATIVE or native_failed
-    ):
+    if not sections and (normalized_retrieval_mode is not RetrievalMode.NATIVE or native_failed):
         sections = _dedupe_sections(
             await _compile_fallback_sections(
                 query=query,

@@ -52,15 +52,15 @@ def _result(
     )
 
 
-def _facet_native_search(responses: dict[ContextFacet, list[SearchResult]]):
-    """Build a fake native_context_search keyed on facet.
+def _facet_search(responses: dict[ContextFacet, list[SearchResult]]):
+    """Build a fake context_search keyed on facet.
 
     Native retrieval is the only runtime path; eval fixtures exercise
-    context assembly by stubbing native_context_search and routing facet
+    context assembly by stubbing context_search and routing facet
     results the way compile_context does.
     """
 
-    async def fake_native_context_search(**kwargs: Any) -> SearchResponse:
+    async def fake_context_search(**kwargs: Any) -> SearchResponse:
         facet = kwargs.get("facet")
         requested_types = {str(value).lower() for value in kwargs.get("types") or []}
         facet_types = set(context_module.FACET_TYPES.get(facet, [])) if facet is not None else set()
@@ -83,7 +83,7 @@ def _facet_native_search(responses: dict[ContextFacet, list[SearchResult]]):
             filters={"types": kwargs.get("types")},
         )
 
-    return fake_native_context_search
+    return fake_context_search
 
 
 @pytest.mark.asyncio
@@ -129,7 +129,7 @@ async def test_context_pack_fixture_passes_coding_handoff_requirements(
             )
         ],
     }
-    monkeypatch.setattr(context_module, "native_context_search", _facet_native_search(responses))
+    monkeypatch.setattr(context_module, "context_search", _facet_search(responses))
 
     pack = await compile_context(
         "handoff the native memory implementation",
@@ -336,7 +336,7 @@ async def test_context_pack_fixture_passes_haven_privacy_requirements(
             )
         ]
     }
-    monkeypatch.setattr(context_module, "native_context_search", _facet_native_search(responses))
+    monkeypatch.setattr(context_module, "context_search", _facet_search(responses))
 
     pack = await compile_context(
         "what should Haven remember about the evening routine?",
@@ -447,7 +447,7 @@ async def test_context_pack_fixture_reports_forbidden_haven_memory_leak(
             ),
         ]
     }
-    monkeypatch.setattr(context_module, "native_context_search", _facet_native_search(responses))
+    monkeypatch.setattr(context_module, "context_search", _facet_search(responses))
 
     pack = await compile_context(
         "what should Haven remember about the evening routine?",

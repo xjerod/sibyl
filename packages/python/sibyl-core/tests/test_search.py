@@ -2,56 +2,54 @@ from __future__ import annotations
 
 import pytest
 
-import sibyl_core.retrieval.native as native_module
+import sibyl_core.retrieval.search as search_module
 from sibyl_core.auth.memory_policy import memory_scope_policy_key
 from sibyl_core.embeddings.providers import (
     DeterministicEmbeddingProvider,
     EmbeddingMetadata,
 )
 from sibyl_core.models.context import ContextFacet
-from sibyl_core.retrieval.native import (
+from sibyl_core.retrieval.search import (
     DEFAULT_FILTER_SELECTIVITY_THRESHOLD,
-    NativeFusionBackend,
-    NativeRetrievalCandidate,
-    NativeRetrievalMode,
-    NativeRetrievalSignal,
-    build_native_context_retrieval_plan,
-    coerce_native_fusion_backend,
-    coerce_native_retrieval_mode,
-    native_fusion_backend_from_env,
-    native_retrieval_mode_from_env,
+    FusionBackend,
+    RetrievalCandidate,
+    RetrievalMode,
+    RetrievalSignal,
+    build_context_retrieval_plan,
+    coerce_fusion_backend,
+    coerce_retrieval_mode,
+    fusion_backend_from_env,
+    retrieval_mode_from_env,
 )
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 
 
-def test_native_retrieval_mode_defaults_to_native() -> None:
-    assert coerce_native_retrieval_mode(None) is NativeRetrievalMode.NATIVE
-    assert coerce_native_retrieval_mode("") is NativeRetrievalMode.NATIVE
-    assert coerce_native_retrieval_mode("surreal") is NativeRetrievalMode.NATIVE
-    assert native_retrieval_mode_from_env({}) is NativeRetrievalMode.NATIVE
+def test_retrieval_mode_defaults_to_native() -> None:
+    assert coerce_retrieval_mode(None) is RetrievalMode.NATIVE
+    assert coerce_retrieval_mode("") is RetrievalMode.NATIVE
+    assert coerce_retrieval_mode("surreal") is RetrievalMode.NATIVE
+    assert retrieval_mode_from_env({}) is RetrievalMode.NATIVE
 
 
-def test_native_retrieval_mode_accepts_native_and_compare() -> None:
-    assert coerce_native_retrieval_mode("graphiti") is NativeRetrievalMode.NATIVE
-    assert coerce_native_retrieval_mode("native") is NativeRetrievalMode.NATIVE
-    assert coerce_native_retrieval_mode("COMPARE") is NativeRetrievalMode.COMPARE
-    assert native_retrieval_mode_from_env({"SIBYL_RETRIEVAL_MODE": "native"}) is (
-        NativeRetrievalMode.NATIVE
-    )
+def test_retrieval_mode_accepts_native_and_compare() -> None:
+    assert coerce_retrieval_mode("graphiti") is RetrievalMode.NATIVE
+    assert coerce_retrieval_mode("native") is RetrievalMode.NATIVE
+    assert coerce_retrieval_mode("COMPARE") is RetrievalMode.COMPARE
+    assert retrieval_mode_from_env({"SIBYL_RETRIEVAL_MODE": "native"}) is (RetrievalMode.NATIVE)
 
 
-def test_native_fusion_backend_defaults_to_python_rrf() -> None:
-    assert coerce_native_fusion_backend(None) is NativeFusionBackend.PYTHON_RRF
-    assert coerce_native_fusion_backend("") is NativeFusionBackend.PYTHON_RRF
-    assert coerce_native_fusion_backend("invalid") is NativeFusionBackend.PYTHON_RRF
-    assert native_fusion_backend_from_env({}) is NativeFusionBackend.PYTHON_RRF
+def test_fusion_backend_defaults_to_python_rrf() -> None:
+    assert coerce_fusion_backend(None) is FusionBackend.PYTHON_RRF
+    assert coerce_fusion_backend("") is FusionBackend.PYTHON_RRF
+    assert coerce_fusion_backend("invalid") is FusionBackend.PYTHON_RRF
+    assert fusion_backend_from_env({}) is FusionBackend.PYTHON_RRF
 
 
-def test_native_fusion_backend_accepts_surreal_rrf() -> None:
-    assert coerce_native_fusion_backend("surreal_rrf") is NativeFusionBackend.SURREAL_RRF
-    assert coerce_native_fusion_backend("SURREAL_RRF") is NativeFusionBackend.SURREAL_RRF
-    assert native_fusion_backend_from_env({"SIBYL_NATIVE_FUSION_BACKEND": "surreal_rrf"}) is (
-        NativeFusionBackend.SURREAL_RRF
+def test_fusion_backend_accepts_surreal_rrf() -> None:
+    assert coerce_fusion_backend("surreal_rrf") is FusionBackend.SURREAL_RRF
+    assert coerce_fusion_backend("SURREAL_RRF") is FusionBackend.SURREAL_RRF
+    assert fusion_backend_from_env({"SIBYL_FUSION_BACKEND": "surreal_rrf"}) is (
+        FusionBackend.SURREAL_RRF
     )
 
 
@@ -68,16 +66,16 @@ async def test_read_only_graph_runtime_supports_legacy_runtime_factory(
         calls.append(organization_id)
         return Runtime()
 
-    monkeypatch.setattr(native_module, "get_surreal_graph_runtime", fake_runtime)
+    monkeypatch.setattr(search_module, "get_surreal_graph_runtime", fake_runtime)
 
-    runtime = await native_module._get_read_only_graph_runtime("org-123")
+    runtime = await search_module._get_read_only_graph_runtime("org-123")
 
     assert isinstance(runtime, Runtime)
     assert calls == ["org-123"]
 
 
-def test_build_native_context_retrieval_plan_records_scopes_and_weights() -> None:
-    plan = build_native_context_retrieval_plan(
+def test_build_context_retrieval_plan_records_scopes_and_weights() -> None:
+    plan = build_context_retrieval_plan(
         query="ship native retrieval",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK, ContextFacet.RECENT_MEMORY],
@@ -113,13 +111,13 @@ def test_build_native_context_retrieval_plan_records_scopes_and_weights() -> Non
     assert plan.weights.graph_expansion_only_boost == 0.45
     assert plan.weights.freshness_boost_cap == 1.5
     assert plan.filter_selectivity_threshold == DEFAULT_FILTER_SELECTIVITY_THRESHOLD
-    assert NativeRetrievalSignal.RAW_LEXICAL in plan.signals
-    assert NativeRetrievalSignal.GRAPH_EXPANSION in plan.signals
+    assert RetrievalSignal.RAW_LEXICAL in plan.signals
+    assert RetrievalSignal.GRAPH_EXPANSION in plan.signals
     assert plan.filter_selectivity == 1.0
 
 
 def test_search_filter_for_plan_carries_requested_entity_types() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="task context",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -130,7 +128,7 @@ def test_search_filter_for_plan_carries_requested_entity_types() -> None:
         limit=6,
     )
 
-    search_filter = native_module._search_filter_for_plan(
+    search_filter = search_module._search_filter_for_plan(
         plan,
         requested_types={"task", "epic"},
     )
@@ -139,8 +137,8 @@ def test_search_filter_for_plan_carries_requested_entity_types() -> None:
     assert search_filter.project_ids == ("project_123",)
 
 
-def test_build_native_context_retrieval_plan_denies_unverified_project_scope() -> None:
-    plan = build_native_context_retrieval_plan(
+def test_build_context_retrieval_plan_denies_unverified_project_scope() -> None:
+    plan = build_context_retrieval_plan(
         query="private only",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -156,9 +154,9 @@ def test_build_native_context_retrieval_plan_denies_unverified_project_scope() -
     assert plan.denied_scopes[0].memory_scope is MemoryScope.PROJECT
     assert plan.denied_scopes[0].scope_key == "project_123"
     assert plan.denied_scopes[0].reason == "unverified_membership"
-    assert native_module._search_filter_for_plan(plan).project_ids == ()
-    assert not native_module._candidate_allowed(
-        NativeRetrievalCandidate(
+    assert search_module._search_filter_for_plan(plan).project_ids == ()
+    assert not search_module._candidate_allowed(
+        RetrievalCandidate(
             id="task-1",
             type="task",
             name="Denied project task",
@@ -180,8 +178,8 @@ def test_memory_scope_policy_key_uses_unit_separator_format() -> None:
     assert memory_scope_policy_key(MemoryScope.PRIVATE, None) == "private\x1f"
 
 
-def _scoped_plan(allowed_memory_scope_keys: set[str] | None) -> native_module.NativeRetrievalPlan:
-    return build_native_context_retrieval_plan(
+def _scoped_plan(allowed_memory_scope_keys: set[str] | None) -> search_module.RetrievalPlan:
+    return build_context_retrieval_plan(
         query="api key scoped retrieval",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -195,7 +193,7 @@ def _scoped_plan(allowed_memory_scope_keys: set[str] | None) -> native_module.Na
     )
 
 
-def test_build_native_context_retrieval_plan_skips_scope_filter_when_unset() -> None:
+def test_build_context_retrieval_plan_skips_scope_filter_when_unset() -> None:
     plan = _scoped_plan(None)
 
     assert [scope.memory_scope for scope in plan.scopes] == [
@@ -206,7 +204,7 @@ def test_build_native_context_retrieval_plan_skips_scope_filter_when_unset() -> 
     assert not [d for d in plan.denied_scopes if d.reason == "api_key_scope_excluded"]
 
 
-def test_build_native_context_retrieval_plan_keeps_scopes_within_api_key_grants() -> None:
+def test_build_context_retrieval_plan_keeps_scopes_within_api_key_grants() -> None:
     plan = _scoped_plan(
         {
             memory_scope_policy_key(MemoryScope.PRIVATE, "user-123"),
@@ -222,7 +220,7 @@ def test_build_native_context_retrieval_plan_keeps_scopes_within_api_key_grants(
     assert not [d for d in plan.denied_scopes if d.reason == "api_key_scope_excluded"]
 
 
-def test_build_native_context_retrieval_plan_excludes_scopes_outside_api_key_grants() -> None:
+def test_build_context_retrieval_plan_excludes_scopes_outside_api_key_grants() -> None:
     plan = _scoped_plan({memory_scope_policy_key(MemoryScope.PRIVATE, "user-123")})
 
     assert [scope.memory_scope for scope in plan.scopes] == [
@@ -232,18 +230,18 @@ def test_build_native_context_retrieval_plan_excludes_scopes_outside_api_key_gra
     excluded = [d for d in plan.denied_scopes if d.reason == "api_key_scope_excluded"]
     assert [d.memory_scope for d in excluded] == [MemoryScope.PROJECT]
     assert excluded[0].scope_key == "project_123"
-    assert native_module._search_filter_for_plan(plan).project_ids == ()
+    assert search_module._search_filter_for_plan(plan).project_ids == ()
 
 
-def test_build_native_context_retrieval_plan_excludes_all_scopes_when_no_grant_matches() -> None:
+def test_build_context_retrieval_plan_excludes_all_scopes_when_no_grant_matches() -> None:
     plan = _scoped_plan({memory_scope_policy_key(MemoryScope.PROJECT, "project_other")})
 
     assert plan.scopes == ()
     assert {d.reason for d in plan.denied_scopes} == {"api_key_scope_excluded"}
 
 
-def test_build_native_context_retrieval_plan_trims_accessible_projects_to_api_key_grants() -> None:
-    plan = build_native_context_retrieval_plan(
+def test_build_context_retrieval_plan_trims_accessible_projects_to_api_key_grants() -> None:
+    plan = build_context_retrieval_plan(
         query="unscoped pack",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -255,11 +253,11 @@ def test_build_native_context_retrieval_plan_trims_accessible_projects_to_api_ke
     )
 
     assert plan.accessible_projects == frozenset()
-    assert native_module._authorized_project_ids(plan) == ()
+    assert search_module._authorized_project_ids(plan) == ()
 
 
-def test_build_native_context_retrieval_plan_keeps_granted_accessible_projects() -> None:
-    plan = build_native_context_retrieval_plan(
+def test_build_context_retrieval_plan_keeps_granted_accessible_projects() -> None:
+    plan = build_context_retrieval_plan(
         query="unscoped pack",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -274,11 +272,11 @@ def test_build_native_context_retrieval_plan_keeps_granted_accessible_projects()
     )
 
     assert plan.accessible_projects == frozenset({"project_123"})
-    assert native_module._authorized_project_ids(plan) == ("project_123",)
+    assert search_module._authorized_project_ids(plan) == ("project_123",)
 
 
-def test_build_native_context_retrieval_plan_keeps_all_accessible_projects_when_unscoped() -> None:
-    plan = build_native_context_retrieval_plan(
+def test_build_context_retrieval_plan_keeps_all_accessible_projects_when_unscoped() -> None:
+    plan = build_context_retrieval_plan(
         query="unscoped pack",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -292,8 +290,8 @@ def test_build_native_context_retrieval_plan_keeps_all_accessible_projects_when_
     assert plan.accessible_projects == frozenset({"project_123", "project_456"})
 
 
-def test_build_native_context_retrieval_plan_scopes_agent_diary_to_accessible_projects() -> None:
-    plan = build_native_context_retrieval_plan(
+def test_build_context_retrieval_plan_scopes_agent_diary_to_accessible_projects() -> None:
+    plan = build_context_retrieval_plan(
         query="unscoped agent diary",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -313,7 +311,7 @@ def test_build_native_context_retrieval_plan_scopes_agent_diary_to_accessible_pr
 
 
 def test_candidate_from_raw_memory_uses_top_level_project_id_when_metadata_missing() -> None:
-    candidate = native_module._candidate_from_raw_memory(
+    candidate = search_module._candidate_from_raw_memory(
         RawMemory(
             id="raw-1",
             organization_id="org-123",
@@ -325,7 +323,7 @@ def test_candidate_from_raw_memory_uses_top_level_project_id_when_metadata_missi
             memory_scope=MemoryScope.PRIVATE,
             metadata={"agent_id": "nova"},
         ),
-        scope=native_module.NativeScopeSpec(
+        scope=search_module.ScopeSpec(
             memory_scope=MemoryScope.PRIVATE,
             principal_id="user-123",
             scope_key=None,
@@ -337,7 +335,7 @@ def test_candidate_from_raw_memory_uses_top_level_project_id_when_metadata_missi
 
 
 def test_candidate_allowed_denies_private_candidate_without_private_grant() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="private memory",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -349,8 +347,8 @@ def test_candidate_allowed_denies_private_candidate_without_private_grant() -> N
     )
 
     assert MemoryScope.PRIVATE not in [scope.memory_scope for scope in plan.scopes]
-    assert not native_module._candidate_allowed(
-        NativeRetrievalCandidate(
+    assert not search_module._candidate_allowed(
+        RetrievalCandidate(
             id="entity-1",
             type="note",
             name="Bob private reflection promoted into project",
@@ -367,7 +365,7 @@ def test_candidate_allowed_denies_private_candidate_without_private_grant() -> N
 
 
 def test_candidate_allowed_allows_private_candidate_with_private_grant() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="private memory",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -381,8 +379,8 @@ def test_candidate_allowed_allows_private_candidate_with_private_grant() -> None
         },
     )
 
-    assert native_module._candidate_allowed(
-        NativeRetrievalCandidate(
+    assert search_module._candidate_allowed(
+        RetrievalCandidate(
             id="entity-2",
             type="note",
             name="Bob private reflection promoted into project",
@@ -399,7 +397,7 @@ def test_candidate_allowed_allows_private_candidate_with_private_grant() -> None
 
 
 def test_candidate_allowed_denies_private_scope_key_mismatch() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="private memory",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -410,8 +408,8 @@ def test_candidate_allowed_denies_private_scope_key_mismatch() -> None:
         agent_id=None,
     )
 
-    assert not native_module._candidate_allowed(
-        NativeRetrievalCandidate(
+    assert not search_module._candidate_allowed(
+        RetrievalCandidate(
             id="entity-1",
             type="note",
             name="Alice private reflection",
@@ -428,7 +426,7 @@ def test_candidate_allowed_denies_private_scope_key_mismatch() -> None:
 
 
 def test_candidate_allowed_allows_private_scope_key_match() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="private memory",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -439,8 +437,8 @@ def test_candidate_allowed_allows_private_scope_key_match() -> None:
         agent_id=None,
     )
 
-    assert native_module._candidate_allowed(
-        NativeRetrievalCandidate(
+    assert search_module._candidate_allowed(
+        RetrievalCandidate(
             id="entity-2",
             type="note",
             name="Bob private reflection",
@@ -456,8 +454,8 @@ def test_candidate_allowed_allows_private_scope_key_match() -> None:
     )
 
 
-def test_build_native_context_retrieval_plan_requires_principal() -> None:
-    plan = build_native_context_retrieval_plan(
+def test_build_context_retrieval_plan_requires_principal() -> None:
+    plan = build_context_retrieval_plan(
         query="no principal",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -477,7 +475,7 @@ def test_build_native_context_retrieval_plan_requires_principal() -> None:
 
 
 def test_candidate_allowed_rejects_cross_project_claim_edge() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="edge permissions",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -486,7 +484,7 @@ def test_candidate_allowed_rejects_cross_project_claim_edge() -> None:
         project="project_A",
         accessible_projects={"project_A"},
     )
-    candidate = NativeRetrievalCandidate(
+    candidate = RetrievalCandidate(
         id="edge-1",
         type="claim",
         name="Cross-project relationship",
@@ -500,7 +498,7 @@ def test_candidate_allowed_rejects_cross_project_claim_edge() -> None:
         project_id=None,
     )
 
-    assert not native_module._candidate_allowed(
+    assert not search_module._candidate_allowed(
         candidate,
         plan=plan,
         requested_types=set(),
@@ -509,7 +507,7 @@ def test_candidate_allowed_rejects_cross_project_claim_edge() -> None:
 
 
 def test_candidate_allowed_accepts_claim_edge_when_both_endpoints_accessible() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="edge permissions",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -518,7 +516,7 @@ def test_candidate_allowed_accepts_claim_edge_when_both_endpoints_accessible() -
         project="project_A",
         accessible_projects={"project_A"},
     )
-    candidate = NativeRetrievalCandidate(
+    candidate = RetrievalCandidate(
         id="edge-1",
         type="claim",
         name="In-project relationship",
@@ -532,7 +530,7 @@ def test_candidate_allowed_accepts_claim_edge_when_both_endpoints_accessible() -
         project_id=None,
     )
 
-    assert native_module._candidate_allowed(
+    assert search_module._candidate_allowed(
         candidate,
         plan=plan,
         requested_types=set(),
@@ -541,7 +539,7 @@ def test_candidate_allowed_accepts_claim_edge_when_both_endpoints_accessible() -
 
 
 def test_candidate_allowed_treats_relationship_as_edge_claim_alias() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="edge permissions",
         organization_id="org-123",
         facets=[ContextFacet.DOMAIN],
@@ -550,7 +548,7 @@ def test_candidate_allowed_treats_relationship_as_edge_claim_alias() -> None:
         project="project_A",
         accessible_projects={"project_A"},
     )
-    candidate = NativeRetrievalCandidate(
+    candidate = RetrievalCandidate(
         id="edge-1",
         type="claim",
         name="In-project relationship",
@@ -565,7 +563,7 @@ def test_candidate_allowed_treats_relationship_as_edge_claim_alias() -> None:
         project_id=None,
     )
 
-    assert native_module._candidate_allowed(
+    assert search_module._candidate_allowed(
         candidate,
         plan=plan,
         requested_types={"relationship"},
@@ -573,9 +571,9 @@ def test_candidate_allowed_treats_relationship_as_edge_claim_alias() -> None:
     )
 
 
-def test_native_plan_estimates_project_filter_selectivity() -> None:
+def test_plan_estimates_project_filter_selectivity() -> None:
     accessible_projects = {f"project_{index}" for index in range(20)}
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="selective vector filter",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -590,7 +588,7 @@ def test_native_plan_estimates_project_filter_selectivity() -> None:
 
 def test_vector_only_candidates_demote_under_selective_project_filter() -> None:
     accessible_projects = {f"project_{index}" for index in range(20)}
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="selective vector filter",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -599,7 +597,7 @@ def test_vector_only_candidates_demote_under_selective_project_filter() -> None:
         project="project_0",
         accessible_projects=accessible_projects,
     )
-    vector_candidate = NativeRetrievalCandidate(
+    vector_candidate = RetrievalCandidate(
         id="vector-only",
         type="task",
         name="Vector only",
@@ -609,7 +607,7 @@ def test_vector_only_candidates_demote_under_selective_project_filter() -> None:
         metadata={},
         project_id="project_0",
     )
-    lexical_candidate = NativeRetrievalCandidate(
+    lexical_candidate = RetrievalCandidate(
         id="lexical",
         type="task",
         name="Lexical",
@@ -620,10 +618,10 @@ def test_vector_only_candidates_demote_under_selective_project_filter() -> None:
         project_id="project_0",
     )
 
-    ranked = native_module._fuse_candidates(
+    ranked = search_module._fuse_candidates(
         [
-            (NativeRetrievalSignal.NODE_VECTOR, [vector_candidate]),
-            (NativeRetrievalSignal.NODE_FULLTEXT, [lexical_candidate]),
+            (RetrievalSignal.NODE_VECTOR, [vector_candidate]),
+            (RetrievalSignal.NODE_FULLTEXT, [lexical_candidate]),
         ],
         plan=plan,
         limit=2,
@@ -636,7 +634,7 @@ def test_vector_only_candidates_demote_under_selective_project_filter() -> None:
 
 def test_vector_matches_with_lexical_signal_do_not_demote() -> None:
     accessible_projects = {f"project_{index}" for index in range(20)}
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="selective vector filter",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -645,7 +643,7 @@ def test_vector_matches_with_lexical_signal_do_not_demote() -> None:
         project="project_0",
         accessible_projects=accessible_projects,
     )
-    candidate = NativeRetrievalCandidate(
+    candidate = RetrievalCandidate(
         id="shared",
         type="task",
         name="Shared",
@@ -656,10 +654,10 @@ def test_vector_matches_with_lexical_signal_do_not_demote() -> None:
         project_id="project_0",
     )
 
-    ranked = native_module._fuse_candidates(
+    ranked = search_module._fuse_candidates(
         [
-            (NativeRetrievalSignal.NODE_VECTOR, [candidate]),
-            (NativeRetrievalSignal.NODE_FULLTEXT, [candidate]),
+            (RetrievalSignal.NODE_VECTOR, [candidate]),
+            (RetrievalSignal.NODE_FULLTEXT, [candidate]),
         ],
         plan=plan,
         limit=1,
@@ -669,7 +667,7 @@ def test_vector_matches_with_lexical_signal_do_not_demote() -> None:
 
 
 def test_graph_expansion_only_sessions_demote_below_direct_hits() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="coffee limit",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -678,7 +676,7 @@ def test_graph_expansion_only_sessions_demote_below_direct_hits() -> None:
         project=None,
         accessible_projects=None,
     )
-    graph_candidate = NativeRetrievalCandidate(
+    graph_candidate = RetrievalCandidate(
         id="graph-only",
         type="session",
         name="Graph only",
@@ -687,7 +685,7 @@ def test_graph_expansion_only_sessions_demote_below_direct_hits() -> None:
         source=None,
         metadata={},
     )
-    direct_candidate = NativeRetrievalCandidate(
+    direct_candidate = RetrievalCandidate(
         id="direct",
         type="session",
         name="Direct",
@@ -697,10 +695,10 @@ def test_graph_expansion_only_sessions_demote_below_direct_hits() -> None:
         metadata={},
     )
 
-    ranked = native_module._fuse_candidates(
+    ranked = search_module._fuse_candidates(
         [
-            (NativeRetrievalSignal.GRAPH_EXPANSION, [graph_candidate]),
-            (NativeRetrievalSignal.NODE_FULLTEXT, [direct_candidate]),
+            (RetrievalSignal.GRAPH_EXPANSION, [graph_candidate]),
+            (RetrievalSignal.NODE_FULLTEXT, [direct_candidate]),
         ],
         plan=plan,
         limit=2,
@@ -730,7 +728,7 @@ class _FailingRrfClient:
 
 @pytest.mark.asyncio
 async def test_surreal_rrf_backend_uses_database_fusion_scores() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="surreal rrf",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -739,7 +737,7 @@ async def test_surreal_rrf_backend_uses_database_fusion_scores() -> None:
         project="project_123",
         accessible_projects={"project_123"},
     )
-    lexical = NativeRetrievalCandidate(
+    lexical = RetrievalCandidate(
         id="lexical",
         type="task",
         name="Lexical",
@@ -749,7 +747,7 @@ async def test_surreal_rrf_backend_uses_database_fusion_scores() -> None:
         metadata={},
         project_id="project_123",
     )
-    shared = NativeRetrievalCandidate(
+    shared = RetrievalCandidate(
         id="shared",
         type="task",
         name="Shared",
@@ -761,15 +759,15 @@ async def test_surreal_rrf_backend_uses_database_fusion_scores() -> None:
     )
     client = _RrfClient()
 
-    ranked = await native_module._fuse_candidates_for_plan(
+    ranked = await search_module._fuse_candidates_for_plan(
         client=client,
         source_lists=[
-            (NativeRetrievalSignal.NODE_FULLTEXT, [lexical, shared]),
-            (NativeRetrievalSignal.NODE_VECTOR, [shared]),
+            (RetrievalSignal.NODE_FULLTEXT, [lexical, shared]),
+            (RetrievalSignal.NODE_VECTOR, [shared]),
         ],
         plan=plan,
         limit=2,
-        fusion_backend=NativeFusionBackend.SURREAL_RRF,
+        fusion_backend=FusionBackend.SURREAL_RRF,
     )
 
     assert [candidate.id for candidate, _, _ in ranked] == ["shared", "lexical"]
@@ -783,7 +781,7 @@ async def test_surreal_rrf_backend_uses_database_fusion_scores() -> None:
 
 @pytest.mark.asyncio
 async def test_surreal_rrf_backend_falls_back_to_python_rrf_on_error() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="surreal rrf fallback",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -792,7 +790,7 @@ async def test_surreal_rrf_backend_falls_back_to_python_rrf_on_error() -> None:
         project=None,
         accessible_projects=None,
     )
-    candidate = NativeRetrievalCandidate(
+    candidate = RetrievalCandidate(
         id="candidate",
         type="task",
         name="Candidate",
@@ -802,12 +800,12 @@ async def test_surreal_rrf_backend_falls_back_to_python_rrf_on_error() -> None:
         metadata={},
     )
 
-    ranked = await native_module._fuse_candidates_for_plan(
+    ranked = await search_module._fuse_candidates_for_plan(
         client=_FailingRrfClient(),
-        source_lists=[(NativeRetrievalSignal.NODE_FULLTEXT, [candidate])],
+        source_lists=[(RetrievalSignal.NODE_FULLTEXT, [candidate])],
         plan=plan,
         limit=1,
-        fusion_backend=NativeFusionBackend.SURREAL_RRF,
+        fusion_backend=FusionBackend.SURREAL_RRF,
     )
 
     assert ranked[0][0].id == "candidate"
@@ -815,7 +813,7 @@ async def test_surreal_rrf_backend_falls_back_to_python_rrf_on_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_deterministic_native_embedding_provider_batches_stably() -> None:
+async def test_deterministic_embedding_provider_batches_stably() -> None:
     metadata = EmbeddingMetadata(
         provider="deterministic",
         model="unit-test",
@@ -925,10 +923,10 @@ class _GraphExpansionClient:
 
 
 @pytest.mark.asyncio
-async def test_native_context_search_pushes_facet_types_into_graph_queries(
+async def test_context_search_pushes_facet_types_into_graph_queries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="active task followup",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -961,9 +959,9 @@ async def test_native_context_search_pushes_facet_types_into_graph_queries(
     async def fake_raw_recall(**_kwargs: object) -> list[RawMemory]:
         raise AssertionError("active-work facet should not recall raw memories")
 
-    monkeypatch.setattr(native_module, "get_surreal_graph_runtime", fake_runtime)
+    monkeypatch.setattr(search_module, "get_surreal_graph_runtime", fake_runtime)
 
-    await native_module.native_context_search(
+    await search_module.context_search(
         plan=plan,
         types=["task"],
         facet=ContextFacet.ACTIVE_WORK,
@@ -983,7 +981,7 @@ async def test_native_context_search_pushes_facet_types_into_graph_queries(
 
 @pytest.mark.asyncio
 async def test_graph_expansion_skips_mentions_for_entity_seeds_and_limits_edges() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="active task followup",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -995,15 +993,15 @@ async def test_graph_expansion_skips_mentions_for_entity_seeds_and_limits_edges(
     )
     client = _GraphExpansionClient()
 
-    candidates = await native_module._graph_expansion_candidates(
+    candidates = await search_module._graph_expansion_candidates(
         client=client,
         plan=plan,
-        search_filter=native_module.NativeSearchFilter(
+        search_filter=search_module.SearchFilter(
             node_types=("task",),
             project_ids=("project_123",),
         ),
         seed_candidates=[
-            NativeRetrievalCandidate(
+            RetrievalCandidate(
                 id="task-seed",
                 type="task",
                 name="Seed Task",
@@ -1029,7 +1027,7 @@ async def test_graph_expansion_skips_mentions_for_entity_seeds_and_limits_edges(
 
 @pytest.mark.asyncio
 async def test_graph_expansion_uses_mentions_for_episode_seeds_with_limit() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="recent episode followup",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -1041,15 +1039,15 @@ async def test_graph_expansion_uses_mentions_for_episode_seeds_with_limit() -> N
     )
     client = _GraphExpansionClient()
 
-    candidates = await native_module._graph_expansion_candidates(
+    candidates = await search_module._graph_expansion_candidates(
         client=client,
         plan=plan,
-        search_filter=native_module.NativeSearchFilter(
+        search_filter=search_module.SearchFilter(
             node_types=("task",),
             project_ids=("project_123",),
         ),
         seed_candidates=[
-            NativeRetrievalCandidate(
+            RetrievalCandidate(
                 id="episode-seed",
                 type="episode",
                 name="Seed Episode",
@@ -1072,8 +1070,8 @@ async def test_graph_expansion_uses_mentions_for_episode_seeds_with_limit() -> N
 
 
 @pytest.mark.asyncio
-async def test_vector_candidate_sources_use_native_embedding_contract() -> None:
-    plan = build_native_context_retrieval_plan(
+async def test_vector_candidate_sources_use_embedding_contract() -> None:
+    plan = build_context_retrieval_plan(
         query="native vectors",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -1093,10 +1091,10 @@ async def test_vector_candidate_sources_use_native_embedding_contract() -> None:
     )
     client = _VectorClient()
 
-    node_candidates, edge_candidates = await native_module._vector_candidate_sources(
+    node_candidates, edge_candidates = await search_module._vector_candidate_sources(
         client=client,
         plan=plan,
-        search_filter=native_module.NativeSearchFilter(project_ids=("project_123",)),
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
         embedding_provider=provider,
     )
 
@@ -1120,8 +1118,8 @@ async def test_vector_candidate_sources_use_native_embedding_contract() -> None:
 async def test_vector_candidate_sources_use_configured_knn_effort(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(native_module.core_config, "graph_knn_ef", 96)
-    plan = build_native_context_retrieval_plan(
+    monkeypatch.setattr(search_module.core_config, "graph_knn_ef", 96)
+    plan = build_context_retrieval_plan(
         query="native vectors",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -1141,10 +1139,10 @@ async def test_vector_candidate_sources_use_configured_knn_effort(
     )
     client = _VectorClient()
 
-    await native_module._vector_candidate_sources(
+    await search_module._vector_candidate_sources(
         client=client,
         plan=plan,
-        search_filter=native_module.NativeSearchFilter(project_ids=("project_123",)),
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
         embedding_provider=provider,
     )
 
@@ -1155,7 +1153,7 @@ async def test_vector_candidate_sources_use_configured_knn_effort(
 
 
 def test_node_record_candidates_keep_top_level_provenance_metadata() -> None:
-    candidate = native_module._candidate_from_node_record(
+    candidate = search_module._candidate_from_node_record(
         {
             "uuid": "procedure-1",
             "name": "Procedure",
@@ -1173,7 +1171,7 @@ def test_node_record_candidates_keep_top_level_provenance_metadata() -> None:
             "modified_by": "nova",
             "attributes": {},
         },
-        signal=NativeRetrievalSignal.NODE_FULLTEXT,
+        signal=RetrievalSignal.NODE_FULLTEXT,
         score=0.8,
     )
 
@@ -1190,7 +1188,7 @@ def test_node_record_candidates_keep_top_level_provenance_metadata() -> None:
 
 
 def test_edge_record_candidates_keep_top_level_temporal_metadata() -> None:
-    candidate = native_module._candidate_from_edge_record(
+    candidate = search_module._candidate_from_edge_record(
         {
             "uuid": "rel-1",
             "name": "SUPPORTS",
@@ -1210,7 +1208,7 @@ def test_edge_record_candidates_keep_top_level_temporal_metadata() -> None:
             "target_node_uuid": "project-1",
             "attributes": {"source_id": "raw_1"},
         },
-        signal=NativeRetrievalSignal.EDGE_FULLTEXT,
+        signal=RetrievalSignal.EDGE_FULLTEXT,
         score=0.9,
     )
 
@@ -1231,7 +1229,7 @@ def test_edge_record_candidates_keep_top_level_temporal_metadata() -> None:
 
 @pytest.mark.asyncio
 async def test_raw_candidates_sort_by_relevance_across_scopes() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="What should Nova recall from the diary for delegated handoff? sibyl",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -1280,7 +1278,7 @@ async def test_raw_candidates_sort_by_relevance_across_scopes() -> None:
             ),
         ]
 
-    candidates = await native_module._recall_raw_candidates(
+    candidates = await search_module._recall_raw_candidates(
         plan=plan,
         facet=ContextFacet.RECENT_MEMORY,
         requested_types={"session", "episode", "note"},
@@ -1297,7 +1295,7 @@ async def test_raw_candidates_sort_by_relevance_across_scopes() -> None:
 
 @pytest.mark.asyncio
 async def test_raw_candidates_filter_lifecycle_hidden_memory() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="privacy",
         organization_id="org-123",
         facets=[ContextFacet.RECENT_MEMORY],
@@ -1341,7 +1339,7 @@ async def test_raw_candidates_filter_lifecycle_hidden_memory() -> None:
             ),
         ]
 
-    candidates = await native_module._recall_raw_candidates(
+    candidates = await search_module._recall_raw_candidates(
         plan=plan,
         facet=ContextFacet.RECENT_MEMORY,
         requested_types={"session", "episode", "note"},
@@ -1428,7 +1426,7 @@ class _EdgeFulltextClient:
 
 @pytest.mark.asyncio
 async def test_edge_fulltext_splits_matches_from_relation_hydration() -> None:
-    plan = build_native_context_retrieval_plan(
+    plan = build_context_retrieval_plan(
         query="surreal planner warning",
         organization_id="org-123",
         facets=[ContextFacet.ACTIVE_WORK],
@@ -1439,10 +1437,10 @@ async def test_edge_fulltext_splits_matches_from_relation_hydration() -> None:
     )
     client = _EdgeFulltextClient()
 
-    candidates = await native_module._edge_fulltext_candidates(
+    candidates = await search_module._edge_fulltext_candidates(
         client=client,
         plan=plan,
-        search_filter=native_module.NativeSearchFilter(
+        search_filter=search_module.SearchFilter(
             project_ids=("project_123",),
             edge_uuids=("edge-1", "edge-2", "edge-3", "edge-4"),
             edge_types=("RELATES_TO",),

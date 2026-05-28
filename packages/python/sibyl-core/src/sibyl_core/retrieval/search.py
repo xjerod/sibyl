@@ -53,23 +53,23 @@ async def _get_read_only_graph_runtime(organization_id: str) -> Any:
         return await get_surreal_graph_runtime(organization_id)
 
 
-class NativeRetrievalMode(StrEnum):
+class RetrievalMode(StrEnum):
     NATIVE = "native"
     COMPARE = "compare"
 
 
-DEFAULT_NATIVE_RETRIEVAL_MODE = NativeRetrievalMode.NATIVE
+DEFAULT_RETRIEVAL_MODE = RetrievalMode.NATIVE
 
 
-class NativeFusionBackend(StrEnum):
+class FusionBackend(StrEnum):
     PYTHON_RRF = "python_rrf"
     SURREAL_RRF = "surreal_rrf"
 
 
-DEFAULT_NATIVE_FUSION_BACKEND = NativeFusionBackend.PYTHON_RRF
+DEFAULT_FUSION_BACKEND = FusionBackend.PYTHON_RRF
 
 
-class NativeRetrievalSignal(StrEnum):
+class RetrievalSignal(StrEnum):
     RAW_LEXICAL = "raw_lexical"
     NODE_FULLTEXT = "node_fulltext"
     EPISODE_FULLTEXT = "episode_fulltext"
@@ -80,7 +80,7 @@ class NativeRetrievalSignal(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class NativeRetrievalWeights:
+class RetrievalWeights:
     rrf_k: int = 60
     active_task_state_boost: float = 1.3
     project_match_boost: float = 1.2
@@ -90,7 +90,7 @@ class NativeRetrievalWeights:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeCandidateLimits:
+class CandidateLimits:
     raw_lexical: int = 4
     node_fulltext: int = 8
     episode_fulltext: int = 8
@@ -101,7 +101,7 @@ class NativeCandidateLimits:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeScopeSpec:
+class ScopeSpec:
     memory_scope: MemoryScope
     scope_key: str | None
     policy_reason: str
@@ -111,23 +111,23 @@ class NativeScopeSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeRetrievalPlan:
+class RetrievalPlan:
     query: str
     organization_id: str
     facets: tuple[ContextFacet, ...]
     facet_types: Mapping[ContextFacet, tuple[str, ...]]
-    scopes: tuple[NativeScopeSpec, ...]
+    scopes: tuple[ScopeSpec, ...]
     denied_scopes: tuple[MemoryPolicyDecision, ...]
-    candidate_limits: NativeCandidateLimits = field(default_factory=NativeCandidateLimits)
-    weights: NativeRetrievalWeights = field(default_factory=NativeRetrievalWeights)
-    signals: tuple[NativeRetrievalSignal, ...] = (
-        NativeRetrievalSignal.RAW_LEXICAL,
-        NativeRetrievalSignal.NODE_FULLTEXT,
-        NativeRetrievalSignal.EPISODE_FULLTEXT,
-        NativeRetrievalSignal.EDGE_FULLTEXT,
-        NativeRetrievalSignal.NODE_VECTOR,
-        NativeRetrievalSignal.EDGE_VECTOR,
-        NativeRetrievalSignal.GRAPH_EXPANSION,
+    candidate_limits: CandidateLimits = field(default_factory=CandidateLimits)
+    weights: RetrievalWeights = field(default_factory=RetrievalWeights)
+    signals: tuple[RetrievalSignal, ...] = (
+        RetrievalSignal.RAW_LEXICAL,
+        RetrievalSignal.NODE_FULLTEXT,
+        RetrievalSignal.EPISODE_FULLTEXT,
+        RetrievalSignal.EDGE_FULLTEXT,
+        RetrievalSignal.NODE_VECTOR,
+        RetrievalSignal.EDGE_VECTOR,
+        RetrievalSignal.GRAPH_EXPANSION,
     )
     project: str | None = None
     accessible_projects: frozenset[str] | None = None
@@ -138,7 +138,7 @@ class NativeRetrievalPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeSearchFilter:
+class SearchFilter:
     node_types: tuple[str, ...] = ()
     node_labels: tuple[str, ...] = ()
     project_ids: tuple[str, ...] = ()
@@ -147,7 +147,7 @@ class NativeSearchFilter:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeRetrievalCandidate:
+class RetrievalCandidate:
     id: str
     type: str
     name: str
@@ -162,45 +162,45 @@ class NativeRetrievalCandidate:
     visibility: str | None = None
 
 
-def coerce_native_retrieval_mode(value: str | NativeRetrievalMode | None) -> NativeRetrievalMode:
-    if isinstance(value, NativeRetrievalMode):
+def coerce_retrieval_mode(value: str | RetrievalMode | None) -> RetrievalMode:
+    if isinstance(value, RetrievalMode):
         return value
     if value is None or not value.strip():
-        return DEFAULT_NATIVE_RETRIEVAL_MODE
+        return DEFAULT_RETRIEVAL_MODE
     try:
-        return NativeRetrievalMode(value.strip().lower())
+        return RetrievalMode(value.strip().lower())
     except ValueError:
-        return DEFAULT_NATIVE_RETRIEVAL_MODE
+        return DEFAULT_RETRIEVAL_MODE
 
 
-def native_retrieval_mode_from_env(
+def retrieval_mode_from_env(
     environ: Mapping[str, str] | None = None,
-) -> NativeRetrievalMode:
+) -> RetrievalMode:
     source = os.environ if environ is None else environ
-    return coerce_native_retrieval_mode(source.get("SIBYL_RETRIEVAL_MODE"))
+    return coerce_retrieval_mode(source.get("SIBYL_RETRIEVAL_MODE"))
 
 
-def coerce_native_fusion_backend(
-    value: str | NativeFusionBackend | None,
-) -> NativeFusionBackend:
-    if isinstance(value, NativeFusionBackend):
+def coerce_fusion_backend(
+    value: str | FusionBackend | None,
+) -> FusionBackend:
+    if isinstance(value, FusionBackend):
         return value
     if value is None or not value.strip():
-        return DEFAULT_NATIVE_FUSION_BACKEND
+        return DEFAULT_FUSION_BACKEND
     try:
-        return NativeFusionBackend(value.strip().lower())
+        return FusionBackend(value.strip().lower())
     except ValueError:
-        return DEFAULT_NATIVE_FUSION_BACKEND
+        return DEFAULT_FUSION_BACKEND
 
 
-def native_fusion_backend_from_env(
+def fusion_backend_from_env(
     environ: Mapping[str, str] | None = None,
-) -> NativeFusionBackend:
+) -> FusionBackend:
     source = os.environ if environ is None else environ
-    return coerce_native_fusion_backend(source.get("SIBYL_NATIVE_FUSION_BACKEND"))
+    return coerce_fusion_backend(source.get("SIBYL_FUSION_BACKEND"))
 
 
-def build_native_context_retrieval_plan(
+def build_context_retrieval_plan(
     *,
     query: str,
     organization_id: str,
@@ -212,8 +212,8 @@ def build_native_context_retrieval_plan(
     agent_id: str | None = None,
     limit: int = 24,
     allowed_memory_scope_keys: Iterable[str] | None = None,
-) -> NativeRetrievalPlan:
-    scopes: list[NativeScopeSpec] = []
+) -> RetrievalPlan:
+    scopes: list[ScopeSpec] = []
     denied_scopes: list[MemoryPolicyDecision] = []
     normalized_accessible_projects = (
         frozenset(str(value) for value in accessible_projects)
@@ -254,7 +254,7 @@ def build_native_context_retrieval_plan(
             denied_scopes.append(replace(decision, allowed=False, reason="api_key_scope_excluded"))
             continue
         scopes.append(
-            NativeScopeSpec(
+            ScopeSpec(
                 memory_scope=decision.memory_scope,
                 scope_key=decision.scope_key,
                 policy_reason=decision.reason,
@@ -266,14 +266,14 @@ def build_native_context_retrieval_plan(
 
     per_signal_limit = max(2, min(8, limit))
     facet_types_by_facet = {facet: tuple(facet_types.get(facet, ())) for facet in facets}
-    return NativeRetrievalPlan(
+    return RetrievalPlan(
         query=query,
         organization_id=organization_id,
         facets=tuple(facets),
         facet_types=facet_types_by_facet,
         scopes=tuple(scopes),
         denied_scopes=tuple(denied_scopes),
-        candidate_limits=NativeCandidateLimits(
+        candidate_limits=CandidateLimits(
             raw_lexical=max(1, min(8, limit // 4 or 1)),
             node_fulltext=per_signal_limit,
             episode_fulltext=per_signal_limit,
@@ -288,9 +288,9 @@ def build_native_context_retrieval_plan(
     )
 
 
-async def native_context_search(
+async def context_search(
     *,
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     types: Sequence[str] | None = None,
     facet: ContextFacet | None = None,
     limit: int = 10,
@@ -380,13 +380,13 @@ async def native_context_search(
     )
 
     source_lists = [
-        (NativeRetrievalSignal.RAW_LEXICAL, raw_candidates),
-        (NativeRetrievalSignal.NODE_FULLTEXT, graph_candidate_lists[0]),
-        (NativeRetrievalSignal.EPISODE_FULLTEXT, graph_candidate_lists[1]),
-        (NativeRetrievalSignal.EDGE_FULLTEXT, graph_candidate_lists[2]),
-        (NativeRetrievalSignal.NODE_VECTOR, vector_candidate_lists[0]),
-        (NativeRetrievalSignal.EDGE_VECTOR, vector_candidate_lists[1]),
-        (NativeRetrievalSignal.GRAPH_EXPANSION, graph_expansion_candidates),
+        (RetrievalSignal.RAW_LEXICAL, raw_candidates),
+        (RetrievalSignal.NODE_FULLTEXT, graph_candidate_lists[0]),
+        (RetrievalSignal.EPISODE_FULLTEXT, graph_candidate_lists[1]),
+        (RetrievalSignal.EDGE_FULLTEXT, graph_candidate_lists[2]),
+        (RetrievalSignal.NODE_VECTOR, vector_candidate_lists[0]),
+        (RetrievalSignal.EDGE_VECTOR, vector_candidate_lists[1]),
+        (RetrievalSignal.GRAPH_EXPANSION, graph_expansion_candidates),
     ]
     filtered_lists = [
         (
@@ -404,7 +404,7 @@ async def native_context_search(
         )
         for signal, candidates in source_lists
     ]
-    fusion_backend = native_fusion_backend_from_env()
+    fusion_backend = fusion_backend_from_env()
     fused = await _fuse_candidates_for_plan(
         client=client,
         source_lists=filtered_lists,
@@ -428,7 +428,7 @@ async def native_context_search(
         filters={
             "types": list(types) if types else None,
             "project": search_plan.project,
-            "retrieval_mode": NativeRetrievalMode.NATIVE.value,
+            "retrieval_mode": RetrievalMode.NATIVE.value,
             "fusion_backend": fusion_backend.value,
         },
         graph_count=len([result for result in results if result.result_origin == "graph"]),
@@ -522,29 +522,29 @@ def _scope_decisions(
 async def _gather_candidate_sources(
     raw_task: Any,
     graph_tasks: Sequence[Any],
-) -> tuple[list[NativeRetrievalCandidate], list[list[NativeRetrievalCandidate]]]:
+) -> tuple[list[RetrievalCandidate], list[list[RetrievalCandidate]]]:
     gathered = await asyncio.gather(raw_task, *graph_tasks, return_exceptions=True)
     raw = _candidate_list_or_empty(gathered[0])
     graph = [_candidate_list_or_empty(result) for result in gathered[1:]]
     return raw, graph
 
 
-def _candidate_list_or_empty(result: object) -> list[NativeRetrievalCandidate]:
+def _candidate_list_or_empty(result: object) -> list[RetrievalCandidate]:
     if isinstance(result, BaseException) or not isinstance(result, list):
         return []
-    return cast("list[NativeRetrievalCandidate]", result)
+    return cast("list[RetrievalCandidate]", result)
 
 
-async def _empty_candidate_source() -> list[NativeRetrievalCandidate]:
+async def _empty_candidate_source() -> list[RetrievalCandidate]:
     return []
 
 
 def _candidate_limits_for_limit(
-    candidate_limits: NativeCandidateLimits,
+    candidate_limits: CandidateLimits,
     limit: int,
-) -> NativeCandidateLimits:
+) -> CandidateLimits:
     source_limit = max(1, min(int(limit), 50))
-    return NativeCandidateLimits(
+    return CandidateLimits(
         raw_lexical=max(1, min(candidate_limits.raw_lexical, source_limit)),
         node_fulltext=max(1, min(candidate_limits.node_fulltext, source_limit)),
         episode_fulltext=max(1, min(candidate_limits.episode_fulltext, source_limit)),
@@ -572,34 +572,34 @@ def _node_types_for_requested_types(requested_types: set[str]) -> tuple[str, ...
 
 
 def _vector_scoped_plan(
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     *,
     include_nodes: bool,
     include_edges: bool,
-) -> NativeRetrievalPlan:
-    signals: list[NativeRetrievalSignal] = []
+) -> RetrievalPlan:
+    signals: list[RetrievalSignal] = []
     for signal in plan.signals:
-        if signal is NativeRetrievalSignal.NODE_VECTOR and not include_nodes:
+        if signal is RetrievalSignal.NODE_VECTOR and not include_nodes:
             continue
-        if signal is NativeRetrievalSignal.EDGE_VECTOR and not include_edges:
+        if signal is RetrievalSignal.EDGE_VECTOR and not include_edges:
             continue
         signals.append(signal)
     return replace(plan, signals=tuple(signals))
 
 
 def _search_filter_for_plan(
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     *,
     requested_types: set[str] | None = None,
-) -> NativeSearchFilter:
+) -> SearchFilter:
     requested_types = requested_types or set()
-    return NativeSearchFilter(
+    return SearchFilter(
         node_types=_node_types_for_requested_types(requested_types),
         project_ids=_authorized_project_ids(plan),
     )
 
 
-def _authorized_project_ids(plan: NativeRetrievalPlan) -> tuple[str, ...]:
+def _authorized_project_ids(plan: RetrievalPlan) -> tuple[str, ...]:
     if plan.project:
         if any(
             scope.memory_scope is MemoryScope.PROJECT and scope.project_id == plan.project
@@ -627,24 +627,24 @@ def _graph_knn_effort() -> int:
     return max(1, int(core_config.graph_knn_ef))
 
 
-def _explicit_project_denied(plan: NativeRetrievalPlan) -> bool:
+def _explicit_project_denied(plan: RetrievalPlan) -> bool:
     return bool(plan.project and not _authorized_project_ids(plan))
 
 
 async def _recall_raw_candidates(
     *,
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     facet: ContextFacet | None,
     requested_types: set[str],
     limit: int,
     recall_fn: RawMemoryRecallFn,
-) -> list[NativeRetrievalCandidate]:
+) -> list[RetrievalCandidate]:
     if facet is not None and facet is not ContextFacet.RECENT_MEMORY:
         return []
     if requested_types and requested_types.isdisjoint(_RAW_MEMORY_CONTEXT_TYPES):
         return []
 
-    candidates: list[NativeRetrievalCandidate] = []
+    candidates: list[RetrievalCandidate] = []
     seen_ids: set[str] = set()
     for scope in plan.scopes:
         if scope.memory_scope not in {
@@ -676,10 +676,10 @@ async def _recall_raw_candidates(
 async def _node_fulltext_candidates(
     *,
     client: Any,
-    plan: NativeRetrievalPlan,
-    search_filter: NativeSearchFilter,
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
     limit: int,
-) -> list[NativeRetrievalCandidate]:
+) -> list[RetrievalCandidate]:
     search_query = build_fulltext_query(plan.query)
     if not search_query:
         return []
@@ -716,7 +716,7 @@ async def _node_fulltext_candidates(
     return [
         _candidate_from_node_record(
             row,
-            signal=NativeRetrievalSignal.NODE_FULLTEXT,
+            signal=RetrievalSignal.NODE_FULLTEXT,
             score=_record_score(row),
         )
         for row in rows
@@ -726,10 +726,10 @@ async def _node_fulltext_candidates(
 async def _episode_fulltext_candidates(
     *,
     client: Any,
-    plan: NativeRetrievalPlan,
-    search_filter: NativeSearchFilter,
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
     limit: int,
-) -> list[NativeRetrievalCandidate]:
+) -> list[RetrievalCandidate]:
     if search_filter.project_ids:
         return []
     search_query = build_fulltext_query(plan.query)
@@ -753,7 +753,7 @@ async def _episode_fulltext_candidates(
     return [
         _candidate_from_episode_record(
             row,
-            signal=NativeRetrievalSignal.EPISODE_FULLTEXT,
+            signal=RetrievalSignal.EPISODE_FULLTEXT,
             score=_record_score(row),
         )
         for row in rows
@@ -763,10 +763,10 @@ async def _episode_fulltext_candidates(
 async def _edge_fulltext_candidates(
     *,
     client: Any,
-    plan: NativeRetrievalPlan,
-    search_filter: NativeSearchFilter,
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
     limit: int,
-) -> list[NativeRetrievalCandidate]:
+) -> list[RetrievalCandidate]:
     search_query = build_fulltext_query(plan.query)
     if not search_query:
         return []
@@ -803,7 +803,7 @@ async def _edge_fulltext_candidates(
     if not match_uuids:
         return []
 
-    hydrate_filter = NativeSearchFilter(
+    hydrate_filter = SearchFilter(
         node_labels=search_filter.node_labels,
         project_ids=search_filter.project_ids,
         edge_types=search_filter.edge_types,
@@ -825,7 +825,7 @@ async def _edge_fulltext_candidates(
     candidates = [
         _candidate_from_edge_record(
             rows_by_uuid[uuid],
-            signal=NativeRetrievalSignal.EDGE_FULLTEXT,
+            signal=RetrievalSignal.EDGE_FULLTEXT,
             score=match_scores[uuid],
         )
         for uuid in match_uuids
@@ -837,18 +837,18 @@ async def _edge_fulltext_candidates(
 async def _vector_candidate_sources(
     *,
     client: Any,
-    plan: NativeRetrievalPlan,
-    search_filter: NativeSearchFilter,
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
     embedding_provider: EmbeddingProvider | None,
-) -> list[list[NativeRetrievalCandidate]]:
+) -> list[list[RetrievalCandidate]]:
     if embedding_provider is None:
         return [
             [],
             [],
         ]
     if (
-        NativeRetrievalSignal.NODE_VECTOR not in plan.signals
-        and NativeRetrievalSignal.EDGE_VECTOR not in plan.signals
+        RetrievalSignal.NODE_VECTOR not in plan.signals
+        and RetrievalSignal.EDGE_VECTOR not in plan.signals
     ):
         return [
             [],
@@ -882,11 +882,11 @@ async def _vector_candidate_sources(
             [],
             [],
         ]
-    node_candidates: list[NativeRetrievalCandidate] = []
-    edge_candidates: list[NativeRetrievalCandidate] = []
-    tasks: list[Awaitable[list[NativeRetrievalCandidate]]] = []
-    task_signals: list[NativeRetrievalSignal] = []
-    if NativeRetrievalSignal.NODE_VECTOR in plan.signals:
+    node_candidates: list[RetrievalCandidate] = []
+    edge_candidates: list[RetrievalCandidate] = []
+    tasks: list[Awaitable[list[RetrievalCandidate]]] = []
+    task_signals: list[RetrievalSignal] = []
+    if RetrievalSignal.NODE_VECTOR in plan.signals:
         tasks.append(
             _node_vector_candidates(
                 client=client,
@@ -897,8 +897,8 @@ async def _vector_candidate_sources(
                 limit=plan.candidate_limits.node_vector,
             )
         )
-        task_signals.append(NativeRetrievalSignal.NODE_VECTOR)
-    if NativeRetrievalSignal.EDGE_VECTOR in plan.signals:
+        task_signals.append(RetrievalSignal.NODE_VECTOR)
+    if RetrievalSignal.EDGE_VECTOR in plan.signals:
         tasks.append(
             _edge_vector_candidates(
                 client=client,
@@ -909,7 +909,7 @@ async def _vector_candidate_sources(
                 limit=plan.candidate_limits.edge_vector,
             )
         )
-        task_signals.append(NativeRetrievalSignal.EDGE_VECTOR)
+        task_signals.append(RetrievalSignal.EDGE_VECTOR)
     gathered = await asyncio.gather(*tasks, return_exceptions=True)
     for signal, result in zip(task_signals, gathered, strict=True):
         if isinstance(result, BaseException):
@@ -920,7 +920,7 @@ async def _vector_candidate_sources(
                 error_type=type(result).__name__,
             )
             continue
-        if signal is NativeRetrievalSignal.NODE_VECTOR:
+        if signal is RetrievalSignal.NODE_VECTOR:
             node_candidates = _candidate_list_or_empty(result)
         else:
             edge_candidates = _candidate_list_or_empty(result)
@@ -930,12 +930,12 @@ async def _vector_candidate_sources(
 async def _node_vector_candidates(
     *,
     client: Any,
-    plan: NativeRetrievalPlan,
-    search_filter: NativeSearchFilter,
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
     query_embedding: Sequence[float],
     embedding_metadata: EmbeddingMetadata,
     limit: int,
-) -> list[NativeRetrievalCandidate]:
+) -> list[RetrievalCandidate]:
     if limit <= 0:
         return []
     filter_clauses, filter_params = _node_filter_clause(search_filter)
@@ -968,7 +968,7 @@ async def _node_vector_candidates(
     return [
         _candidate_from_node_record(
             row,
-            signal=NativeRetrievalSignal.NODE_VECTOR,
+            signal=RetrievalSignal.NODE_VECTOR,
             score=_record_score(row),
             embedding_metadata=embedding_metadata,
         )
@@ -979,12 +979,12 @@ async def _node_vector_candidates(
 async def _edge_vector_candidates(
     *,
     client: Any,
-    plan: NativeRetrievalPlan,
-    search_filter: NativeSearchFilter,
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
     query_embedding: Sequence[float],
     embedding_metadata: EmbeddingMetadata,
     limit: int,
-) -> list[NativeRetrievalCandidate]:
+) -> list[RetrievalCandidate]:
     if limit <= 0:
         return []
     filter_clauses, filter_params = _edge_filter_clause(search_filter)
@@ -1013,7 +1013,7 @@ async def _edge_vector_candidates(
     return [
         _candidate_from_edge_record(
             row,
-            signal=NativeRetrievalSignal.EDGE_VECTOR,
+            signal=RetrievalSignal.EDGE_VECTOR,
             score=_record_score(row),
             embedding_metadata=embedding_metadata,
         )
@@ -1039,11 +1039,11 @@ def _query_embedding_from_batch(
 async def _graph_expansion_candidates(
     *,
     client: Any,
-    plan: NativeRetrievalPlan,
-    search_filter: NativeSearchFilter,
-    seed_candidates: Sequence[NativeRetrievalCandidate],
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
+    seed_candidates: Sequence[RetrievalCandidate],
     limit: int,
-) -> list[NativeRetrievalCandidate]:
+) -> list[RetrievalCandidate]:
     entity_seed_uuids = [
         candidate.id
         for candidate in seed_candidates
@@ -1067,7 +1067,7 @@ async def _graph_expansion_candidates(
     return [
         _candidate_from_node_record(
             row,
-            signal=NativeRetrievalSignal.GRAPH_EXPANSION,
+            signal=RetrievalSignal.GRAPH_EXPANSION,
             score=1.0,
         )
         for row in rows
@@ -1079,7 +1079,7 @@ def _where_clause(clauses: Sequence[str]) -> str:
     return " AND ".join(active) if active else "true"
 
 
-def _node_filter_clause(search_filter: NativeSearchFilter) -> tuple[list[str], dict[str, Any]]:
+def _node_filter_clause(search_filter: SearchFilter) -> tuple[list[str], dict[str, Any]]:
     clauses: list[str] = []
     params: dict[str, Any] = {}
     if search_filter.node_types:
@@ -1095,7 +1095,7 @@ def _node_filter_clause(search_filter: NativeSearchFilter) -> tuple[list[str], d
 
 
 def _edge_filter_clause(
-    search_filter: NativeSearchFilter,
+    search_filter: SearchFilter,
     *,
     source_node_uuid: str | None = None,
     target_node_uuid: str | None = None,
@@ -1132,7 +1132,7 @@ def _edge_filter_clause(
 
 
 def _edge_match_filter_clause(
-    search_filter: NativeSearchFilter,
+    search_filter: SearchFilter,
 ) -> tuple[list[str], dict[str, Any]]:
     return _edge_filter_clause(search_filter)
 
@@ -1155,7 +1155,7 @@ async def _node_bfs_records(
     client: Any,
     origin_uuids: Sequence[str],
     episode_origin_uuids: Sequence[str] = (),
-    search_filter: NativeSearchFilter,
+    search_filter: SearchFilter,
     group_id: str,
     max_depth: int,
     limit: int,
@@ -1282,7 +1282,7 @@ async def _hydrate_entity_records(
     *,
     client: Any,
     uuids: Sequence[str],
-    search_filter: NativeSearchFilter,
+    search_filter: SearchFilter,
     group_id: str,
     limit: int,
 ) -> list[dict[str, object]]:
@@ -1315,10 +1315,10 @@ def _dedupe_strings(values: Iterable[str]) -> list[str]:
 def _candidate_from_node_record(
     row: Mapping[str, object],
     *,
-    signal: NativeRetrievalSignal,
+    signal: RetrievalSignal,
     score: float,
     embedding_metadata: EmbeddingMetadata | None = None,
-) -> NativeRetrievalCandidate:
+) -> RetrievalCandidate:
     attributes = _record_attributes(row)
     entity_type = _entity_type_for_record(row, attributes)
     content = _content_for_record(row, attributes)
@@ -1340,7 +1340,7 @@ def _candidate_from_node_record(
     }
     if embedding_metadata is not None:
         metadata["embedding_metadata"] = embedding_metadata.to_dict()
-    return NativeRetrievalCandidate(
+    return RetrievalCandidate(
         id=str(row.get("uuid", "")),
         type=entity_type,
         name=str(row.get("name") or entity_type),
@@ -1358,11 +1358,11 @@ def _candidate_from_node_record(
 def _candidate_from_episode_record(
     row: Mapping[str, object],
     *,
-    signal: NativeRetrievalSignal,
+    signal: RetrievalSignal,
     score: float,
-) -> NativeRetrievalCandidate:
+) -> RetrievalCandidate:
     source = _string_value(row.get("source_description")) or _string_value(row.get("uuid"))
-    return NativeRetrievalCandidate(
+    return RetrievalCandidate(
         id=str(row.get("uuid", "")),
         type="episode",
         name=str(row.get("name") or "Episode"),
@@ -1383,10 +1383,10 @@ def _candidate_from_episode_record(
 def _candidate_from_edge_record(
     row: Mapping[str, object],
     *,
-    signal: NativeRetrievalSignal,
+    signal: RetrievalSignal,
     score: float,
     embedding_metadata: EmbeddingMetadata | None = None,
-) -> NativeRetrievalCandidate:
+) -> RetrievalCandidate:
     attributes = _record_attributes(row)
     source = _string_value(attributes.get("source_id") or row.get("uuid"))
     metadata = {
@@ -1401,7 +1401,7 @@ def _candidate_from_edge_record(
     }
     if embedding_metadata is not None:
         metadata["embedding_metadata"] = embedding_metadata.to_dict()
-    return NativeRetrievalCandidate(
+    return RetrievalCandidate(
         id=str(row.get("uuid", "")),
         type="claim",
         name=str(row.get("name") or "Relationship"),
@@ -1518,8 +1518,8 @@ def _record_score(row: Mapping[str, object]) -> float:
 
 def _candidate_from_raw_memory(
     memory: RawMemory,
-    scope: NativeScopeSpec,
-) -> NativeRetrievalCandidate:
+    scope: ScopeSpec,
+) -> RetrievalCandidate:
     source = memory.source_id or memory.capture_surface
     project_id = (
         memory.metadata.get("project_id")
@@ -1535,7 +1535,7 @@ def _candidate_from_raw_memory(
         "tags": list(memory.tags),
         **memory.metadata,
     }
-    return NativeRetrievalCandidate(
+    return RetrievalCandidate(
         id=f"raw_memory:{memory.id}",
         type="raw_memory",
         name=memory.title or "Untitled raw memory",
@@ -1554,9 +1554,9 @@ def _candidate_from_raw_memory(
 def _candidate_from_node(
     node: Any,
     *,
-    signal: NativeRetrievalSignal,
+    signal: RetrievalSignal,
     score: float,
-) -> NativeRetrievalCandidate:
+) -> RetrievalCandidate:
     attributes = _attributes(node)
     entity_type = _entity_type_for_node(node, attributes)
     content = _content_for_node(node, attributes)
@@ -1567,7 +1567,7 @@ def _candidate_from_node(
         or attributes.get("source_file")
         or getattr(node, "uuid", None)
     )
-    return NativeRetrievalCandidate(
+    return RetrievalCandidate(
         id=str(getattr(node, "uuid", "")),
         type=entity_type,
         name=str(getattr(node, "name", "") or entity_type),
@@ -1590,13 +1590,13 @@ def _candidate_from_node(
 def _candidate_from_episode(
     episode: Any,
     *,
-    signal: NativeRetrievalSignal,
+    signal: RetrievalSignal,
     score: float,
-) -> NativeRetrievalCandidate:
+) -> RetrievalCandidate:
     source = _string_value(getattr(episode, "source_description", None)) or _string_value(
         getattr(episode, "uuid", None)
     )
-    return NativeRetrievalCandidate(
+    return RetrievalCandidate(
         id=str(getattr(episode, "uuid", "")),
         type="episode",
         name=str(getattr(episode, "name", "") or "Episode"),
@@ -1617,9 +1617,9 @@ def _candidate_from_episode(
 def _candidate_from_edge(
     edge: Any,
     *,
-    signal: NativeRetrievalSignal,
+    signal: RetrievalSignal,
     score: float,
-) -> NativeRetrievalCandidate:
+) -> RetrievalCandidate:
     attributes = _attributes(edge)
     source = _string_value(attributes.get("source_id") or getattr(edge, "uuid", None))
     source_project_id = _string_value(
@@ -1628,7 +1628,7 @@ def _candidate_from_edge(
     target_project_id = _string_value(
         getattr(edge, "target_node_project_id", None) or attributes.get("target_node_project_id")
     )
-    return NativeRetrievalCandidate(
+    return RetrievalCandidate(
         id=str(getattr(edge, "uuid", "")),
         type="claim",
         name=str(getattr(edge, "name", "") or "Relationship"),
@@ -1714,9 +1714,9 @@ def _datetime_value(value: object) -> datetime | None:
 
 
 def _candidate_allowed(
-    candidate: NativeRetrievalCandidate,
+    candidate: RetrievalCandidate,
     *,
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     requested_types: set[str],
     facet: ContextFacet | None,
 ) -> bool:
@@ -1745,9 +1745,7 @@ def _candidate_allowed(
     )
 
 
-def _candidate_scope_allowed(
-    candidate: NativeRetrievalCandidate, plan: NativeRetrievalPlan
-) -> bool:
+def _candidate_scope_allowed(candidate: RetrievalCandidate, plan: RetrievalPlan) -> bool:
     metadata = candidate.metadata if isinstance(candidate.metadata, Mapping) else {}
     raw_scope = metadata.get("memory_scope")
     if raw_scope is None:
@@ -1786,7 +1784,7 @@ def _coerce_memory_scope(value: object) -> MemoryScope | None:
 
 
 def _candidate_matches_types(
-    candidate: NativeRetrievalCandidate,
+    candidate: RetrievalCandidate,
     requested_types: set[str],
     facet: ContextFacet | None,
 ) -> bool:
@@ -1798,11 +1796,11 @@ def _candidate_matches_types(
 
 
 def _fuse_candidates(
-    source_lists: Sequence[tuple[NativeRetrievalSignal, Sequence[NativeRetrievalCandidate]]],
+    source_lists: Sequence[tuple[RetrievalSignal, Sequence[RetrievalCandidate]]],
     *,
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     limit: int,
-) -> list[tuple[NativeRetrievalCandidate, float, dict[str, Any]]]:
+) -> list[tuple[RetrievalCandidate, float, dict[str, Any]]]:
     return _rank_fused_candidates(
         source_lists,
         plan=plan,
@@ -1814,13 +1812,13 @@ def _fuse_candidates(
 async def _fuse_candidates_for_plan(
     *,
     client: Any,
-    source_lists: Sequence[tuple[NativeRetrievalSignal, Sequence[NativeRetrievalCandidate]]],
-    plan: NativeRetrievalPlan,
+    source_lists: Sequence[tuple[RetrievalSignal, Sequence[RetrievalCandidate]]],
+    plan: RetrievalPlan,
     limit: int,
-    fusion_backend: NativeFusionBackend | None = None,
-) -> list[tuple[NativeRetrievalCandidate, float, dict[str, Any]]]:
-    backend = fusion_backend or DEFAULT_NATIVE_FUSION_BACKEND
-    if backend is NativeFusionBackend.SURREAL_RRF:
+    fusion_backend: FusionBackend | None = None,
+) -> list[tuple[RetrievalCandidate, float, dict[str, Any]]]:
+    backend = fusion_backend or DEFAULT_FUSION_BACKEND
+    if backend is FusionBackend.SURREAL_RRF:
         native_scores = await _surreal_rrf_scores(client, source_lists, plan=plan, limit=limit)
         if native_scores:
             return _rank_fused_candidates(
@@ -1834,7 +1832,7 @@ async def _fuse_candidates_for_plan(
 
 
 def _python_rrf_scores(
-    source_lists: Sequence[tuple[NativeRetrievalSignal, Sequence[NativeRetrievalCandidate]]],
+    source_lists: Sequence[tuple[RetrievalSignal, Sequence[RetrievalCandidate]]],
     *,
     rrf_k: int,
 ) -> dict[str, float]:
@@ -1847,9 +1845,9 @@ def _python_rrf_scores(
 
 async def _surreal_rrf_scores(
     client: Any,
-    source_lists: Sequence[tuple[NativeRetrievalSignal, Sequence[NativeRetrievalCandidate]]],
+    source_lists: Sequence[tuple[RetrievalSignal, Sequence[RetrievalCandidate]]],
     *,
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     limit: int,
 ) -> dict[str, float]:
     rrf_inputs = [
@@ -1897,15 +1895,15 @@ async def _surreal_rrf_scores(
 
 
 def _rank_fused_candidates(
-    source_lists: Sequence[tuple[NativeRetrievalSignal, Sequence[NativeRetrievalCandidate]]],
+    source_lists: Sequence[tuple[RetrievalSignal, Sequence[RetrievalCandidate]]],
     *,
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     limit: int,
     rrf_scores: Mapping[str, float],
-    backend: NativeFusionBackend = NativeFusionBackend.PYTHON_RRF,
-) -> list[tuple[NativeRetrievalCandidate, float, dict[str, Any]]]:
+    backend: FusionBackend = FusionBackend.PYTHON_RRF,
+) -> list[tuple[RetrievalCandidate, float, dict[str, Any]]]:
     score_by_id: dict[str, float] = defaultdict(float)
-    candidates_by_id: dict[str, NativeRetrievalCandidate] = {}
+    candidates_by_id: dict[str, RetrievalCandidate] = {}
     metadata_by_id: dict[str, dict[str, Any]] = defaultdict(
         lambda: {"sources": [], "ranks": {}, "original_scores": {}, "fusion_backend": backend.value}
     )
@@ -1918,7 +1916,7 @@ def _rank_fused_candidates(
             metadata_by_id[candidate.id]["ranks"][signal.value] = rank
             metadata_by_id[candidate.id]["original_scores"][signal.value] = candidate.score
 
-    ranked: list[tuple[NativeRetrievalCandidate, float, dict[str, Any]]] = []
+    ranked: list[tuple[RetrievalCandidate, float, dict[str, Any]]] = []
     for candidate_id, score in score_by_id.items():
         candidate = candidates_by_id[candidate_id]
         fusion_metadata = metadata_by_id[candidate_id]
@@ -1946,7 +1944,7 @@ def _rank_fused_candidates(
 
 
 def _vector_only_demote_multiplier(
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     *,
     signals: Sequence[str],
 ) -> float:
@@ -1957,8 +1955,8 @@ def _vector_only_demote_multiplier(
     if any(
         signal
         not in {
-            NativeRetrievalSignal.NODE_VECTOR.value,
-            NativeRetrievalSignal.EDGE_VECTOR.value,
+            RetrievalSignal.NODE_VECTOR.value,
+            RetrievalSignal.EDGE_VECTOR.value,
         }
         for signal in signals
     ):
@@ -1969,20 +1967,20 @@ def _vector_only_demote_multiplier(
 
 
 def _graph_expansion_only_multiplier(
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
     *,
     signals: Sequence[str],
 ) -> float:
-    if set(signals) != {NativeRetrievalSignal.GRAPH_EXPANSION.value}:
+    if set(signals) != {RetrievalSignal.GRAPH_EXPANSION.value}:
         return 1.0
     return max(min(plan.weights.graph_expansion_only_boost, 1.0), 0.0)
 
 
 def _boost_score(
-    candidate: NativeRetrievalCandidate,
+    candidate: RetrievalCandidate,
     score: float,
     *,
-    plan: NativeRetrievalPlan,
+    plan: RetrievalPlan,
 ) -> float:
     boosted = score
     status = _string_value(candidate.metadata.get("status"))
@@ -2007,7 +2005,7 @@ def _freshness_boost(created_at: datetime | None, *, cap: float) -> float:
 
 
 def _search_result_from_candidate(
-    candidate: NativeRetrievalCandidate,
+    candidate: RetrievalCandidate,
     *,
     score: float,
     fusion_metadata: Mapping[str, Any],

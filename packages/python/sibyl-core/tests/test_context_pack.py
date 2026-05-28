@@ -57,10 +57,10 @@ def _facet_native_search(
     *,
     calls: list[dict[str, Any]] | None = None,
 ):
-    """Build a fake native_context_search keyed on facet.
+    """Build a fake context_search keyed on facet.
 
     Native retrieval is the only runtime path; tests exercise context
-    assembly by stubbing native_context_search and routing facet results
+    assembly by stubbing context_search and routing facet results
     through the plan-driven search the way compile_context does.
     """
 
@@ -113,7 +113,7 @@ async def test_compile_context_groups_build_context_by_agent_facets(
     }
     monkeypatch.setattr(
         context_module,
-        "native_context_search",
+        "context_search",
         _facet_native_search(responses, calls=calls),
     )
 
@@ -158,7 +158,7 @@ async def test_compile_context_supports_review_intent(
     }
     monkeypatch.setattr(
         context_module,
-        "native_context_search",
+        "context_search",
         _facet_native_search(responses, calls=calls),
     )
 
@@ -203,7 +203,7 @@ async def test_compile_context_batches_native_facet_searches(
         await asyncio.sleep(0.01)
         return SearchResponse(results=[], total=0, query=kwargs["plan"].query, filters={})
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "parallelize context facets",
@@ -230,7 +230,7 @@ async def test_compile_context_falls_back_when_batched_native_search_fails(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "resilient native context",
@@ -271,7 +271,7 @@ async def test_compile_context_keeps_successful_facets_when_one_fails(
             )
         return SearchResponse(results=[], total=0, query=kwargs["plan"].query, filters={})
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     async def fallback_search(**kwargs: Any) -> SearchResponse:
         return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
@@ -323,7 +323,7 @@ async def test_compile_context_defaults_to_native_retrieval_mode(
     async def unexpected_search(**_kwargs: Any) -> SearchResponse:
         raise AssertionError("fallback search should not run in native mode")
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "native retrieval mode",
@@ -363,7 +363,7 @@ async def test_compile_context_scopes_related_items_to_api_key_grants(
         related_calls.append(kwargs)
         return []
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     await compile_context(
         "scoped related items",
@@ -438,7 +438,7 @@ async def test_compile_context_compare_mode_logs_policy_safe_diff(
         )
 
     monkeypatch.setattr(context_module, "log", FakeLog())
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "compare retrieval mode",
@@ -489,7 +489,7 @@ async def test_compile_context_wake_layer_caps_items_and_skips_related(
             )
         ]
 
-    monkeypatch.setattr(context_module, "native_context_search", _facet_native_search(responses))
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
 
     pack = await compile_context(
         "wake up the coding session",
@@ -528,7 +528,7 @@ async def test_compile_context_keeps_graph_context_when_a_facet_fails(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     async def fallback_search(**kwargs: Any) -> SearchResponse:
         return SearchResponse(results=[], total=0, query=kwargs["query"], filters={})
@@ -555,7 +555,7 @@ async def test_compile_context_supports_non_software_ideation_domains(
         ContextFacet.IDEATION: [_result("idea-1", "idea", "Venue layout concept")],
         ContextFacet.DOMAIN: [_result("domain-1", "domain", "Aerial showcase")],
     }
-    monkeypatch.setattr(context_module, "native_context_search", _facet_native_search(responses))
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
 
     pack = await compile_context(
         "design a performance showcase",
@@ -589,7 +589,7 @@ async def test_compile_context_filters_synthetic_relationship_claims(
             _result("claim-1", "claim", "LongMemEval receipts are required"),
         ],
     }
-    monkeypatch.setattr(context_module, "native_context_search", _facet_native_search(responses))
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
 
     pack = await compile_context(
         "evaluate 1.0 readiness",
@@ -613,7 +613,7 @@ async def test_compile_context_dedupes_results_across_facets(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "ship faster",
@@ -650,7 +650,7 @@ async def test_compile_context_falls_back_to_broad_search_when_facets_miss(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "build project-scoped remember and recall",
@@ -698,7 +698,7 @@ async def test_compile_context_can_attach_one_hop_related_items(
             )
         ]
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "ship faster",
@@ -733,7 +733,7 @@ async def test_compile_context_batches_default_related_items(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     related_entity = SimpleNamespace(
         id="task-1",
@@ -787,7 +787,7 @@ async def test_compile_context_filters_related_project_entities_by_own_id(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     def entity(entity_id: str, entity_type: str, project_id: str | None = None) -> SimpleNamespace:
         metadata = {"project_id": project_id} if project_id else {}
@@ -863,7 +863,7 @@ async def test_compile_context_adds_compact_quality_metadata_from_search_result(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "judge memory freshness",
@@ -893,7 +893,7 @@ async def test_compile_context_falls_back_to_graph_id_for_source_metadata(
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     pack = await compile_context(
         "source metadata coverage",
@@ -914,7 +914,7 @@ async def test_compile_context_native_ranks_agent_diary_by_relevance(
 ) -> None:
     from datetime import UTC, datetime
 
-    import sibyl_core.retrieval.native as native_module
+    import sibyl_core.retrieval.search as search_module
     from sibyl_core.services.surreal_content import RawMemory
 
     class EmptyNativeClient:
@@ -961,7 +961,7 @@ async def test_compile_context_native_ranks_agent_diary_by_relevance(
             ]
         return []
 
-    monkeypatch.setattr(native_module, "get_surreal_graph_runtime", fake_native_runtime)
+    monkeypatch.setattr(search_module, "get_surreal_graph_runtime", fake_native_runtime)
 
     pack = await compile_context(
         "What should Nova recall from the diary for delegated handoff?",
@@ -1092,7 +1092,7 @@ async def async_compile_context_for_serialization(monkeypatch: pytest.MonkeyPatc
             filters={},
         )
 
-    monkeypatch.setattr(context_module, "native_context_search", fake_native_context_search)
+    monkeypatch.setattr(context_module, "context_search", fake_native_context_search)
 
     return await compile_context(
         "ship faster",
