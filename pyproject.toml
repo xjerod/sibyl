@@ -188,9 +188,6 @@ invalid-argument-type = "ignore"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = ["-ra", "--strict-markers", "-v"]
-markers = [
-    "legacy_graph_contract: tests for retained legacy graph contracts",
-]
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning",

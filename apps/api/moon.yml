@@ -57,14 +57,10 @@ tasks:
   test:
     command:
       uv run pytest
-      -m "not legacy_graph_contract"
       --ignore=tests/test_communities.py
       --ignore=tests/test_e2e_workflows.py
       --ignore=tests/test_graph_communities_lod.py
-      --ignore=tests/test_graph_entities.py
-      --ignore=tests/test_graph_relationships.py
       --ignore=tests/test_harness.py
-      --ignore=tests/test_legacy_graph_persistence.py
       --ignore=tests/test_tools_core.py
     inputs:
       - "@group(sources)"
@@ -72,21 +68,13 @@ tasks:
     options:
       envFile: .env
 
-  legacy-graph-contract-test:
-    deps:
-      - ~:legacy-graph-contract-file-test
-      - ~:legacy-graph-contract-marked-test
-
-  legacy-graph-contract-file-test:
+  extended-test:
     command:
       uv run pytest
       tests/test_communities.py
       tests/test_e2e_workflows.py
       tests/test_graph_communities_lod.py
-      tests/test_graph_entities.py
-      tests/test_graph_relationships.py
       tests/test_harness.py
-      tests/test_legacy_graph_persistence.py
       tests/test_tools_core.py
       -v
     inputs:
@@ -309,22 +297,6 @@ tasks:
       - tests/test_routes_tasks.py
       - tests/test_tools_manage.py
       - tests/test_coordination_local.py
-    options:
-      envFile: .env
-
-  legacy-graph-contract-marked-test:
-    command:
-      uv run pytest
-      tests/test_cli_db.py
-      tests/test_cli_export.py
-      tests/test_models.py
-      tests/test_settings_api_key_loading.py
-      tests/test_tools_manage.py
-      -m legacy_graph_contract
-      -v
-    inputs:
-      - "@group(sources)"
-      - "@group(tests)"
     options:
       envFile: .env
 

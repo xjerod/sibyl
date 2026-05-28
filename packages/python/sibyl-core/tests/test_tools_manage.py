@@ -1007,7 +1007,6 @@ class TestAddNote:
 # =============================================================================
 
 
-@pytest.mark.legacy_graph_contract
 class TestEpicActions:
     """Test epic workflow actions."""
 
@@ -1140,7 +1139,6 @@ class TestEpicActions:
 # =============================================================================
 
 
-@pytest.mark.legacy_graph_contract
 class TestUpdateEpic:
     """Test update_epic action."""
 

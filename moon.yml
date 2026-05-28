@@ -279,11 +279,6 @@ tasks:
       - cli:test
       - web:test
 
-  legacy-graph-contract-test:
-    deps:
-      - core:legacy-graph-contract-test
-      - api:legacy-graph-contract-test
-
   inventory:
     command: uv run python tools/inventory/runtime_surface.py
     inputs:
