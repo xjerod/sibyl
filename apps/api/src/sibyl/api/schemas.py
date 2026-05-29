@@ -808,7 +808,9 @@ class SearchRequest(BaseModel):
         default=True, description="Include crawled documentation in search"
     )
     include_graph: bool = Field(default=True, description="Include knowledge graph entities")
-    use_enhanced: bool = Field(default=True, description="Use enhanced retrieval with reranking")
+    use_enhanced: bool = Field(
+        default=True, description="Use enhanced hybrid retrieval (vector + graph fusion)"
+    )
     boost_recent: bool = Field(default=True, description="Boost recent results in ranking")
 
 

@@ -10,7 +10,10 @@ Typical pipeline:
 3. Cross-encoder reranking: Refine top-k with pairwise scoring
 4. Temporal boost: Favor recent content
 
-This module provides both local cross-encoder models and API-based reranking.
+This is an optional capability. Local cross-encoder reranking requires the
+``reranking`` extra (sentence-transformers); when it is absent the path degrades
+to the fused order rather than raising. API-based reranking (Cohere) requires the
+``cohere`` package and an API key. Both default to off.
 """
 
 from __future__ import annotations
@@ -91,18 +94,20 @@ def _check_sentence_transformers_available() -> bool:
         return False
 
 
-def get_cross_encoder(model_name: str, use_gpu: bool = False) -> Any:
+def get_cross_encoder(model_name: str, use_gpu: bool = False) -> Any | None:
     """Get or create a cached cross-encoder model.
+
+    Reranking is an optional capability: install the ``reranking`` extra
+    (``sentence-transformers``) to enable it. When the dependency is absent this
+    returns ``None`` so callers fall back to the fused order instead of crashing.
 
     Args:
         model_name: HuggingFace model name.
         use_gpu: Whether to use GPU.
 
     Returns:
-        CrossEncoder model instance.
-
-    Raises:
-        ImportError: If sentence-transformers is not installed.
+        CrossEncoder model instance, or ``None`` if sentence-transformers is not
+        installed.
     """
     cache_key = f"{model_name}_{use_gpu}"
 
@@ -110,10 +115,8 @@ def get_cross_encoder(model_name: str, use_gpu: bool = False) -> Any:
         return _cross_encoder_cache[cache_key]
 
     if not _check_sentence_transformers_available():
-        raise ImportError(
-            "sentence-transformers is required for cross-encoder reranking. "
-            "Install with: pip install sentence-transformers"
-        )
+        log.info("cross_encoder_unavailable", model=model_name)
+        return None
 
     from sentence_transformers import CrossEncoder
 
@@ -272,8 +275,16 @@ async def rerank_results[T](
         )
 
     try:
-        # Load model (cached)
+        # Load model (cached). Returns None when the optional reranking extra
+        # (sentence-transformers) is not installed; fall back to the fused order.
         model = get_cross_encoder(config.model_name, config.use_gpu)
+        if model is None:
+            return RerankResult(
+                results=results,
+                reranked_count=0,
+                model_name=None,
+                metadata={"reranking_skipped": "sentence_transformers_not_installed"},
+            )
 
         # Run reranking in thread pool (CPU-bound)
         loop = asyncio.get_event_loop()

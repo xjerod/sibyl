@@ -58,12 +58,16 @@ graphrag = [
 llm = [
     "pydantic-ai-slim[anthropic,google,openai]>=1.99.0,<2",
 ]
+reranking = [
+    "sentence-transformers>=3.0",
+]
 runtime = [
     "crawl4ai>=0.7.8",
     "google-genai>=2.0.1",
     "mistune>=3.0",
     "pydantic-ai-slim[anthropic,google,openai]>=1.99.0,<2",
     "python-louvain>=0.16",
+    "sentence-transformers>=3.0",
     "surrealdb>=2.0.0,<3.0",
 ]
 

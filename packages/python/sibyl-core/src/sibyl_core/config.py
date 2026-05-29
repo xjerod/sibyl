@@ -245,14 +245,20 @@ class CoreConfig(BaseSettings):
         description="Surreal KNN query effort for graph vector retrieval.",
     )
 
-    # Retrieval: cross-encoder reranking
+    # Retrieval: cross-encoder reranking (optional).
+    # Requires the `reranking` extra (sentence-transformers); when the extra is
+    # absent the path degrades to the fused order rather than raising.
     rerank_enabled: bool = Field(
         default=False,
-        description="Enable cross-encoder reranking after RRF fusion. Adds ~100-200ms latency but +33-40%% accuracy.",
+        description=(
+            "Enable cross-encoder reranking after RRF fusion. Optional: requires the "
+            "`reranking` extra (sentence-transformers). Adds ~100-200ms latency; no-ops "
+            "with a clean fallback when the extra is not installed."
+        ),
     )
     rerank_model: str = Field(
         default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        description="Cross-encoder model for reranking (sentence-transformers must be installed).",
+        description="Cross-encoder model for reranking (requires the `reranking` extra).",
     )
     rerank_top_k: int = Field(
         default=20,

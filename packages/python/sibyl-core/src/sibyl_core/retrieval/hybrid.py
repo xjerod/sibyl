@@ -161,6 +161,8 @@ class HybridConfig:
         apply_temporal: Whether to apply temporal boosting.
         temporal_decay_days: Decay half-life for temporal boosting.
         apply_reranking: Whether to apply cross-encoder reranking after RRF.
+            Optional: requires the `reranking` extra (sentence-transformers);
+            no-ops with a clean fallback when the extra is absent.
         rerank_top_k: Number of top results to rerank (rest pass through).
         rerank_model: Cross-encoder model for reranking.
     """

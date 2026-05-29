@@ -1130,7 +1130,7 @@ def _register_tools(mcp: FastMCP) -> None:
             include_content: Include full content in results (default: True)
             include_documents: Search crawled documentation (default: True)
             include_graph: Search knowledge graph entities (default: True)
-            use_enhanced: Use enhanced retrieval with reranking (default: True)
+            use_enhanced: Use enhanced hybrid retrieval, vector + graph fusion (default: True)
             boost_recent: Boost recent results in ranking (default: True)
 
         Returns:
