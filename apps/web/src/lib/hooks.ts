@@ -82,7 +82,6 @@ export const queryKeys = {
   },
   rag: {
     all: ['rag'] as const,
-    search: (params: RAGSearchParams) => ['rag', 'search', params] as const,
     hybrid: (params: RAGSearchParams) => ['rag', 'hybrid', params] as const,
     code: (params: CodeExampleParams) => ['rag', 'code', params] as const,
     page: (documentId: string) => ['rag', 'page', documentId] as const,
@@ -92,12 +91,6 @@ export const queryKeys = {
   },
   graph: {
     all: ['graph'] as const,
-    full: (params?: Parameters<typeof api.graph.full>[0]) => ['graph', 'full', params] as const,
-    subgraph: (params: Parameters<typeof api.graph.subgraph>[0]) =>
-      ['graph', 'subgraph', params] as const,
-    clusters: (params?: { refresh?: boolean }) => ['graph', 'clusters', params] as const,
-    clusterDetail: (clusterId: string) => ['graph', 'cluster', clusterId] as const,
-    stats: ['graph', 'stats'] as const,
     hierarchical: (params?: { max_nodes?: number; max_edges?: number; refresh?: boolean }) =>
       ['graph', 'hierarchical', params] as const,
   },
@@ -896,21 +889,6 @@ export function useSearch(
 // =============================================================================
 
 /**
- * Search documentation chunks using vector similarity.
- */
-export function useRAGSearch(
-  params: RAGSearchParams,
-  options?: { enabled?: boolean; initialData?: RAGSearchResponse }
-) {
-  return useQuery({
-    queryKey: queryKeys.rag.search(params),
-    queryFn: () => api.rag.search(params),
-    enabled: (options?.enabled ?? true) && !!params.query,
-    initialData: options?.initialData,
-  });
-}
-
-/**
  * Hybrid search combining vector similarity and full-text search.
  */
 export function useRAGHybridSearch(
@@ -1004,45 +982,6 @@ export function useDocumentEntities(documentId: string, options?: { enabled?: bo
 // =============================================================================
 // Graph Hooks
 // =============================================================================
-
-export function useGraphData(params?: Parameters<typeof api.graph.full>[0]) {
-  return useQuery({
-    queryKey: queryKeys.graph.full(params),
-    queryFn: () => api.graph.full(params),
-  });
-}
-
-export function useSubgraph(params: Parameters<typeof api.graph.subgraph>[0]) {
-  return useQuery({
-    queryKey: queryKeys.graph.subgraph(params),
-    queryFn: () => api.graph.subgraph(params),
-    enabled: !!params.entity_id,
-  });
-}
-
-export function useClusters(params?: { refresh?: boolean }) {
-  return useQuery({
-    queryKey: queryKeys.graph.clusters(params),
-    queryFn: () => api.graph.clusters(params),
-  });
-}
-
-export function useClusterDetail(clusterId: string | null) {
-  return useQuery({
-    queryKey: queryKeys.graph.clusterDetail(clusterId || ''),
-    queryFn: () => api.graph.clusterDetail(clusterId ?? ''),
-    enabled: !!clusterId,
-  });
-}
-
-export function useGraphStats() {
-  return useQuery({
-    queryKey: queryKeys.graph.stats,
-    queryFn: () => api.graph.stats(),
-    staleTime: 5 * TIMING.STALE_TIME,
-    refetchOnWindowFocus: false,
-  });
-}
 
 export function useHierarchicalGraph(params?: {
   max_nodes?: number;
