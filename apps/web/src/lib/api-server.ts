@@ -5,7 +5,6 @@ import { serverOnly } from 'next-dynenv';
 import type {
   Entity,
   EntityListResponse,
-  HealthResponse,
   ProjectSummariesResponse,
   SearchResponse,
   StatsResponse,
@@ -142,22 +141,6 @@ export async function fetchStats(): Promise<StatsResponse> {
 }
 
 /**
- * Simple health check - no auth required.
- * Used for connectivity checks that shouldn't trigger logout.
- */
-export async function checkServerHealth(): Promise<{ status: string }> {
-  return serverFetch<{ status: string }>('/health', CACHE_CONFIG.realtime);
-}
-
-/**
- * Fetch detailed server health (requires auth).
- * Used for dashboard display.
- */
-export async function fetchHealth(): Promise<HealthResponse> {
-  return serverFetch<HealthResponse>('/admin/health', CACHE_CONFIG.realtime);
-}
-
-/**
  * Fetch paginated entity list.
  * User-scoped: entities are filtered by org/project access.
  */
@@ -225,29 +208,6 @@ export async function fetchSearchResults(params: {
 }
 
 /**
- * Fetch tasks list.
- * User-scoped: tasks are filtered by org/project access.
- */
-export async function fetchTasks(params?: {
-  project?: string;
-  project_ids?: string[];
-  status?: string;
-}): Promise<TaskListResponse> {
-  return serverFetch<TaskListResponse>('/search/explore', {
-    method: 'POST',
-    body: JSON.stringify({
-      mode: 'list',
-      types: ['task'],
-      project: params?.project,
-      project_ids: params?.project_ids,
-      status: params?.status,
-      limit: 200,
-    }),
-    ...CACHE_CONFIG.userScoped,
-  });
-}
-
-/**
  * Fetch projects list.
  * User-scoped: projects are filtered by org membership.
  */
@@ -270,51 +230,6 @@ export async function fetchProjects(): Promise<TaskListResponse> {
 export async function fetchProjectSummaries(): Promise<ProjectSummariesResponse> {
   return serverFetch<ProjectSummariesResponse>(
     '/metrics/projects-summary',
-    CACHE_CONFIG.userScoped
-  );
-}
-
-/**
- * Fetch related entities for a given entity.
- * User-scoped: related entities filtered by org/project access.
- */
-export async function fetchRelatedEntities(
-  entityId: string,
-  depth = 1
-): Promise<{ mode: string; entities: unknown[]; total: number }> {
-  return serverFetch('/search/explore', {
-    method: 'POST',
-    body: JSON.stringify({
-      mode: 'related',
-      entity_id: entityId,
-      depth,
-      limit: 20,
-    }),
-    ...CACHE_CONFIG.userScoped,
-  });
-}
-
-// =============================================================================
-// Metrics
-// =============================================================================
-
-/**
- * Fetch org-level metrics.
- * User-scoped: metrics are filtered by org membership.
- */
-export async function fetchOrgMetrics(): Promise<import('./api').OrgMetricsResponse> {
-  return serverFetch<import('./api').OrgMetricsResponse>('/metrics', CACHE_CONFIG.userScoped);
-}
-
-/**
- * Fetch project-level metrics.
- * User-scoped: requires project access.
- */
-export async function fetchProjectMetrics(
-  projectId: string
-): Promise<import('./api').ProjectMetricsResponse> {
-  return serverFetch<import('./api').ProjectMetricsResponse>(
-    `/metrics/projects/${projectId}`,
     CACHE_CONFIG.userScoped
   );
 }

@@ -709,7 +709,7 @@ export default function AIServicesPage() {
         />
         <EmbeddingPanel
           title="Graph embeddings"
-          description="Used by Graphiti entities, relationships, and graph similarity search."
+          description="Used by graph entities, relationships, and similarity search."
           provider={embeddingConfig.graph_embedding_provider}
           model={embeddingConfig.graph_embedding_model}
           dimensions={embeddingConfig.graph_embedding_dimensions}
