@@ -438,18 +438,5 @@ def with_claim_record_metadata(
     return next_metadata
 
 
-def with_reflection_relationship_metadata(
-    metadata: dict[str, object],
-    relationship: ReflectionRelationshipRecord,
-) -> dict[str, object]:
-    next_metadata = dict(metadata)
-    relationships = [
-        item.to_dict() for item in reflection_relationships_from_metadata(next_metadata)
-    ]
-    relationships.append(relationship.to_dict())
-    next_metadata["relationship_records"] = relationships
-    return next_metadata
-
-
 def correction_finding_kind(action: str) -> ReflectionFindingKind:
     return _CORRECTION_FINDING_KIND.get(action, ReflectionFindingKind.CORRECTION)

@@ -39,7 +39,6 @@ from sibyl.persistence.content_runtime import (
     get_crawl_source_by_id,
     get_crawl_source_by_url,
     list_crawl_sources,
-    list_crawl_sources_for_org,
     save_crawl_source_record,
 )
 from sibyl_core.models import CrawlStatus, SourceType
@@ -859,32 +858,6 @@ async def create_source(
         )
 
 
-async def create_org_source(
-    name: str,
-    url: str,
-    *,
-    organization_id: UUID,
-    source_type: SourceType = SourceType.WEBSITE,
-    description: str | None = None,
-    crawl_depth: int = 2,
-    include_patterns: list[str] | None = None,
-    exclude_patterns: list[str] | None = None,
-) -> CrawlSourceRecord:
-    """Create a crawl source for an organization, rejecting same-org duplicates."""
-    async with get_content_read_session() as session:
-        return await create_crawl_source_record(
-            session,
-            name=name,
-            url=url,
-            organization_id=organization_id,
-            source_type=source_type,
-            description=description,
-            crawl_depth=crawl_depth,
-            include_patterns=include_patterns,
-            exclude_patterns=exclude_patterns,
-        )
-
-
 async def get_source_by_url(url: str) -> CrawlSourceRecord | None:
     """Get a crawl source by URL."""
     async with get_content_read_session() as session:
@@ -899,23 +872,6 @@ async def list_sources(
     """List crawl sources with optional filtering."""
     async with get_content_read_session() as session:
         return await list_crawl_sources(session, status=status, limit=limit)
-
-
-async def list_org_sources(
-    *,
-    organization_id: UUID,
-    status: CrawlStatus | None = None,
-    limit: int = 50,
-) -> CrawlSourcePage:
-    """List crawl sources for a single organization."""
-    async with get_content_read_session() as session:
-        sources, total = await list_crawl_sources_for_org(
-            session,
-            organization_id=organization_id,
-            status=status,
-            limit=limit,
-        )
-    return CrawlSourcePage(sources=sources, total=total)
 
 
 def _normalize_source_url(url: str) -> str:
