@@ -639,6 +639,85 @@ async def test_native_entity_manager_bulk_writes_entities_in_one_surreal_batch()
 
 
 @pytest.mark.asyncio
+async def test_native_relationship_bulk_persists_edges_readable_after_write() -> None:
+    # Regression guard for the bulk relates_to upsert path: it must execute and
+    # persist edges that are then readable (the prior unit test used a fake client
+    # that never ran the SurrealQL). Note: the original bug here was a `type::thing`
+    # call that the 2.x embedded engine accepts but the 3.x server rejects, so this
+    # memory:// test alone does not catch a 3.x-only parse error; the live E2E does.
+    client = SurrealGraphClient(group_id="org-native-rel-bulk", url="memory://")
+    try:
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
+        # Use the graph embedding dimension so fact_embedding matches the
+        # relates_to.fact_embedding field; a mismatched dim would fail the write.
+        provider = DeterministicEmbeddingProvider(
+            EmbeddingMetadata(
+                provider="deterministic",
+                model="unit-test",
+                dimensions=1024,
+                cache_namespace="native-graph-test",
+                tokenizer_estimate_method="utf8-byte-length",
+            )
+        )
+        relationship_manager = RelationshipManager(
+            client, group_id=client.group_id, embedding_provider=provider
+        )
+
+        await entity_manager.create_direct_bulk(
+            [
+                Entity(
+                    id="task_src",
+                    entity_type=EntityType.TASK,
+                    name="Source task",
+                    organization_id=client.group_id,
+                ),
+                Entity(
+                    id="task_tgt",
+                    entity_type=EntityType.TASK,
+                    name="Target task",
+                    organization_id=client.group_id,
+                ),
+            ]
+        )
+
+        # Mirror the add() / worker path: create_bulk(generate_embeddings=True),
+        # which writes fact_embedding. create_bulk swallows write failures into a
+        # (0, N) count, so a constraint violation silently drops every edge.
+        created_count, failed_count = await relationship_manager.create_bulk(
+            [
+                Relationship(
+                    id="rel_depends",
+                    source_id="task_src",
+                    target_id="task_tgt",
+                    relationship_type=RelationshipType.DEPENDS_ON,
+                )
+            ]
+        )
+        created_ids = ["rel_depends"] if created_count else []
+
+        outgoing = await relationship_manager.get_for_entity("task_src", direction="outgoing")
+        incoming = await relationship_manager.get_for_entity("task_tgt", direction="incoming")
+        fetched = await relationship_manager.get("rel_depends")
+        # get_related_entities is the graph-traversal read the REST entity route
+        # uses; it must surface the bulk-written edge (the entity GET `related`).
+        related_src = await relationship_manager.get_related_entities("task_src")
+        related_tgt = await relationship_manager.get_related_entities("task_tgt")
+    finally:
+        await client.close()
+
+    assert (created_count, failed_count) == (1, 0)
+    assert created_ids == ["rel_depends"]
+    assert [rel.id for rel in outgoing] == ["rel_depends"]
+    assert [rel.id for rel in incoming] == ["rel_depends"]
+    assert fetched.source_id == "task_src"
+    assert fetched.target_id == "task_tgt"
+    assert fetched.relationship_type == RelationshipType.DEPENDS_ON
+    assert {rel.id for _entity, rel in related_src} == {"rel_depends"}
+    assert {rel.id for _entity, rel in related_tgt} == {"rel_depends"}
+
+
+@pytest.mark.asyncio
 async def test_native_project_summary_sorts_critical_tasks_by_priority() -> None:
     entity_manager = EntityManager(cast(Any, object()), group_id="org-native-graph")
     entity_manager.list_by_type = AsyncMock(  # type: ignore[method-assign]

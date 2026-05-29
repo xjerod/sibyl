@@ -86,7 +86,6 @@ _RELATIONSHIP_BULK_UPSERT_QUERY = """
 FOR $row IN $rows {
     LET $src = $row.src;
     LET $tgt = $row.tgt;
-    LET $rel = type::thing("relates_to", $row.uuid);
     DELETE FROM relates_to WHERE uuid = $row.uuid AND (in != $src OR out != $tgt);
     LET $updated = (UPDATE relates_to SET
         in = $src,
@@ -107,7 +106,6 @@ FOR $row IN $rows {
     WHERE uuid = $row.uuid RETURN id);
     IF array::len($updated) = 0 THEN
         RELATE $src->relates_to->$tgt SET
-            id = $rel,
             uuid = $row.uuid,
             name = $row.name,
             fact = $row.fact,
