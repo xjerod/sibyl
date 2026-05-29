@@ -1777,3 +1777,105 @@ def cutover_archive(
 
     warn("Rollback is no longer promised once writes reopen on SurrealDB.")
     success("Acceptance gate complete. Writes may now be reopened on the Surreal runtime.")
+
+
+def _resolve_collapse_org_ids(requested_org_id: str) -> list[str]:
+    """Resolve the org scope for collapse-epics: one explicit org, or all of them.
+
+    Unlike the archive commands, a data migration is meant to sweep every org,
+    so an omitted ``--org-id`` fans out across the whole auth runtime instead of
+    forcing a single choice.
+    """
+    if requested_org_id:
+        return [requested_org_id]
+
+    from sibyl.persistence import organization_runtime
+
+    @run_async
+    async def _list_org_ids() -> list[str]:
+        return await organization_runtime.list_org_ids()
+
+    org_ids = _list_org_ids()
+    if not org_ids:
+        error("No organizations found in the active auth runtime")
+        info("Create an organization first, or pass --org-id if the graph exists elsewhere")
+        raise typer.Exit(code=1)
+    info(f"No --org-id supplied; sweeping all {len(org_ids)} organization(s)")
+    return org_ids
+
+
+@app.command("collapse-epics")
+def collapse_epics(
+    org_id: Annotated[
+        str,
+        typer.Option("--org-id", help="Organization UUID; omit to sweep every org"),
+    ] = "",
+    reverse: Annotated[
+        bool,
+        typer.Option("--reverse", help="Restore epics from previously converted tasks"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--apply",
+            help="Report counts without writing (default); --apply performs the migration",
+        ),
+    ] = True,
+) -> None:
+    """Collapse standalone epics into the task tree (W14), or reverse it.
+
+    Forward rewrites each ``epic`` entity into a ``task`` in place (same record
+    id), maps its status, stashes the original epic status for reversibility,
+    and repoints every child task onto ``parent_task_id`` while keeping
+    ``epic_id`` intact. ``--reverse`` restores the epics and clears the child
+    parent pointers. Both directions are idempotent and atomic per org.
+
+    Runs as a dry run by default; pass ``--apply`` to write changes.
+    """
+    from sibyl_core.migrate.collapse_epics import collapse_epics_in_org
+    from sibyl_core.services.graph import get_surreal_graph_runtime
+
+    org_ids = _resolve_collapse_org_ids(org_id)
+
+    if dry_run:
+        warn("DRY RUN - no changes will be made (pass --apply to write)")
+    direction = "reverse (tasks -> epics)" if reverse else "forward (epics -> tasks)"
+    info(f"Collapse-epics direction: {direction}")
+
+    @run_async
+    async def _collapse() -> bool:
+        total_epics = 0
+        total_children = 0
+        any_error = False
+        for group_id in org_ids:
+            runtime = await get_surreal_graph_runtime(group_id, ensure_schema=True)
+            result = await collapse_epics_in_org(
+                runtime.client,
+                group_id=group_id,
+                reverse=reverse,
+                dry_run=dry_run,
+            )
+            verb = "would change" if dry_run else "changed"
+            if result.success:
+                info(
+                    f"  {group_id}: {verb} {result.epics_converted} "
+                    f"{'tasks' if reverse else 'epics'}, "
+                    f"{result.children_repointed} children"
+                )
+            else:
+                any_error = True
+                warn(f"  {group_id}: failed")
+                for issue in result.errors[:5]:
+                    console.print(f"    [dim]{issue}[/dim]")
+            total_epics += result.epics_converted
+            total_children += result.children_repointed
+
+        noun = "tasks restored to epics" if reverse else "epics collapsed to tasks"
+        if dry_run:
+            info(f"Would convert {total_epics} {noun}; repoint {total_children} children")
+        else:
+            success(f"Converted {total_epics} {noun}; repointed {total_children} children")
+        return not any_error
+
+    if not _collapse():
+        raise typer.Exit(code=1)

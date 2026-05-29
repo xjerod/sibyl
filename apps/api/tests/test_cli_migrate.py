@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 from typer.testing import CliRunner
 
 from sibyl.cli import migrate as migrate_cli
+from sibyl.cli.common import run_async
 from sibyl_core.migrate.archive import (
     AUTH_FILENAME,
     CONTENT_FILENAME,
@@ -1129,3 +1130,105 @@ def test_migrate_cutover_reopen_prints_rollback_boundary(tmp_path: Path) -> None
     assert result.exit_code == 0
     assert "Rollback is no longer promised once writes reopen on SurrealDB" in result.output
     assert "Writes may now be reopened on the Surreal runtime" in result.output
+
+
+def test_migrate_collapse_epics_dry_run_then_apply(tmp_path: Path) -> None:
+    """collapse-epics reports counts on dry run and only writes with --apply.
+
+    Runs against an ephemeral embedded graph in a temp dir, never a live org.
+    A file-backed embedded URL (not ``memory://``) is used deliberately: the
+    Typer command runs each invocation in its own ``asyncio.run`` loop, and
+    ``memory://`` hands out a fresh empty database per connection, so on-disk
+    embedded storage is what lets the dry-run and --apply calls observe one
+    consistent database across loops.
+    """
+    import uuid
+
+    from sibyl_core.models.entities import EntityType
+    from sibyl_core.models.tasks import Epic, EpicStatus, Task, TaskStatus
+    from sibyl_core.services.graph import (
+        EntityManager,
+        GraphRuntime,
+        RelationshipManager,
+        SurrealGraphClient,
+        prepare_graph_schema,
+    )
+
+    group_id = "00000000-0000-0000-0000-0000000000c1"
+    epic_id = f"epic_{uuid.uuid4().hex[:8]}"
+    child_id = f"task_{uuid.uuid4().hex[:8]}"
+    graph_url = f"surrealkv://{tmp_path / 'collapse-epics.skv'}"
+
+    def _new_client() -> SurrealGraphClient:
+        return SurrealGraphClient(group_id=group_id, url=graph_url)
+
+    async def _seed() -> None:
+        client = _new_client()
+        await client.connect()
+        await prepare_graph_schema(client)
+        manager = EntityManager(client, group_id=group_id)
+        await manager.create_direct(
+            Epic(
+                id=epic_id,
+                name="Launch",
+                title="Launch",
+                project_id="project-1",
+                status=EpicStatus.IN_PROGRESS,
+            )
+        )
+        await manager.create_direct(
+            Task(
+                id=child_id,
+                name="Child",
+                title="Child",
+                status=TaskStatus.DOING,
+                epic_id=epic_id,
+            )
+        )
+        await client.close()
+
+    async def _epic_type() -> EntityType:
+        client = _new_client()
+        await client.connect()
+        try:
+            entity = await EntityManager(client, group_id=group_id).get(epic_id)
+            return entity.entity_type
+        finally:
+            await client.close()
+
+    # Each command invocation gets a runtime bound to its own loop. The graph
+    # state itself persists on disk between calls.
+    async def _runtime(group: str, **_kwargs: object) -> GraphRuntime:
+        client = _new_client()
+        await client.connect()
+        await prepare_graph_schema(client)
+        return GraphRuntime(
+            client=client,
+            entity_manager=EntityManager(client, group_id=group),
+            relationship_manager=RelationshipManager(client, group_id=group),
+        )
+
+    run_async(_seed)()
+
+    with patch(
+        "sibyl_core.services.graph.get_surreal_graph_runtime",
+        side_effect=_runtime,
+    ):
+        dry = runner.invoke(
+            migrate_cli.app,
+            ["collapse-epics", "--org-id", group_id],
+        )
+        assert dry.exit_code == 0, dry.output
+        assert "DRY RUN" in dry.output
+        assert "Would convert 1" in dry.output
+        # Dry run wrote nothing: the epic is still an epic.
+        assert run_async(_epic_type)() is EntityType.EPIC
+
+        applied = runner.invoke(
+            migrate_cli.app,
+            ["collapse-epics", "--org-id", group_id, "--apply"],
+        )
+        assert applied.exit_code == 0, applied.output
+        assert "Converted 1" in applied.output
+        # Apply flipped the epic into a task in place.
+        assert run_async(_epic_type)() is EntityType.TASK
