@@ -24,13 +24,13 @@ _MAX_CLOSED_CONNECTION_RETRIES = 2
 _DEFAULT_POOL_SIZE = 4
 
 
-def _default_pool_size_for_url(url: str) -> int:
+_EMBEDDED_URL_SCHEMES = ("memory://", "surrealkv://", "rocksdb://", "file://")
+
+
+def _is_embedded_url(url: str) -> bool:
     # Embedded stores are single-writer and `memory://` hands out a fresh empty
-    # database per connection, so a pool there would fragment state. Server URLs
-    # get the real pool; embedded collapses to one reused connection.
-    if url.startswith(("memory://", "surrealkv://", "rocksdb://", "file://")):
-        return 1
-    return _DEFAULT_POOL_SIZE
+    # database per connection, so a pool there would fragment state.
+    return url.startswith(_EMBEDDED_URL_SCHEMES)
 
 
 class _PooledConnection:
@@ -123,8 +123,13 @@ class DedicatedSurrealClient:
         self._namespace = namespace
         self._database = database
         self._client_kind = client_kind
-        resolved_pool_size = pool_size if pool_size is not None else _default_pool_size_for_url(url)
-        self._pool_size = max(1, resolved_pool_size)
+        # Embedded URLs are hard-clamped to one connection regardless of an
+        # explicit pool_size: a pool over memory:// would fragment tenant state.
+        if _is_embedded_url(url):
+            self._pool_size = 1
+        else:
+            requested = pool_size if pool_size is not None else _DEFAULT_POOL_SIZE
+            self._pool_size = max(1, requested)
         self._pool: list[_PooledConnection] = [
             self._new_connection() for _ in range(self._pool_size)
         ]
@@ -166,10 +171,19 @@ class DedicatedSurrealClient:
 
     async def close(self) -> None:
         async with self._close_lock:
-            await asyncio.gather(
-                *(connection.close() for connection in self._pool),
-                return_exceptions=True,
-            )
+            # Drain the pool before closing so a checked-out connection is never
+            # closed mid-query: each get() blocks until an in-flight query
+            # returns its connection. Closed connections go back in the queue so
+            # a later query reconnects them lazily.
+            drained = [await self._available.get() for _ in range(self._pool_size)]
+            try:
+                await asyncio.gather(
+                    *(connection.close() for connection in drained),
+                    return_exceptions=True,
+                )
+            finally:
+                for connection in drained:
+                    self._available.put_nowait(connection)
 
     async def _execute(self, query: str, *, params: QueryParams, raw: bool) -> object:
         started_at = query_start()

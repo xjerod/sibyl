@@ -122,3 +122,54 @@ async def test_close_closes_every_pooled_connection(monkeypatch) -> None:
     await client.close()
 
     assert all(fake.closed for fake in clients)
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_in_flight_query(monkeypatch) -> None:
+    tracker = _ConcurrencyTracker()
+    clients = _install_overlap_surreal(monkeypatch, tracker)
+
+    client = DedicatedSurrealClient(
+        url="ws://localhost:8000/rpc",
+        username="root",
+        password="root",
+        namespace="org_close_race",
+        database="graph",
+        pool_size=3,
+    )
+
+    query = asyncio.create_task(client.execute_query("SELECT * FROM entity;"))
+    for _ in range(200):
+        if tracker.in_flight >= 1:
+            break
+        await asyncio.sleep(0.005)
+    assert tracker.in_flight >= 1
+
+    # close() must not finish, nor close the busy connection, while a query runs.
+    close_task = asyncio.create_task(client.close())
+    await asyncio.sleep(0.02)
+    assert not close_task.done(), "close() must wait for the in-flight query"
+    assert not any(fake.closed for fake in clients), "no socket closed mid-query"
+
+    tracker.release.set()
+    await query
+    await close_task
+    assert all(fake.closed for fake in clients)
+
+
+@pytest.mark.asyncio
+async def test_embedded_url_hard_clamps_explicit_pool_size(monkeypatch) -> None:
+    tracker = _ConcurrencyTracker()
+    tracker.release.set()
+    clients = _install_overlap_surreal(monkeypatch, tracker)
+
+    client = DedicatedSurrealClient(
+        url="memory://",
+        namespace="sibyl_content",
+        database="content",
+        pool_size=8,
+    )
+
+    await asyncio.gather(*(client.execute_query("SELECT * FROM crawl_sources;") for _ in range(6)))
+
+    assert len(clients) == 1
