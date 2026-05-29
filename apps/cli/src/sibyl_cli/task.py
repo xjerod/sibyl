@@ -334,7 +334,9 @@ def list_tasks(
         typer.Option("--tags", help="Filter by tags (comma-separated, matches ANY)"),
     ] = None,
     project: Annotated[str | None, typer.Option("-p", "--project", help="Project ID")] = None,
-    epic: Annotated[str | None, typer.Option("-e", "--epic", help="Epic ID to filter by")] = None,
+    epic: Annotated[
+        str | None, typer.Option("-e", "--epic", help="Epic entity ID to filter by (epic_...)")
+    ] = None,
     no_epic: Annotated[
         bool, typer.Option("--no-epic", help="Filter for tasks without an epic")
     ] = False,
@@ -850,12 +852,31 @@ def create_task(
         str, typer.Option("--priority", help="Priority: critical, high, medium, low, someday")
     ] = "medium",
     complexity: Annotated[
-        str, typer.Option("--complexity", help="Complexity: trivial, simple, medium, complex, epic")
+        str,
+        typer.Option(
+            "--complexity",
+            help=(
+                "Task size: trivial, simple, medium, complex, epic. NOTE: 'epic' here is only a "
+                "SIZE label — it does NOT create or link an Epic. To group a task under an Epic, "
+                "use --epic with an epic_ ID."
+            ),
+        ),
     ] = "medium",
     assignee: Annotated[
         str | None, typer.Option("--assignee", "-a", help="Initial assignee")
     ] = None,
-    epic: Annotated[str | None, typer.Option("--epic", "-e", help="Epic ID to group under")] = None,
+    epic: Annotated[
+        str | None,
+        typer.Option(
+            "--epic",
+            "-e",
+            help=(
+                "Epic entity ID to group under, e.g. epic_a1b2c3 (from 'sibyl epic create' or "
+                "'sibyl epic list'). Must be an epic_ ID — a task ID or a --complexity epic task "
+                "will be rejected with invalid_request."
+            ),
+        ),
+    ] = None,
     feature: Annotated[str | None, typer.Option("--feature", "-f", help="Feature area")] = None,
     tags: Annotated[str | None, typer.Option("--tags", help="Comma-separated tags")] = None,
     technologies: Annotated[

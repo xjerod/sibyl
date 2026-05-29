@@ -7,8 +7,12 @@ learnings—all stored in a knowledge graph.
 
 These rules exist because real agent sessions consistently fail without them.
 
-1. **NEVER redirect stderr.** Do not append `2>/dev/null` to sibyl commands. Error messages contain
-   diagnostic information you need. Suppressing them causes silent failures and blind retry spirals.
+1. **NEVER redirect stderr OR hide errors behind a parser.** Do not append `2>/dev/null` to sibyl
+   commands, and do not pipe `--json`/`-j` output straight into `jq`/`grep` without checking the
+   exit code. On failure the CLI prints a human-readable `✗ <error>` line and exits non-zero; a
+   blind `... -j | jq` swallows that line (jq aborts on the non-JSON text) and you retry blind.
+   Capture the output first, check the exit code, then parse. Error messages contain diagnostic
+   information you need; suppressing them causes silent failures and blind retry spirals.
 
 2. **Link your project BEFORE doing anything else.** Run `sibyl context` first. Use
    `sibyl context --quick` only as a local link/auth status check later in the same session, not as
@@ -375,6 +379,13 @@ sibyl project create --name "Auth System" --description "OAuth and JWT implement
 
 Epics group related tasks into larger features or initiatives.
 
+> **An Epic is a SEPARATE entity from a task — this trips agents up.** Epics have an `epic_…` ID and
+> are created ONLY with `sibyl epic create`. Do NOT try to make an epic with
+> `sibyl task create --complexity epic`: that flag is just a task *size* label and produces a task,
+> not an Epic. The `--epic` flag (on `task create`/`task list`) requires an `epic_…` ID from
+> `sibyl epic create` or `sibyl epic list`; passing a task UUID returns `invalid_request`. When
+> scripting, add `--sync` to `sibyl epic create` so the new `epic_…` ID is immediately usable.
+
 ```bash
 sibyl epic list                                    # List epics
 sibyl epic list --status in_progress               # Filter by status
@@ -385,7 +396,8 @@ sibyl epic complete epic_a1b2c3d4e5f6              # Complete epic
 sibyl epic archive epic_a1b2c3d4e5f6               # Archive epic
 ```
 
-**Workflow:** Create epic → create tasks with `--epic` flag → work tasks → complete
+**Workflow:** `sibyl epic create` (get the `epic_…` ID) → `sibyl task create --epic epic_…` per
+task → work tasks → complete. `--complexity` sizes a task; `--epic` links it to an Epic container.
 
 **Find tasks in an epic:** `sibyl task list --epic epic_a1b2c3d4e5f6`
 
