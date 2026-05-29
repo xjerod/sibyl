@@ -391,12 +391,6 @@ def get_settings_service() -> SettingsService:
     return _settings_service
 
 
-def reset_settings_service() -> None:
-    """Reset the global settings service (for testing)."""
-    global _settings_service  # noqa: PLW0603
-    _settings_service = None
-
-
 async def load_runtime_settings_from_db() -> list[str]:
     """Load runtime settings from database into environment variables.
 

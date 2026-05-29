@@ -988,10 +988,6 @@ async def _require_owner_mcp_context(ctx: McpContext) -> None:
         raise ValueError("OWNER role required for log access")
 
 
-# Module-level server instance (created lazily)
-_mcp: FastMCP | None = None
-
-
 def create_mcp_server(
     host: str = "localhost",
     port: int = 3334,
@@ -1065,17 +1061,6 @@ def create_mcp_server(
     _register_tools(mcp)
     _register_resources(mcp)
     return mcp
-
-
-def get_mcp_server() -> FastMCP:
-    """Get or create the default MCP server instance."""
-    global _mcp  # noqa: PLW0603
-    if _mcp is None:
-        _mcp = create_mcp_server(
-            host=settings.server_host,
-            port=settings.server_port,
-        )
-    return _mcp
 
 
 def _to_dict(obj: Any) -> Any:

@@ -147,18 +147,3 @@ def mask_secret(value: str, visible_chars: int = 4) -> str:
 
     visible = value[-visible_chars:]
     return f"{prefix}...{visible}"
-
-
-def is_encrypted(value: str) -> bool:
-    """Check if a value appears to be Fernet-encrypted.
-
-    Args:
-        value: The value to check.
-
-    Returns:
-        True if value looks like Fernet ciphertext.
-    """
-    if not value:
-        return False
-    # Fernet tokens are base64 and start with 'gAAAAA'
-    return value.startswith("gAAAAA") and len(value) > 100

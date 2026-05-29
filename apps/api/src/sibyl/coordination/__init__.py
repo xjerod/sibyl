@@ -15,11 +15,6 @@ def get_coordination_backend() -> CoordinationBackend:
     return settings.resolved_coordination_backend
 
 
-def uses_redis_coordination() -> bool:
-    """Return True when Redis-backed coordination should be started."""
-    return get_coordination_backend() == "redis"
-
-
 async def get_coordination_health() -> dict[str, Any]:
     """Return coordination health metadata for admin and jobs surfaces."""
     backend = get_coordination_backend()

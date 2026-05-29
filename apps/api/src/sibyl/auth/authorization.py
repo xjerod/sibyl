@@ -11,7 +11,7 @@ Inheritance rules:
 - Org member/viewer: access determined by project visibility + explicit grants
 """
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 from uuid import UUID
 
@@ -274,36 +274,3 @@ async def verify_entity_project_access(
         required_role=required_role,
         require_existing_project=require_existing_project,
     )
-
-
-async def filter_accessible_entities[EntityT](
-    session: object,
-    ctx: AuthContext,
-    entities: Sequence[EntityT],
-    project_id_getter: Callable[[EntityT], str | None] | None = None,
-) -> list[EntityT]:
-    """Filter a list of entities to only those the user can access.
-
-    Args:
-        session: Database session
-        ctx: Auth context
-        entities: List of entities to filter
-        project_id_getter: Function to extract project_id from an entity
-
-    Returns:
-        Filtered list of accessible entities
-    """
-    accessible_graph_ids = await list_accessible_project_graph_ids(session, ctx)
-
-    result: list[EntityT] = []
-    for entity in entities:
-        project_id = (
-            project_id_getter(entity)
-            if project_id_getter is not None
-            else _entity_project_id(entity)
-        )
-        # Include if: no project (unassigned) or project is accessible
-        if project_id is None or project_id in accessible_graph_ids:
-            result.append(entity)
-
-    return result

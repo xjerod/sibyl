@@ -173,8 +173,3 @@ class ScenarioRunner:
 def list_scenarios() -> dict[str, str]:
     """Get a dict of scenario name → description."""
     return {name: scenario.description for name, scenario in SCENARIOS.items()}
-
-
-def get_scenario(name: str) -> ScenarioConfig | None:
-    """Get a scenario by name."""
-    return SCENARIOS.get(name)

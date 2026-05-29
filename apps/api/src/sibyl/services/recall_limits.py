@@ -63,10 +63,6 @@ class RecallConcurrencyLimiter:
 _recall_concurrency_limiter = RecallConcurrencyLimiter()
 
 
-def get_recall_concurrency_limiter() -> RecallConcurrencyLimiter:
-    return _recall_concurrency_limiter
-
-
 @asynccontextmanager
 async def recall_concurrency_slot(
     *,
