@@ -560,10 +560,10 @@ def _can_use_bounded_entity_list(
     sort_order: SortOrder,
 ) -> bool:
     surreal_ops = getattr(entity_manager, "_surreal_entity_node_ops", None)
-    native_bounded = getattr(entity_manager, "supports_bounded_entity_list", False) is True
+    bounded = getattr(entity_manager, "supports_bounded_entity_list", False) is True
     compatibility_bounded = callable(surreal_ops) and surreal_ops() is not None
     return (
-        (native_bounded or compatibility_bounded)
+        (bounded or compatibility_bounded)
         and not language
         and not category
         and not search

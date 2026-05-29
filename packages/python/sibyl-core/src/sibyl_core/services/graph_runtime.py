@@ -98,9 +98,9 @@ async def count_entities_by_type(
 ) -> dict[str, int]:
     """Count entities by type without assuming backend-specific aggregations."""
 
-    native_counter = getattr(entity_manager, "count_by_type", None)
-    if callable(native_counter):
-        return await native_counter(include_archived=include_archived)
+    counter = getattr(entity_manager, "count_by_type", None)
+    if callable(counter):
+        return await counter(include_archived=include_archived)
 
     counts = {entity_type.value: 0 for entity_type in EntityType}
 

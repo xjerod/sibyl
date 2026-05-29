@@ -366,7 +366,7 @@ async def promote_reflection_candidate_review(
     if isinstance(plan, ReflectionPromotionResult):
         return plan
 
-    native_result = await persist_reflection_candidate(
+    result = await persist_reflection_candidate(
         candidate=plan.promotion_candidate,
         organization_id=organization_id,
         principal_id=principal_id,
@@ -379,26 +379,26 @@ async def promote_reflection_candidate_review(
         scope_key=plan.target_scope_key,
         link_source_entity=False,
     )
-    if not native_result.response.success:
+    if not result.response.success:
         return ReflectionPromotionResult(
             success=False,
             candidate_id=plan.candidate_memory.id,
             promoted_id=None,
-            reason=_policy_denial_reason(native_result.metadata),
+            reason=_policy_denial_reason(result.metadata),
             review_state=plan.candidate_memory.review_state,
             memory_scope=plan.target_scope,
             scope_key=plan.target_scope_key,
             raw_source_ids=plan.raw_source_ids,
-            metadata=native_result.metadata,
+            metadata=result.metadata,
         )
 
     promoted_at = datetime.now(UTC).isoformat()
     metadata = {
         **plan.candidate_memory.metadata,
-        **native_result.metadata,
+        **result.metadata,
         "review_state": _PROMOTED_REVIEW_STATE,
         "promoted_at": promoted_at,
-        "promoted_entity_id": native_result.response.id,
+        "promoted_entity_id": result.response.id,
         "promote_to_scope": plan.target_scope.value,
         "promote_to_scope_key": plan.target_scope_key,
         "raw_source_ids": plan.raw_source_ids,
@@ -406,11 +406,11 @@ async def promote_reflection_candidate_review(
     }
     metadata = _promotion_lifecycle_metadata(
         metadata=metadata,
-        promoted_entity_id=str(native_result.response.id),
+        promoted_entity_id=str(result.response.id),
         source_ids=plan.raw_source_ids,
         source_id=plan.candidate_memory.id,
         reason="accepted_reflection_candidate",
-        policy_metadata=native_result.metadata,
+        policy_metadata=result.metadata,
     )
     updated = replace(
         plan.candidate_memory,
@@ -422,7 +422,7 @@ async def promote_reflection_candidate_review(
     return ReflectionPromotionResult(
         success=True,
         candidate_id=plan.candidate_memory.id,
-        promoted_id=native_result.response.id,
+        promoted_id=result.response.id,
         reason="promoted",
         review_state=_PROMOTED_REVIEW_STATE,
         memory_scope=plan.target_scope,

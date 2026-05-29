@@ -832,7 +832,7 @@ async def _vector_candidate_sources(
         embeddings = await embedding_provider.embed_texts([plan.query], input_kind="query")
     except Exception as exc:
         log.warning(
-            "native_vector_embedding_failed",
+            "vector_embedding_failed",
             organization_id=plan.organization_id,
             query_length=len(plan.query),
             error_type=type(exc).__name__,
@@ -848,7 +848,7 @@ async def _vector_candidate_sources(
         )
     except ValueError as exc:
         log.warning(
-            "native_vector_embedding_invalid",
+            "vector_embedding_invalid",
             organization_id=plan.organization_id,
             error=str(exc),
         )
@@ -888,7 +888,7 @@ async def _vector_candidate_sources(
     for signal, result in zip(task_signals, gathered, strict=True):
         if isinstance(result, BaseException):
             log.warning(
-                "native_vector_query_failed",
+                "vector_query_failed",
                 organization_id=plan.organization_id,
                 signal=signal.value,
                 error_type=type(result).__name__,
@@ -1793,13 +1793,13 @@ async def _fuse_candidates_for_plan(
 ) -> list[tuple[RetrievalCandidate, float, dict[str, Any]]]:
     backend = fusion_backend or DEFAULT_FUSION_BACKEND
     if backend is FusionBackend.SURREAL_RRF:
-        native_scores = await _surreal_rrf_scores(client, source_lists, plan=plan, limit=limit)
-        if native_scores:
+        scores = await _surreal_rrf_scores(client, source_lists, plan=plan, limit=limit)
+        if scores:
             return _rank_fused_candidates(
                 source_lists,
                 plan=plan,
                 limit=limit,
-                rrf_scores=native_scores,
+                rrf_scores=scores,
                 backend=backend,
             )
     return _fuse_candidates(source_lists, plan=plan, limit=limit)
@@ -1851,7 +1851,7 @@ async def _surreal_rrf_scores(
         )
     except Exception as exc:
         log.warning(
-            "native_surreal_rrf_failed",
+            "surreal_rrf_failed",
             organization_id=plan.organization_id,
             error_type=type(exc).__name__,
         )

@@ -671,7 +671,7 @@ def _mention_from_payload(payload: dict[str, Any], *, organization_id: str) -> A
     )
 
 
-async def _native_record_id(client: Any, table: str, uuid: str) -> Any | None:
+async def _record_id(client: Any, table: str, uuid: str) -> Any | None:
     rows = normalize_records(
         await client.execute_query(
             f"SELECT id AS record_id FROM {table} WHERE uuid = $uuid LIMIT 1;",
@@ -683,7 +683,7 @@ async def _native_record_id(client: Any, table: str, uuid: str) -> Any | None:
     return rows[0].get("record_id")
 
 
-async def _native_mention_exists(client: Any, uuid: str) -> bool:
+async def _mention_exists(client: Any, uuid: str) -> bool:
     rows = normalize_records(
         await client.execute_query(
             "SELECT uuid FROM mentions WHERE uuid = $uuid LIMIT 1;",
@@ -723,8 +723,8 @@ async def _save_native_episode(client: Any, episode: BackupEpisodeNode) -> None:
 
 
 async def _save_native_mention(client: Any, mention: BackupMentionEdge) -> None:
-    source_record_id = await _native_record_id(client, "episode", mention.source_node_uuid)
-    target_record_id = await _native_record_id(client, "entity", mention.target_node_uuid)
+    source_record_id = await _record_id(client, "episode", mention.source_node_uuid)
+    target_record_id = await _record_id(client, "entity", mention.target_node_uuid)
     if source_record_id is None or target_record_id is None:
         msg = (
             f"Cannot save mention {mention.uuid!r}: source episode "
@@ -1176,7 +1176,7 @@ async def restore_backup(
         for mention_data in normalize_mention_payloads(backup_data.mentions):
             try:
                 mention = _mention_from_payload(mention_data, organization_id=organization_id)
-                if skip_existing and await _native_mention_exists(driver, mention.uuid):
+                if skip_existing and await _mention_exists(driver, mention.uuid):
                     mentions_skipped += 1
                     continue
                 mentions_to_restore.append(mention)

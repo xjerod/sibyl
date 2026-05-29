@@ -269,7 +269,7 @@ async def reflect_memory(
             )
             continue
         if use_native_write:
-            native_result = await _persist_reflection_candidate(
+            candidate_result = await _persist_reflection_candidate(
                 candidate=replace(candidate, metadata=metadata),
                 organization_id=str(organization_id),
                 principal_id=principal_id,
@@ -284,9 +284,9 @@ async def reflect_memory(
             persisted.append(
                 replace(
                     candidate,
-                    metadata={**metadata, **native_result.metadata},
-                    persisted_id=native_result.response.id
-                    if native_result.response.success
+                    metadata={**metadata, **candidate_result.metadata},
+                    persisted_id=candidate_result.response.id
+                    if candidate_result.response.success
                     else None,
                 )
             )

@@ -99,11 +99,11 @@ async def get_graph_runtime(group_id: str) -> ManageGraphRuntime:
     if _entity_manager_factory is None and _relationship_manager_factory is None:
         from sibyl_core.services.graph import get_surreal_graph_runtime
 
-        native_runtime = await get_surreal_graph_runtime(str(group_id))
+        runtime = await get_surreal_graph_runtime(str(group_id))
         return ManageGraphRuntime(
-            client=native_runtime.client,
-            entity_manager=native_runtime.entity_manager,
-            relationship_manager=native_runtime.relationship_manager,
+            client=runtime.client,
+            entity_manager=runtime.entity_manager,
+            relationship_manager=runtime.relationship_manager,
         )
 
     client = await get_graph_client(str(group_id))

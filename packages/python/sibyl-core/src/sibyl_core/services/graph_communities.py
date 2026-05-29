@@ -1534,10 +1534,10 @@ async def get_hierarchical_graph(
     )
     entities = snapshot.entities
     relationships = snapshot.relationships
-    native_totals = None
+    totals = None
     if not project_ids and not entity_types:
-        native_totals = await _graph_totals(client, organization_id)
-    if native_totals is None:
+        totals = await _graph_totals(client, organization_id)
+    if totals is None:
         total_node_count, total_edge_count = _graph_totals_from_snapshot(
             entities,
             relationships,
@@ -1545,7 +1545,7 @@ async def get_hierarchical_graph(
             entity_types=entity_types,
         )
     else:
-        total_node_count, total_edge_count = native_totals
+        total_node_count, total_edge_count = totals
     log.info(
         "graph_totals_queried",
         total_nodes=total_node_count,

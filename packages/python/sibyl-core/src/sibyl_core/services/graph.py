@@ -394,7 +394,7 @@ class EntityManager:
             )
         except Exception as exc:
             log.warning(
-                "native_entity_vector_search_failed",
+                "entity_vector_search_failed",
                 error_type=type(exc).__name__,
             )
             return []

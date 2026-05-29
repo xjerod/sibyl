@@ -75,10 +75,10 @@ def _driver_for_client(client: Any, group_id: str) -> Any:
 
 def _native_driver_for_client(client: Any, group_id: str) -> Any:
     driver = _driver_for_client(client, group_id)
-    native_driver = _surreal_driver_for(driver)
-    if native_driver is None:
+    surreal_driver = _surreal_driver_for(driver)
+    if surreal_driver is None:
         raise RuntimeError("Supported graph runtime requires native Surreal graph operations")
-    return native_driver
+    return surreal_driver
 
 
 def _entity_manager_for(client: Any, group_id: str) -> Any:
