@@ -83,6 +83,10 @@ class CoreConfig(BaseSettings):
         ge=1,
         description="Maximum org-scoped native graph clients kept open per process.",
     )
+    allow_embedded_single_writer: bool = Field(
+        default=False,
+        description="Allow embedded SurrealDB storage in production for explicit single-writer mode",
+    )
 
     # LLM Provider configuration
     llm_provider: Literal["openai", "anthropic"] = Field(
@@ -164,6 +168,20 @@ class CoreConfig(BaseSettings):
 
         if self.surreal_url and self.surreal_data_dir:
             raise ValueError("Configure only one of surreal_url or surreal_data_dir")
+
+        if self.environment == "production":
+            resolved = self.resolved_surreal_url
+            if resolved.startswith("memory://"):
+                raise ValueError(
+                    "CRITICAL: In-memory SurrealDB is forbidden in production. "
+                    "Set SIBYL_SURREAL_URL or SIBYL_SURREAL_DATA_DIR."
+                )
+            if resolved.startswith("surrealkv://") and not self.allow_embedded_single_writer:
+                raise ValueError(
+                    "CRITICAL: Embedded SurrealDB requires explicit single-writer opt-in in "
+                    "production. Set SIBYL_ALLOW_EMBEDDED_SINGLE_WRITER=1 only when one "
+                    "daemon owns the database."
+                )
 
         return self
 
