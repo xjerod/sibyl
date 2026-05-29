@@ -220,6 +220,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
             error=str(e),
         )
 
+    try:
+        from sibyl.api.routes.admin import recover_stuck_sources
+
+        await recover_stuck_sources()
+    except Exception as e:
+        log.warning("Startup source recovery failed", error=str(e))
+
     yield
 
     try:

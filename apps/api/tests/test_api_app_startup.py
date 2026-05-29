@@ -20,6 +20,9 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     disable_pubsub = MagicMock()
     broker = SimpleNamespace(startup=AsyncMock(), shutdown=AsyncMock())
     scheduler = SimpleNamespace(startup=AsyncMock(), shutdown=AsyncMock())
+    recover_stuck_sources = AsyncMock(
+        return_value={"recovered": 0, "completed": 0, "reset_to_pending": 0}
+    )
     startup_events: list[str] = []
 
     async def bootstrap_surreal_runtime() -> bool:
@@ -41,6 +44,7 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     monkeypatch.setattr("sibyl.api.websocket.disable_pubsub", disable_pubsub)
     monkeypatch.setattr("sibyl.coordination.broker.get_broker", lambda: broker)
     monkeypatch.setattr("sibyl.coordination.scheduler.get_scheduler", lambda: scheduler)
+    monkeypatch.setattr("sibyl.api.routes.admin.recover_stuck_sources", recover_stuck_sources)
 
     app = api_app_module.create_api_app()
 
@@ -58,3 +62,4 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     scheduler.shutdown.assert_awaited_once()
     enable_pubsub.assert_called_once_with()
     disable_pubsub.assert_called_once_with()
+    recover_stuck_sources.assert_awaited_once()
