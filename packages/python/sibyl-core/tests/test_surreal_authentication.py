@@ -124,9 +124,10 @@ async def test_surreal_dedicated_clients_prefer_token_auth(
 
 
 @pytest.mark.asyncio
-async def test_surreal_dedicated_client_reuses_one_connection_for_concurrent_queries(
+async def test_surreal_dedicated_client_pools_connections_for_concurrent_queries(
     monkeypatch,
 ) -> None:
+    """Concurrent queries fan out across a connection pool, not one socket (H3)."""
     clients: list[FakeAsyncSurreal] = []
 
     class FakeAsyncSurreal:
@@ -167,11 +168,14 @@ async def test_surreal_dedicated_client_reuses_one_connection_for_concurrent_que
         *(client.execute_query("SELECT * FROM user_sessions;") for _ in range(8))
     )
 
-    assert len(clients) == 1
-    assert clients[0].signin_count == 1
-    assert clients[0].use_count == 1
-    assert clients[0].query_count == 8
-    assert results[-1] == [{"query_count": 8}]
+    # Audit H3: concurrent queries fan out across the connection pool instead of
+    # serializing onto one socket. Server URLs pool to 4, so 8 concurrent reads
+    # open more than one connection; each connection authenticates once.
+    assert len(results) == 8
+    assert all(result and result[0]["query_count"] >= 1 for result in results)
+    assert 1 < len(clients) <= 4
+    assert all(fake.signin_count == 1 and fake.use_count == 1 for fake in clients)
+    assert sum(fake.query_count for fake in clients) == 8
 
 
 @pytest.mark.asyncio
