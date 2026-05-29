@@ -273,7 +273,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
             log.debug("Scheduler shutdown error (expected during fast restarts)", error=str(e))
 
 
-def create_api_app() -> FastAPI:
+def create_api_app() -> FastAPI:  # noqa: PLR0915
     """Create and configure the FastAPI application.
 
     Returns:
@@ -438,13 +438,32 @@ def create_api_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check() -> dict[str, str]:
-        """Public health check - no auth required.
+        """Public liveness check - no auth required.
 
-        Used by load balancers, monitoring, and frontend connection checks.
-        For detailed stats, use /admin/health (requires auth).
+        Asserts only that the process is up. Used by load balancers,
+        monitoring, and frontend connection checks. For readiness (can we
+        serve traffic?) use /health/ready; for detailed authed stats use
+        /admin/health.
         """
         from sibyl import __version__
 
         return {"status": "healthy", "version": __version__}
+
+    @app.get("/health/ready")
+    async def readiness_check() -> JSONResponse:
+        """Public readiness check - no auth required (probes run pre-auth).
+
+        Returns 200 when the serving dependencies (SurrealDB reachability)
+        are healthy, 503 with a structured body otherwise. Cheap by design:
+        a connect-only handshake that never touches the per-org query path.
+        Wire k8s readinessProbe at this path.
+        """
+        from sibyl.api.readiness import check_readiness
+
+        report = await check_readiness()
+        return JSONResponse(
+            status_code=200 if report.ready else 503,
+            content=report.as_payload(),
+        )
 
     return app
