@@ -227,52 +227,6 @@ def coerce_auth_organization(value: object | None) -> AuthOrganization | None:
     )
 
 
-def coerce_auth_membership(value: object | None) -> AuthMembership | None:
-    """Coerce an ORM row or stub object into the auth membership contract."""
-
-    if value is None:
-        return None
-    if isinstance(value, AuthMembership):
-        return value
-    return AuthMembership(
-        id=_optional_uuid(_attr(value, "id"), "membership.id"),
-        organization_id=_required_uuid(
-            _attr(value, "organization_id"), "membership.organization_id"
-        ),
-        user_id=_required_uuid(_attr(value, "user_id"), "membership.user_id"),
-        role=coerce_organization_role(_attr(value, "role")) or OrganizationRole.MEMBER,
-        created_at=_optional_datetime(_attr(value, "created_at")),
-        updated_at=_optional_datetime(_attr(value, "updated_at")),
-    )
-
-
-def coerce_auth_session(value: object | None) -> AuthSession | None:
-    """Coerce an ORM row or stub object into the auth session contract."""
-
-    if value is None:
-        return None
-    if isinstance(value, AuthSession):
-        return value
-    return AuthSession(
-        id=_required_uuid(_attr(value, "id"), "session.id"),
-        user_id=_required_uuid(_attr(value, "user_id"), "session.user_id"),
-        organization_id=_optional_uuid(_attr(value, "organization_id"), "session.organization_id"),
-        expires_at=_required_datetime(_attr(value, "expires_at"), "session.expires_at"),
-        refresh_token_expires_at=_optional_datetime(_attr(value, "refresh_token_expires_at")),
-        revoked_at=_optional_datetime(_attr(value, "revoked_at")),
-        last_active_at=_optional_datetime(_attr(value, "last_active_at")),
-        is_current=_bool_or_default(_attr(value, "is_current")),
-        version=_optional_int(_attr(value, "version")) or 0,
-        device_name=_optional_str(_attr(value, "device_name")),
-        device_type=_optional_str(_attr(value, "device_type")),
-        browser=_optional_str(_attr(value, "browser")),
-        os=_optional_str(_attr(value, "os")),
-        ip_address=_optional_str(_attr(value, "ip_address")),
-        user_agent=_optional_str(_attr(value, "user_agent")),
-        location=_optional_str(_attr(value, "location")),
-    )
-
-
 def coerce_organization_role(value: object | None) -> OrganizationRole | None:
     """Normalize enum, string, or ORM-like role objects into the shared enum."""
 

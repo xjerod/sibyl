@@ -34,9 +34,3 @@ def get_context_override() -> str | None:
         return env_context
 
     return None
-
-
-def clear_context_override() -> None:
-    """Clear the context override (mainly for testing)."""
-    global _context_override
-    _context_override = None

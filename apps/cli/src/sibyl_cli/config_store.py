@@ -164,19 +164,9 @@ def get_server_url() -> str:
     return str(get("server.url", DEFAULT_CONFIG["server"]["url"]))
 
 
-def set_server_url(url: str) -> None:
-    """Set the server URL in config."""
-    set_value("server.url", url)
-
-
 def get_default_project() -> str:
     """Get the default project from config."""
     return str(get("defaults.project", ""))
-
-
-def set_default_project(project: str) -> None:
-    """Set the default project in config."""
-    set_value("defaults.project", project)
 
 
 def reset_config() -> None:
