@@ -12,6 +12,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import get_args
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -27,10 +28,16 @@ from sibyl_core.tools.link_graph_status import (
 from sibyl_core.tools.manage import (
     ALL_ACTIONS,
     ANALYSIS_ACTIONS,
+    DEPRECATED_ACTION_REPLACEMENTS,
     EPIC_ACTIONS,
     SOURCE_ACTIONS,
     TASK_ACTIONS,
+    AnalysisAction,
+    EpicAction,
     ManageResponse,
+    SourceAction,
+    TaskAction,
+    _deprecation_notice,
     manage,
 )
 
@@ -110,6 +117,30 @@ class TestActionConstants:
         assert ALL_ACTIONS == TASK_ACTIONS | EPIC_ACTIONS | SOURCE_ACTIONS | ANALYSIS_ACTIONS
 
 
+class TestTypedActionSurface:
+    """The runtime action sets are derived from the Literal type aliases."""
+
+    def test_runtime_sets_match_literal_members(self) -> None:
+        """Each frozenset equals the members of its Literal alias (no drift)."""
+        assert set(get_args(TaskAction.__value__)) == TASK_ACTIONS
+        assert set(get_args(EpicAction.__value__)) == EPIC_ACTIONS
+        assert set(get_args(SourceAction.__value__)) == SOURCE_ACTIONS
+        assert set(get_args(AnalysisAction.__value__)) == ANALYSIS_ACTIONS
+
+    def test_action_sets_are_disjoint(self) -> None:
+        """No action is claimed by two categories (dispatch stays unambiguous)."""
+        categories = [TASK_ACTIONS, EPIC_ACTIONS, SOURCE_ACTIONS, ANALYSIS_ACTIONS]
+        seen: set[str] = set()
+        for category in categories:
+            assert not (seen & category)
+            seen |= category
+
+    def test_action_sets_are_frozen(self) -> None:
+        """Action sets are immutable so callers cannot mutate the dispatch table."""
+        assert isinstance(ALL_ACTIONS, frozenset)
+        assert isinstance(TASK_ACTIONS, frozenset)
+
+
 # =============================================================================
 # ManageResponse Tests
 # =============================================================================
@@ -165,7 +196,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_unknown_action_returns_error(self) -> None:
-        """Unknown action returns error response."""
+        """Unknown action returns error response listing the valid actions."""
         response = await manage(
             action="nonexistent_action",
             organization_id="org_123",
@@ -173,6 +204,21 @@ class TestInputValidation:
         assert response.success is False
         assert "Unknown action" in response.message
         assert "nonexistent_action" in response.message
+        # The clean-rejection message points the caller at the valid surface.
+        for valid in ("start_task", "crawl", "estimate"):
+            assert valid in response.message
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("action", sorted(ALL_ACTIONS))
+    async def test_every_declared_action_dispatches(self, action: str) -> None:
+        """Every action in ALL_ACTIONS routes to a handler, never an unknown miss.
+
+        Handlers fail on missing dependencies here, but reaching them proves the
+        dispatch table covers every declared action exhaustively.
+        """
+        response = await manage(action=action, organization_id="org_123")
+        assert "Unknown action" not in response.message
+        assert response.action == action
 
     @pytest.mark.asyncio
     async def test_action_is_case_insensitive(self) -> None:
@@ -1696,6 +1742,141 @@ class TestErrorHandling:
             # Should use default reason
             assert response.success is True
             mock_workflow.block_task.assert_called_once_with("task_123", "No reason provided")
+
+
+# =============================================================================
+# Deprecation Tests
+# =============================================================================
+
+
+class TestDeprecation:
+    """The soft-deprecated task/epic actions emit an actionable signal."""
+
+    def test_replacement_map_covers_exactly_task_and_epic_actions(self) -> None:
+        """Every workflow action has a replacement; source/analysis do not."""
+        assert DEPRECATED_ACTION_REPLACEMENTS.keys() == TASK_ACTIONS | EPIC_ACTIONS
+        assert not (DEPRECATED_ACTION_REPLACEMENTS.keys() & SOURCE_ACTIONS)
+        assert not (DEPRECATED_ACTION_REPLACEMENTS.keys() & ANALYSIS_ACTIONS)
+
+    def test_notice_points_at_rest_replacement_for_deprecated(self) -> None:
+        """_deprecation_notice returns the REST pointer for a deprecated action."""
+        notice = _deprecation_notice("complete_task")
+        assert notice is not None
+        assert notice["deprecated_action"] == "complete_task"
+        assert notice["use_instead"] == "POST /tasks/{id}/complete"
+        assert "REST" in notice["reason"]
+
+    def test_notice_is_none_for_non_deprecated(self) -> None:
+        """Source and analysis actions carry no deprecation notice."""
+        assert _deprecation_notice("crawl") is None
+        assert _deprecation_notice("estimate") is None
+        assert _deprecation_notice("link_graph_status") is None
+
+    @pytest.mark.asyncio
+    async def test_deprecated_action_attaches_notice_and_logs(self) -> None:
+        """A successful deprecated action attaches the notice and logs a warning."""
+        mock_client = AsyncMock()
+        mock_task = MagicMock()
+        mock_task.status = TaskStatus.DOING
+        mock_task.branch_name = "feature/task-123"
+
+        mock_workflow = AsyncMock()
+        mock_workflow.start_task = AsyncMock(return_value=mock_task)
+
+        mock_log = MagicMock()
+
+        with (
+            patch("sibyl_core.tools.manage.log", mock_log),
+            patch("sibyl_core.tools.manage.get_graph_client", return_value=mock_client),
+            patch("sibyl_core.tools.manage._entity_manager_factory"),
+            patch("sibyl_core.tools.manage._relationship_manager_factory"),
+            patch(
+                "sibyl_core.tasks.workflow.TaskWorkflowEngine",
+                return_value=mock_workflow,
+            ),
+        ):
+            response = await manage(
+                action="start_task",
+                entity_id="task_123",
+                organization_id="org_123",
+            )
+
+        assert response.success is True
+        assert response.data["deprecation"]["use_instead"] == "POST /tasks/{id}/start"
+        # Existing payload survives alongside the deprecation block.
+        assert response.data["status"] == "doing"
+        mock_log.warning.assert_called_once()
+        warn_call = mock_log.warning.call_args
+        assert warn_call.args[0] == "manage_action_deprecated"
+        assert warn_call.kwargs["action"] == "start_task"
+        assert warn_call.kwargs["use_instead"] == "POST /tasks/{id}/start"
+
+    @pytest.mark.asyncio
+    async def test_non_deprecated_action_has_no_notice_or_warning(self) -> None:
+        """Source/analysis actions neither attach a notice nor warn."""
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_rel_manager = AsyncMock()
+        mock_entity_manager.list_by_type = AsyncMock(return_value=[])
+
+        mock_log = MagicMock()
+
+        with (
+            patch("sibyl_core.tools.manage.log", mock_log),
+            patch("sibyl_core.tools.manage.get_graph_client", return_value=mock_client),
+            patch(
+                "sibyl_core.tools.manage._entity_manager_factory",
+                return_value=mock_entity_manager,
+            ),
+            patch(
+                "sibyl_core.tools.manage._relationship_manager_factory",
+                return_value=mock_rel_manager,
+            ),
+        ):
+            response = await manage(
+                action="prioritize",
+                entity_id="project_123",
+                organization_id="org_123",
+            )
+
+        assert response.success is True
+        assert "deprecation" not in response.data
+        mock_log.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_deprecation_does_not_clobber_handler_supplied_value(self) -> None:
+        """A handler-set 'deprecation' key wins over the auto-attached notice."""
+        mock_client = AsyncMock()
+        mock_entity_manager = AsyncMock()
+        mock_epic = make_entity(entity_type=EntityType.EPIC)
+        mock_entity_manager.get = AsyncMock(return_value=mock_epic)
+
+        sentinel = {"deprecation": "handler-owned"}
+
+        async def fake_handler(*_args: object, **_kwargs: object) -> ManageResponse:
+            return ManageResponse(
+                success=True,
+                action="start_epic",
+                entity_id="epic_123",
+                data=dict(sentinel),
+            )
+
+        with (
+            patch("sibyl_core.tools.manage.get_graph_client", return_value=mock_client),
+            patch(
+                "sibyl_core.tools.manage._entity_manager_factory",
+                return_value=mock_entity_manager,
+            ),
+            patch("sibyl_core.tools.manage._handle_epic_action", fake_handler),
+        ):
+            response = await manage(
+                action="start_epic",
+                entity_id="epic_123",
+                organization_id="org_123",
+            )
+
+        # setdefault must not overwrite a value the handler already owns.
+        assert response.data["deprecation"] == "handler-owned"
 
 
 # =============================================================================

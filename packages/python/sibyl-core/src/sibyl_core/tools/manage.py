@@ -1,18 +1,21 @@
 """Manage tool for Sibyl MCP Server.
 
 The fourth tool: manage() handles operations that modify state.
-Includes task workflow, source operations, analysis, and admin actions.
+Includes task workflow, source operations, and analysis actions.
 
-DEPRECATION NOTICE:
-- Task workflow actions: Use RESTful /tasks/{id}/* endpoints instead
-- Epic workflow actions: Use RESTful /epics/{id}/* endpoints instead
-- Source/analysis actions: Still use this tool (no REST equivalent yet)
+Task and epic workflow actions are soft-deprecated in favor of the RESTful
+``/tasks/{id}/*`` and ``/epics/{id}/*`` endpoints, which carry entity locking,
+idempotency, WebSocket broadcasts, and project-activity tracking that this MCP
+path does not. They keep working for MCP clients but emit a structured
+deprecation signal (see ``DEPRECATED_ACTION_REPLACEMENTS`` and
+``_deprecation_notice``). Source and analysis actions have no REST equivalent
+and are not deprecated.
 """
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal, cast, get_args
 
 import structlog
 
@@ -284,8 +287,12 @@ async def _enqueue_task_learning_jobs(
 # Action Types
 # =============================================================================
 
-# Task workflow actions (DEPRECATED: Use /tasks/{id}/* endpoints instead)
-TASK_ACTIONS = {
+# Each action category is a Literal so an invalid action is a type error at
+# static call sites; the runtime frozensets below are derived from these so the
+# type and the validation surface can never drift apart.
+
+# Task workflow (soft-deprecated -> /tasks/{id}/*; still served for MCP clients)
+type TaskAction = Literal[
     "start_task",  # Move task to doing status
     "block_task",  # Mark task as blocked with reason
     "unblock_task",  # Remove blocked status
@@ -294,34 +301,83 @@ TASK_ACTIONS = {
     "archive_task",  # Archive without completing
     "update_task",  # Update task fields
     "add_note",  # Add a note to a task
-}
+]
 
-# Epic workflow actions (DEPRECATED: Use /epics/{id}/* endpoints instead)
-EPIC_ACTIONS = {
+# Epic workflow (soft-deprecated -> /epics/{id}/*; still served for MCP clients)
+type EpicAction = Literal[
     "start_epic",  # Move epic to in_progress status
     "complete_epic",  # Mark epic as completed with learnings
     "archive_epic",  # Archive epic
     "update_epic",  # Update epic fields
-}
+]
 
-# Source operations
-SOURCE_ACTIONS = {
+# Source operations (no REST equivalent)
+type SourceAction = Literal[
     "crawl",  # Trigger crawl of URL
     "sync",  # Re-crawl existing source
     "refresh",  # Sync all sources
     "link_graph",  # Link documents to knowledge graph entities
     "link_graph_status",  # Get linking job status
-}
+]
 
-# Analysis actions
-ANALYSIS_ACTIONS = {
+# Analysis (no REST equivalent)
+type AnalysisAction = Literal[
     "estimate",  # Estimate task effort
     "prioritize",  # Smart task ordering
     "detect_cycles",  # Find circular dependencies
     "suggest",  # Suggest knowledge for task
+]
+
+type ManageAction = TaskAction | EpicAction | SourceAction | AnalysisAction
+
+TASK_ACTIONS: frozenset[str] = frozenset(get_args(TaskAction.__value__))
+EPIC_ACTIONS: frozenset[str] = frozenset(get_args(EpicAction.__value__))
+SOURCE_ACTIONS: frozenset[str] = frozenset(get_args(SourceAction.__value__))
+ANALYSIS_ACTIONS: frozenset[str] = frozenset(get_args(AnalysisAction.__value__))
+
+ALL_ACTIONS: frozenset[str] = TASK_ACTIONS | EPIC_ACTIONS | SOURCE_ACTIONS | ANALYSIS_ACTIONS
+
+# Deprecated workflow actions -> the REST surface that supersedes them. Driving
+# the deprecation signal off this map keeps the "what replaces this" answer in
+# one place instead of scattered comments.
+DEPRECATED_ACTION_REPLACEMENTS: dict[str, str] = {
+    "start_task": "POST /tasks/{id}/start",
+    "block_task": "POST /tasks/{id}/block",
+    "unblock_task": "POST /tasks/{id}/unblock",
+    "submit_review": "POST /tasks/{id}/review",
+    "complete_task": "POST /tasks/{id}/complete",
+    "archive_task": "POST /tasks/{id}/archive",
+    "update_task": "PATCH /tasks/{id}",
+    "add_note": "POST /tasks/{id}/notes",
+    "start_epic": "POST /epics/{id}/start",
+    "complete_epic": "POST /epics/{id}/complete",
+    "archive_epic": "POST /epics/{id}/archive",
+    "update_epic": "PATCH /epics/{id}",
 }
 
-ALL_ACTIONS = TASK_ACTIONS | EPIC_ACTIONS | SOURCE_ACTIONS | ANALYSIS_ACTIONS
+assert DEPRECATED_ACTION_REPLACEMENTS.keys() == (TASK_ACTIONS | EPIC_ACTIONS), (
+    "deprecation map must cover exactly the task and epic actions"
+)
+
+
+def _deprecation_notice(action: str) -> dict[str, str] | None:
+    """Structured deprecation pointer for an action, or None if not deprecated.
+
+    Emitting this on the wire (rather than a Python ``warnings.warn``) is what
+    lets an MCP client actually see the replacement, since stderr warnings never
+    cross the tool boundary.
+    """
+    replacement = DEPRECATED_ACTION_REPLACEMENTS.get(action)
+    if replacement is None:
+        return None
+    return {
+        "deprecated_action": action,
+        "use_instead": replacement,
+        "reason": (
+            "REST endpoints add entity locking, idempotency, and WebSocket "
+            "broadcasts that the MCP manage() path skips."
+        ),
+    }
 
 
 # =============================================================================
@@ -330,7 +386,7 @@ ALL_ACTIONS = TASK_ACTIONS | EPIC_ACTIONS | SOURCE_ACTIONS | ANALYSIS_ACTIONS
 
 
 async def manage(
-    action: str,
+    action: ManageAction | str,
     entity_id: str | None = None,
     data: dict[str, Any] | None = None,
     *,
@@ -368,62 +424,87 @@ async def manage(
         - suggest: Suggest relevant knowledge (entity_id = task ID)
 
     Args:
-        action: The action to perform (see categories above).
+        action: The action to perform (see categories above). Static callers get
+            a type error for anything outside the valid set; the MCP boundary
+            still accepts a raw string and rejects unknown actions at runtime.
         entity_id: Target entity ID (required for most actions).
         data: Action-specific data dict.
         organization_id: Organization ID for graph operations (required).
 
     Returns:
         ManageResponse with success status, message, and action-specific data.
+        Deprecated task/epic actions attach a ``deprecation`` block to ``data``
+        pointing at the REST replacement.
     """
-    action = action.lower().strip()
+    normalized = action.lower().strip()
     data = data or {}
 
-    log.info("manage", action=action, entity_id=entity_id, data_keys=list(data.keys()))
+    log.info("manage", action=normalized, entity_id=entity_id, data_keys=list(data.keys()))
 
-    if action not in ALL_ACTIONS:
+    if normalized not in ALL_ACTIONS:
         return ManageResponse(
             success=False,
-            action=action,
-            message=f"Unknown action: {action}. Valid actions: {sorted(ALL_ACTIONS)}",
+            action=normalized,
+            message=f"Unknown action: {normalized}. Valid actions: {sorted(ALL_ACTIONS)}",
         )
+
+    # Narrowed: the membership guard above proves this is a valid action.
+    valid_action = cast("ManageAction", normalized)
 
     if not organization_id:
         return ManageResponse(
             success=False,
-            action=action,
+            action=valid_action,
             message="organization_id required for this action",
         )
 
+    deprecation = _deprecation_notice(valid_action)
+    if deprecation is not None:
+        log.warning(
+            "manage_action_deprecated",
+            action=valid_action,
+            use_instead=deprecation["use_instead"],
+        )
+
     try:
-        # Route to appropriate handler
-        if action in TASK_ACTIONS:
-            return await _handle_task_action(
-                action, entity_id, data, organization_id=organization_id
-            )
-        if action in EPIC_ACTIONS:
-            return await _handle_epic_action(
-                action, entity_id, data, organization_id=organization_id
-            )
-        if action in SOURCE_ACTIONS:
-            return await _handle_source_action(
-                action, entity_id, data, organization_id=organization_id
-            )
-        if action in ANALYSIS_ACTIONS:
-            return await _handle_analysis_action(
-                action, entity_id, data, organization_id=organization_id
-            )
-
-        return ManageResponse(success=False, action=action, message="Unhandled action")
-
+        response = await _dispatch(valid_action, entity_id, data, organization_id=organization_id)
     except Exception as e:
-        log.exception("manage_failed", action=action, error=str(e))
+        log.exception("manage_failed", action=valid_action, error=str(e))
         return ManageResponse(
             success=False,
-            action=action,
+            action=valid_action,
             entity_id=entity_id,
             message=f"Action failed: {e}",
         )
+
+    if deprecation is not None:
+        response.data.setdefault("deprecation", deprecation)
+    return response
+
+
+async def _dispatch(
+    action: ManageAction,
+    entity_id: str | None,
+    data: dict[str, Any],
+    *,
+    organization_id: str,
+) -> ManageResponse:
+    """Route a validated action to its category handler (exhaustive)."""
+    if action in TASK_ACTIONS:
+        return await _handle_task_action(
+            cast("TaskAction", action), entity_id, data, organization_id=organization_id
+        )
+    if action in EPIC_ACTIONS:
+        return await _handle_epic_action(
+            cast("EpicAction", action), entity_id, data, organization_id=organization_id
+        )
+    if action in SOURCE_ACTIONS:
+        return await _handle_source_action(
+            cast("SourceAction", action), entity_id, data, organization_id=organization_id
+        )
+    return await _handle_analysis_action(
+        cast("AnalysisAction", action), entity_id, data, organization_id=organization_id
+    )
 
 
 # =============================================================================
@@ -432,7 +513,7 @@ async def manage(
 
 
 async def _handle_task_action(
-    action: str,
+    action: TaskAction,
     entity_id: str | None,
     data: dict[str, Any],
     *,
@@ -807,7 +888,7 @@ async def _add_note(
 
 
 async def _handle_epic_action(
-    action: str,
+    action: EpicAction,
     entity_id: str | None,
     data: dict[str, Any],
     *,
@@ -969,7 +1050,7 @@ async def _update_epic(
 
 
 async def _handle_source_action(
-    action: str,
+    action: SourceAction,
     entity_id: str | None,
     data: dict[str, Any],
     *,
@@ -1208,7 +1289,7 @@ async def _link_graph_status(organization_id: str) -> ManageResponse:
 
 
 async def _handle_analysis_action(
-    action: str,
+    action: AnalysisAction,
     entity_id: str | None,
     _data: dict[str, Any],
     *,
