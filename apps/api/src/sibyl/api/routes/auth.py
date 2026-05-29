@@ -542,10 +542,6 @@ class DeviceTokenRequest(BaseModel):
     grant_type: str | None = Field(default=None, description="Optional, OAuth-style")
 
 
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str = Field(..., min_length=10, max_length=4096)
-
-
 async def _github_exchange_code(*, code: str, redirect_uri: str) -> str:
     client_id = config_module.settings.github_client_id.get_secret_value()
     client_secret = config_module.settings.github_client_secret.get_secret_value()

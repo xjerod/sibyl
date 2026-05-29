@@ -12,7 +12,7 @@ import structlog
 from sibyl_core.embeddings.providers import configured_embedding_provider
 from sibyl_core.errors import EntityNotFoundError
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
-from sibyl_core.services import KnowledgeReadService, KnowledgeWriteService
+from sibyl_core.services import KnowledgeReadService
 from sibyl_core.services.graph import (
     EntityManager,
     GraphRuntime,
@@ -767,33 +767,6 @@ class GraphReadServiceAdapter(KnowledgeReadService):
 
     async def stats(self) -> GraphStats:
         return await self._store.search.stats()
-
-
-class GraphWriteServiceAdapter(KnowledgeWriteService):
-    """KnowledgeWriteService backed by the current graph runtime."""
-
-    def __init__(self, store: GraphStore) -> None:
-        self._store = store
-
-    @classmethod
-    def from_client(cls, client: Any, group_id: str) -> Self:
-        return cls(ActiveGraphStore.from_client(client, group_id))
-
-    @classmethod
-    def from_runtime(cls, runtime: GraphRuntime, group_id: str) -> Self:
-        return cls(ActiveGraphStore.from_runtime(runtime, group_id))
-
-    async def upsert_entity(self, entity: Entity) -> Entity:
-        return await self._store.entities.upsert(entity)
-
-    async def upsert_relationship(self, relationship: Relationship) -> Relationship:
-        return await self._store.relationships.upsert(relationship)
-
-    async def delete_entity(self, entity_id: str) -> bool:
-        return await self._store.entities.delete(entity_id)
-
-    async def delete_relationship(self, relationship_id: str) -> bool:
-        return await self._store.relationships.delete(relationship_id)
 
 
 @dataclass(frozen=True, slots=True)

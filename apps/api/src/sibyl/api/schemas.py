@@ -1410,30 +1410,6 @@ class TelemetrySummaryResponse(BaseModel):
 
 
 # =============================================================================
-# WebSocket Event Schemas
-# =============================================================================
-
-
-class WebSocketEvent(BaseModel):
-    """Event sent over WebSocket for realtime updates."""
-
-    event: Literal[
-        "entity_created",
-        "entity_updated",
-        "entity_deleted",
-        "search_complete",
-        "ingest_progress",
-        "ingest_complete",
-        "health_update",
-        "crawl_started",
-        "crawl_progress",
-        "crawl_complete",
-    ]
-    data: dict[str, Any]
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-# =============================================================================
 # Crawler Schemas
 # =============================================================================
 
@@ -1785,13 +1761,6 @@ class CodeExampleResponse(BaseModel):
     language_filter: str | None = None
 
 
-class FullPageRequest(BaseModel):
-    """Request full page content."""
-
-    document_id: str | None = Field(default=None, description="Get by document ID")
-    url: str | None = Field(default=None, description="Get by URL")
-
-
 class FullPageResponse(BaseModel):
     """Full page content response."""
 
@@ -1809,16 +1778,6 @@ class FullPageResponse(BaseModel):
     code_languages: list[str] = Field(default_factory=list)
     links: list[str] = Field(default_factory=list)
     crawled_at: datetime
-
-
-class SourcePagesRequest(BaseModel):
-    """Request to list pages for a source."""
-
-    source_id: str = Field(..., description="Source ID")
-    limit: int = Field(default=50, ge=1, le=200, description="Maximum pages")
-    offset: int = Field(default=0, ge=0, description="Offset for pagination")
-    has_code: bool | None = Field(default=None, description="Filter by code presence")
-    is_index: bool | None = Field(default=None, description="Filter index pages")
 
 
 class SourcePagesResponse(BaseModel):
