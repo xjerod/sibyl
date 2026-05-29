@@ -275,7 +275,15 @@ def test_build_context_retrieval_plan_keeps_all_accessible_projects_when_unscope
     assert plan.accessible_projects == frozenset({"project_123", "project_456"})
 
 
-def test_build_context_retrieval_plan_scopes_agent_diary_to_accessible_projects() -> None:
+def test_build_context_retrieval_plan_includes_project_less_agent_diary_scope() -> None:
+    """An unscoped agent pack must query the project-less diary scope too.
+
+    Agent diaries default to the project-less private scope (that is how
+    /memory/raw stores them and how /memory/raw/recall finds them). Scoping
+    the diary read to accessible projects only hid project-less diaries from
+    context packs whenever the principal had any accessible project.
+    """
+
     plan = build_context_retrieval_plan(
         query="unscoped agent diary",
         organization_id="org-123",
@@ -292,7 +300,7 @@ def test_build_context_retrieval_plan_scopes_agent_diary_to_accessible_projects(
         for scope in plan.scopes
         if scope.memory_scope is MemoryScope.PRIVATE and scope.agent_id == "nova"
     ]
-    assert {scope.project_id for scope in diary_scopes} == {"project_123", "project_456"}
+    assert {scope.project_id for scope in diary_scopes} == {None, "project_123", "project_456"}
 
 
 def test_candidate_from_raw_memory_uses_top_level_project_id_when_metadata_missing() -> None:
@@ -1471,6 +1479,27 @@ def test_hybrid_routes_through_shared_query_coverage_core() -> None:
         hybrid_module.rank_items_by_query_coverage
         is query_ranking_module.rank_items_by_query_coverage
     )
+
+
+def test_scope_decisions_includes_project_less_agent_diary_scope() -> None:
+    """Agent recall must reach project-less diaries even with accessible projects.
+
+    Regression: when the principal had any accessible project and the query
+    named none, the agent scope was built per accessible project only, so a
+    project-less agent diary (the default diary scope) was filtered out of
+    context packs. The live context-pack eval's agent-diary case caught it.
+    """
+
+    decisions = search_module._scope_decisions(
+        principal_id="user-1",
+        project=None,
+        accessible_projects=frozenset({"project-a", "project-b"}),
+        agent_id="nova",
+    )
+
+    agent_scopes = {(proj, agent) for _decision, proj, agent in decisions if agent == "nova"}
+    assert (None, "nova") in agent_scopes
+    assert ("project-a", "nova") in agent_scopes
 
 
 def test_hybrid_query_coverage_rerank_matches_direct_core_call() -> None:

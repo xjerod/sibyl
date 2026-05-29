@@ -465,33 +465,25 @@ def _scope_decisions(
             )
         )
     if agent_id:
-        diary_projects = (project,) if project else tuple(accessible_projects or ())
-        if diary_projects:
-            for diary_project in diary_projects:
-                decisions.append(
-                    (
-                        authorize_memory_read(
-                            principal_id=principal_id,
-                            memory_scope=MemoryScope.PRIVATE,
-                            project_id=diary_project,
-                            agent_id=agent_id,
-                            accessible_projects=accessible_projects,
-                        ),
-                        diary_project,
-                        agent_id,
-                    )
-                )
-        else:
+        # Agent diaries default to the project-less private scope, so a query
+        # with no specific project must include project_id=None alongside any
+        # accessible projects. Scoping only to accessible projects hid
+        # project-less diaries whenever the principal had any accessible
+        # project (e.g. the context-pack agent-diary recall).
+        diary_projects: tuple[str | None, ...] = (
+            (project,) if project else (None, *sorted(accessible_projects or ()))
+        )
+        for diary_project in diary_projects:
             decisions.append(
                 (
                     authorize_memory_read(
                         principal_id=principal_id,
                         memory_scope=MemoryScope.PRIVATE,
-                        project_id=None,
+                        project_id=diary_project,
                         agent_id=agent_id,
                         accessible_projects=accessible_projects,
                     ),
-                    None,
+                    diary_project,
                     agent_id,
                 )
             )
