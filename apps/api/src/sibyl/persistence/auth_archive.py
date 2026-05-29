@@ -261,10 +261,12 @@ async def restore_auth_archive_payload(
     errors: list[str] = []
 
     try:
-        await bootstrap_auth_schema(client, reset=clean)
+        await bootstrap_auth_schema(client, reset=False)
         if clean:
-            # Wipe every auth table in one transaction so a clean restore never
-            # leaves the namespace half-purged if a delete fails partway.
+            # Wipe rows in one transaction rather than dropping tables on a
+            # clean restore: REMOVE TABLE is non-transactional DDL, so a
+            # failure mid-drop would leave the namespace missing tables on the
+            # DR path. The row wipe rolls back atomically if any delete fails.
             wipe_sql = "\n".join(_DELETE_TABLE_ROWS[table] for table in AUTH_ARCHIVE_TABLES)
             wipe_result = await client.execute_query_raw(
                 f"BEGIN TRANSACTION;\n{wipe_sql}\nCOMMIT TRANSACTION;",

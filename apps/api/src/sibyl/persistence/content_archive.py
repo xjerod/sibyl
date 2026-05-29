@@ -26,6 +26,7 @@ class ContentArchiveTableSpec:
     target_identity_field: str
     select_sql: str
     delete_by_identity_sql: str
+    delete_all_sql: str
     create_sql: str
 
 
@@ -36,6 +37,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="uuid",
         select_sql="SELECT * FROM crawl_sources ORDER BY id ASC;",
         delete_by_identity_sql="DELETE FROM crawl_sources WHERE uuid = $identity;",
+        delete_all_sql="DELETE FROM crawl_sources;",
         create_sql="CREATE crawl_sources CONTENT $record;",
     ),
     ContentArchiveTableSpec(
@@ -44,6 +46,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="uuid",
         select_sql="SELECT * FROM crawled_documents ORDER BY id ASC;",
         delete_by_identity_sql="DELETE FROM crawled_documents WHERE uuid = $identity;",
+        delete_all_sql="DELETE FROM crawled_documents;",
         create_sql="CREATE crawled_documents CONTENT $record;",
     ),
     ContentArchiveTableSpec(
@@ -52,6 +55,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="uuid",
         select_sql="SELECT * FROM document_chunks ORDER BY id ASC;",
         delete_by_identity_sql="DELETE FROM document_chunks WHERE uuid = $identity;",
+        delete_all_sql="DELETE FROM document_chunks;",
         create_sql="CREATE document_chunks CONTENT $record;",
     ),
     ContentArchiveTableSpec(
@@ -60,6 +64,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="uuid",
         select_sql="SELECT * FROM raw_captures ORDER BY id ASC;",
         delete_by_identity_sql="DELETE FROM raw_captures WHERE uuid = $identity;",
+        delete_all_sql="DELETE FROM raw_captures;",
         create_sql="CREATE raw_captures CONTENT $record;",
     ),
     ContentArchiveTableSpec(
@@ -68,6 +73,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="uuid",
         select_sql="SELECT * FROM source_imports ORDER BY id ASC;",
         delete_by_identity_sql="DELETE FROM source_imports WHERE uuid = $identity;",
+        delete_all_sql="DELETE FROM source_imports;",
         create_sql="CREATE source_imports CONTENT $record;",
     ),
     ContentArchiveTableSpec(
@@ -76,6 +82,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="key",
         select_sql="SELECT * FROM system_settings ORDER BY key ASC;",
         delete_by_identity_sql="DELETE FROM system_settings WHERE key = $identity;",
+        delete_all_sql="DELETE FROM system_settings;",
         create_sql="CREATE system_settings CONTENT $record;",
     ),
     ContentArchiveTableSpec(
@@ -84,6 +91,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="uuid",
         select_sql="SELECT * FROM backup_settings ORDER BY id ASC;",
         delete_by_identity_sql="DELETE FROM backup_settings WHERE uuid = $identity;",
+        delete_all_sql="DELETE FROM backup_settings;",
         create_sql="CREATE backup_settings CONTENT $record;",
     ),
     ContentArchiveTableSpec(
@@ -92,6 +100,7 @@ _CONTENT_ARCHIVE_TABLE_SPECS = (
         target_identity_field="uuid",
         select_sql="SELECT * FROM backups ORDER BY id ASC;",
         delete_by_identity_sql="DELETE FROM backups WHERE uuid = $identity;",
+        delete_all_sql="DELETE FROM backups;",
         create_sql="CREATE backups CONTENT $record;",
     ),
 )
@@ -305,7 +314,17 @@ async def restore_content_archive_payload(
     errors: list[str] = []
 
     try:
-        await bootstrap_content_schema(client, reset=clean)
+        await bootstrap_content_schema(client, reset=False)
+        if clean:
+            # A clean restore replaces all existing data. Wipe rows in one
+            # transaction rather than dropping tables: REMOVE TABLE is
+            # non-transactional DDL, so a failure mid-drop would leave the
+            # namespace with missing tables on the DR path.
+            wipe_sql = "\n".join(spec.delete_all_sql for spec in _CONTENT_ARCHIVE_TABLE_SPECS)
+            wipe_result = await client.execute_query_raw(
+                f"BEGIN TRANSACTION;\n{wipe_sql}\nCOMMIT TRANSACTION;",
+            )
+            _raise_on_error(wipe_result, query="restore_content_archive_payload:clean")
 
         for spec in _CONTENT_ARCHIVE_TABLE_SPECS:
             rows = tables.get(spec.name)

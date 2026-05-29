@@ -1766,30 +1766,14 @@ async def delete_crawl_source_record(
             return None
 
         source = _source_from_record(source_record)
-        document_rows = await _select_many(
-            client,
-            "SELECT * FROM crawled_documents WHERE source_id = $source_id;",
-            source_id=str(source_id),
-        )
-        document_ids = [
-            str(document_row["uuid"])
-            for document_row in document_rows
-            if document_row.get("uuid") is not None
-        ]
-        statements: list[str] = []
-        if document_ids:
-            statements.append(
-                "DELETE FROM document_chunks WHERE document_id IN $document_ids;"
-            )
-            statements.append(
-                "DELETE FROM crawled_documents WHERE source_id = $source_id;"
-            )
-        statements.append("DELETE FROM crawl_sources WHERE uuid = $source_uuid;")
-        body = "\n".join(statements)
         await _execute_raw_transaction(
             client,
-            f"BEGIN TRANSACTION;\n{body}\nCOMMIT TRANSACTION;",
-            document_ids=document_ids,
+            "BEGIN TRANSACTION;\n"
+            "DELETE FROM document_chunks WHERE document_id IN "
+            "(SELECT VALUE uuid FROM crawled_documents WHERE source_id = $source_id);\n"
+            "DELETE FROM crawled_documents WHERE source_id = $source_id;\n"
+            "DELETE FROM crawl_sources WHERE uuid = $source_uuid;\n"
+            "COMMIT TRANSACTION;",
             source_id=str(source_id),
             source_uuid=str(source.id),
         )
