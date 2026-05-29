@@ -8,60 +8,7 @@ import pytest
 from sibyl.api.errors import (
     INTERNAL_ERROR,
     VALIDATION_ERROR,
-    sanitize_error_message,
 )
-
-
-class TestErrorSanitization:
-    """Tests for error message sanitization."""
-
-    def test_sanitize_removes_file_paths(self) -> None:
-        """File paths should be sanitized from error messages."""
-        exc = Exception("/home/user/app/src/module.py: error here")
-        result = sanitize_error_message(exc)
-        assert result == VALIDATION_ERROR
-
-    def test_sanitize_removes_windows_paths(self) -> None:
-        """Windows paths should be sanitized."""
-        exc = Exception("C:\\Users\\app\\src\\module.py failed")
-        result = sanitize_error_message(exc)
-        assert result == VALIDATION_ERROR
-
-    def test_sanitize_removes_tracebacks(self) -> None:
-        """Traceback references should be sanitized."""
-        exc = Exception("Traceback (most recent call last)...")
-        result = sanitize_error_message(exc)
-        assert result == VALIDATION_ERROR
-
-    def test_sanitize_removes_sql(self) -> None:
-        """SQL references should be sanitized."""
-        exc = Exception("SELECT * FROM users WHERE id = 1 failed")
-        result = sanitize_error_message(exc)
-        assert result == VALIDATION_ERROR
-
-    def test_sanitize_removes_secrets(self) -> None:
-        """Secret/credential references should be sanitized."""
-        exc = Exception("Invalid password format")
-        result = sanitize_error_message(exc)
-        assert result == VALIDATION_ERROR
-
-    def test_sanitize_removes_long_messages(self) -> None:
-        """Very long messages (likely stack traces) should be sanitized."""
-        exc = Exception("x" * 250)  # 250 char message
-        result = sanitize_error_message(exc)
-        assert result == VALIDATION_ERROR
-
-    def test_sanitize_allows_safe_messages(self) -> None:
-        """Safe, short messages should be allowed through."""
-        exc = Exception("Invalid entity ID format")
-        result = sanitize_error_message(exc)
-        assert result == "Invalid entity ID format"
-
-    def test_sanitize_allows_validation_messages(self) -> None:
-        """Common validation messages should pass."""
-        exc = Exception("Name is required")
-        result = sanitize_error_message(exc)
-        assert result == "Name is required"
 
 
 class TestErrorConstants:

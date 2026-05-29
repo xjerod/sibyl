@@ -4,8 +4,6 @@ Covers the factory functions that return HTTPException instances
 for use with `raise` in route handlers.
 """
 
-from unittest.mock import patch
-
 import pytest
 from fastapi import HTTPException
 
@@ -17,19 +15,14 @@ from sibyl.api.errors import (
     NO_ORG_CONTEXT,
     bad_request,
     conflict,
-    document_not_found,
-    entity_not_found,
-    epic_not_found,
     forbidden,
     generate_error_id,
     http_exception_payload,
     internal_error,
-    log_and_raise_internal,
     no_org_context,
     not_found,
     project_not_found,
     source_not_found,
-    task_not_found,
     unauthorized,
 )
 
@@ -263,18 +256,6 @@ class TestInternalError:
 class TestEntityHelpers:
     """Tests for entity-specific not_found helpers."""
 
-    def test_task_not_found(self) -> None:
-        """task_not_found creates correct exception."""
-        result = task_not_found("task_456")
-        assert result.status_code == 404
-        assert result.detail == "Task not found: task_456"
-
-    def test_epic_not_found(self) -> None:
-        """epic_not_found creates correct exception."""
-        result = epic_not_found("epic_789")
-        assert result.status_code == 404
-        assert result.detail == "Epic not found: epic_789"
-
     def test_project_not_found(self) -> None:
         """project_not_found creates correct exception."""
         result = project_not_found("proj_abc")
@@ -286,18 +267,6 @@ class TestEntityHelpers:
         result = source_not_found("src_def")
         assert result.status_code == 404
         assert result.detail == "Source not found: src_def"
-
-    def test_document_not_found(self) -> None:
-        """document_not_found creates correct exception."""
-        result = document_not_found("doc_ghi")
-        assert result.status_code == 404
-        assert result.detail == "Document not found: doc_ghi"
-
-    def test_entity_not_found(self) -> None:
-        """entity_not_found creates correct exception."""
-        result = entity_not_found("ent_jkl")
-        assert result.status_code == 404
-        assert result.detail == "Entity not found: ent_jkl"
 
 
 # =============================================================================
@@ -320,52 +289,6 @@ class TestGenerateErrorId:
         """Each call returns different ID."""
         ids = [generate_error_id() for _ in range(100)]
         assert len(set(ids)) == 100  # All unique
-
-
-# =============================================================================
-# log_and_raise_internal Tests
-# =============================================================================
-class TestLogAndRaiseInternal:
-    """Tests for log_and_raise_internal function."""
-
-    def test_raises_http_exception(self) -> None:
-        """Raises HTTPException with 500 status."""
-        with pytest.raises(HTTPException) as exc_info:
-            log_and_raise_internal(ValueError("test error"))
-        assert exc_info.value.status_code == 500
-
-    def test_includes_error_id_in_detail(self) -> None:
-        """Detail includes error reference ID."""
-        with pytest.raises(HTTPException) as exc_info:
-            log_and_raise_internal(ValueError("test"))
-        assert "ref:" in exc_info.value.detail
-
-    def test_logs_error_details(self) -> None:
-        """Logs exception details for debugging."""
-        with (
-            patch("sibyl.api.errors.log") as mock_log,
-            pytest.raises(HTTPException),
-        ):
-            log_and_raise_internal(
-                ValueError("original error"),
-                context="creating entity",
-                entity_id="ent_123",
-            )
-
-        mock_log.error.assert_called_once()
-        call_kwargs = mock_log.error.call_args
-        assert call_kwargs[0][0] == "internal_error"
-        assert call_kwargs[1]["context"] == "creating entity"
-        assert call_kwargs[1]["error_type"] == "ValueError"
-        assert call_kwargs[1]["error_message"] == "original error"
-        assert call_kwargs[1]["entity_id"] == "ent_123"
-
-    def test_preserves_original_exception(self) -> None:
-        """Original exception is chained."""
-        original = ValueError("original")
-        with pytest.raises(HTTPException) as exc_info:
-            log_and_raise_internal(original)
-        assert exc_info.value.__cause__ is original
 
 
 # =============================================================================
