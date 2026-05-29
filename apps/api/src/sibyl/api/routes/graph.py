@@ -619,6 +619,7 @@ async def get_hierarchical_graph_data(
         "displayed_nodes": data.displayed_nodes,
         "displayed_edges": data.displayed_edges,
         "resolution": data.resolution,
+        "recommended_resolution": data.recommended_resolution,
     }
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import heapq
 import uuid
 from collections import Counter
 from collections.abc import Callable
@@ -45,6 +46,19 @@ _GRAPH_PRIMARY_SAMPLE_SHARE = 0.8
 _GRAPH_MISSING_TYPE_MIN_RESERVE = 5
 GRAPH_RESOLUTION_OVERVIEW = "overview"
 GRAPH_RESOLUTION_DETAIL = "detail"
+
+# Community detection and node selection must see the whole graph, not the
+# per-request render budget. Loading only the most-recent max_nodes/max_edges
+# truncated nodes and edges independently, so few edges had both endpoints in
+# the slice and the graph rendered as a disconnected starfield. These caps
+# bound analytic cost; an org beyond them should move to persisted community
+# detection (store_communities) rather than shrinking what we detect on.
+DETECTION_MAX_ENTITIES = 25_000
+DETECTION_MAX_RELATIONSHIPS = 100_000
+# Above this focused-node count the UI defaults to the aggregate overview.
+OVERVIEW_NODE_THRESHOLD = 400
+# Share of the render budget seeded with top-degree hubs before BFS growth.
+_GRAPH_HUB_SEED_SHARE = 0.4
 
 
 def _entity_summary(entity: Entity) -> str:
@@ -525,6 +539,105 @@ def _pick_representative_node_ids(
     return [entity_id for entity_id in ranked_ids if entity_id in selected_ids][:max_nodes]
 
 
+def _build_focused_adjacency(
+    relationships: list[Relationship],
+    focused_ids: set[str],
+) -> dict[str, set[str]]:
+    """Undirected adjacency among focused nodes, for connectivity-aware sampling."""
+    adjacency: dict[str, set[str]] = {}
+    for relationship in relationships:
+        source = relationship.source_id
+        target = relationship.target_id
+        if source == target or source not in focused_ids or target not in focused_ids:
+            continue
+        adjacency.setdefault(source, set()).add(target)
+        adjacency.setdefault(target, set()).add(source)
+    return adjacency
+
+
+def _pick_connected_node_ids(
+    focused_ids: set[str],
+    entity_by_id: dict[str, Entity],
+    degrees: Counter[str],
+    adjacency: dict[str, set[str]],
+    *,
+    max_nodes: int,
+) -> list[str]:
+    """Select up to max_nodes that form a DENSE, connected subgraph.
+
+    The previous selector took the top nodes by degree/recency, which over a
+    large graph picks hubs from unrelated neighborhoods whose neighbors fall
+    outside the slice — so almost no edge has both endpoints selected and the
+    render is a starfield. Instead: seed with the top-degree hubs, then grow by
+    repeatedly attaching the highest-degree unselected neighbor of the current
+    set, so every added node carries at least one surviving edge.
+    """
+    ranked_ids = sorted(
+        focused_ids,
+        key=lambda entity_id: _entity_priority_key(entity_id, entity_by_id, degrees),
+        reverse=True,
+    )
+    if len(ranked_ids) <= max_nodes:
+        return ranked_ids
+
+    seed_count = max(1, min(max_nodes, int(max_nodes * _GRAPH_HUB_SEED_SHARE)))
+    selected: set[str] = set(ranked_ids[:seed_count])
+
+    queued: set[str] = set(selected)
+    frontier: list[tuple[int, str]] = []
+
+    def _enqueue_neighbors(node_id: str) -> None:
+        for neighbor in adjacency.get(node_id, ()):
+            if neighbor in queued:
+                continue
+            queued.add(neighbor)
+            heapq.heappush(frontier, (-degrees.get(neighbor, 0), neighbor))
+
+    for node_id in selected:
+        _enqueue_neighbors(node_id)
+
+    while len(selected) < max_nodes and frontier:
+        _, neighbor = heapq.heappop(frontier)
+        if neighbor in selected:
+            continue
+        selected.add(neighbor)
+        _enqueue_neighbors(neighbor)
+
+    # Disconnected remainder: spend any leftover budget on a type-diversity
+    # reserve (so rare types still appear) then the highest-degree leftovers.
+    if len(selected) < max_nodes:
+        remaining_by_type: dict[str, list[str]] = {}
+        for entity_id in ranked_ids:
+            if entity_id in selected:
+                continue
+            entity = entity_by_id.get(entity_id)
+            if entity is None:
+                continue
+            remaining_by_type.setdefault(entity.entity_type.value, []).append(entity_id)
+        represented_types = {
+            entity.entity_type.value
+            for entity_id in selected
+            if (entity := entity_by_id.get(entity_id)) is not None
+        }
+        quotas = _allocate_diversity_quotas(
+            remaining_by_type,
+            represented_types=represented_types,
+            budget=max_nodes - len(selected),
+        )
+        for entity_type, quota in quotas.items():
+            for entity_id in remaining_by_type[entity_type][:quota]:
+                selected.add(entity_id)
+        if len(selected) < max_nodes:
+            for entity_id in ranked_ids:
+                if entity_id in selected:
+                    continue
+                selected.add(entity_id)
+                if len(selected) >= max_nodes:
+                    break
+
+    return [entity_id for entity_id in ranked_ids if entity_id in selected][:max_nodes]
+
+
 def _cluster_type_counts(
     entity_ids: set[str],
     entity_by_id: dict[str, Entity],
@@ -711,10 +824,12 @@ def _build_graph_nodes_from_snapshot(
         if relationship.target_id != relationship.source_id:
             degrees[relationship.target_id] += 1
 
-    selected_ids = _pick_representative_node_ids(
+    adjacency = _build_focused_adjacency(relationships, focused_ids)
+    selected_ids = _pick_connected_node_ids(
         focused_ids,
         entity_by_id,
         degrees,
+        adjacency,
         max_nodes=max_nodes,
     )
 
@@ -745,22 +860,56 @@ def _build_graph_edges_from_snapshot(
     *,
     max_edges: int,
 ) -> list[dict[str, Any]]:
-    edges: list[dict[str, Any]] = []
+    candidates = [
+        relationship
+        for relationship in relationships
+        if relationship.source_id in node_ids and relationship.target_id in node_ids
+    ]
 
-    for relationship in relationships:
-        if relationship.source_id not in node_ids or relationship.target_id not in node_ids:
-            continue
-        edges.append(
-            {
-                "source": relationship.source_id,
-                "target": relationship.target_id,
-                "type": relationship.relationship_type.value,
-            }
+    # Over budget: keep the edges between the most-connected nodes so the
+    # densest, most legible structure survives instead of whatever iterates
+    # first.
+    if len(candidates) > max_edges:
+        local_degree: Counter[str] = Counter()
+        for relationship in candidates:
+            local_degree[relationship.source_id] += 1
+            local_degree[relationship.target_id] += 1
+        candidates.sort(
+            key=lambda r: local_degree[r.source_id] + local_degree[r.target_id],
+            reverse=True,
         )
-        if len(edges) >= max_edges:
-            break
+        candidates = candidates[:max_edges]
 
-    return edges
+    return [
+        {
+            "source": relationship.source_id,
+            "target": relationship.target_id,
+            "type": relationship.relationship_type.value,
+        }
+        for relationship in candidates
+    ]
+
+
+def _overview_cluster_label(
+    cluster_id: str,
+    member_ids: list[str],
+    entity_by_id: dict[str, Entity],
+    degrees: Counter[str],
+    dominant_type: str,
+) -> str:
+    """Human label for an aggregate cluster: its top members by degree."""
+    if cluster_id == "unclustered":
+        return "Unclustered"
+    ranked = sorted(member_ids, key=lambda entity_id: degrees.get(entity_id, 0), reverse=True)
+    names: list[str] = []
+    for entity_id in ranked[:2]:
+        entity = entity_by_id.get(entity_id)
+        name = (entity.name if entity is not None else "") or ""
+        if name:
+            names.append(name if len(name) <= 24 else f"{name[:21]}…")
+    if names:
+        return ", ".join(names)
+    return dominant_type.replace("_", " ").title() if dominant_type else "Cluster"
 
 
 def _build_overview_graph_from_snapshot(
@@ -774,19 +923,131 @@ def _build_overview_graph_from_snapshot(
     max_nodes: int = 1000,
     max_edges: int = 5000,
 ) -> HierarchicalGraphData:
-    data = _build_cluster_detail_graph_from_snapshot(
+    """Aggregate overview: one bubble per community, bridged by inter-cluster edges.
+
+    This is the legible entry point for a large graph — the detail view is
+    reached by drilling into a cluster. Each aggregate node carries
+    `aggregate=True` and `member_count` (the frontend sizes and styles bubbles
+    from these) and a dominant `type` so it picks up the entity color.
+    """
+    entity_by_id = _entity_index(entities)
+    focused_ids = _focused_entity_ids(
         entities,
         relationships,
-        node_to_cluster,
-        clusters_meta,
-        cluster_id=None,
         project_ids=project_ids,
         entity_types=entity_types,
-        max_nodes=max_nodes,
-        max_edges=max_edges,
     )
-    data.resolution = GRAPH_RESOLUTION_OVERVIEW
-    return data
+    total_node_count, total_edge_count = _graph_totals_from_snapshot(
+        entities,
+        relationships,
+        project_ids=project_ids,
+        entity_types=entity_types,
+    )
+    if not focused_ids:
+        return HierarchicalGraphData(
+            nodes=[],
+            edges=[],
+            clusters=[],
+            cluster_edges=[],
+            total_nodes=total_node_count,
+            total_edges=total_edge_count,
+            displayed_nodes=0,
+            displayed_edges=0,
+            resolution=GRAPH_RESOLUTION_OVERVIEW,
+        )
+
+    degrees: Counter[str] = Counter()
+    for relationship in relationships:
+        if relationship.source_id not in focused_ids or relationship.target_id not in focused_ids:
+            continue
+        degrees[relationship.source_id] += 1
+        if relationship.target_id != relationship.source_id:
+            degrees[relationship.target_id] += 1
+
+    members_by_cluster: dict[str, list[str]] = {}
+    type_counts_by_cluster: dict[str, dict[str, int]] = {}
+    for entity_id in focused_ids:
+        entity = entity_by_id.get(entity_id)
+        if entity is None:
+            continue
+        cluster_id = node_to_cluster.get(entity_id, "unclustered")
+        members_by_cluster.setdefault(cluster_id, []).append(entity_id)
+        type_counts = type_counts_by_cluster.setdefault(cluster_id, {})
+        entity_type = entity.entity_type.value
+        type_counts[entity_type] = type_counts.get(entity_type, 0) + 1
+
+    aggregate_nodes: list[dict[str, Any]] = []
+    enriched_clusters: list[dict[str, Any]] = []
+    for cluster_id, members in members_by_cluster.items():
+        type_dist = type_counts_by_cluster.get(cluster_id, {})
+        dominant = _dominant_type(type_dist)
+        label = _overview_cluster_label(cluster_id, members, entity_by_id, degrees, dominant)
+        summary = ", ".join(
+            f"{count} {entity_type.replace('_', ' ')}"
+            for entity_type, count in sorted(
+                type_dist.items(), key=lambda item: item[1], reverse=True
+            )[:4]
+        )
+        aggregate_nodes.append(
+            {
+                "id": cluster_id,
+                "name": label,
+                "type": dominant,
+                "summary": summary,
+                "cluster_id": cluster_id,
+                "aggregate": True,
+                "member_count": len(members),
+            }
+        )
+        enriched_clusters.append(
+            {
+                "id": cluster_id,
+                "label": label,
+                "member_count": len(members),
+                "displayed_member_count": len(members),
+                "level": 0,
+                "type_distribution": type_dist,
+                "displayed_type_distribution": type_dist,
+                "dominant_type": dominant,
+                "displayed_dominant_type": dominant,
+            }
+        )
+
+    aggregate_nodes.sort(key=lambda node: node["member_count"], reverse=True)
+    enriched_clusters.sort(key=lambda cluster: cluster["member_count"], reverse=True)
+
+    cluster_edge_counts: dict[tuple[str, str], int] = {}
+    for relationship in relationships:
+        if relationship.source_id not in focused_ids or relationship.target_id not in focused_ids:
+            continue
+        source_cluster = node_to_cluster.get(relationship.source_id, "unclustered")
+        target_cluster = node_to_cluster.get(relationship.target_id, "unclustered")
+        if source_cluster == target_cluster:
+            continue
+        ordered = sorted((source_cluster, target_cluster))
+        pair: tuple[str, str] = (ordered[0], ordered[1])
+        cluster_edge_counts[pair] = cluster_edge_counts.get(pair, 0) + 1
+
+    overview_edges = [
+        {"source": pair[0], "target": pair[1], "type": "inter_cluster", "weight": weight}
+        for pair, weight in cluster_edge_counts.items()
+        if weight > 0
+    ]
+    if len(overview_edges) > max_edges:
+        overview_edges.sort(key=lambda edge: edge["weight"], reverse=True)
+        overview_edges = overview_edges[:max_edges]
+
+    return HierarchicalGraphData(
+        nodes=aggregate_nodes,
+        edges=overview_edges,
+        clusters=enriched_clusters,
+        cluster_edges=overview_edges,
+        total_nodes=total_node_count,
+        total_edges=total_edge_count,
+        displayed_nodes=len(aggregate_nodes),
+        displayed_edges=len(overview_edges),
+        resolution=GRAPH_RESOLUTION_OVERVIEW,
+    )
 
 
 def _build_cluster_detail_graph_from_snapshot(
@@ -1203,6 +1464,7 @@ class HierarchicalGraphData:
     displayed_nodes: int  # How many we're sending to UI
     displayed_edges: int  # How many we're sending to UI
     resolution: str = GRAPH_RESOLUTION_DETAIL
+    recommended_resolution: str = GRAPH_RESOLUTION_DETAIL  # server hint for initial mode
 
 
 @dataclass
@@ -1486,11 +1748,14 @@ async def get_hierarchical_graph(
             )
             return data
 
+    # Load the whole graph (within analytic caps) for detection and selection.
+    # max_nodes/max_edges are render budgets applied later, never here — capping
+    # the snapshot is what produced the disconnected starfield.
     snapshot = await _get_graph_snapshot(
         client,
         organization_id,
-        max_entities=max_nodes,
-        max_relationships=max_edges,
+        max_entities=DETECTION_MAX_ENTITIES,
+        max_relationships=DETECTION_MAX_RELATIONSHIPS,
     )
     entities = snapshot.entities
     relationships = snapshot.relationships
@@ -1594,6 +1859,11 @@ async def get_hierarchical_graph(
 
     data.total_nodes = total_node_count
     data.total_edges = total_edge_count
+    data.recommended_resolution = (
+        GRAPH_RESOLUTION_OVERVIEW
+        if total_node_count > OVERVIEW_NODE_THRESHOLD
+        else GRAPH_RESOLUTION_DETAIL
+    )
 
     log.info(
         "get_hierarchical_graph_complete",
