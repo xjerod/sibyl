@@ -1178,46 +1178,6 @@ async def get_cluster_nodes(
     }
 
 
-def invalidate_cluster_cache(organization_id: str | None = None) -> None:
-    """Invalidate cluster cache for an organization or all.
-
-    Args:
-        organization_id: Specific org to invalidate, or None for all.
-    """
-    if organization_id:
-        CLUSTER_CACHE.pop(organization_id, None)
-        GRAPH_LOD_CACHE.clear()
-        log.debug("cluster_cache_invalidated", org_id=organization_id)
-    else:
-        CLUSTER_CACHE.clear()
-        GRAPH_LOD_CACHE.clear()
-        log.debug("cluster_cache_cleared")
-
-
-def invalidate_hierarchical_cache(organization_id: str | None = None) -> None:
-    """Invalidate hierarchical graph cache for an organization or all.
-
-    Args:
-        organization_id: Specific org to invalidate, or None for all.
-    """
-    if organization_id:
-        HIERARCHICAL_CACHE.pop(organization_id, None)
-        for cache_key in list(GRAPH_SNAPSHOT_CACHE):
-            if cache_key[0] == organization_id:
-                GRAPH_SNAPSHOT_CACHE.pop(cache_key, None)
-        for cache_key in list(GRAPH_SNAPSHOT_LOADS):
-            if cache_key[0] == organization_id:
-                GRAPH_SNAPSHOT_LOADS.pop(cache_key, None)
-        GRAPH_LOD_CACHE.clear()
-        log.debug("hierarchical_cache_invalidated", org_id=organization_id)
-    else:
-        HIERARCHICAL_CACHE.clear()
-        GRAPH_SNAPSHOT_CACHE.clear()
-        GRAPH_SNAPSHOT_LOADS.clear()
-        GRAPH_LOD_CACHE.clear()
-        log.debug("hierarchical_cache_cleared")
-
-
 # =============================================================================
 # Hierarchical Graph Data for Rich Visualization
 # =============================================================================
