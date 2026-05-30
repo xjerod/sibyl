@@ -44,7 +44,7 @@ EXTENDED_AUTH_TABLES = (
     "llm_usage_buckets",
 )
 AUTH_TABLES = (*CORE_AUTH_TABLES, *EXTENDED_AUTH_TABLES)
-AUTH_SCHEMA_CURRENT_VERSION = 4
+AUTH_SCHEMA_CURRENT_VERSION = 5
 AUTH_SCHEMA_NAME = "auth"
 _AUTH_ORGANIZATION_ROLE_VALUES = tuple(role.value for role in OrganizationRole)
 _AUTH_PROJECT_ROLE_VALUES = tuple(role.value for role in ProjectRole)
@@ -595,6 +595,44 @@ DEFINE FIELD OVERWRITE status ON device_authorization_requests TYPE string DEFAU
     ASSERT $value IN {_surql_string_array(_AUTH_DEVICE_AUTHORIZATION_STATUS_VALUES)};
 """
 
+AUTH_PERMISSION_MIGRATION_DEFINITIONS = """
+ALTER TABLE IF EXISTS users PERMISSIONS NONE;
+ALTER TABLE IF EXISTS identity_provider PERMISSIONS NONE;
+ALTER TABLE IF EXISTS user_identity PERMISSIONS NONE;
+ALTER TABLE IF EXISTS llm_usage_buckets PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS organizations PERMISSIONS
+    FOR select, create, update, delete WHERE uuid = $token.org OR uuid = $auth.organization_id;
+ALTER TABLE IF EXISTS organization_members PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS user_sessions PERMISSIONS NONE;
+ALTER TABLE IF EXISTS password_reset_tokens PERMISSIONS NONE;
+ALTER TABLE IF EXISTS login_history PERMISSIONS NONE;
+ALTER TABLE IF EXISTS organization_invitations PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS api_keys PERMISSIONS NONE;
+ALTER TABLE IF EXISTS api_key_project_scopes PERMISSIONS NONE;
+ALTER TABLE IF EXISTS api_key_memory_space_scopes PERMISSIONS NONE;
+ALTER TABLE IF EXISTS oauth_connections PERMISSIONS NONE;
+ALTER TABLE IF EXISTS oauth_client_registrations PERMISSIONS NONE;
+ALTER TABLE IF EXISTS device_authorization_requests PERMISSIONS NONE;
+ALTER TABLE IF EXISTS audit_logs PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS teams PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS team_members PERMISSIONS NONE;
+ALTER TABLE IF EXISTS projects PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS project_members PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS team_projects PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS memory_spaces PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS memory_space_members PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+"""
+
 AUTH_SCHEMA_MIGRATIONS = (
     SchemaMigration(
         version=1,
@@ -615,6 +653,11 @@ AUTH_SCHEMA_MIGRATIONS = (
         version=4,
         name="auth_enum_assertions",
         statements=tuple(split_statements(AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS)),
+    ),
+    SchemaMigration(
+        version=5,
+        name="auth_table_permissions",
+        statements=tuple(split_statements(AUTH_PERMISSION_MIGRATION_DEFINITIONS)),
     ),
 )
 
@@ -639,34 +682,37 @@ async def _assert_auth_migrations_safe(client: SurrealAuthClient) -> None:
         scope="auth_schema_migration_version",
     )
     current_version = await get_schema_version(client.execute_query, name=AUTH_SCHEMA_NAME)
-    if current_version >= 4:
-        return
-
-    enum_checks = (
-        ("organization_members", "role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
-        ("organization_invitations", "invited_role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
-        ("team_members", "role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
-        ("projects", "visibility", _AUTH_PROJECT_VISIBILITY_VALUES, True),
-        ("projects", "default_role", _AUTH_PROJECT_ROLE_VALUES, True),
-        ("project_members", "role", _AUTH_PROJECT_ROLE_VALUES, True),
-        ("team_projects", "role", _AUTH_PROJECT_ROLE_VALUES, True),
-        ("memory_spaces", "memory_scope", _AUTH_MEMORY_SCOPE_VALUES, False),
-        ("memory_spaces", "state", _AUTH_MEMORY_SPACE_STATE_VALUES, True),
-        ("device_authorization_requests", "status", _AUTH_DEVICE_AUTHORIZATION_STATUS_VALUES, True),
-    )
-    for table, field, allowed, optional in enum_checks:
-        invalid_value = await _first_invalid_enum_value(
-            client,
-            table=table,
-            field=field,
-            allowed=allowed,
-            optional=optional,
+    if current_version < 4:
+        enum_checks = (
+            ("organization_members", "role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
+            ("organization_invitations", "invited_role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
+            ("team_members", "role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
+            ("projects", "visibility", _AUTH_PROJECT_VISIBILITY_VALUES, True),
+            ("projects", "default_role", _AUTH_PROJECT_ROLE_VALUES, True),
+            ("project_members", "role", _AUTH_PROJECT_ROLE_VALUES, True),
+            ("team_projects", "role", _AUTH_PROJECT_ROLE_VALUES, True),
+            ("memory_spaces", "memory_scope", _AUTH_MEMORY_SCOPE_VALUES, False),
+            ("memory_spaces", "state", _AUTH_MEMORY_SPACE_STATE_VALUES, True),
+            (
+                "device_authorization_requests",
+                "status",
+                _AUTH_DEVICE_AUTHORIZATION_STATUS_VALUES,
+                True,
+            ),
         )
-        if invalid_value is not None:
-            raise RuntimeError(
-                f"Cannot migrate {table}.{field} enum assertion: "
-                f"invalid existing value {invalid_value!r}"
+        for table, field, allowed, optional in enum_checks:
+            invalid_value = await _first_invalid_enum_value(
+                client,
+                table=table,
+                field=field,
+                allowed=allowed,
+                optional=optional,
             )
+            if invalid_value is not None:
+                raise RuntimeError(
+                    f"Cannot migrate {table}.{field} enum assertion: "
+                    f"invalid existing value {invalid_value!r}"
+                )
 
 
 async def _first_invalid_enum_value(
@@ -704,6 +750,7 @@ async def _first_invalid_enum_value(
 __all__ = [
     "AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS",
     "AUTH_INVITATION_TOKEN_MIGRATION_DEFINITIONS",
+    "AUTH_PERMISSION_MIGRATION_DEFINITIONS",
     "AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS",
     "AUTH_SCHEMA_CURRENT_VERSION",
     "AUTH_SCHEMA_DEFINITIONS",

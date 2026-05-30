@@ -39,7 +39,7 @@ CONTENT_TABLES = (
     "backup_settings",
     "backups",
 )
-CONTENT_SCHEMA_CURRENT_VERSION = 5
+CONTENT_SCHEMA_CURRENT_VERSION = 6
 CONTENT_SCHEMA_NAME = "content"
 _SCHEMA_CHECK_BATCH_SIZE = 128
 _CONTENT_MEMORY_SCOPE_VALUES = tuple(scope.value for scope in MemoryScope)
@@ -130,6 +130,27 @@ DEFINE FIELD OVERWRITE status ON backups TYPE string DEFAULT 'pending'
     ASSERT $value IN {_surql_string_array(_CONTENT_BACKUP_STATUS_VALUES)};
 """
 
+CONTENT_PERMISSION_MIGRATION_DEFINITIONS = """
+ALTER TABLE IF EXISTS crawl_sources PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS crawled_documents PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS document_chunks PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS raw_captures PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS api_idempotency_records PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS source_imports PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS system_settings PERMISSIONS NONE;
+ALTER TABLE IF EXISTS telemetry_rollups PERMISSIONS NONE;
+ALTER TABLE IF EXISTS backup_settings PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS backups PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+"""
+
 
 def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
     compatible_schema = render_fulltext_compatible_sql(
@@ -163,6 +184,11 @@ def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
             version=5,
             name="content_enum_assertions",
             statements=tuple(split_statements(CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS)),
+        ),
+        SchemaMigration(
+            version=6,
+            name="content_table_permissions",
+            statements=tuple(split_statements(CONTENT_PERMISSION_MIGRATION_DEFINITIONS)),
         ),
     )
 
@@ -412,6 +438,7 @@ __all__ = [
     "CONTENT_CHILD_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_DOCUMENT_URL_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS",
+    "CONTENT_PERMISSION_MIGRATION_DEFINITIONS",
     "CONTENT_SCHEMA_CURRENT_VERSION",
     "CONTENT_SCHEMA_DEFINITIONS",
     "CONTENT_SCHEMA_NAME",

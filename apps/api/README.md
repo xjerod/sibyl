@@ -154,6 +154,17 @@ manager = EntityManager(client, group_id=str(org.id))
 Write concurrency: the SurrealDB driver serializes WebSocket operations per client. Clone graph
 drivers per organization rather than sharing one driver across org scopes.
 
+**SurrealDB access model:** The API server, worker, CLI, and schema bootstrap flows use configured
+SurrealDB system credentials (`SIBYL_SURREAL_USERNAME` / `SIBYL_SURREAL_PASSWORD`) so they can run
+migrations, background jobs, and admin workflows. Route code must keep explicit org, project, and
+principal predicates because system users sit above table-level permissions.
+
+Auth and content schema migrations also define table permissions for future scoped Surreal record
+users. Tenant-owned tables accept rows where `organization_id` (or `organizations.uuid`) matches
+either `$token.org` from an external JWT access method or `$auth.organization_id` from a Surreal
+record session. Secret-heavy and global tables, such as API keys, sessions, OAuth tokens, system
+settings, and telemetry rollups, remain `PERMISSIONS NONE` for direct scoped DB access.
+
 **Request context:** Auth middleware injects user and org.
 
 ```python

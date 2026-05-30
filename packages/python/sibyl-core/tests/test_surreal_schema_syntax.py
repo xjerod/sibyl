@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import time
+
+import jwt
 import pytest
+from surrealdb import AsyncSurreal
 
 from sibyl_core.backends.surreal.auth_schema import (
     AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS,
     AUTH_INVITATION_TOKEN_MIGRATION_DEFINITIONS,
+    AUTH_PERMISSION_MIGRATION_DEFINITIONS,
     AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS,
     AUTH_SCHEMA_CURRENT_VERSION,
     AUTH_SCHEMA_DEFINITIONS,
@@ -15,9 +20,11 @@ from sibyl_core.backends.surreal.auth_schema import (
     bootstrap_auth_schema,
 )
 from sibyl_core.backends.surreal.content_schema import (
+    CONTENT_PERMISSION_MIGRATION_DEFINITIONS,
     CONTENT_SCHEMA_CURRENT_VERSION,
     CONTENT_SCHEMA_DEFINITIONS,
     CONTENT_TABLES,
+    _content_schema_migrations,
     bootstrap_content_schema,
 )
 from sibyl_core.backends.surreal.schema import (
@@ -38,6 +45,7 @@ from sibyl_core.backends.surreal.schema import (
     bootstrap_schema,
     render_fulltext_compatible_sql,
 )
+from sibyl_core.backends.surreal.schema_helpers import split_statements
 from sibyl_core.backends.surreal.schema_version import (
     GRAPH_SCHEMA_CURRENT_VERSION,
     SCHEMA_VERSION_DEFINITIONS,
@@ -85,6 +93,40 @@ class _RecordingSchemaClient:
                 f"Database index `{self.duplicate_index_name}` already contains 'dirty-row'"
             )
         return None
+
+
+_ACCESS_SECRET = "s" * 64
+
+
+def _permission_statement(definitions: str, table: str) -> str:
+    prefix = f"ALTER TABLE IF EXISTS {table} PERMISSIONS"
+    return next(
+        statement for statement in split_statements(definitions) if statement.startswith(prefix)
+    )
+
+
+def _record_access_token(*, namespace: str, database: str, organization_id: str) -> str:
+    return jwt.encode(
+        {
+            "exp": int(time.time()) + 3600,
+            "ns": namespace,
+            "db": database,
+            "ac": "record_user",
+            "id": "access_user:org_scoped_user",
+            "org": organization_id,
+        },
+        _ACCESS_SECRET,
+        algorithm="HS512",
+    )
+
+
+async def _define_record_access(db: AsyncSurreal) -> None:
+    await db.query(
+        f"""
+        DEFINE ACCESS record_user ON DATABASE TYPE RECORD
+            WITH JWT ALGORITHM HS512 KEY '{_ACCESS_SECRET}';
+        """
+    )
 
 
 def test_flexible_object_fields_keep_server_accepted_token_order() -> None:
@@ -154,6 +196,33 @@ def test_auth_enum_assertions_are_versioned() -> None:
     assert AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS.strip().splitlines()[0] in migration_sql
 
 
+def test_auth_table_permissions_are_versioned() -> None:
+    migration_sql = "\n".join(
+        statement for migration in AUTH_SCHEMA_MIGRATIONS for statement in migration.statements
+    )
+
+    assert "auth_table_permissions" in [migration.name for migration in AUTH_SCHEMA_MIGRATIONS]
+    for table in AUTH_TABLES:
+        assert f"ALTER TABLE IF EXISTS {table} PERMISSIONS" in (
+            AUTH_PERMISSION_MIGRATION_DEFINITIONS
+        )
+    assert "WHERE organization_id = $token.org" in AUTH_PERMISSION_MIGRATION_DEFINITIONS
+    assert "OR organization_id = $auth.organization_id" in (AUTH_PERMISSION_MIGRATION_DEFINITIONS)
+    assert "WHERE uuid = $token.org" in AUTH_PERMISSION_MIGRATION_DEFINITIONS
+    assert "OR uuid = $auth.organization_id" in AUTH_PERMISSION_MIGRATION_DEFINITIONS
+    for table in (
+        "users",
+        "api_keys",
+        "user_sessions",
+        "password_reset_tokens",
+        "oauth_connections",
+    ):
+        assert f"ALTER TABLE IF EXISTS {table} PERMISSIONS NONE" in (
+            AUTH_PERMISSION_MIGRATION_DEFINITIONS
+        )
+    assert AUTH_PERMISSION_MIGRATION_DEFINITIONS.strip().splitlines()[0] in migration_sql
+
+
 def test_auth_schema_includes_oidc_identity_tables() -> None:
     assert "identity_provider" in AUTH_TABLES
     assert "user_identity" in AUTH_TABLES
@@ -186,6 +255,140 @@ def test_auth_and_content_schema_include_deletion_lifecycle_fields() -> None:
         CONTENT_SCHEMA_DEFINITIONS
     )
     assert "idx_raw_captures_purge_after" in CONTENT_SCHEMA_DEFINITIONS
+
+
+def test_content_table_permissions_are_versioned() -> None:
+    migration_sql = "\n".join(
+        statement
+        for migration in _content_schema_migrations(url="memory://")
+        for statement in migration.statements
+    )
+
+    assert "content_table_permissions" in [
+        migration.name for migration in _content_schema_migrations(url="memory://")
+    ]
+    for table in CONTENT_TABLES:
+        assert f"ALTER TABLE IF EXISTS {table} PERMISSIONS" in (
+            CONTENT_PERMISSION_MIGRATION_DEFINITIONS
+        )
+    assert "WHERE organization_id = $token.org" in CONTENT_PERMISSION_MIGRATION_DEFINITIONS
+    assert "OR organization_id = $auth.organization_id" in (
+        CONTENT_PERMISSION_MIGRATION_DEFINITIONS
+    )
+    for table in ("system_settings", "telemetry_rollups"):
+        assert f"ALTER TABLE IF EXISTS {table} PERMISSIONS NONE" in (
+            CONTENT_PERMISSION_MIGRATION_DEFINITIONS
+        )
+    assert CONTENT_PERMISSION_MIGRATION_DEFINITIONS.strip().splitlines()[0] in migration_sql
+
+
+@pytest.mark.asyncio
+async def test_content_permissions_filter_record_users_by_org() -> None:
+    namespace = "permissions_content"
+    database = "content"
+    db = AsyncSurreal("memory://")
+    try:
+        await db.use(namespace, database)
+        await _define_record_access(db)
+        await db.query(
+            """
+            DEFINE TABLE crawl_sources SCHEMAFULL;
+            DEFINE FIELD uuid ON crawl_sources TYPE string;
+            DEFINE FIELD organization_id ON crawl_sources TYPE string;
+            DEFINE FIELD name ON crawl_sources TYPE string;
+            """
+        )
+        await db.query(
+            _permission_statement(CONTENT_PERMISSION_MIGRATION_DEFINITIONS, "crawl_sources")
+        )
+        await db.query(
+            """
+            CREATE crawl_sources CONTENT { uuid: 'source-a', organization_id: 'org-a', name: 'A' };
+            CREATE crawl_sources CONTENT { uuid: 'source-b', organization_id: 'org-b', name: 'B' };
+            """
+        )
+
+        await db.authenticate(
+            _record_access_token(
+                namespace=namespace,
+                database=database,
+                organization_id="org-a",
+            )
+        )
+        await db.use(namespace, database)
+        visible = await db.query("SELECT name, organization_id FROM crawl_sources ORDER BY name;")
+        denied_create = await db.query(
+            """
+            CREATE crawl_sources CONTENT {
+                uuid: 'source-denied',
+                organization_id: 'org-b',
+                name: 'denied'
+            };
+            """
+        )
+    finally:
+        await db.close()
+
+    assert visible == [{"name": "A", "organization_id": "org-a"}]
+    assert denied_create == []
+
+
+@pytest.mark.asyncio
+async def test_auth_permissions_filter_record_users_by_org() -> None:
+    namespace = "permissions_auth"
+    database = "auth"
+    db = AsyncSurreal("memory://")
+    try:
+        await db.use(namespace, database)
+        await _define_record_access(db)
+        await db.query(
+            """
+            DEFINE TABLE projects SCHEMAFULL;
+            DEFINE FIELD uuid ON projects TYPE string;
+            DEFINE FIELD organization_id ON projects TYPE string;
+            DEFINE FIELD name ON projects TYPE string;
+            DEFINE TABLE api_keys SCHEMAFULL;
+            DEFINE FIELD uuid ON api_keys TYPE string;
+            DEFINE FIELD organization_id ON api_keys TYPE string;
+            """
+        )
+        await db.query(_permission_statement(AUTH_PERMISSION_MIGRATION_DEFINITIONS, "projects"))
+        await db.query(_permission_statement(AUTH_PERMISSION_MIGRATION_DEFINITIONS, "api_keys"))
+        await db.query(
+            """
+            CREATE projects CONTENT { uuid: 'project-a', organization_id: 'org-a', name: 'A' };
+            CREATE projects CONTENT { uuid: 'project-b', organization_id: 'org-b', name: 'B' };
+            CREATE api_keys CONTENT { uuid: 'api-key-a', organization_id: 'org-a' };
+            """
+        )
+
+        await db.authenticate(
+            _record_access_token(
+                namespace=namespace,
+                database=database,
+                organization_id="org-a",
+            )
+        )
+        await db.use(namespace, database)
+        visible_projects = await db.query(
+            "SELECT name, organization_id FROM projects ORDER BY name;"
+        )
+        denied_project_create = await db.query(
+            """
+            CREATE projects CONTENT {
+                uuid: 'project-denied',
+                organization_id: 'org-b',
+                name: 'denied'
+            };
+            """
+        )
+        hidden_keys = await db.query("SELECT uuid FROM api_keys;")
+    finally:
+        await db.close()
+
+    assert visible_projects == [{"name": "A", "organization_id": "org-a"}]
+    assert denied_project_create == []
+    assert hidden_keys == []
 
 
 def test_fulltext_indexes_render_with_embedded_search_syntax() -> None:
