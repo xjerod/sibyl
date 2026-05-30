@@ -63,20 +63,9 @@ DEFINE INDEX IF NOT EXISTS idx_crawled_documents_source_url
 """
 
 CONTENT_CHILD_SCOPE_MIGRATION_DEFINITIONS = """
-DEFINE FIELD IF NOT EXISTS organization_id ON crawled_documents TYPE string DEFAULT '';
-DEFINE FIELD IF NOT EXISTS organization_id ON document_chunks TYPE string DEFAULT '';
-DEFINE FIELD IF NOT EXISTS source_id ON document_chunks TYPE string DEFAULT '';
-UPDATE crawled_documents SET
-    organization_id = (SELECT VALUE organization_id FROM crawl_sources
-        WHERE uuid = $parent.source_id LIMIT 1)[0]
-    WHERE organization_id = '' OR organization_id = NONE;
-UPDATE document_chunks SET
-    source_id = (SELECT VALUE source_id FROM crawled_documents
-        WHERE uuid = $parent.document_id LIMIT 1)[0],
-    organization_id = (SELECT VALUE organization_id FROM crawled_documents
-        WHERE uuid = $parent.document_id LIMIT 1)[0]
-    WHERE source_id = '' OR source_id = NONE
-        OR organization_id = '' OR organization_id = NONE;
+DEFINE FIELD IF NOT EXISTS organization_id ON crawled_documents TYPE option<string> DEFAULT '';
+DEFINE FIELD IF NOT EXISTS organization_id ON document_chunks TYPE option<string> DEFAULT '';
+DEFINE FIELD IF NOT EXISTS source_id ON document_chunks TYPE option<string> DEFAULT '';
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_org_source
     ON crawled_documents FIELDS organization_id, source_id;
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_org_source

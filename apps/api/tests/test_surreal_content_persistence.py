@@ -739,7 +739,7 @@ async def test_content_schema_migration_rejects_orphan_chunks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_content_schema_migration_backfills_child_scope_fields() -> None:
+async def test_content_schema_migration_defines_child_scope_fields_without_backfill() -> None:
     client = SurrealContentClient(url="memory://")
     org_id = str(uuid4())
     source_id = str(uuid4())
@@ -808,9 +808,9 @@ async def test_content_schema_migration_backfills_child_scope_fields() -> None:
                 uuid=chunk_id,
             )
         )
-        assert document_rows[0]["organization_id"] == org_id
-        assert chunk_rows[0]["organization_id"] == org_id
-        assert chunk_rows[0]["source_id"] == source_id
+        assert document_rows[0].get("organization_id") in {None, ""}
+        assert chunk_rows[0].get("organization_id") in {None, ""}
+        assert chunk_rows[0].get("source_id") in {None, ""}
     finally:
         await client.close()
 
