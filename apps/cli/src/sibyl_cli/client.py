@@ -231,10 +231,31 @@ def _is_refresh_revoked(message: str | None) -> bool:
     return "session not found" in normalized or "revoked" in normalized
 
 
+# Read-like POSTs (search, recall, context-pack assembly) carry no durable
+# write, so a failed one is simply re-run, never replayed. Buffering them
+# flooded the pending-write queue with hundreds of /search and /context/pack
+# entries. /context/reflect and /memory/raw are intentionally absent: they can
+# persist, so they stay buffered.
+READ_LIKE_POST_PATHS = (
+    "/search",
+    "/rag/search",
+    "/rag/hybrid-search",
+    "/rag/code-examples",
+    "/context/pack",
+    "/memory/raw/recall",
+)
+
+
+def _is_read_like_post(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in READ_LIKE_POST_PATHS)
+
+
 def _should_buffer_request(method: str, path: str) -> bool:
     if method.upper() not in BUFFERED_WRITE_METHODS:
         return False
-    return not path.startswith("/auth/")
+    if path.startswith("/auth/"):
+        return False
+    return not _is_read_like_post(path)
 
 
 def _requires_initialized_context(method: str, path: str) -> bool:
