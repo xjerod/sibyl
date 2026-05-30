@@ -9,7 +9,7 @@ import { TaskListMobile } from '@/components/tasks/task-list-mobile';
 import { RemovableBadge } from '@/components/ui/badge';
 import { CommandPalette, useKeyboardShortcuts } from '@/components/ui/command-palette';
 import { TasksEmptyState } from '@/components/ui/empty-state';
-import { ChevronDown, Hash, Search, X } from '@/components/ui/icons';
+import { ChevronDown, Hash, Plus, Search, X } from '@/components/ui/icons';
 import { LoadingState } from '@/components/ui/spinner';
 import { TagChip } from '@/components/ui/toggle';
 import { ErrorState } from '@/components/ui/tooltip';
@@ -197,95 +197,101 @@ function TasksPageContent() {
           )}
         </div>
 
-        {/* New Task Button */}
-        <div className="flex items-center justify-end">
+        {/* Filters (left) + New Task (right) share one row */}
+        <div className="flex items-center justify-between gap-2">
+          {/* Tag Filter - contained popover so it never floods the board */}
+          {allTags.length > 0 ? (
+            <div className="hidden sm:flex items-center gap-2">
+              <div ref={tagMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setTagMenuOpen(open => !open)}
+                  aria-expanded={tagMenuOpen}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base ${
+                    tagFilter
+                      ? 'bg-sc-purple/10 text-sc-purple border-sc-purple/30'
+                      : 'text-sc-fg-muted border-sc-fg-subtle/20 hover:text-sc-fg-primary hover:border-sc-fg-subtle/40'
+                  }`}
+                >
+                  <Hash width={12} height={12} />
+                  <span>Filter tags</span>
+                  {allTags.length > 0 && (
+                    <span className="text-sc-fg-subtle">({allTags.length})</span>
+                  )}
+                  <ChevronDown
+                    width={12}
+                    height={12}
+                    className={`transition-transform ${tagMenuOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {tagMenuOpen && (
+                  <div className="absolute top-full left-0 mt-1.5 w-72 bg-sc-bg-elevated border border-sc-fg-subtle/20 rounded-xl shadow-card-elevated z-50 overflow-hidden animate-fade-in">
+                    <div className="p-2 border-b border-sc-fg-subtle/10">
+                      <div className="relative">
+                        <Search
+                          width={14}
+                          height={14}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 text-sc-fg-subtle"
+                        />
+                        <input
+                          type="text"
+                          value={tagSearch}
+                          onChange={e => setTagSearch(e.target.value)}
+                          placeholder="Search tags..."
+                          // biome-ignore lint/a11y/noAutofocus: focus the search when the menu opens
+                          autoFocus
+                          className="w-full pl-7 pr-2 py-1.5 text-xs bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg text-sc-fg-primary placeholder:text-sc-fg-subtle focus-visible:outline-none focus-visible:border-sc-purple/50"
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-56 overflow-y-auto p-2 flex flex-wrap gap-1.5">
+                      {filteredTags.length === 0 ? (
+                        <span className="text-xs text-sc-fg-subtle px-1 py-2">
+                          No matching tags
+                        </span>
+                      ) : (
+                        filteredTags.map(tag => (
+                          <TagChip
+                            key={tag}
+                            tag={tag}
+                            active={tagFilter === tag}
+                            onClick={() => {
+                              handleTagFilter(tagFilter === tag ? null : tag);
+                              setTagMenuOpen(false);
+                              setTagSearch('');
+                            }}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {tagFilter && (
+                <RemovableBadge color="purple" onRemove={() => handleTagFilter(null)}>
+                  {tagFilter}
+                </RemovableBadge>
+              )}
+            </div>
+          ) : (
+            <span />
+          )}
+
           <button
             type="button"
             onClick={() => setIsQuickTaskOpen(true)}
-            className="shrink-0 px-4 py-2 bg-sc-purple hover:bg-sc-purple/80 text-white rounded-lg font-medium transition-colors flex items-center gap-1.5 text-sm"
+            className="shrink-0 flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-sc-purple text-sc-on-accent transition-colors hover:bg-sc-purple/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
           >
-            <span>+</span>
+            <Plus width={16} height={16} />
             <span className="hidden sm:inline">New Task</span>
             <span className="sm:hidden">New</span>
-            <kbd className="hidden sm:inline text-xs bg-white/20 px-1.5 py-0.5 rounded ml-1">C</kbd>
+            <kbd className="hidden sm:inline text-xs bg-sc-on-accent/20 px-1.5 py-0.5 rounded ml-1">
+              C
+            </kbd>
           </button>
         </div>
-
-        {/* Tag Filter - contained popover so it never floods the board */}
-        {allTags.length > 0 && (
-          <div className="hidden sm:flex items-center gap-2">
-            <div ref={tagMenuRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setTagMenuOpen(open => !open)}
-                aria-expanded={tagMenuOpen}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base ${
-                  tagFilter
-                    ? 'bg-sc-purple/10 text-sc-purple border-sc-purple/30'
-                    : 'text-sc-fg-muted border-sc-fg-subtle/20 hover:text-sc-fg-primary hover:border-sc-fg-subtle/40'
-                }`}
-              >
-                <Hash width={12} height={12} />
-                <span>Filter tags</span>
-                {allTags.length > 0 && (
-                  <span className="text-sc-fg-subtle">({allTags.length})</span>
-                )}
-                <ChevronDown
-                  width={12}
-                  height={12}
-                  className={`transition-transform ${tagMenuOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-
-              {tagMenuOpen && (
-                <div className="absolute top-full left-0 mt-1.5 w-72 bg-sc-bg-elevated border border-sc-fg-subtle/20 rounded-xl shadow-card-elevated z-50 overflow-hidden animate-fade-in">
-                  <div className="p-2 border-b border-sc-fg-subtle/10">
-                    <div className="relative">
-                      <Search
-                        width={14}
-                        height={14}
-                        className="absolute left-2 top-1/2 -translate-y-1/2 text-sc-fg-subtle"
-                      />
-                      <input
-                        type="text"
-                        value={tagSearch}
-                        onChange={e => setTagSearch(e.target.value)}
-                        placeholder="Search tags..."
-                        // biome-ignore lint/a11y/noAutofocus: focus the search when the menu opens
-                        autoFocus
-                        className="w-full pl-7 pr-2 py-1.5 text-xs bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg text-sc-fg-primary placeholder:text-sc-fg-subtle focus-visible:outline-none focus-visible:border-sc-purple/50"
-                      />
-                    </div>
-                  </div>
-                  <div className="max-h-56 overflow-y-auto p-2 flex flex-wrap gap-1.5">
-                    {filteredTags.length === 0 ? (
-                      <span className="text-xs text-sc-fg-subtle px-1 py-2">No matching tags</span>
-                    ) : (
-                      filteredTags.map(tag => (
-                        <TagChip
-                          key={tag}
-                          tag={tag}
-                          active={tagFilter === tag}
-                          onClick={() => {
-                            handleTagFilter(tagFilter === tag ? null : tag);
-                            setTagMenuOpen(false);
-                            setTagSearch('');
-                          }}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {tagFilter && (
-              <RemovableBadge color="purple" onRemove={() => handleTagFilter(null)}>
-                {tagFilter}
-              </RemovableBadge>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Task Board - Mobile List / Desktop Kanban */}
