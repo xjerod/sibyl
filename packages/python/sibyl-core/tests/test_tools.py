@@ -1065,6 +1065,11 @@ class TestSearchTool:
             )
 
         assert [result.id for result in response.results] == ["owned_session"]
+        assert response.results[0].metadata["candidate_kind"] == "node"
+        assert response.results[0].metadata["retrieval_signals"] == ["hybrid"]
+        assert response.results[0].metadata["candidate_organization_id"] == "org_123"
+        assert response.results[0].metadata["candidate_memory_scope"] == "private"
+        assert response.results[0].metadata["candidate_principal_id"] == "bob"
         result_filter = hybrid_search.await_args.kwargs["result_filter"]
         assert not result_filter(hidden)
         assert result_filter(owned)
@@ -1971,6 +1976,11 @@ class TestDocumentSearchFusion:
         ]
         assert merged[0].id == "chunk_2_vector"
         assert merged[0].score > merged[1].score > merged[2].score
+        assert merged[0].metadata["candidate_kind"] == "document"
+        assert merged[0].metadata["retrieval_signals"] == [
+            "document_vector",
+            "document_fulltext",
+        ]
 
     def test_merge_document_results_keeps_single_branch_scores_positive(self) -> None:
         """Single-branch lexical matches still return usable scores."""
@@ -1993,6 +2003,7 @@ class TestDocumentSearchFusion:
         assert len(merged) == 1
         assert merged[0].metadata["document_id"] == "doc_3"
         assert merged[0].score == pytest.approx(0.3)
+        assert merged[0].metadata["retrieval_signals"] == ["document_fulltext"]
 
 
 # =============================================================================

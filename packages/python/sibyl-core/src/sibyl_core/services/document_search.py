@@ -15,6 +15,12 @@ from sibyl_core.embeddings.providers import (
     EmbeddingProviderName,
     create_embedding_provider,
 )
+from sibyl_core.retrieval.candidates import (
+    CandidateKind,
+    CandidateSignal,
+    candidate_contract_metadata,
+    merge_candidate_signals,
+)
 from sibyl_core.retrieval.dedup import cosine_similarity
 from sibyl_core.services.surreal_content import (
     lexical_score_from_tokens,
@@ -209,6 +215,7 @@ def _build_document_result(
     source_id: UUID | str,
     score: float,
     include_content: bool,
+    signal: CandidateSignal,
 ) -> SearchResult:
     if include_content:
         content = chunk.content[:500] if chunk.content else ""
@@ -232,18 +239,22 @@ def _build_document_result(
         source=source_name,
         url=display_url,
         result_origin="document",
-        metadata={
-            "document_id": str(doc.id),
-            "source_id": str(source_id),
-            "chunk_type": chunk.chunk_type.value
-            if hasattr(chunk.chunk_type, "value")
-            else str(chunk.chunk_type),
-            "chunk_index": chunk.chunk_index,
-            "heading_path": chunk.heading_path or [],
-            "language": chunk.language,
-            "has_code": doc.has_code,
-            "hint": "Use 'sibyl entity <id>' or fetch /api/entities/<id> for full content",
-        },
+        metadata=candidate_contract_metadata(
+            kind=CandidateKind.DOCUMENT,
+            signals=[signal.value],
+            metadata={
+                "document_id": str(doc.id),
+                "source_id": str(source_id),
+                "chunk_type": chunk.chunk_type.value
+                if hasattr(chunk.chunk_type, "value")
+                else str(chunk.chunk_type),
+                "chunk_index": chunk.chunk_index,
+                "heading_path": chunk.heading_path or [],
+                "language": chunk.language,
+                "has_code": doc.has_code,
+                "hint": "Use 'sibyl entity <id>' or fetch /api/entities/<id> for full content",
+            },
+        ),
     )
 
 
@@ -265,22 +276,37 @@ def _merge_document_results(
 ) -> list[SearchResult]:
     combined_scores: dict[str, float] = {}
     representatives: dict[str, SearchResult] = {}
+    signals_by_key: dict[str, list[str]] = {}
 
-    for results, weight in (
-        (vector_results, DOCUMENT_VECTOR_WEIGHT),
-        (lexical_results, DOCUMENT_LEXICAL_WEIGHT),
+    for results, weight, signal in (
+        (vector_results, DOCUMENT_VECTOR_WEIGHT, CandidateSignal.DOCUMENT_VECTOR),
+        (lexical_results, DOCUMENT_LEXICAL_WEIGHT, CandidateSignal.DOCUMENT_FULLTEXT),
     ):
         normalized_scores = _normalize_document_scores(results)
         for result in results:
             key = _document_result_key(result)
             representatives.setdefault(key, result)
+            signals_by_key[key] = merge_candidate_signals(
+                signals_by_key.get(key),
+                result.metadata.get("retrieval_signals"),
+                [signal.value],
+            )
             combined_scores[key] = combined_scores.get(key, 0.0) + (
                 normalized_scores.get(key, 0.0) * weight
             )
 
     ranked_keys = sorted(combined_scores, key=lambda key: combined_scores[key], reverse=True)
     return [
-        replace(representatives[key], score=combined_scores[key]) for key in ranked_keys[:limit]
+        replace(
+            representatives[key],
+            score=combined_scores[key],
+            metadata=candidate_contract_metadata(
+                kind=CandidateKind.DOCUMENT,
+                signals=signals_by_key.get(key, []),
+                metadata=representatives[key].metadata,
+            ),
+        )
+        for key in ranked_keys[:limit]
     ]
 
 
@@ -289,6 +315,7 @@ def _build_document_results_from_rows(
     *,
     limit: int,
     include_content: bool,
+    signal: CandidateSignal,
 ) -> list[SearchResult]:
     return [
         _build_document_result(
@@ -298,6 +325,7 @@ def _build_document_results_from_rows(
             source_id=src_id,
             score=float(score),
             include_content=include_content,
+            signal=signal,
         )
         for chunk, doc, src_name, src_id, score in _dedupe_document_rows(rows)[:limit]
     ]
@@ -357,6 +385,7 @@ def _search_documents_from_scope(
         vector_rows_raw,
         limit=limit,
         include_content=include_content,
+        signal=CandidateSignal.DOCUMENT_VECTOR,
     )
 
     lexical_rows_raw: list[DocumentSearchRow] = []
@@ -382,6 +411,7 @@ def _search_documents_from_scope(
         lexical_rows_raw,
         limit=limit,
         include_content=include_content,
+        signal=CandidateSignal.DOCUMENT_FULLTEXT,
     )
 
     return _merge_document_results(vector_results, lexical_results, limit)
@@ -466,11 +496,13 @@ async def search_documents(
         vector_rows_raw,
         limit=limit,
         include_content=include_content,
+        signal=CandidateSignal.DOCUMENT_VECTOR,
     )
     lexical_results = _build_document_results_from_rows(
         lexical_rows_raw,
         limit=limit,
         include_content=include_content,
+        signal=CandidateSignal.DOCUMENT_FULLTEXT,
     )
 
     return _merge_document_results(vector_results, lexical_results, limit)

@@ -402,6 +402,7 @@ class EntityManager:
         type_values = [entity_type.value for entity_type in entity_types or ()]
         type_clause = "AND entity_type IN $entity_types" if type_values else ""
         candidate_limit = min(max(int(limit) * 4, 32), 200)
+        knn_effort = max(1, int(settings.graph_knn_ef))
         try:
             embeddings = await _embed_texts_with_timeout(
                 self._embedding_provider,
@@ -426,7 +427,7 @@ class EntityManager:
                     """
                     + type_clause
                     + f"""
-                          AND name_embedding <|{candidate_limit}, 40|> $query_embedding
+                          AND name_embedding <|{candidate_limit}, {knn_effort}|> $query_embedding
                     )
                     ORDER BY score DESC, created_at DESC, uuid DESC
                     LIMIT $limit;

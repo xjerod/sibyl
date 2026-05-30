@@ -11,6 +11,12 @@ from sibyl_core.auth.memory_policy import memory_scope_policy_key
 from sibyl_core.embeddings.providers import configured_embedding_provider
 from sibyl_core.models.entities import EntityType
 from sibyl_core.retrieval import HybridConfig, hybrid_search, temporal_boost
+from sibyl_core.retrieval.candidates import (
+    CandidateKind,
+    CandidateScope,
+    CandidateSignal,
+    candidate_contract_metadata,
+)
 from sibyl_core.retrieval.fusion import rrf_merge
 from sibyl_core.retrieval.temporal import parse_temporal_datetime
 from sibyl_core.services import document_search as document_search_service
@@ -80,6 +86,51 @@ def _matches_requested_graph_type(entity: Any, requested_graph_types: set[str]) 
     except ValueError:
         entity_type = entity_type.lower()
     return entity_type in requested_graph_types
+
+
+def _graph_candidate_metadata(
+    entity: Any,
+    *,
+    organization_id: str,
+    principal_id: str | None,
+) -> dict[str, Any]:
+    metadata = _build_entity_metadata(entity)
+    memory_scope = metadata.get("memory_scope")
+    project_id = _project_id_for_policy(entity)
+    visibility = str(memory_scope or ("project" if project_id else "organization"))
+    return candidate_contract_metadata(
+        kind=CandidateKind.NODE,
+        signals=[CandidateSignal.HYBRID.value],
+        scope=CandidateScope(
+            organization_id=organization_id,
+            project_id=project_id,
+            memory_scope=str(memory_scope) if memory_scope else None,
+            scope_key=str(metadata["scope_key"]) if metadata.get("scope_key") else None,
+            principal_id=str(principal_id or metadata["principal_id"])
+            if principal_id or metadata.get("principal_id")
+            else None,
+            visibility=visibility,
+            policy_reason="search_scope_verified",
+        ),
+        metadata=metadata,
+    )
+
+
+def _document_candidate_metadata(
+    result: SearchResult,
+    *,
+    organization_id: str,
+) -> dict[str, Any]:
+    return candidate_contract_metadata(
+        kind=CandidateKind.DOCUMENT,
+        signals=result.metadata.get("retrieval_signals") or (),
+        scope=CandidateScope(
+            organization_id=organization_id,
+            visibility="organization",
+            policy_reason="content_scope_verified",
+        ),
+        metadata=result.metadata,
+    )
 
 
 def _merge_graph_results(
@@ -789,7 +840,11 @@ async def search(
                         score=score,
                         source=entity.source_file,
                         result_origin="graph",
-                        metadata=_build_entity_metadata(entity),
+                        metadata=_graph_candidate_metadata(
+                            entity,
+                            organization_id=organization_id,
+                            principal_id=principal_id,
+                        ),
                     )
                 )
 
@@ -805,6 +860,12 @@ async def search(
     if document_search_task is not None:
         try:
             doc_results = await document_search_task
+            if organization_id:
+                for result in doc_results:
+                    result.metadata = _document_candidate_metadata(
+                        result,
+                        organization_id=organization_id,
+                    )
             log.debug("document_search_complete", results=len(doc_results))
         except Exception as e:
             log.warning("document_search_failed", error_type=type(e).__name__)

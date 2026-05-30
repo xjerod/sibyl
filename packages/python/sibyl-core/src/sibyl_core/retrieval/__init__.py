@@ -11,6 +11,15 @@ Lexical search is served natively by SurrealDB FULLTEXT indexes, not by an
 in-process keyword index.
 """
 
+from sibyl_core.retrieval.candidates import (
+    CandidateKind,
+    CandidateScope,
+    CandidateSignal,
+    RetrievalCandidate,
+    VectorCandidateFetch,
+    candidate_contract_metadata,
+    merge_candidate_signals,
+)
 from sibyl_core.retrieval.dedup import (
     DedupConfig,
     DuplicatePair,
@@ -40,13 +49,11 @@ from sibyl_core.retrieval.reranking import (
 from sibyl_core.retrieval.search import (
     DEFAULT_FILTER_SELECTIVITY_THRESHOLD,
     CandidateLimits,
-    RetrievalCandidate,
     RetrievalPlan,
     RetrievalSignal,
     RetrievalWeights,
     ScopeSpec,
     SearchFilter,
-    VectorCandidateFetch,
     build_context_retrieval_plan,
     context_search,
 )
@@ -59,7 +66,10 @@ from sibyl_core.retrieval.temporal import (
 
 __all__ = [
     "DEFAULT_FILTER_SELECTIVITY_THRESHOLD",
+    "CandidateKind",
     "CandidateLimits",
+    "CandidateScope",
+    "CandidateSignal",
     "CrossEncoderConfig",
     "DedupConfig",
     "DuplicatePair",
@@ -78,12 +88,14 @@ __all__ = [
     "VectorCandidateFetch",
     "build_context_retrieval_plan",
     "calculate_boost",
+    "candidate_contract_metadata",
     "context_search",
     "cosine_similarity",
     "cross_encoder_rerank",
     "find_duplicates",
     "get_deduplicator",
     "hybrid_search",
+    "merge_candidate_signals",
     "rerank_results",
     "rrf_merge",
     "rrf_merge_with_metadata",

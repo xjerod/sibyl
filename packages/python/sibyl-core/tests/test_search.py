@@ -13,6 +13,7 @@ from sibyl_core.embeddings.providers import (
     EmbeddingMetadata,
 )
 from sibyl_core.models.context import ContextFacet
+from sibyl_core.retrieval.candidates import CandidateKind, CandidateScope
 from sibyl_core.retrieval.search import (
     DEFAULT_FILTER_SELECTIVITY_THRESHOLD,
     FusionBackend,
@@ -276,6 +277,38 @@ def test_build_context_retrieval_plan_keeps_all_accessible_projects_when_unscope
     )
 
     assert plan.accessible_projects == frozenset({"project_123", "project_456"})
+
+
+def test_retrieval_candidate_contract_metadata_preserves_scope_and_signals() -> None:
+    candidate = RetrievalCandidate(
+        id="task-123",
+        type="task",
+        name="Scoped task",
+        content="Task content",
+        score=1.0,
+        source="task-123",
+        metadata={"entity_type": "task"},
+        kind=CandidateKind.NODE,
+        retrieval_signals=(RetrievalSignal.NODE_VECTOR.value,),
+        scope=CandidateScope(
+            organization_id="org-123",
+            project_id="project-123",
+            memory_scope="project",
+            scope_key="project-123",
+            principal_id="user-123",
+            visibility="project",
+            policy_reason="project_access_verified",
+        ),
+    )
+
+    metadata = candidate.contract_metadata()
+
+    assert metadata["candidate_kind"] == "node"
+    assert metadata["retrieval_signals"] == ["node_vector"]
+    assert metadata["candidate_organization_id"] == "org-123"
+    assert metadata["candidate_project_id"] == "project-123"
+    assert metadata["candidate_memory_scope"] == "project"
+    assert metadata["candidate_policy_reason"] == "project_access_verified"
 
 
 def test_build_context_retrieval_plan_includes_project_less_agent_diary_scope() -> None:

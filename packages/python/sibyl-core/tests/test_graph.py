@@ -633,6 +633,32 @@ async def test_native_entity_manager_search_uses_short_query_embedding_timeout(
 
 
 @pytest.mark.asyncio
+async def test_native_entity_manager_search_uses_configured_knn_effort(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _EmbeddingWriteClient()
+    provider = DeterministicEmbeddingProvider(
+        EmbeddingMetadata(
+            provider="deterministic",
+            model="unit-test",
+            dimensions=4,
+            cache_namespace="native-graph-test",
+            tokenizer_estimate_method="unit-test",
+        )
+    )
+    manager = EntityManager(
+        cast(SurrealGraphClient, client),
+        group_id=client.group_id,
+        embedding_provider=provider,
+    )
+    monkeypatch.setattr(graph_module.settings, "graph_knn_ef", 88)
+
+    await manager.search(query="configured vector effort", limit=5)
+
+    assert any("name_embedding <|32, 88|> $query_embedding" in query for query, _ in client.calls)
+
+
+@pytest.mark.asyncio
 async def test_native_entity_manager_bulk_writes_entities_in_one_surreal_batch() -> None:
     client = SurrealGraphClient(group_id="org-native-bulk-write", url="memory://")
     try:

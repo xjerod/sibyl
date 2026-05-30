@@ -22,6 +22,12 @@ from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.config import core_config
 from sibyl_core.embeddings.providers import EmbeddingMetadata, EmbeddingProvider
 from sibyl_core.models.context import ContextFacet
+from sibyl_core.retrieval.candidates import (
+    CandidateKind,
+    CandidateScope,
+    RetrievalCandidate,
+    VectorCandidateFetch,
+)
 from sibyl_core.retrieval.fusion import rrf_merge
 from sibyl_core.retrieval.query_ranking import rank_items_by_query_coverage
 from sibyl_core.retrieval.temporal import get_entity_timestamp
@@ -139,68 +145,6 @@ class SearchFilter:
     project_ids: tuple[str, ...] = ()
     edge_uuids: tuple[str, ...] = ()
     edge_types: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class RetrievalCandidate:
-    id: str
-    type: str
-    name: str
-    content: str
-    score: float
-    source: str | None
-    metadata: Mapping[str, Any]
-    result_origin: str = "graph"
-    project_id: str | None = None
-    created_at: datetime | None = None
-    policy_reason: str | None = None
-    visibility: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class VectorCandidateFetch:
-    node_candidates: list[RetrievalCandidate]
-    edge_candidates: list[RetrievalCandidate]
-    requested: bool
-    attempted: bool
-    failures: tuple[str, ...] = ()
-    reason: str | None = None
-
-    @property
-    def candidate_count(self) -> int:
-        return len(self.node_candidates) + len(self.edge_candidates)
-
-    @property
-    def degraded(self) -> bool:
-        return bool(self.failures or self.reason in {"embedding_failed", "invalid_embedding"})
-
-    @property
-    def status(self) -> str:
-        if not self.requested:
-            return "not_requested"
-        if self.reason is not None:
-            return self.reason
-        if self.failures and self.candidate_count:
-            return "partial"
-        if self.failures:
-            return "query_failed"
-        if not self.attempted:
-            return "unavailable"
-        if self.candidate_count == 0:
-            return "empty"
-        return "ok"
-
-    def as_metadata(self) -> dict[str, Any]:
-        metadata: dict[str, Any] = {
-            "vector_status": self.status,
-            "vector_requested": self.requested,
-            "vector_attempted": self.attempted,
-            "vector_degraded": self.degraded,
-            "vector_candidate_count": self.candidate_count,
-        }
-        if self.failures:
-            metadata["vector_failures"] = list(self.failures)
-        return metadata
 
 
 def coerce_fusion_backend(
@@ -1395,6 +1339,8 @@ def _candidate_from_node_record(
     }
     if embedding_metadata is not None:
         metadata["embedding_metadata"] = embedding_metadata.to_dict()
+    visibility = "project" if project_id else "organization"
+    policy_reason = "project_access_verified" if project_id else "graph_projection_allowed"
     return RetrievalCandidate(
         id=str(row.get("uuid", "")),
         type=entity_type,
@@ -1405,8 +1351,16 @@ def _candidate_from_node_record(
         metadata=metadata,
         project_id=project_id,
         created_at=_datetime_value(row.get("created_at")),
-        policy_reason="project_access_verified" if project_id else "graph_projection_allowed",
-        visibility="project" if project_id else "organization",
+        policy_reason=policy_reason,
+        visibility=visibility,
+        kind=CandidateKind.NODE,
+        retrieval_signals=(signal.value,),
+        scope=CandidateScope(
+            organization_id=_string_value(row.get("group_id")),
+            project_id=project_id,
+            visibility=visibility,
+            policy_reason=policy_reason,
+        ),
     )
 
 
@@ -1417,6 +1371,8 @@ def _candidate_from_episode_record(
     score: float,
 ) -> RetrievalCandidate:
     source = _string_value(row.get("source_description")) or _string_value(row.get("uuid"))
+    policy_reason = "graph_projection_allowed"
+    visibility = "organization"
     return RetrievalCandidate(
         id=str(row.get("uuid", "")),
         type="episode",
@@ -1430,8 +1386,15 @@ def _candidate_from_episode_record(
             "retrieval_signals": [signal.value],
         },
         created_at=_datetime_value(row.get("created_at")),
-        policy_reason="graph_projection_allowed",
-        visibility="organization",
+        policy_reason=policy_reason,
+        visibility=visibility,
+        kind=CandidateKind.EPISODE,
+        retrieval_signals=(signal.value,),
+        scope=CandidateScope(
+            organization_id=_string_value(row.get("group_id")),
+            visibility=visibility,
+            policy_reason=policy_reason,
+        ),
     )
 
 
@@ -1456,6 +1419,8 @@ def _candidate_from_edge_record(
     }
     if embedding_metadata is not None:
         metadata["embedding_metadata"] = embedding_metadata.to_dict()
+    policy_reason = "graph_projection_allowed"
+    visibility = "organization"
     return RetrievalCandidate(
         id=str(row.get("uuid", "")),
         type="claim",
@@ -1466,8 +1431,16 @@ def _candidate_from_edge_record(
         metadata=metadata,
         project_id=_string_value(metadata.get("project_id")),
         created_at=_datetime_value(row.get("created_at")),
-        policy_reason="graph_projection_allowed",
-        visibility="organization",
+        policy_reason=policy_reason,
+        visibility=visibility,
+        kind=CandidateKind.EDGE,
+        retrieval_signals=(signal.value,),
+        scope=CandidateScope(
+            organization_id=_string_value(row.get("group_id")),
+            project_id=_string_value(metadata.get("project_id")),
+            visibility=visibility,
+            policy_reason=policy_reason,
+        ),
     )
 
 
@@ -1603,6 +1576,16 @@ def _candidate_from_raw_memory(
         created_at=memory.captured_at,
         policy_reason=scope.policy_reason,
         visibility=memory.memory_scope.value,
+        kind=CandidateKind.RAW_MEMORY,
+        retrieval_signals=(RetrievalSignal.RAW_LEXICAL.value,),
+        scope=CandidateScope(
+            project_id=str(project_id) if project_id is not None else None,
+            memory_scope=memory.memory_scope.value,
+            scope_key=memory.scope_key,
+            principal_id=memory.principal_id,
+            visibility=memory.memory_scope.value,
+            policy_reason=scope.policy_reason,
+        ),
     )
 
 
@@ -1622,6 +1605,8 @@ def _candidate_from_node(
         or attributes.get("source_file")
         or getattr(node, "uuid", None)
     )
+    visibility = "project" if project_id else "organization"
+    policy_reason = "project_access_verified" if project_id else "graph_projection_allowed"
     return RetrievalCandidate(
         id=str(getattr(node, "uuid", "")),
         type=entity_type,
@@ -1637,8 +1622,16 @@ def _candidate_from_node(
         },
         project_id=project_id,
         created_at=_datetime_value(getattr(node, "created_at", None)),
-        policy_reason="project_access_verified" if project_id else "graph_projection_allowed",
-        visibility="project" if project_id else "organization",
+        policy_reason=policy_reason,
+        visibility=visibility,
+        kind=CandidateKind.NODE,
+        retrieval_signals=(signal.value,),
+        scope=CandidateScope(
+            organization_id=_string_value(getattr(node, "group_id", None)),
+            project_id=project_id,
+            visibility=visibility,
+            policy_reason=policy_reason,
+        ),
     )
 
 
@@ -1651,6 +1644,8 @@ def _candidate_from_episode(
     source = _string_value(getattr(episode, "source_description", None)) or _string_value(
         getattr(episode, "uuid", None)
     )
+    policy_reason = "graph_projection_allowed"
+    visibility = "organization"
     return RetrievalCandidate(
         id=str(getattr(episode, "uuid", "")),
         type="episode",
@@ -1664,8 +1659,15 @@ def _candidate_from_episode(
             "retrieval_signals": [signal.value],
         },
         created_at=_datetime_value(getattr(episode, "created_at", None)),
-        policy_reason="graph_projection_allowed",
-        visibility="organization",
+        policy_reason=policy_reason,
+        visibility=visibility,
+        kind=CandidateKind.EPISODE,
+        retrieval_signals=(signal.value,),
+        scope=CandidateScope(
+            organization_id=_string_value(getattr(episode, "group_id", None)),
+            visibility=visibility,
+            policy_reason=policy_reason,
+        ),
     )
 
 
@@ -1683,6 +1685,9 @@ def _candidate_from_edge(
     target_project_id = _string_value(
         getattr(edge, "target_node_project_id", None) or attributes.get("target_node_project_id")
     )
+    project_id = _string_value(attributes.get("project_id"))
+    policy_reason = "graph_projection_allowed"
+    visibility = "organization"
     return RetrievalCandidate(
         id=str(getattr(edge, "uuid", "")),
         type="claim",
@@ -1701,10 +1706,18 @@ def _candidate_from_edge(
             "target_node_project_id": target_project_id,
             "retrieval_signals": [signal.value],
         },
-        project_id=_string_value(attributes.get("project_id")),
+        project_id=project_id,
         created_at=_datetime_value(getattr(edge, "created_at", None)),
-        policy_reason="graph_projection_allowed",
-        visibility="organization",
+        policy_reason=policy_reason,
+        visibility=visibility,
+        kind=CandidateKind.EDGE,
+        retrieval_signals=(signal.value,),
+        scope=CandidateScope(
+            organization_id=_string_value(getattr(edge, "group_id", None)),
+            project_id=project_id,
+            visibility=visibility,
+            policy_reason=policy_reason,
+        ),
     )
 
 
@@ -2103,7 +2116,7 @@ def _search_result_from_candidate(
 
     freshness = _freshness_boost(candidate.created_at, cap=1.5)
     metadata = {
-        **dict(candidate.metadata),
+        **candidate.contract_metadata(),
         "source_id": candidate.source or candidate.id,
         "visibility": candidate.visibility,
         "freshness": round(freshness, 4),
