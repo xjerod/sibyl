@@ -20,6 +20,7 @@ from surrealdb import RecordID
 from sibyl_core.backends.surreal.connection import _is_transient_connection_error
 from sibyl_core.backends.surreal.dedicated_client import DedicatedSurrealClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
+from sibyl_core.backends.surreal.records import raise_on_error
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM, bootstrap_schema
 from sibyl_core.config import settings
 from sibyl_core.embeddings.providers import (
@@ -213,24 +214,25 @@ class EntityManager:
         return await self.create_direct(entity, generate_embedding=True)
 
     async def delete(self, entity_id: str) -> bool:
-        rows = normalize_records(
-            await self._client.execute_query(
-                """
-                DELETE FROM relates_to
-                WHERE group_id = $group_id
-                  AND (in.uuid = $uuid OR out.uuid = $uuid)
-                RETURN BEFORE;
-                DELETE FROM mentions
-                WHERE group_id = $group_id
-                  AND (in.uuid = $uuid OR out.uuid = $uuid)
-                RETURN BEFORE;
-                DELETE FROM entity
-                WHERE group_id = $group_id AND uuid = $uuid
-                RETURN BEFORE;
-                """,
-                group_id=self._group_id,
-                uuid=entity_id,
-            )
+        rows = await _execute_graph_transaction(
+            self._client,
+            """
+            BEGIN TRANSACTION;
+            DELETE FROM relates_to
+            WHERE group_id = $group_id
+              AND (in.uuid = $uuid OR out.uuid = $uuid)
+            RETURN BEFORE;
+            DELETE FROM mentions
+            WHERE group_id = $group_id
+              AND (in.uuid = $uuid OR out.uuid = $uuid)
+            RETURN BEFORE;
+            DELETE FROM entity
+            WHERE group_id = $group_id AND uuid = $uuid
+            RETURN BEFORE;
+            COMMIT TRANSACTION;
+            """,
+            group_id=self._group_id,
+            uuid=entity_id,
         )
         return any(row.get("uuid") == entity_id for row in rows)
 
@@ -1094,19 +1096,20 @@ class RelationshipManager:
         return relationship.id
 
     async def delete(self, relationship_id: str) -> bool:
-        rows = normalize_records(
-            await self._client.execute_query(
-                """
-                DELETE FROM relates_to
-                WHERE group_id = $group_id AND uuid = $uuid
-                RETURN BEFORE;
-                DELETE FROM mentions
-                WHERE group_id = $group_id AND uuid = $uuid
-                RETURN BEFORE;
-                """,
-                group_id=self._group_id,
-                uuid=relationship_id,
-            )
+        rows = await _execute_graph_transaction(
+            self._client,
+            """
+            BEGIN TRANSACTION;
+            DELETE FROM relates_to
+            WHERE group_id = $group_id AND uuid = $uuid
+            RETURN BEFORE;
+            DELETE FROM mentions
+            WHERE group_id = $group_id AND uuid = $uuid
+            RETURN BEFORE;
+            COMMIT TRANSACTION;
+            """,
+            group_id=self._group_id,
+            uuid=relationship_id,
         )
         return any(row.get("uuid") == relationship_id for row in rows)
 
@@ -2341,6 +2344,12 @@ def normalize_records(result: object) -> list[SurrealRecord]:
         return []
     if isinstance(result, dict):
         payload = {str(key): value for key, value in result.items()}
+        if (
+            "result" in payload
+            and "status" not in payload
+            and isinstance(payload.get("result"), list)
+        ):
+            return normalize_records(payload["result"])
         if "result" in payload and ("status" in payload or "time" in payload):
             return normalize_records(payload.get("result"))
         record = _normalize_record(payload)
@@ -2360,6 +2369,20 @@ async def _select_one(
 ) -> SurrealRecord | None:
     rows = normalize_records(await client.execute_query(query, **params))
     return rows[0] if rows else None
+
+
+async def _execute_graph_transaction(
+    client: SurrealGraphClient,
+    query: str,
+    **params: object,
+) -> list[SurrealRecord]:
+    execute_query_raw = getattr(client, "execute_query_raw", None)
+    if callable(execute_query_raw):
+        result = await cast("Any", execute_query_raw)(query, **params)
+    else:
+        result = await client.execute_query(query, **params)
+    raise_on_error(result, query=query)
+    return normalize_records(result)
 
 
 async def _entity_with_native_embedding(

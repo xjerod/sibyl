@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import sibyl_core.services.graph as graph_module
+from sibyl_core.backends.surreal.connection import SurrealQueryError
 from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
 from sibyl_core.embeddings.providers import (
     DeterministicEmbeddingProvider,
@@ -22,6 +23,7 @@ from sibyl_core.services.graph import (
     EntityManager,
     RelationshipManager,
     SurrealGraphClient,
+    _execute_graph_transaction,
     _validate_native_embedding_dimensions,
     entity_from_surreal_row,
     get_surreal_graph_runtime,
@@ -49,6 +51,30 @@ class _EmbeddingWriteClient:
         if "RELATE $src->$rel->$tgt" in query:
             return [{"uuid": params["uuid"], "fact_embedding": params["fact_embedding"]}]
         return []
+
+
+class _TransactionDeleteClient:
+    group_id = "org-native"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **params: object) -> object:
+        msg = "transactional deletes should use execute_query_raw when available"
+        raise AssertionError(msg)
+
+    async def execute_query_raw(self, query: str, **params: object) -> object:
+        self.calls.append((query, params))
+        deleted = [{"uuid": params["uuid"]}]
+        return {
+            "result": [
+                {"status": "OK", "result": None},
+                {"status": "OK", "result": deleted},
+                {"status": "OK", "result": []},
+                {"status": "OK", "result": deleted},
+                {"status": "OK", "result": None},
+            ]
+        }
 
 
 class _RelatedBatchClient:
@@ -553,6 +579,24 @@ async def test_native_entity_manager_bulk_writes_without_embedding_on_provider_f
 
 
 @pytest.mark.asyncio
+async def test_native_entity_delete_runs_raw_transaction() -> None:
+    client = _TransactionDeleteClient()
+    manager = EntityManager(cast("SurrealGraphClient", client), group_id=client.group_id)
+
+    deleted = await manager.delete("entity_delete")
+
+    assert deleted is True
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "BEGIN TRANSACTION;" in query
+    assert "DELETE FROM relates_to" in query
+    assert "DELETE FROM mentions" in query
+    assert "DELETE FROM entity" in query
+    assert "COMMIT TRANSACTION;" in query
+    assert params == {"group_id": client.group_id, "uuid": "entity_delete"}
+
+
+@pytest.mark.asyncio
 async def test_native_entity_manager_search_uses_short_query_embedding_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -718,6 +762,81 @@ async def test_native_relationship_bulk_persists_edges_readable_after_write() ->
 
 
 @pytest.mark.asyncio
+async def test_graph_delete_transaction_rolls_back_after_mid_transaction_error() -> None:
+    client = SurrealGraphClient(group_id="org-native-delete-rollback", url="memory://")
+    try:
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
+        relationship_manager = RelationshipManager(client, group_id=client.group_id)
+
+        await entity_manager.create_direct_bulk(
+            [
+                Entity(
+                    id="rollback_src",
+                    entity_type=EntityType.TOPIC,
+                    name="Rollback Source",
+                    organization_id=client.group_id,
+                ),
+                Entity(
+                    id="rollback_tgt",
+                    entity_type=EntityType.TOPIC,
+                    name="Rollback Target",
+                    organization_id=client.group_id,
+                ),
+            ]
+        )
+        await relationship_manager.create_direct_bulk(
+            [
+                Relationship(
+                    id="rel_rollback",
+                    source_id="rollback_src",
+                    target_id="rollback_tgt",
+                    relationship_type=RelationshipType.RELATED_TO,
+                )
+            ]
+        )
+
+        before = normalize_records(
+            await client.execute_query(
+                "SELECT uuid FROM relates_to WHERE uuid = $uuid;",
+                uuid="rel_rollback",
+            )
+        )
+
+        with pytest.raises(SurrealQueryError):
+            await _execute_graph_transaction(
+                client,
+                """
+                BEGIN TRANSACTION;
+                DELETE FROM relates_to
+                WHERE group_id = $group_id AND uuid = $relationship_id
+                RETURN BEFORE;
+                CREATE entity SET
+                    uuid = $source_id,
+                    name = 'Duplicate Source',
+                    entity_type = 'topic',
+                    group_id = $group_id;
+                COMMIT TRANSACTION;
+                """,
+                group_id=client.group_id,
+                relationship_id="rel_rollback",
+                source_id="rollback_src",
+            )
+
+        after = normalize_records(
+            await client.execute_query(
+                "SELECT uuid FROM relates_to WHERE uuid = $uuid;",
+                uuid="rel_rollback",
+            )
+        )
+    finally:
+        await client.close()
+
+    assert [row["uuid"] for row in before] == ["rel_rollback"]
+    assert [row["uuid"] for row in after] == ["rel_rollback"]
+
+
+@pytest.mark.asyncio
 async def test_native_project_summary_sorts_critical_tasks_by_priority() -> None:
     entity_manager = EntityManager(cast(Any, object()), group_id="org-native-graph")
     entity_manager.list_by_type = AsyncMock(  # type: ignore[method-assign]
@@ -787,6 +906,27 @@ async def test_native_relationship_manager_generates_fact_embeddings() -> None:
     attributes = cast(dict[str, object], write_params["attributes"])
     assert attributes["embedding_metadata"] == provider.metadata.to_dict()
     assert "fact_embedding" not in attributes
+
+
+@pytest.mark.asyncio
+async def test_native_relationship_delete_runs_raw_transaction() -> None:
+    client = _TransactionDeleteClient()
+    manager = RelationshipManager(
+        cast("SurrealGraphClient", client),
+        group_id=client.group_id,
+    )
+
+    deleted = await manager.delete("rel_delete")
+
+    assert deleted is True
+    assert len(client.calls) == 1
+    query, params = client.calls[0]
+    assert "BEGIN TRANSACTION;" in query
+    assert "DELETE FROM relates_to" in query
+    assert "DELETE FROM mentions" in query
+    assert "DELETE FROM entity" not in query
+    assert "COMMIT TRANSACTION;" in query
+    assert params == {"group_id": client.group_id, "uuid": "rel_delete"}
 
 
 def test_entity_from_surreal_row_hydrates_legacy_shaped_rows() -> None:
