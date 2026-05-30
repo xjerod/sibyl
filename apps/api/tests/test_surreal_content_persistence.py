@@ -739,6 +739,77 @@ async def test_content_schema_migration_rejects_orphan_chunks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_content_schema_migration_rejects_orphan_chunks_after_parent_check_batches() -> None:
+    client = SurrealContentClient(url="memory://")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    source_id = "source-good"
+    try:
+        await client.execute_query(
+            "CREATE schema_version:content CONTENT $record;",
+            record={
+                "name": "content",
+                "version": 3,
+                "migrations": [
+                    {"version": 1, "name": "content_schema_bootstrap"},
+                    {"version": 2, "name": "content_source_url_org_scope"},
+                    {"version": 3, "name": "content_document_url_source_scope"},
+                ],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        await client.execute_query(
+            "CREATE crawl_sources CONTENT $record;",
+            record={
+                "uuid": source_id,
+                "organization_id": str(uuid4()),
+                "name": "Docs",
+                "url": "https://docs.example.com",
+                "source_type": SourceType.WEBSITE.value,
+            },
+        )
+        document_ids = [f"doc-{index:03d}" for index in range(129)]
+        for document_id in document_ids:
+            await client.execute_query(
+                "CREATE crawled_documents CONTENT $record;",
+                record={
+                    "uuid": document_id,
+                    "source_id": source_id,
+                    "url": f"https://docs.example.com/{document_id}",
+                    "title": document_id,
+                    "raw_content": "",
+                    "content": "",
+                    "content_hash": "",
+                },
+            )
+            await client.execute_query(
+                "CREATE document_chunks CONTENT $record;",
+                record={
+                    "uuid": f"chunk-{document_id}",
+                    "document_id": document_id,
+                    "chunk_index": 0,
+                    "chunk_type": ChunkType.TEXT.value,
+                    "content": "body",
+                },
+            )
+        await client.execute_query(
+            "CREATE document_chunks CONTENT $record;",
+            record={
+                "uuid": "chunk-orphan",
+                "document_id": "doc-z-orphan",
+                "chunk_index": 0,
+                "chunk_type": ChunkType.TEXT.value,
+                "content": "orphan chunk",
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="parent crawled_documents rows are missing"):
+            await bootstrap_content_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_content_schema_migration_defines_child_scope_fields_without_backfill() -> None:
     client = SurrealContentClient(url="memory://")
     org_id = str(uuid4())

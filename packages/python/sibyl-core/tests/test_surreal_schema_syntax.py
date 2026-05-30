@@ -22,6 +22,7 @@ from sibyl_core.backends.surreal.schema import (
     CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS,
     DEAD_GRAPH_OBJECT_REMOVAL_DEFINITIONS,
     EDGE_DEFINITIONS,
+    ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS,
     GRAPH_SCHEMA_MIGRATIONS,
     NODE_DEFINITIONS,
     RELATION_EDGE_CLEANUP_DEFINITIONS,
@@ -248,6 +249,27 @@ def test_dead_graph_object_removal_is_versioned() -> None:
     for table in (*REMOVED_GRAPH_EDGES, *REMOVED_GRAPH_TABLES):
         assert f"REMOVE TABLE IF EXISTS {table}" in DEAD_GRAPH_OBJECT_REMOVAL_DEFINITIONS
         assert f"REMOVE TABLE IF EXISTS {table}" in migration_sql
+
+
+def test_entity_updated_at_datetime_migration_is_versioned() -> None:
+    migration_sql = "\n".join(
+        statement for migration in GRAPH_SCHEMA_MIGRATIONS for statement in migration.statements
+    )
+
+    assert "DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE option<datetime>" in (
+        NODE_DEFINITIONS
+    )
+    assert "DEFINE FIELD OVERWRITE updated_at ON entity TYPE option<datetime>" in (
+        ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
+    )
+    assert "type::datetime(updated_at)" in ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
+    assert "string::is::datetime(updated_at)" in ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
+    assert "!type::is::datetime(updated_at)" in ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
+    assert "DEFINE INDEX OVERWRITE idx_entity_group_updated" in (
+        ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
+    )
+    assert "CONCURRENTLY" in ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
+    assert "DEFINE FIELD OVERWRITE updated_at ON entity TYPE option<datetime>" in migration_sql
 
 
 def test_graph_relation_cleanup_covers_all_relation_tables() -> None:

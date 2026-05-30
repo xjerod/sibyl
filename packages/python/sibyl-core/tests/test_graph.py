@@ -11,7 +11,20 @@ import pytest
 
 import sibyl_core.services.graph as graph_module
 from sibyl_core.backends.surreal.connection import SurrealQueryError
-from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
+from sibyl_core.backends.surreal.schema import (
+    ANALYZER_DEFINITIONS,
+    EMBEDDING_DIM,
+    NODE_DEFINITIONS,
+    bootstrap_schema,
+    render_fulltext_compatible_sql,
+)
+from sibyl_core.backends.surreal.schema_version import (
+    GRAPH_SCHEMA_CURRENT_VERSION,
+    GRAPH_SCHEMA_NAME,
+    ensure_schema_version_table,
+    get_schema_version,
+    record_schema_version,
+)
 from sibyl_core.embeddings.providers import (
     DeterministicEmbeddingProvider,
     EmbeddingMetadata,
@@ -1074,6 +1087,102 @@ async def test_native_entity_lists_order_by_updated_at_before_created_at() -> No
             "task_updated_newer",
             "task_created_newer",
         ]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_migration_normalizes_legacy_updated_at_values() -> None:
+    client = SurrealGraphClient(group_id="org-native-updated-at-migration", url="memory://")
+    try:
+        legacy_definitions = NODE_DEFINITIONS.replace(
+            "DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE option<datetime>;",
+            "DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE option<string>;",
+        )
+        await client.execute_query(
+            render_fulltext_compatible_sql(
+                ANALYZER_DEFINITIONS + "\n" + legacy_definitions,
+                url="memory://",
+            )
+        )
+        await client.execute_query(
+            """
+            CREATE entity:legacy_string SET
+                uuid = 'legacy_string',
+                name = 'Legacy String',
+                entity_type = 'task',
+                labels = [],
+                attributes = { status: 'todo' },
+                group_id = $group_id,
+                created_at = d'2026-05-10T12:00:00Z',
+                updated_at = '2026-05-15T12:00:00+00:00';
+            CREATE entity:malformed_string SET
+                uuid = 'malformed_string',
+                name = 'Malformed String',
+                entity_type = 'task',
+                labels = [],
+                attributes = { status: 'todo' },
+                group_id = $group_id,
+                created_at = d'2026-05-14T12:00:00Z',
+                updated_at = 'not-a-date';
+            CREATE entity:missing_updated SET
+                uuid = 'missing_updated',
+                name = 'Missing Updated',
+                entity_type = 'task',
+                labels = [],
+                attributes = { status: 'todo' },
+                group_id = $group_id,
+                created_at = d'2026-05-13T12:00:00Z',
+                updated_at = NONE;
+            """,
+            group_id=client.group_id,
+        )
+        await ensure_schema_version_table(client.execute_query, group_id=client.group_id)
+        await record_schema_version(
+            client.execute_query,
+            version=4,
+            migrations=(),
+            name=GRAPH_SCHEMA_NAME,
+        )
+
+        await bootstrap_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
+        await entity_manager.create_direct(
+            Entity(
+                id="native_datetime",
+                entity_type=EntityType.TASK,
+                name="Native Datetime",
+                organization_id=client.group_id,
+                created_at=datetime(2026, 5, 11, tzinfo=UTC),
+                updated_at=datetime(2026, 5, 16, 12, tzinfo=UTC),
+                metadata={"status": "todo"},
+            )
+        )
+
+        rows = normalize_records(
+            await client.execute_query(
+                "SELECT uuid, updated_at FROM entity WHERE group_id = $group_id;",
+                group_id=client.group_id,
+            )
+        )
+        by_uuid = {str(row["uuid"]): row.get("updated_at") for row in rows}
+        assert by_uuid["legacy_string"] == datetime(2026, 5, 15, 12, tzinfo=UTC)
+        assert by_uuid["malformed_string"] is None
+        assert by_uuid["missing_updated"] is None
+
+        listed = await entity_manager.list_by_type(
+            EntityType.TASK,
+            include_archived=True,
+            limit=4,
+        )
+
+        assert [entity.id for entity in listed] == [
+            "native_datetime",
+            "legacy_string",
+            "malformed_string",
+            "missing_updated",
+        ]
+        assert await get_schema_version(client.execute_query) == GRAPH_SCHEMA_CURRENT_VERSION
     finally:
         await client.close()
 

@@ -2682,7 +2682,7 @@ async def _execute_replace_entities_bulk_query(
 def _entity_record(entity: Entity, *, group_id: str) -> SurrealRecord:
     metadata = _entity_metadata(entity)
     now = datetime.now(UTC)
-    updated_at = _metadata_str(metadata, "updated_at") or now.isoformat()
+    updated_at = _metadata_datetime(metadata.get("updated_at")) or entity.updated_at or now
     created_at = entity.created_at or now
     project_id = _metadata_str(metadata, "project_id")
     epic_id = _metadata_str(metadata, "epic_id")

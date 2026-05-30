@@ -39,6 +39,7 @@ CONTENT_TABLES = (
 )
 CONTENT_SCHEMA_CURRENT_VERSION = 4
 CONTENT_SCHEMA_NAME = "content"
+_SCHEMA_CHECK_BATCH_SIZE = 128
 
 _SCHEMA_DIR = Path(__file__).with_name("schemas") / "content"
 
@@ -171,16 +172,13 @@ async def _assert_content_migrations_safe(client: SurrealContentClient) -> None:
             raise RuntimeError(
                 "Cannot migrate crawled_documents organization scope: source_id is missing"
             )
-        orphan_documents = await _matching_rows(
+        orphan_source_id = await _missing_parent_reference(
             client,
-            """
-            SELECT uuid, source_id FROM crawled_documents
-            WHERE (SELECT VALUE uuid FROM crawl_sources
-                WHERE uuid = $parent.source_id LIMIT 1)[0] = NONE
-            LIMIT 1;
-            """,
+            child_table="crawled_documents",
+            child_field="source_id",
+            parent_table="crawl_sources",
         )
-        if orphan_documents:
+        if orphan_source_id is not None:
             raise RuntimeError(
                 "Cannot migrate crawled_documents organization scope: "
                 "parent crawl_sources rows are missing"
@@ -197,16 +195,13 @@ async def _assert_content_migrations_safe(client: SurrealContentClient) -> None:
             raise RuntimeError(
                 "Cannot migrate document_chunks content scope: document_id is missing"
             )
-        orphan_chunks = await _matching_rows(
+        orphan_document_id = await _missing_parent_reference(
             client,
-            """
-            SELECT uuid, document_id FROM document_chunks
-            WHERE (SELECT VALUE uuid FROM crawled_documents
-                WHERE uuid = $parent.document_id LIMIT 1)[0] = NONE
-            LIMIT 1;
-            """,
+            child_table="document_chunks",
+            child_field="document_id",
+            parent_table="crawled_documents",
         )
-        if orphan_chunks:
+        if orphan_document_id is not None:
             raise RuntimeError(
                 "Cannot migrate document_chunks content scope: "
                 "parent crawled_documents rows are missing"
@@ -216,10 +211,62 @@ async def _assert_content_migrations_safe(client: SurrealContentClient) -> None:
 async def _matching_rows(
     client: SurrealContentClient,
     statement: str,
+    **params: object,
 ) -> list[dict[str, object]]:
     from sibyl_core.backends.surreal.records import normalize_records
 
-    return normalize_records(await client.execute_query(statement))
+    return normalize_records(await client.execute_query(statement, **params))
+
+
+async def _missing_parent_reference(
+    client: SurrealContentClient,
+    *,
+    child_table: str,
+    child_field: str,
+    parent_table: str,
+) -> str | None:
+    child_values = await _distinct_field_values(client, table=child_table, field=child_field)
+    for batch in _batches(child_values):
+        rows = await _matching_rows(
+            client,
+            f"SELECT uuid FROM {parent_table} WHERE uuid INSIDE $values;",
+            values=batch,
+        )
+        existing = {str(row["uuid"]) for row in rows if row.get("uuid") is not None}
+        for value in batch:
+            if value not in existing:
+                return value
+    return None
+
+
+async def _distinct_field_values(
+    client: SurrealContentClient,
+    *,
+    table: str,
+    field: str,
+) -> list[str]:
+    rows = await _matching_rows(
+        client,
+        f"""
+        SELECT {field}
+        FROM {table}
+        WHERE {field} != NONE AND {field} != ''
+        GROUP BY {field};
+        """,
+    )
+    values: set[str] = set()
+    for row in rows:
+        value = row.get(field)
+        if value not in {None, ""}:
+            values.add(str(value))
+    return sorted(values)
+
+
+def _batches(values: list[str]) -> list[list[str]]:
+    return [
+        values[index : index + _SCHEMA_CHECK_BATCH_SIZE]
+        for index in range(0, len(values), _SCHEMA_CHECK_BATCH_SIZE)
+    ]
 
 
 async def _duplicate_count_rows(

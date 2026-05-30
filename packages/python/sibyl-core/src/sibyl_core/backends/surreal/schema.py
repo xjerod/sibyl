@@ -76,7 +76,7 @@ DEFINE FIELD IF NOT EXISTS labels ON entity TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS attributes ON entity TYPE object FLEXIBLE DEFAULT {{}};
 DEFINE FIELD IF NOT EXISTS group_id ON entity TYPE string;
 DEFINE FIELD IF NOT EXISTS created_at ON entity TYPE datetime DEFAULT time::now();
-DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS project_id ON entity TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS epic_id ON entity TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS parent_task_id ON entity TYPE option<string>;
@@ -239,6 +239,29 @@ WHERE source_id = NONE OR target_id = NONE;
 """
 
 
+ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS = """
+DEFINE FIELD OVERWRITE updated_at ON entity TYPE option<datetime>;
+UPDATE entity SET updated_at = type::datetime(updated_at)
+    WHERE type::is::string(updated_at)
+        AND string::is::datetime(updated_at);
+UPDATE entity SET updated_at = NONE
+    WHERE updated_at != NONE
+        AND !type::is::datetime(updated_at);
+DEFINE INDEX OVERWRITE idx_entity_group_updated
+    ON entity FIELDS group_id, updated_at, created_at, uuid CONCURRENTLY;
+DEFINE INDEX OVERWRITE idx_entity_group_type_updated
+    ON entity FIELDS group_id, entity_type, updated_at, created_at, uuid CONCURRENTLY;
+DEFINE INDEX OVERWRITE idx_entity_group_type_project_updated
+    ON entity FIELDS group_id, entity_type, project_id, updated_at, created_at, uuid CONCURRENTLY;
+DEFINE INDEX OVERWRITE idx_entity_group_type_epic_updated
+    ON entity FIELDS group_id, entity_type, epic_id, updated_at, created_at, uuid CONCURRENTLY;
+DEFINE INDEX OVERWRITE idx_entity_group_type_parent_task_updated
+    ON entity FIELDS group_id, entity_type, parent_task_id, updated_at, created_at, uuid CONCURRENTLY;
+DEFINE INDEX OVERWRITE idx_entity_group_type_status_updated
+    ON entity FIELDS group_id, entity_type, status, updated_at, created_at, uuid CONCURRENTLY;
+"""
+
+
 CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS = (
     ENTITY_DENORMALIZATION_MAINTENANCE_DEFINITIONS + RELATION_ENDPOINT_BACKFILL_DEFINITIONS
 )
@@ -267,9 +290,14 @@ GRAPH_SCHEMA_MIGRATIONS = (
         ),
     ),
     SchemaMigration(
-        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        version=4,
         name="drop_dead_graph_objects",
         statements=tuple(split_statements(DEAD_GRAPH_OBJECT_REMOVAL_DEFINITIONS)),
+    ),
+    SchemaMigration(
+        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        name="entity_updated_at_datetime",
+        statements=tuple(split_statements(ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS)),
     ),
 )
 
@@ -570,6 +598,7 @@ __all__ = [
     "EDGE_DEFINITIONS",
     "EMBEDDING_DIM",
     "EMBEDDING_VECTOR_FIELDS",
+    "ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS",
     "GRAPH_EDGES",
     "GRAPH_SCHEMA_MIGRATIONS",
     "GRAPH_TABLES",
