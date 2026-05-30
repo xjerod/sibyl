@@ -277,6 +277,9 @@ async def delete_project_record(
             return False
 
         project_uuid = str(existing["uuid"])
+        from sibyl.persistence.graph_runtime import delete_project_graph_data
+
+        await delete_project_graph_data(str(organization_id), graph_project_id)
         await _execute_raw_statement_records(
             client,
             """

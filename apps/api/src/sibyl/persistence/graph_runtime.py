@@ -1189,6 +1189,55 @@ async def delete_graph_data(group_id: str) -> None:
     raise RuntimeError("Supported graph runtime requires native Surreal graph operations")
 
 
+async def delete_project_graph_data(group_id: str, project_id: str) -> None:
+    runtime = await _get_graph_runtime(group_id)
+    driver = runtime.client
+    if _surreal_driver_for(driver) is not None:
+        from sibyl_core.backends.surreal.records import raise_on_error
+
+        query = """
+            BEGIN TRANSACTION;
+            LET $project_entity_ids = (
+                SELECT VALUE id FROM entity
+                WHERE group_id = $group_id
+                  AND (project_id = $project_id OR uuid = $project_id)
+            );
+            LET $project_episode_ids = (
+                SELECT VALUE id FROM episode
+                WHERE group_id = $group_id AND project_id = $project_id
+            );
+            DELETE FROM relates_to
+            WHERE group_id = $group_id
+              AND (in IN $project_entity_ids OR out IN $project_entity_ids);
+            DELETE FROM mentions
+            WHERE group_id = $group_id
+              AND (in IN $project_episode_ids OR out IN $project_entity_ids);
+            DELETE FROM has_episode
+            WHERE group_id = $group_id AND out IN $project_episode_ids;
+            DELETE FROM next_episode
+            WHERE group_id = $group_id
+              AND (in IN $project_episode_ids OR out IN $project_episode_ids);
+            DELETE FROM has_member
+            WHERE group_id = $group_id
+              AND (in IN $project_entity_ids OR out IN $project_entity_ids);
+            DELETE FROM entity
+            WHERE group_id = $group_id
+              AND (project_id = $project_id OR uuid = $project_id);
+            DELETE FROM episode
+            WHERE group_id = $group_id AND project_id = $project_id;
+            COMMIT TRANSACTION;
+        """
+        result = await driver.execute_query_raw(
+            query,
+            group_id=group_id,
+            project_id=project_id,
+        )
+        raise_on_error(result, query="delete_project_graph_data")
+        return
+
+    raise RuntimeError("Supported graph runtime requires native Surreal graph operations")
+
+
 def graph_stats_payload(stats: GraphStats) -> dict[str, object]:
     entity_counts = {entity_type.value: 0 for entity_type in EntityType}
     entity_counts.update(stats.entities_by_type)

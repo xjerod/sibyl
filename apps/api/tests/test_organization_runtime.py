@@ -168,19 +168,14 @@ async def test_surreal_delete_org_batches_authorization_and_deletes_directly(
     assert "FROM organizations" in lookup_query
     assert "FROM organization_members" in lookup_query
     assert lookup_params == {"slug": "electric-coven", "user_id": str(user_id)}
-    # The organizations row is deleted first so a mid-sweep failure cannot leave
-    # a surviving org record whose children are already gone.
-    assert fake_client.calls[1] == (
-        "DELETE FROM organizations WHERE uuid = $organization_id;",
-        {"organization_id": str(org_id)},
-    )
-    auth_sweep_query, auth_sweep_params = fake_client.calls[-1]
+    auth_sweep_query, auth_sweep_params = fake_client.calls[1]
     assert "BEGIN TRANSACTION;" in auth_sweep_query
     assert "COMMIT TRANSACTION;" in auth_sweep_query
     assert "DELETE FROM organization_members WHERE organization_id = $organization_id;" in (
         auth_sweep_query
     )
     assert "DELETE FROM projects WHERE organization_id = $organization_id;" in auth_sweep_query
+    assert "DELETE FROM organizations WHERE uuid = $organization_id;" in auth_sweep_query
     assert auth_sweep_params == {"organization_id": str(org_id)}
     delete_auth_children.assert_awaited_once_with(fake_client, organization_id=org_id)
     delete_crawl_source.assert_awaited_once_with(
@@ -190,6 +185,97 @@ async def test_surreal_delete_org_batches_authorization_and_deletes_directly(
     )
     delete_graph.assert_awaited_once_with(str(org_id))
     audit_log.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_surreal_delete_org_reruns_after_graph_sweep_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    user_id = uuid4()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def execute_query(self, query: str, **params):
+            self.calls.append((query, params))
+            if "RETURN" in query:
+                return {
+                    "organization": {
+                        "uuid": str(org_id),
+                        "slug": "electric-coven",
+                        "name": "Electric Coven",
+                        "is_personal": False,
+                    },
+                    "membership": {
+                        "uuid": str(uuid4()),
+                        "organization_id": str(org_id),
+                        "user_id": str(user_id),
+                        "role": OrganizationRole.OWNER.value,
+                    },
+                }
+            return []
+
+    class FakeContentClient:
+        async def execute_query(self, query: str, **params):
+            if "SELECT * FROM crawl_sources" in query:
+                return []
+            return []
+
+    fake_client = FakeClient()
+
+    @asynccontextmanager
+    async def fake_scope():
+        yield fake_client
+
+    @asynccontextmanager
+    async def fake_content_scope():
+        yield FakeContentClient()
+
+    delete_graph = AsyncMock(side_effect=[RuntimeError("graph boom"), None])
+
+    monkeypatch.setattr(surreal_organization_runtime, "_auth_client_scope", fake_scope)
+    monkeypatch.setattr(
+        surreal_organization_runtime,
+        "_delete_org_auth_child_records",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(surreal_organization_runtime, "log_audit_event", AsyncMock())
+    monkeypatch.setattr(surreal_organization_runtime, "delete_graph_data", delete_graph)
+    monkeypatch.setattr(
+        "sibyl.persistence.surreal.content.surreal_content_client",
+        fake_content_scope,
+    )
+    monkeypatch.setattr(
+        "sibyl.persistence.surreal.content.delete_crawl_source_record",
+        AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="graph boom"):
+        await surreal_organization_runtime.delete_org(
+            request=_request(),
+            slug="electric-coven",
+            user_id=user_id,
+        )
+
+    assert not any("DELETE FROM organizations" in query for query, _params in fake_client.calls)
+
+    await surreal_organization_runtime.delete_org(
+        request=_request(),
+        slug="electric-coven",
+        user_id=user_id,
+    )
+
+    final_queries = [
+        query for query, _params in fake_client.calls if "DELETE FROM organizations" in query
+    ]
+    assert len(final_queries) == 1
+    assert (
+        "DELETE FROM organization_members WHERE organization_id = $organization_id;"
+        in (final_queries[0])
+    )
+    assert delete_graph.await_count == 2
 
 
 @pytest.mark.asyncio

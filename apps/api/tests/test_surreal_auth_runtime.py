@@ -13,6 +13,7 @@ from sibyl.auth.api_key_common import api_key_prefix, hash_api_key
 from sibyl.auth.passwords import hash_password
 from sibyl.auth.primitives import DeviceTokenError
 from sibyl.auth.session_cache import access_session_cache
+from sibyl.persistence import graph_runtime
 from sibyl.persistence.surreal import auth as surreal_auth, auth_runtime as surreal_auth_runtime
 from sibyl_core.auth import AuthSession, OrganizationRole, ProjectRole
 
@@ -1746,6 +1747,9 @@ async def test_delete_project_record_batches_dependent_deletes(
         lambda: _StaticAuthClientScope(client),
     )
 
+    delete_project_graph = AsyncMock()
+    monkeypatch.setattr(graph_runtime, "delete_project_graph_data", delete_project_graph)
+
     deleted = await surreal_auth_runtime.delete_project_record(
         organization_id=organization_id,
         graph_project_id="project_alpha",
@@ -1766,6 +1770,7 @@ async def test_delete_project_record_batches_dependent_deletes(
         "uuid": str(project_id),
         "organization_id": str(organization_id),
     }
+    delete_project_graph.assert_awaited_once_with(str(organization_id), "project_alpha")
 
 
 @pytest.mark.asyncio

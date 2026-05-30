@@ -963,37 +963,7 @@ async def delete_org(*, request: Request, slug: str, user_id: UUID) -> None:
             details={"slug": organization_slug, "name": organization_name},
         )
 
-        # delete_org spans namespaces (the auth/content/graph child stores plus
-        # this global organizations row), so it cannot be one atomic
-        # transaction. Remove the organizations row first to isolate the org
-        # immediately, then sweep each child namespace idempotently — re-running
-        # after a mid-sweep failure is safe and converges.
-        await _execute_checked(
-            client,
-            "DELETE FROM organizations WHERE uuid = $organization_id;",
-            organization_id=str(organization_id),
-        )
-
         await _delete_org_auth_child_records(client, organization_id=organization_id)
-
-        await _execute_checked(
-            client,
-            """
-                BEGIN TRANSACTION;
-                DELETE FROM team_projects WHERE organization_id = $organization_id;
-                DELETE FROM project_members WHERE organization_id = $organization_id;
-                DELETE FROM projects WHERE organization_id = $organization_id;
-                DELETE FROM organization_invitations WHERE organization_id = $organization_id;
-                DELETE FROM organization_members WHERE organization_id = $organization_id;
-                DELETE FROM teams WHERE organization_id = $organization_id;
-                DELETE FROM api_keys WHERE organization_id = $organization_id;
-                DELETE FROM user_sessions WHERE organization_id = $organization_id;
-                DELETE FROM device_authorization_requests
-                    WHERE organization_id = $organization_id;
-                COMMIT TRANSACTION;
-            """,
-            organization_id=str(organization_id),
-        )
 
         from sibyl.persistence.surreal.content import (
             delete_crawl_source_record,
@@ -1027,6 +997,26 @@ async def delete_org(*, request: Request, slug: str, user_id: UUID) -> None:
             )
 
         await delete_graph_data(str(organization_id))
+
+        await _execute_checked(
+            client,
+            """
+                BEGIN TRANSACTION;
+                DELETE FROM team_projects WHERE organization_id = $organization_id;
+                DELETE FROM project_members WHERE organization_id = $organization_id;
+                DELETE FROM projects WHERE organization_id = $organization_id;
+                DELETE FROM organization_invitations WHERE organization_id = $organization_id;
+                DELETE FROM organization_members WHERE organization_id = $organization_id;
+                DELETE FROM teams WHERE organization_id = $organization_id;
+                DELETE FROM api_keys WHERE organization_id = $organization_id;
+                DELETE FROM user_sessions WHERE organization_id = $organization_id;
+                DELETE FROM device_authorization_requests
+                    WHERE organization_id = $organization_id;
+                DELETE FROM organizations WHERE uuid = $organization_id;
+                COMMIT TRANSACTION;
+            """,
+            organization_id=str(organization_id),
+        )
 
 
 async def list_org_members(*, slug: str, actor_id: UUID) -> list[dict[str, object]]:
