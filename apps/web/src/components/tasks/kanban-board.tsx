@@ -13,7 +13,7 @@ import {
   Zap,
 } from '@/components/ui/icons';
 import type { TaskStatus, TaskSummary } from '@/lib/api';
-import { TASK_STATUS_CONFIG, TASK_STATUSES } from '@/lib/constants';
+import { TASK_STATUS_CONFIG, TASK_STATUSES, type TaskStatusType } from '@/lib/constants';
 import { useProjectContext, useProjectFilter } from '@/lib/project-context';
 import { TaskCard, TaskCardSkeleton } from './task-card';
 
@@ -352,14 +352,13 @@ export function KanbanBoard({
   const projectFilter = useProjectFilter();
   const { selectProject } = useProjectContext();
   const [dragState, setDragState] = useState<{ status: TaskStatus; index: number } | null>(null);
-  const [columnSorts, setColumnSorts] = useState<Record<TaskStatus, SortOption>>({
+  const [columnSorts, setColumnSorts] = useState<Record<TaskStatusType, SortOption>>({
     backlog: 'priority',
     todo: 'priority',
     doing: 'priority',
     blocked: 'priority',
     review: 'created',
     done: 'created',
-    archived: 'created',
   });
 
   const projectMap = useMemo(() => {
@@ -371,20 +370,24 @@ export function KanbanBoard({
   }, [projects]);
 
   const tasksByStatus = useMemo(() => {
-    const grouped: Record<TaskStatus, TaskSummary[]> = {
+    const grouped: Record<TaskStatusType, TaskSummary[]> = {
       backlog: [],
       todo: [],
       doing: [],
       blocked: [],
       review: [],
       done: [],
-      archived: [],
     };
 
+    // Archived tasks intentionally do not appear on the active board — they
+    // live on the Archive page. Bucketing only the rendered statuses keeps the
+    // data and the columns in sync (previously archived tasks fell into an
+    // unrendered bucket and silently disappeared).
     for (const task of tasks) {
-      const status = (task.metadata.status ?? 'todo') as TaskStatus;
-      if (grouped[status]) {
-        grouped[status].push(task);
+      const status = (task.metadata.status ?? 'todo') as TaskStatusType;
+      const bucket = grouped[status];
+      if (bucket) {
+        bucket.push(task);
       }
     }
 
