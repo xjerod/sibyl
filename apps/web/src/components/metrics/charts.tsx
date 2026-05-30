@@ -82,6 +82,7 @@ function useChartPalette(): ChartPalette {
   const { theme } = useTheme();
   const [palette, setPalette] = useState<ChartPalette>(FALLBACK_PALETTE);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: theme is the intentional re-read trigger; the body reads the live CSS vars
   useEffect(() => {
     const root = document.documentElement;
     const styles = getComputedStyle(root);

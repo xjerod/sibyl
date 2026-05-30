@@ -1191,6 +1191,7 @@ function GraphPageContent() {
   // Reliably frame the layout once it has settled. onEngineStop can fire before
   // the reheated simulation finishes spreading, leaving the graph small and
   // off-center, so re-fit on a short delay whenever the dataset/mode changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: graphRenderKey is an intentional re-fit trigger on mode/filter/theme change
   useEffect(() => {
     if (!graphRef.current || graphData.nodes.length === 0) return;
     const timer = setTimeout(() => {
