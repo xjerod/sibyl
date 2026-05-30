@@ -3,7 +3,14 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sibyl_core.services.surreal_content import load_search_scope
+from sibyl_core.services.surreal_content import (
+    _coerce_int,
+    _coerce_optional_str,
+    _load_sources_for_org,
+    _select_many,
+    _select_one,
+    surreal_content_client,
+)
 
 
 @dataclass(frozen=True)
@@ -34,26 +41,40 @@ async def get_link_graph_status_data(
 ) -> LinkGraphStatusData:
     """Aggregate link-graph status for the given organization."""
 
-    sources, _, documents_by_id, chunks = await load_search_scope(
-        organization_id=str(organization_id),
-        source_id=None,
-        source_name=None,
-    )
-    document_source_ids = {document.id: document.source_id for document in documents_by_id.values()}
-    pending_by_source = {source.id: 0 for source in sources}
-    chunks_with_entities = 0
+    async with surreal_content_client() as client:
+        sources = await _load_sources_for_org(client, organization_id=str(organization_id))
+        total_row = await _select_one(
+            client,
+            "SELECT count() AS total FROM document_chunks "
+            "WHERE organization_id = $organization_id GROUP ALL;",
+            organization_id=str(organization_id),
+        )
+        linked_row = await _select_one(
+            client,
+            "SELECT count() AS total FROM document_chunks "
+            "WHERE organization_id = $organization_id AND has_entities = true GROUP ALL;",
+            organization_id=str(organization_id),
+        )
+        pending_rows = await _select_many(
+            client,
+            "SELECT source_id, count() AS pending FROM document_chunks "
+            "WHERE organization_id = $organization_id AND source_id != NONE "
+            "AND (has_entities = false OR has_entities = NONE) "
+            "GROUP BY source_id;",
+            organization_id=str(organization_id),
+        )
 
-    for chunk in chunks:
-        if chunk.has_entities:
-            chunks_with_entities += 1
-            continue
-        source_id = document_source_ids.get(chunk.document_id)
-        if source_id is not None:
-            pending_by_source[source_id] = pending_by_source.get(source_id, 0) + 1
+    pending_by_source = {source.id: 0 for source in sources}
+    for row in pending_rows:
+        source_id = _coerce_optional_str(row.get("source_id"))
+        if source_id:
+            pending_by_source[source_id] = _coerce_int(row.get("pending"))
 
     return LinkGraphStatusData(
-        total_chunks=len(chunks),
-        chunks_with_entities=chunks_with_entities,
+        total_chunks=_coerce_int(total_row.get("total") if total_row is not None else None),
+        chunks_with_entities=_coerce_int(
+            linked_row.get("total") if linked_row is not None else None
+        ),
         sources=[
             LinkGraphSourceStatusData(
                 source_id=source.id,

@@ -200,6 +200,71 @@ async def test_api_idempotency_record_round_trips_through_surreal(
 
 
 @pytest.mark.asyncio
+async def test_link_graph_status_uses_server_side_aggregate_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid4()
+    source_a_id = uuid4()
+    source_b_id = uuid4()
+    source_c_id = uuid4()
+    unknown_source_id = uuid4()
+    client = _SequencedContentClient(
+        [
+            [
+                {
+                    "uuid": str(source_a_id),
+                    "organization_id": str(org_id),
+                    "name": "Docs A",
+                    "url": "https://a.example.com",
+                    "source_type": SourceType.WEBSITE.value,
+                },
+                {
+                    "uuid": str(source_b_id),
+                    "organization_id": str(org_id),
+                    "name": "Docs B",
+                    "url": "https://b.example.com",
+                    "source_type": SourceType.WEBSITE.value,
+                },
+                {
+                    "uuid": str(source_c_id),
+                    "organization_id": str(org_id),
+                    "name": "Docs C",
+                    "url": "https://c.example.com",
+                    "source_type": SourceType.WEBSITE.value,
+                },
+            ],
+            [{"total": 6}],
+            [{"total": 2}],
+            [
+                {"source_id": str(source_a_id), "pending": 3},
+                {"source_id": str(source_b_id), "pending": 1},
+                {"source_id": str(unknown_source_id), "pending": 7},
+            ],
+        ]
+    )
+
+    @asynccontextmanager
+    async def client_scope():
+        yield client
+
+    monkeypatch.setattr(surreal_content, "surreal_content_client", client_scope)
+
+    status = await get_link_graph_status_payload(None, organization_id=org_id)
+
+    assert status.total_chunks == 6
+    assert status.chunks_with_entities == 2
+    assert {item.source_id: item.pending for item in status.sources} == {
+        str(source_a_id): 3,
+        str(source_b_id): 1,
+    }
+    queries = [query for query, _ in client.calls]
+    assert len(queries) == 4
+    assert all("SELECT * FROM document_chunks" not in query for query in queries)
+    assert any("SELECT count() AS total FROM document_chunks" in query for query in queries)
+    assert "GROUP BY source_id" in queries[-1]
+
+
+@pytest.mark.asyncio
 async def test_soft_delete_private_raw_captures_marks_purge_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

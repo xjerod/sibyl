@@ -1275,26 +1275,35 @@ async def get_link_graph_status_payload(
 ) -> LinkGraphStatusData:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
-        chunk_rows = await _select_many(
+        total_chunks = await _select_scalar_count(
             client,
-            "SELECT * FROM document_chunks WHERE organization_id = $organization_id;",
+            "SELECT count() AS total FROM document_chunks "
+            "WHERE organization_id = $organization_id GROUP ALL;",
+            organization_id=str(organization_id),
+        )
+        chunks_with_entities = await _select_scalar_count(
+            client,
+            "SELECT count() AS total FROM document_chunks "
+            "WHERE organization_id = $organization_id AND has_entities = true GROUP ALL;",
+            organization_id=str(organization_id),
+        )
+        pending_rows = await _select_many(
+            client,
+            "SELECT source_id, count() AS pending FROM document_chunks "
+            "WHERE organization_id = $organization_id AND source_id != NONE "
+            "AND (has_entities = false OR has_entities = NONE) "
+            "GROUP BY source_id;",
             organization_id=str(organization_id),
         )
 
-    chunks = [_chunk_from_record(row) for row in chunk_rows]
     pending_by_source = {str(source.id): 0 for source in sources}
-    chunks_with_entities = 0
-
-    for chunk in chunks:
-        if chunk.has_entities:
-            chunks_with_entities += 1
-            continue
-        source_id = str(chunk.source_id) if chunk.source_id is not None else ""
+    for row in pending_rows:
+        source_id = _coerce_optional_str(row.get("source_id"))
         if source_id:
-            pending_by_source[source_id] = pending_by_source.get(source_id, 0) + 1
+            pending_by_source[source_id] = _coerce_int(row.get("pending"))
 
     return LinkGraphStatusData(
-        total_chunks=len(chunks),
+        total_chunks=total_chunks,
         chunks_with_entities=chunks_with_entities,
         sources=[
             LinkGraphSourceStatusData(

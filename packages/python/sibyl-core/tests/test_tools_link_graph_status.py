@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import patch
 
 import pytest
 
-from sibyl_core.services.surreal_content import ContentChunk, ContentDocument, ContentSource
 from sibyl_core.tools.link_graph_status import (
     LinkGraphSourceStatusData,
     LinkGraphStatusData,
@@ -14,59 +14,70 @@ from sibyl_core.tools.link_graph_status import (
 )
 
 
+class _SequencedContentClient:
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = responses
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **kwargs: object) -> object:
+        self.calls.append((query, kwargs))
+        return self.responses.pop(0)
+
+
 class TestGetLinkGraphStatusData:
     """Tests for the shared link-graph status aggregation helper."""
 
     @pytest.mark.asyncio
     async def test_surreal_mode_aggregates_without_sql_session(self) -> None:
-        source_a = ContentSource(
-            id="00000000-0000-0000-0000-000000000aaa",
-            organization_id="00000000-0000-0000-0000-000000000111",
-            name="Docs",
-            url="https://docs-a.example.com",
+        organization_id = "00000000-0000-0000-0000-000000000111"
+        source_a_id = "00000000-0000-0000-0000-000000000aaa"
+        source_b_id = "00000000-0000-0000-0000-000000000bbb"
+        unknown_source_id = "00000000-0000-0000-0000-000000000ccc"
+        client = _SequencedContentClient(
+            [
+                [
+                    {
+                        "uuid": source_a_id,
+                        "organization_id": organization_id,
+                        "name": "Docs",
+                        "url": "https://docs-a.example.com",
+                    },
+                    {
+                        "uuid": source_b_id,
+                        "organization_id": organization_id,
+                        "name": "Docs",
+                        "url": "https://docs-b.example.com",
+                    },
+                ],
+                [{"total": 3}],
+                [{"total": 1}],
+                [
+                    {"source_id": source_a_id, "pending": 1},
+                    {"source_id": source_b_id, "pending": 1},
+                    {"source_id": unknown_source_id, "pending": 4},
+                ],
+            ]
         )
-        source_b = ContentSource(
-            id="00000000-0000-0000-0000-000000000bbb",
-            organization_id="00000000-0000-0000-0000-000000000111",
-            name="Docs",
-            url="https://docs-b.example.com",
-        )
-        documents = {
-            "doc-a": ContentDocument(
-                id="doc-a",
-                source_id=source_a.id,
-                url="https://docs-a.example.com/guide",
-            ),
-            "doc-b": ContentDocument(
-                id="doc-b",
-                source_id=source_b.id,
-                url="https://docs-b.example.com/guide",
-            ),
-        }
-        chunks = [
-            ContentChunk(id="chunk-1", document_id="doc-a", has_entities=True),
-            ContentChunk(id="chunk-2", document_id="doc-a", has_entities=False),
-            ContentChunk(id="chunk-3", document_id="doc-b", has_entities=False),
-        ]
+
+        @asynccontextmanager
+        async def client_scope():
+            yield client
 
         with patch(
-            "sibyl_core.services.link_graph_status.load_search_scope",
-            AsyncMock(
-                return_value=(
-                    [source_a, source_b],
-                    {source_a.id: source_a, source_b.id: source_b},
-                    documents,
-                    chunks,
-                )
-            ),
+            "sibyl_core.services.link_graph_status.surreal_content_client",
+            client_scope,
         ):
-            status = await get_link_graph_status_data(None, source_a.organization_id)
+            status = await get_link_graph_status_data(None, organization_id)
 
         assert status == LinkGraphStatusData(
             total_chunks=3,
             chunks_with_entities=1,
             sources=[
-                LinkGraphSourceStatusData(source_id=source_a.id, name="Docs", pending=1),
-                LinkGraphSourceStatusData(source_id=source_b.id, name="Docs", pending=1),
+                LinkGraphSourceStatusData(source_id=source_a_id, name="Docs", pending=1),
+                LinkGraphSourceStatusData(source_id=source_b_id, name="Docs", pending=1),
             ],
         )
+        queries = [query for query, _ in client.calls]
+        assert len(queries) == 4
+        assert all("SELECT * FROM document_chunks" not in query for query in queries)
+        assert "GROUP BY source_id" in queries[-1]
