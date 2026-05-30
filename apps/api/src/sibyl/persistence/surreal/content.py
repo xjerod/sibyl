@@ -315,6 +315,7 @@ def _document_from_record(record: Mapping[str, object]) -> CrawledDocument:
     return CrawledDocument(
         id=_coerce_uuid(record.get("uuid"), field_name="crawled_documents.uuid"),
         source_id=_coerce_uuid(record.get("source_id"), field_name="crawled_documents.source_id"),
+        organization_id=_coerce_optional_uuid(record.get("organization_id")),
         url=_coerce_str(record.get("url")),
         title=_coerce_str(record.get("title")),
         raw_content=_coerce_str(record.get("raw_content")),
@@ -341,6 +342,7 @@ def _document_from_record(record: Mapping[str, object]) -> CrawledDocument:
 def _document_record(document: CrawledDocument) -> SurrealRecord:
     return {
         "uuid": str(document.id),
+        "organization_id": str(document.organization_id or ""),
         "source_id": str(document.source_id),
         "url": document.url,
         "title": document.title,
@@ -372,6 +374,8 @@ def _chunk_from_record(record: Mapping[str, object]) -> DocumentChunk:
         document_id=_coerce_uuid(
             record.get("document_id"), field_name="document_chunks.document_id"
         ),
+        organization_id=_coerce_optional_uuid(record.get("organization_id")),
+        source_id=_coerce_optional_uuid(record.get("source_id")),
         chunk_index=_coerce_int(record.get("chunk_index")),
         chunk_type=_coerce_chunk_type(record.get("chunk_type")),
         content=_coerce_str(record.get("content")),
@@ -393,6 +397,8 @@ def _chunk_from_record(record: Mapping[str, object]) -> DocumentChunk:
 def _chunk_record(chunk: DocumentChunk) -> SurrealRecord:
     return {
         "uuid": str(chunk.id),
+        "organization_id": str(chunk.organization_id or ""),
+        "source_id": str(chunk.source_id or ""),
         "document_id": str(chunk.document_id),
         "chunk_index": chunk.chunk_index,
         "chunk_type": _serialize_value(chunk.chunk_type),
@@ -689,6 +695,53 @@ async def _org_source_ids(
     return [str(value) for value in _scalar_values(result)]
 
 
+async def _organization_id_for_source(
+    client: SurrealContentClient,
+    *,
+    source_id: UUID | str,
+) -> UUID:
+    record = await _select_one(
+        client,
+        "SELECT organization_id FROM crawl_sources WHERE uuid = $source_id LIMIT 1;",
+        source_id=str(source_id),
+    )
+    if record is None:
+        msg = f"Cannot resolve organization for crawl source {source_id}"
+        raise RuntimeError(msg)
+    return _coerce_uuid(record.get("organization_id"), field_name="crawl_sources.organization_id")
+
+
+async def _document_scopes_by_id(
+    client: SurrealContentClient,
+    document_ids: Sequence[str],
+) -> dict[str, tuple[UUID, UUID]]:
+    if not document_ids:
+        return {}
+
+    rows: list[SurrealRecord] = []
+    for batch in _value_batches(document_ids):
+        rows.extend(
+            await _select_many(
+                client,
+                "SELECT uuid, organization_id, source_id FROM crawled_documents "
+                "WHERE uuid INSIDE $document_ids;",
+                document_ids=batch,
+            )
+        )
+
+    scopes: dict[str, tuple[UUID, UUID]] = {}
+    for row in rows:
+        document_id = _coerce_str(row.get("uuid"))
+        if not document_id:
+            continue
+        source_id = _coerce_uuid(row.get("source_id"), field_name="crawled_documents.source_id")
+        organization_id = _coerce_optional_uuid(row.get("organization_id"))
+        if organization_id is None:
+            organization_id = await _organization_id_for_source(client, source_id=source_id)
+        scopes[document_id] = (organization_id, source_id)
+    return scopes
+
+
 async def _load_all_sources(client: SurrealContentClient) -> list[CrawlSource]:
     rows = await _select_many(client, "SELECT * FROM crawl_sources;")
     sources = [_source_from_record(row) for row in rows]
@@ -727,7 +780,7 @@ async def _load_search_documents_by_ids(
         rows.extend(
             await _select_many(
                 client,
-                "SELECT uuid, source_id, url, title, has_code "
+                "SELECT uuid, organization_id, source_id, url, title, has_code "
                 "FROM crawled_documents WHERE uuid INSIDE $document_ids;",
                 document_ids=batch,
             )
@@ -900,10 +953,24 @@ async def get_crawl_stats_payload(
 ) -> CrawlStats:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
-        documents = await _load_documents_for_source_ids(
-            client, [str(source.id) for source in sources]
+        total_documents = await _select_scalar_count(
+            client,
+            "SELECT count() AS total FROM crawled_documents "
+            "WHERE organization_id = $organization_id GROUP ALL;",
+            organization_id=str(organization_id),
         )
-        chunks = await _load_chunks_for_document_ids(client, [str(doc.id) for doc in documents])
+        total_chunks = await _select_scalar_count(
+            client,
+            "SELECT count() AS total FROM document_chunks "
+            "WHERE organization_id = $organization_id GROUP ALL;",
+            organization_id=str(organization_id),
+        )
+        chunks_with_embeddings = await _select_scalar_count(
+            client,
+            "SELECT count() AS total FROM document_chunks "
+            "WHERE organization_id = $organization_id AND embedding != NONE GROUP ALL;",
+            organization_id=str(organization_id),
+        )
 
     status_counts: dict[str, int] = {}
     for source in sources:
@@ -916,9 +983,9 @@ async def get_crawl_stats_payload(
 
     return CrawlStats(
         total_sources=len(sources),
-        total_documents=len(documents),
-        total_chunks=len(chunks),
-        chunks_with_embeddings=sum(1 for chunk in chunks if chunk.embedding),
+        total_documents=total_documents,
+        total_chunks=total_chunks,
+        chunks_with_embeddings=chunks_with_embeddings,
         sources_by_status=status_counts,
     )
 
@@ -931,21 +998,17 @@ async def list_crawled_documents_for_org(
     offset: int,
 ) -> tuple[list[CrawledDocument], int]:
     async with surreal_content_client() as client:
-        source_ids = await _org_source_ids(client, organization_id=organization_id)
-        if not source_ids:
-            return [], 0
-
         total = await _select_scalar_count(
             client,
             "SELECT count() AS total FROM crawled_documents "
-            "WHERE source_id INSIDE $source_ids GROUP ALL;",
-            source_ids=source_ids,
+            "WHERE organization_id = $organization_id GROUP ALL;",
+            organization_id=str(organization_id),
         )
         rows = await _select_many(
             client,
-            "SELECT * FROM crawled_documents WHERE source_id INSIDE $source_ids "
+            "SELECT * FROM crawled_documents WHERE organization_id = $organization_id "
             "ORDER BY crawled_at DESC, uuid DESC START $offset LIMIT $limit;",
-            source_ids=source_ids,
+            organization_id=str(organization_id),
             offset=max(offset, 0),
             limit=max(limit, 0),
         )
@@ -1042,21 +1105,12 @@ async def get_crawled_document_for_org(
     async with surreal_content_client() as client:
         record = await _select_one(
             client,
-            "SELECT * FROM crawled_documents WHERE uuid = $document_id LIMIT 1;",
+            "SELECT * FROM crawled_documents "
+            "WHERE uuid = $document_id AND organization_id = $organization_id LIMIT 1;",
             document_id=str(document_id),
-        )
-        if record is None:
-            return None
-        document = _document_from_record(record)
-        source = await _select_one(
-            client,
-            "SELECT * FROM crawl_sources "
-            "WHERE uuid = $source_id AND organization_id = $organization_id LIMIT 1;",
-            source_id=str(document.source_id),
             organization_id=str(organization_id),
         )
-
-    return document if source is not None else None
+    return _document_from_record(record) if record is not None else None
 
 
 async def save_crawl_source_record(
@@ -1182,8 +1236,12 @@ async def list_source_chunks(
     source_id: UUID,
 ) -> list[DocumentChunk]:
     async with surreal_content_client() as client:
-        documents = await _load_documents_for_source_ids(client, [str(source_id)])
-        chunks = await _load_chunks_for_document_ids(client, [str(doc.id) for doc in documents])
+        rows = await _select_many(
+            client,
+            "SELECT * FROM document_chunks WHERE source_id = $source_id;",
+            source_id=str(source_id),
+        )
+    chunks = [_chunk_from_record(row) for row in rows]
     return sorted(
         chunks,
         key=lambda chunk: (str(chunk.document_id), chunk.chunk_index, str(chunk.id)),
@@ -1212,14 +1270,13 @@ async def get_link_graph_status_payload(
 ) -> LinkGraphStatusData:
     async with surreal_content_client() as client:
         sources = await _load_sources_for_org(client, organization_id=organization_id)
-        documents = await _load_documents_for_source_ids(
-            client, [str(source.id) for source in sources]
-        )
-        chunks = await _load_chunks_for_document_ids(
-            client, [str(document.id) for document in documents]
+        chunk_rows = await _select_many(
+            client,
+            "SELECT * FROM document_chunks WHERE organization_id = $organization_id;",
+            organization_id=str(organization_id),
         )
 
-    document_source_ids = {str(document.id): str(document.source_id) for document in documents}
+    chunks = [_chunk_from_record(row) for row in chunk_rows]
     pending_by_source = {str(source.id): 0 for source in sources}
     chunks_with_entities = 0
 
@@ -1227,8 +1284,8 @@ async def get_link_graph_status_payload(
         if chunk.has_entities:
             chunks_with_entities += 1
             continue
-        source_id = document_source_ids.get(str(chunk.document_id))
-        if source_id is not None:
+        source_id = str(chunk.source_id) if chunk.source_id is not None else ""
+        if source_id:
             pending_by_source[source_id] = pending_by_source.get(source_id, 0) + 1
 
     return LinkGraphStatusData(
@@ -1284,9 +1341,16 @@ async def list_unlinked_source_chunks(
     source_id: UUID,
     limit: int,
 ) -> list[DocumentChunk]:
-    chunks = await list_source_chunks(None, source_id=source_id)
-    pending = [chunk for chunk in chunks if not chunk.has_entities]
-    return pending[:limit]
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            "SELECT * FROM document_chunks "
+            "WHERE source_id = $source_id AND has_entities = false "
+            "ORDER BY document_id ASC, chunk_index ASC, uuid ASC LIMIT $limit;",
+            source_id=str(source_id),
+            limit=max(limit, 0),
+        )
+    return [_chunk_from_record(row) for row in rows]
 
 
 async def count_remaining_unlinked_chunks(
@@ -1295,16 +1359,17 @@ async def count_remaining_unlinked_chunks(
     organization_id: UUID,
     source_id: UUID | None = None,
 ) -> int:
+    clauses = ["organization_id = $organization_id", "has_entities = false"]
+    params: dict[str, object] = {"organization_id": str(organization_id)}
+    if source_id is not None:
+        clauses.append("source_id = $source_id")
+        params["source_id"] = str(source_id)
     async with surreal_content_client() as client:
-        if source_id is not None:
-            documents = await _load_documents_for_source_ids(client, [str(source_id)])
-        else:
-            sources = await _load_sources_for_org(client, organization_id=organization_id)
-            documents = await _load_documents_for_source_ids(
-                client, [str(source.id) for source in sources]
-            )
-        chunks = await _load_chunks_for_document_ids(client, [str(doc.id) for doc in documents])
-    return sum(1 for chunk in chunks if not chunk.has_entities)
+        return await _select_scalar_count(
+            client,
+            f"SELECT count() AS total FROM document_chunks WHERE {' AND '.join(clauses)} GROUP ALL;",  # noqa: S608
+            **params,
+        )
 
 
 def _raw_capture_filter_clause(
@@ -1633,24 +1698,23 @@ async def get_document_by_url_for_org(
     *,
     url: str,
     organization_id: UUID | str,
+    source_id: UUID | str | None = None,
 ) -> CrawledDocument | None:
+    clauses = ["url = $url", "organization_id = $organization_id"]
+    params: dict[str, object] = {
+        "url": url,
+        "organization_id": str(organization_id),
+    }
+    if source_id is not None:
+        clauses.append("source_id = $source_id")
+        params["source_id"] = str(source_id)
     async with surreal_content_client() as client:
         record = await _select_one(
             client,
-            "SELECT * FROM crawled_documents WHERE url = $url LIMIT 1;",
-            url=url,
+            f"SELECT * FROM crawled_documents WHERE {' AND '.join(clauses)} LIMIT 1;",  # noqa: S608
+            **params,
         )
-        if record is None:
-            return None
-        document = _document_from_record(record)
-        source = await _select_one(
-            client,
-            "SELECT * FROM crawl_sources "
-            "WHERE uuid = $source_id AND organization_id = $organization_id LIMIT 1;",
-            source_id=str(document.source_id),
-            organization_id=str(organization_id),
-        )
-    return document if source is not None else None
+    return _document_from_record(record) if record is not None else None
 
 
 async def save_crawled_document_record(
@@ -1660,6 +1724,11 @@ async def save_crawled_document_record(
 ) -> CrawledDocument:
     document.updated_at = _utcnow()
     async with surreal_content_client() as client:
+        if document.organization_id is None:
+            document.organization_id = await _organization_id_for_source(
+                client,
+                source_id=document.source_id,
+            )
         try:
             record = await _replace_record(
                 client,
@@ -1680,8 +1749,22 @@ async def save_document_chunks(
     chunks: list[DocumentChunk],
 ) -> list[DocumentChunk]:
     async with surreal_content_client() as client:
+        missing_scope_ids = sorted(
+            {
+                str(chunk.document_id)
+                for chunk in chunks
+                if chunk.organization_id is None or chunk.source_id is None
+            }
+        )
+        scopes = await _document_scopes_by_id(client, missing_scope_ids)
         saved: list[DocumentChunk] = []
         for chunk in chunks:
+            if chunk.organization_id is None or chunk.source_id is None:
+                scope = scopes.get(str(chunk.document_id))
+                if scope is None:
+                    msg = f"Cannot resolve content scope for document {chunk.document_id}"
+                    raise RuntimeError(msg)
+                chunk.organization_id, chunk.source_id = scope
             chunk.updated_at = _utcnow()
             record = await _replace_record(
                 client,
@@ -1702,8 +1785,10 @@ async def delete_crawled_document_record(
     async with surreal_content_client() as client:
         record = await _select_one(
             client,
-            "SELECT * FROM crawled_documents WHERE uuid = $document_id LIMIT 1;",
+            "SELECT * FROM crawled_documents "
+            "WHERE uuid = $document_id AND organization_id = $organization_id LIMIT 1;",
             document_id=str(document_id),
+            organization_id=str(organization_id),
         )
         if record is None:
             return None
@@ -1722,19 +1807,24 @@ async def delete_crawled_document_record(
         source = _source_from_record(source_record)
         chunk_rows = await _select_many(
             client,
-            "SELECT * FROM document_chunks WHERE document_id = $document_id;",
+            "SELECT * FROM document_chunks "
+            "WHERE document_id = $document_id AND organization_id = $organization_id;",
             document_id=str(document_id),
+            organization_id=str(organization_id),
         )
         chunks_deleted = len(chunk_rows)
 
         await _execute_raw_transaction(
             client,
             "BEGIN TRANSACTION;\n"
-            "DELETE FROM document_chunks WHERE document_id = $document_id;\n"
-            "DELETE FROM crawled_documents WHERE uuid = $document_uuid;\n"
+            "DELETE FROM document_chunks "
+            "WHERE document_id = $document_id AND organization_id = $organization_id;\n"
+            "DELETE FROM crawled_documents "
+            "WHERE uuid = $document_uuid AND organization_id = $organization_id;\n"
             "COMMIT TRANSACTION;",
             document_id=str(document_id),
             document_uuid=str(document.id),
+            organization_id=str(organization_id),
         )
 
         source.document_count = max(0, source.document_count - 1)
@@ -1771,13 +1861,16 @@ async def delete_crawl_source_record(
         await _execute_raw_transaction(
             client,
             "BEGIN TRANSACTION;\n"
-            "DELETE FROM document_chunks WHERE document_id IN "
-            "(SELECT VALUE uuid FROM crawled_documents WHERE source_id = $source_id);\n"
-            "DELETE FROM crawled_documents WHERE source_id = $source_id;\n"
-            "DELETE FROM crawl_sources WHERE uuid = $source_uuid;\n"
+            "DELETE FROM document_chunks "
+            "WHERE source_id = $source_id AND organization_id = $organization_id;\n"
+            "DELETE FROM crawled_documents "
+            "WHERE source_id = $source_id AND organization_id = $organization_id;\n"
+            "DELETE FROM crawl_sources "
+            "WHERE uuid = $source_uuid AND organization_id = $organization_id;\n"
             "COMMIT TRANSACTION;",
             source_id=str(source_id),
             source_uuid=str(source.id),
+            organization_id=str(organization_id),
         )
 
     return source
@@ -1837,17 +1930,16 @@ async def search_rag_chunks(
         sources_by_id = {str(source.id): source for source in sources}
         rows = await _select_many_raw(
             client,
-            "LET $document_ids = ("  # noqa: S608
-            "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
-            ");"
-            "SELECT * FROM ("
-            "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-            "heading_path, language, has_entities, entity_ids, "
+            "SELECT * FROM ("  # noqa: S608
+            "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
+            "chunk_type, content, context, heading_path, language, has_entities, entity_ids, "
             "(1 - vector::distance::knn()) AS score "
-            "FROM document_chunks WHERE document_id INSIDE $document_ids "
+            "FROM document_chunks WHERE organization_id = $organization_id "
+            "AND source_id INSIDE $source_ids "
             f"AND embedding <|{candidate_limit}, 40|> $query_embedding"
             ") WHERE score >= $similarity_threshold "
             "ORDER BY score DESC LIMIT $candidate_limit;",
+            organization_id=str(organization_id),
             source_ids=source_ids,
             query_embedding=query_embedding,
             similarity_threshold=similarity_threshold,
@@ -1893,18 +1985,17 @@ async def search_code_example_chunks(
         sources_by_id = {str(source.id): source for source in sources}
         rows = await _select_many_raw(
             client,
-            "LET $document_ids = ("  # noqa: S608
-            "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
-            ");"
-            "SELECT * FROM ("
-            "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-            "heading_path, language, has_entities, entity_ids, "
+            "SELECT * FROM ("  # noqa: S608
+            "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
+            "chunk_type, content, context, heading_path, language, has_entities, entity_ids, "
             "(1 - vector::distance::knn()) AS score "
-            "FROM document_chunks WHERE document_id INSIDE $document_ids"
+            "FROM document_chunks WHERE organization_id = $organization_id "
+            "AND source_id INSIDE $source_ids"
             f"{language_clause} "
             f"AND embedding <|{candidate_limit}, 40|> $query_embedding "
             ") "
             "ORDER BY score DESC LIMIT $candidate_limit;",
+            organization_id=str(organization_id),
             source_ids=source_ids,
             query_embedding=query_embedding,
             candidate_limit=candidate_limit,
@@ -1954,17 +2045,16 @@ async def hybrid_search_chunks(
         sources_by_id = {str(source.id): source for source in sources}
         vector_rows = await _select_many_raw(
             client,
-            "LET $document_ids = ("  # noqa: S608
-            "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
-            ");"
-            "SELECT * FROM ("
-            "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-            "heading_path, language, has_entities, entity_ids, "
+            "SELECT * FROM ("  # noqa: S608
+            "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
+            "chunk_type, content, context, heading_path, language, has_entities, entity_ids, "
             "(1 - vector::distance::knn()) AS score "
-            "FROM document_chunks WHERE document_id INSIDE $document_ids "
+            "FROM document_chunks WHERE organization_id = $organization_id "
+            "AND source_id INSIDE $source_ids "
             f"AND embedding <|{candidate_limit}, 40|> $query_embedding"
             ") WHERE score >= $similarity_threshold "
             "ORDER BY score DESC LIMIT $candidate_limit;",
+            organization_id=str(organization_id),
             source_ids=source_ids,
             query_embedding=query_embedding,
             similarity_threshold=similarity_threshold,
@@ -1972,14 +2062,14 @@ async def hybrid_search_chunks(
         )
         lexical_rows = await _select_many_raw(
             client,
-            "LET $document_ids = ("
-            "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
-            ");"
-            "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-            "heading_path, language, has_entities, entity_ids, search::score(0) AS score "
-            "FROM document_chunks WHERE document_id INSIDE $document_ids "
+            "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
+            "chunk_type, content, context, heading_path, language, has_entities, "
+            "entity_ids, search::score(0) AS score "
+            "FROM document_chunks WHERE organization_id = $organization_id "
+            "AND source_id INSIDE $source_ids "
             "AND content @0@ $search_query "
             "ORDER BY score DESC LIMIT $candidate_limit;",
+            organization_id=str(organization_id),
             source_ids=source_ids,
             search_query=query_text.strip(),
             candidate_limit=candidate_limit,

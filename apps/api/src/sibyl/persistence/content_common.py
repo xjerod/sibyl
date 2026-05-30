@@ -50,6 +50,7 @@ class CrawledDocumentRecord:
     source_id: UUID
     url: str
     id: UUID = field(default_factory=uuid4)
+    organization_id: UUID | None = None
     title: str = ""
     raw_content: str = ""
     content: str = ""
@@ -77,6 +78,8 @@ class DocumentChunkRecord:
     chunk_index: int
     content: str
     id: UUID = field(default_factory=uuid4)
+    organization_id: UUID | None = None
+    source_id: UUID | None = None
     chunk_type: ChunkType = ChunkType.TEXT
     context: str | None = None
     token_count: int = 0

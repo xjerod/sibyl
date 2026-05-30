@@ -85,6 +85,7 @@ class ContentDocument:
     id: str
     source_id: str
     url: str
+    organization_id: str = ""
     title: str = ""
     content: str = ""
     has_code: bool = False
@@ -94,6 +95,8 @@ class ContentDocument:
 class ContentChunk:
     id: str
     document_id: str
+    organization_id: str = ""
+    source_id: str = ""
     chunk_index: int = 0
     chunk_type: str = "text"
     content: str = ""
@@ -390,6 +393,7 @@ def _document_from_record(record: Mapping[str, object]) -> ContentDocument:
         id=_coerce_str(record.get("uuid")),
         source_id=_coerce_str(record.get("source_id")),
         url=_coerce_str(record.get("url")),
+        organization_id=_coerce_str(record.get("organization_id")),
         title=_coerce_str(record.get("title")),
         content=_coerce_str(record.get("content")),
         has_code=_coerce_bool(record.get("has_code")),
@@ -400,6 +404,8 @@ def _chunk_from_record(record: Mapping[str, object]) -> ContentChunk:
     return ContentChunk(
         id=_coerce_str(record.get("uuid")),
         document_id=_coerce_str(record.get("document_id")),
+        organization_id=_coerce_str(record.get("organization_id")),
+        source_id=_coerce_str(record.get("source_id")),
         chunk_index=_coerce_int(record.get("chunk_index")),
         chunk_type=_coerce_str(record.get("chunk_type"), default="text"),
         content=_coerce_str(record.get("content")),
@@ -634,7 +640,7 @@ async def _load_search_documents_by_ids(
         rows.extend(
             await _select_many(
                 client,
-                "SELECT uuid, source_id, url, title, has_code "
+                "SELECT uuid, organization_id, source_id, url, title, has_code "
                 "FROM crawled_documents WHERE uuid INSIDE $document_ids;",
                 document_ids=batch,
             )
@@ -1348,6 +1354,7 @@ async def search_document_chunks(
         vector_rows: list[SurrealRecord] = []
         if query_embedding is not None:
             vector_params: dict[str, object] = {
+                "organization_id": organization_id,
                 "source_ids": source_ids,
                 "query_embedding": query_embedding,
                 "similarity_threshold": similarity_threshold,
@@ -1358,15 +1365,13 @@ async def search_document_chunks(
                 vector_rows = await with_timeout(
                     _select_many_raw(
                         client,
-                        "LET $document_ids = ("
-                        "SELECT VALUE uuid FROM crawled_documents "
-                        "WHERE source_id INSIDE $source_ids"
-                        ");"
                         "SELECT * FROM ("
-                        "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-                        "heading_path, language, has_entities, entity_ids, "
+                        "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
+                        "chunk_type, content, context, heading_path, language, "
+                        "has_entities, entity_ids, "
                         "(1 - vector::distance::knn()) AS score "
-                        "FROM document_chunks WHERE document_id INSIDE $document_ids"
+                        "FROM document_chunks WHERE organization_id = $organization_id "
+                        "AND source_id INSIDE $source_ids"
                         f"{language_clause} "
                         f"AND embedding <|{candidate_limit}, 40|> $query_embedding"
                         ") WHERE score >= $similarity_threshold "
@@ -1382,6 +1387,7 @@ async def search_document_chunks(
         lexical_rows: list[SurrealRecord] = []
         if lexical_query_text:
             lexical_params: dict[str, object] = {
+                "organization_id": organization_id,
                 "source_ids": source_ids,
                 "search_query": lexical_query_text,
                 "candidate_limit": candidate_limit,
@@ -1391,14 +1397,12 @@ async def search_document_chunks(
                 lexical_rows = await with_timeout(
                     _select_many_raw(
                         client,
-                        "LET $document_ids = ("
-                        "SELECT VALUE uuid FROM crawled_documents "
-                        "WHERE source_id INSIDE $source_ids"
-                        ");"
-                        "SELECT uuid, document_id, chunk_index, chunk_type, content, context, "
-                        "heading_path, language, has_entities, entity_ids, "
+                        "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
+                        "chunk_type, content, context, heading_path, language, "
+                        "has_entities, entity_ids, "
                         "search::score(0) AS score "
-                        "FROM document_chunks WHERE document_id INSIDE $document_ids"
+                        "FROM document_chunks WHERE organization_id = $organization_id "
+                        "AND source_id INSIDE $source_ids"
                         f"{language_clause} "
                         "AND content @0@ $search_query "
                         "ORDER BY score DESC LIMIT $candidate_limit;",
@@ -1439,12 +1443,22 @@ async def list_unlinked_document_chunks(
     source_id: str | None = None,
     limit: int = 1000,
 ) -> list[ContentChunk]:
-    _, _, _, chunks = await load_search_scope(
-        organization_id=organization_id,
-        source_id=source_id,
-        source_name=None,
-    )
-    return [chunk for chunk in chunks if not chunk.has_entities][:limit]
+    clauses = ["organization_id = $organization_id", "has_entities = false"]
+    params: dict[str, object] = {
+        "organization_id": organization_id,
+        "limit": max(limit, 0),
+    }
+    if source_id is not None:
+        clauses.append("source_id = $source_id")
+        params["source_id"] = source_id
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            f"SELECT * FROM document_chunks WHERE {' AND '.join(clauses)} "
+            "ORDER BY document_id ASC, chunk_index ASC, uuid ASC LIMIT $limit;",
+            **params,
+        )
+    return [_chunk_from_record(row) for row in rows]
 
 
 def tokenize(text: str) -> set[str]:

@@ -104,6 +104,7 @@ class LocalFileCrawler:
 
         return CrawledDocumentRecord(
             source_id=source.id,
+            organization_id=source.organization_id,
             url=file_url,
             title=parsed.title or parsed.file_path.stem,
             raw_content=parsed.raw_content,

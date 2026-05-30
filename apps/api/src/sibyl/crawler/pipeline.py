@@ -399,6 +399,7 @@ class IngestionPipeline:
                 session,
                 url=document.url,
                 organization_id=source.organization_id,
+                source_id=source.id,
             )
             if existing is not None:
                 log.debug("Document already exists, skipping", url=document.url)
@@ -413,6 +414,7 @@ class IngestionPipeline:
                     session,
                     url=document.url,
                     organization_id=source.organization_id,
+                    source_id=source.id,
                 )
                 if existing is None:
                     raise
@@ -450,6 +452,8 @@ class IngestionPipeline:
             for i, chunk in enumerate(chunks):
                 db_chunk = DocumentChunkRecord(
                     document_id=stored_document.id,
+                    organization_id=stored_document.organization_id,
+                    source_id=stored_document.source_id,
                     chunk_index=chunk.chunk_index,
                     chunk_type=chunk.chunk_type,
                     content=chunk.content,

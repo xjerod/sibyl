@@ -68,6 +68,7 @@ async def test_process_document_uses_runtime_persistence_helpers() -> None:
         None,
         url=document.url,
         organization_id=org_id,
+        source_id=source.id,
     )
     save_document.assert_awaited_once_with(None, document=document)
     save_chunks.assert_awaited_once()

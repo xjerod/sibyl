@@ -401,8 +401,14 @@ async def test_surreal_delete_document_batches_chunk_delete(
     assert len(txns) == 1
     txn = txns[0]
     assert "COMMIT TRANSACTION;" in txn
-    assert "DELETE FROM document_chunks WHERE document_id = $document_id;" in txn
-    assert "DELETE FROM crawled_documents WHERE uuid = $document_uuid;" in txn
+    assert (
+        "DELETE FROM document_chunks "
+        "WHERE document_id = $document_id AND organization_id = $organization_id;"
+    ) in txn
+    assert (
+        "DELETE FROM crawled_documents "
+        "WHERE uuid = $document_uuid AND organization_id = $organization_id;"
+    ) in txn
     assert "DELETE FROM document_chunks WHERE uuid = $uuid;" not in txn
 
 
@@ -628,6 +634,157 @@ async def test_content_schema_migration_rejects_duplicate_document_urls() -> Non
 
         with pytest.raises(RuntimeError, match="duplicate source_id/url"):
             await bootstrap_content_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_content_schema_migration_rejects_orphan_documents() -> None:
+    client = SurrealContentClient(url="memory://")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    try:
+        await client.execute_query(
+            "CREATE schema_version:content CONTENT $record;",
+            record={
+                "name": "content",
+                "version": 3,
+                "migrations": [
+                    {"version": 1, "name": "content_schema_bootstrap"},
+                    {"version": 2, "name": "content_source_url_org_scope"},
+                    {"version": 3, "name": "content_document_url_source_scope"},
+                ],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        await client.execute_query(
+            "CREATE crawled_documents CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "source_id": str(uuid4()),
+                "url": "https://docs.example.com/orphan",
+                "title": "Orphan",
+                "raw_content": "",
+                "content": "",
+                "content_hash": "",
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="parent crawl_sources rows are missing"):
+            await bootstrap_content_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_content_schema_migration_rejects_orphan_chunks() -> None:
+    client = SurrealContentClient(url="memory://")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    try:
+        await client.execute_query(
+            "CREATE schema_version:content CONTENT $record;",
+            record={
+                "name": "content",
+                "version": 3,
+                "migrations": [
+                    {"version": 1, "name": "content_schema_bootstrap"},
+                    {"version": 2, "name": "content_source_url_org_scope"},
+                    {"version": 3, "name": "content_document_url_source_scope"},
+                ],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        await client.execute_query(
+            "CREATE document_chunks CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "document_id": str(uuid4()),
+                "chunk_index": 0,
+                "chunk_type": ChunkType.TEXT.value,
+                "content": "orphan chunk",
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="parent crawled_documents rows are missing"):
+            await bootstrap_content_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_content_schema_migration_backfills_child_scope_fields() -> None:
+    client = SurrealContentClient(url="memory://")
+    org_id = str(uuid4())
+    source_id = str(uuid4())
+    document_id = str(uuid4())
+    chunk_id = str(uuid4())
+    now = datetime.now(UTC).replace(tzinfo=None)
+    try:
+        await client.execute_query(
+            "CREATE schema_version:content CONTENT $record;",
+            record={
+                "name": "content",
+                "version": 3,
+                "migrations": [
+                    {"version": 1, "name": "content_schema_bootstrap"},
+                    {"version": 2, "name": "content_source_url_org_scope"},
+                    {"version": 3, "name": "content_document_url_source_scope"},
+                ],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        await client.execute_query(
+            "CREATE crawl_sources CONTENT $record;",
+            record={
+                "uuid": source_id,
+                "organization_id": org_id,
+                "name": "Docs",
+                "url": "https://docs.example.com",
+                "source_type": SourceType.WEBSITE.value,
+            },
+        )
+        await client.execute_query(
+            "CREATE crawled_documents CONTENT $record;",
+            record={
+                "uuid": document_id,
+                "source_id": source_id,
+                "url": "https://docs.example.com/page",
+                "title": "Page",
+                "raw_content": "",
+                "content": "",
+                "content_hash": "",
+            },
+        )
+        await client.execute_query(
+            "CREATE document_chunks CONTENT $record;",
+            record={
+                "uuid": chunk_id,
+                "document_id": document_id,
+                "chunk_index": 0,
+                "chunk_type": ChunkType.TEXT.value,
+                "content": "body",
+            },
+        )
+
+        await bootstrap_content_schema(client)
+
+        document_rows = _normalize_records(
+            await client.execute_query(
+                "SELECT * FROM crawled_documents WHERE uuid = $uuid LIMIT 1;",
+                uuid=document_id,
+            )
+        )
+        chunk_rows = _normalize_records(
+            await client.execute_query(
+                "SELECT * FROM document_chunks WHERE uuid = $uuid LIMIT 1;",
+                uuid=chunk_id,
+            )
+        )
+        assert document_rows[0]["organization_id"] == org_id
+        assert chunk_rows[0]["organization_id"] == org_id
+        assert chunk_rows[0]["source_id"] == source_id
     finally:
         await client.close()
 
@@ -994,6 +1151,8 @@ async def test_surreal_content_write_helpers_round_trip(
             "CREATE document_chunks CONTENT $record;",
             record={
                 "uuid": str(uuid4()),
+                "organization_id": str(org_id),
+                "source_id": str(source.id),
                 "document_id": str(document.id),
                 "chunk_index": 0,
                 "chunk_type": ChunkType.TEXT.value,

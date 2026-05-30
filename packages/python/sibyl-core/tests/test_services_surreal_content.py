@@ -161,40 +161,14 @@ class TestSurrealContentHelpers:
                 _query_result(
                     [
                         {
-                            "uuid": "src-1",
-                            "organization_id": "org-1",
-                            "name": "Docs",
-                            "url": "https://docs.example.com",
-                        }
-                    ]
-                ),
-                _query_result(
-                    [
-                        {
-                            "uuid": "doc-1",
-                            "source_id": "src-1",
-                            "url": "https://docs.example.com/guide",
-                            "title": "Guide",
-                        }
-                    ]
-                ),
-                _query_result(
-                    [
-                        {
                             "uuid": "chunk-1",
+                            "organization_id": "org-1",
+                            "source_id": "src-1",
                             "document_id": "doc-1",
                             "chunk_index": 0,
                             "chunk_type": "text",
                             "content": "unlinked chunk",
                             "has_entities": False,
-                        },
-                        {
-                            "uuid": "chunk-2",
-                            "document_id": "doc-1",
-                            "chunk_index": 1,
-                            "chunk_type": "text",
-                            "content": "linked chunk",
-                            "has_entities": True,
                         },
                     ]
                 ),
@@ -216,6 +190,12 @@ class TestSurrealContentHelpers:
             )
 
         assert [chunk.id for chunk in chunks] == ["chunk-1"]
+        query, params = fake_client.calls[0]
+        assert "organization_id = $organization_id" in query
+        assert "source_id = $source_id" in query
+        assert "has_entities = false" in query
+        assert params["organization_id"] == "org-1"
+        assert params["source_id"] == "src-1"
 
     @pytest.mark.asyncio
     async def test_search_document_chunks_uses_direct_surreal_queries(self) -> None:
@@ -301,16 +281,15 @@ class TestSurrealContentHelpers:
         assert "uuid = $source_id" in source_query
         assert source_params["organization_id"] == "org-1"
         assert source_params["source_id"] == "src-1"
-        assert "LET $document_ids" in vector_query
-        document_scope_query = (
-            "SELECT VALUE uuid FROM crawled_documents WHERE source_id INSIDE $source_ids"
-        )
-        assert document_scope_query in vector_query
-        assert document_scope_query in lexical_query
-        assert "SELECT * FROM document_chunks" not in vector_query
+        assert "FROM document_chunks WHERE organization_id = $organization_id" in vector_query
+        assert "source_id INSIDE $source_ids" in vector_query
+        assert "FROM document_chunks WHERE organization_id = $organization_id" in lexical_query
+        assert "source_id INSIDE $source_ids" in lexical_query
         assert "embedding <|25, 40|> $query_embedding" in vector_query
         assert "content @0@ $search_query" in lexical_query
-        assert "SELECT uuid, source_id, url, title, has_code" in document_query
+        assert "SELECT uuid, organization_id, source_id, url, title, has_code" in document_query
+        assert vector_params["organization_id"] == "org-1"
+        assert lexical_params["organization_id"] == "org-1"
         assert vector_params["language"] == "python"
         assert lexical_params["language"] == "python"
         assert vector_params["source_ids"] == ["src-1"]

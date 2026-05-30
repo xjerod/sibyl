@@ -438,6 +438,7 @@ class CrawlerService:
 
         return CrawledDocumentRecord(
             source_id=source.id,
+            organization_id=source.organization_id,
             url=result.url,
             title=title,
             raw_content=raw_content[:100000],  # Limit raw content size
@@ -617,6 +618,7 @@ class CrawlerService:
 
         return CrawledDocumentRecord(
             source_id=source.id,
+            organization_id=source.organization_id,
             url=section.url,
             title=section.title,
             raw_content=content,  # For llms.txt, raw == markdown
@@ -724,6 +726,7 @@ class CrawlerService:
                 # Create document from llms.txt content itself
                 llms_doc = CrawledDocumentRecord(
                     source_id=source.id,
+                    organization_id=source.organization_id,
                     url=discovery_result.url,
                     title="LLMs Documentation Guide",
                     raw_content=discovery_result.content,

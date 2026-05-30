@@ -30,6 +30,7 @@ DEFINE INDEX IF NOT EXISTS idx_crawl_sources_name_ft ON crawl_sources FIELDS nam
 
 DEFINE TABLE IF NOT EXISTS crawled_documents SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON crawled_documents TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON crawled_documents TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS source_id ON crawled_documents TYPE string;
 DEFINE FIELD IF NOT EXISTS url ON crawled_documents TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS title ON crawled_documents TYPE string DEFAULT '';
@@ -53,6 +54,8 @@ DEFINE FIELD IF NOT EXISTS created_at ON crawled_documents TYPE datetime DEFAULT
 DEFINE FIELD IF NOT EXISTS updated_at ON crawled_documents TYPE datetime DEFAULT time::now();
 
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_uuid ON crawled_documents FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_crawled_documents_org_source ON crawled_documents
+    FIELDS organization_id, source_id;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_source ON crawled_documents FIELDS source_id;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_source_url ON crawled_documents FIELDS source_id, url UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_crawled_at ON crawled_documents FIELDS crawled_at;
@@ -61,6 +64,8 @@ DEFINE INDEX IF NOT EXISTS idx_crawled_documents_content_ft ON crawled_documents
 
 DEFINE TABLE IF NOT EXISTS document_chunks SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON document_chunks TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON document_chunks TYPE string DEFAULT '';
+DEFINE FIELD IF NOT EXISTS source_id ON document_chunks TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS document_id ON document_chunks TYPE string;
 DEFINE FIELD IF NOT EXISTS chunk_index ON document_chunks TYPE int DEFAULT 0;
 DEFINE FIELD IF NOT EXISTS chunk_type ON document_chunks TYPE string DEFAULT 'text';
@@ -79,6 +84,12 @@ DEFINE FIELD IF NOT EXISTS created_at ON document_chunks TYPE datetime DEFAULT t
 DEFINE FIELD IF NOT EXISTS updated_at ON document_chunks TYPE datetime DEFAULT time::now();
 
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_uuid ON document_chunks FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_document_chunks_org_source ON document_chunks
+    FIELDS organization_id, source_id;
+DEFINE INDEX IF NOT EXISTS idx_document_chunks_org_source_entities ON document_chunks
+    FIELDS organization_id, source_id, has_entities;
+DEFINE INDEX IF NOT EXISTS idx_document_chunks_org_document ON document_chunks
+    FIELDS organization_id, document_id;
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks FIELDS document_id;
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_document_position ON document_chunks
     FIELDS document_id, chunk_index UNIQUE;
