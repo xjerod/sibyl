@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sibyl_core.backends.surreal.schema_helpers import execute_schema_statement, split_statements
+from sibyl_core.backends.surreal.schema_helpers import split_statements
+from sibyl_core.backends.surreal.schema_version import (
+    SCHEMA_VERSION_TABLE,
+    SchemaMigration,
+    apply_schema_migrations,
+)
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.auth_client import SurrealAuthClient
@@ -35,6 +40,8 @@ EXTENDED_AUTH_TABLES = (
     "llm_usage_buckets",
 )
 AUTH_TABLES = (*CORE_AUTH_TABLES, *EXTENDED_AUTH_TABLES)
+AUTH_SCHEMA_CURRENT_VERSION = 1
+AUTH_SCHEMA_NAME = "auth"
 
 AUTH_SCHEMA_DEFINITIONS = """
 DEFINE TABLE IF NOT EXISTS users SCHEMAFULL;
@@ -555,18 +562,33 @@ DEFINE INDEX IF NOT EXISTS idx_memory_space_members_principal
     ON memory_space_members FIELDS principal_type, principal_id;
 """
 
+AUTH_SCHEMA_MIGRATIONS = (
+    SchemaMigration(
+        version=AUTH_SCHEMA_CURRENT_VERSION,
+        name="auth_schema_bootstrap",
+        statements=tuple(split_statements(AUTH_SCHEMA_DEFINITIONS)),
+    ),
+)
+
 
 async def bootstrap_auth_schema(client: SurrealAuthClient, *, reset: bool = False) -> None:
     if reset:
-        for table in AUTH_TABLES:
+        for table in (*AUTH_TABLES, SCHEMA_VERSION_TABLE):
             await client.execute_query(f"REMOVE TABLE IF EXISTS {table};")
 
-    for statement in split_statements(AUTH_SCHEMA_DEFINITIONS):
-        await execute_schema_statement(client.execute_query, statement, scope="auth")
+    await apply_schema_migrations(
+        client.execute_query,
+        AUTH_SCHEMA_MIGRATIONS,
+        name=AUTH_SCHEMA_NAME,
+        scope="auth_schema_migration",
+    )
 
 
 __all__ = [
+    "AUTH_SCHEMA_CURRENT_VERSION",
     "AUTH_SCHEMA_DEFINITIONS",
+    "AUTH_SCHEMA_MIGRATIONS",
+    "AUTH_SCHEMA_NAME",
     "AUTH_TABLES",
     "CORE_AUTH_TABLES",
     "EXTENDED_AUTH_TABLES",

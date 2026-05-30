@@ -1,4 +1,4 @@
-"""Versioned schema helpers for SurrealDB graph bootstrap."""
+"""Versioned schema helpers for SurrealDB bootstrap."""
 
 from __future__ import annotations
 
@@ -62,12 +62,13 @@ async def ensure_schema_version_table(
     execute_query: SurrealExecute,
     *,
     group_id: str | None = None,
+    scope: str = "schema_version",
 ) -> None:
     for statement in split_statements(SCHEMA_VERSION_DEFINITIONS):
         await execute_schema_statement(
             execute_query,
             statement,
-            scope="graph_schema_version",
+            scope=scope,
             group_id=group_id,
         )
 
@@ -96,12 +97,13 @@ async def record_schema_version(
     name: str = GRAPH_SCHEMA_NAME,
     embedding_dimension: int | None = None,
 ) -> None:
+    record_id = schema_version_record_id(name)
     migration_payload = [
         {"version": migration.version, "name": migration.name} for migration in migrations
     ]
     await execute_query(
-        """
-        UPSERT schema_version:graph SET
+        f"""
+        UPSERT {record_id} SET
             name = $name,
             version = $version,
             embedding_dimension = $embedding_dimension ?? embedding_dimension,
@@ -138,25 +140,34 @@ async def apply_schema_migrations(
     *,
     name: str = GRAPH_SCHEMA_NAME,
     group_id: str | None = None,
+    scope: str = "schema_migration",
 ) -> list[SchemaMigration]:
-    await ensure_schema_version_table(execute_query, group_id=group_id)
+    await ensure_schema_version_table(
+        execute_query,
+        group_id=group_id,
+        scope=f"{scope}_version",
+    )
     current_version = await get_schema_version(execute_query, name=name)
     applied: list[SchemaMigration] = []
-    for migration in sorted(migrations, key=lambda item: item.version):
+    sorted_migrations = sorted(migrations, key=lambda item: item.version)
+    for migration in sorted_migrations:
         if migration.version <= current_version:
             continue
         for statement in migration.statements:
             await execute_schema_statement(
                 execute_query,
                 statement,
-                scope="graph_schema_migration",
+                scope=scope,
                 group_id=group_id,
             )
         applied.append(migration)
+        migration_history = [
+            item for item in sorted_migrations if item.version <= migration.version
+        ]
         await record_schema_version(
             execute_query,
             version=migration.version,
-            migrations=[*applied],
+            migrations=migration_history,
             name=name,
         )
     return applied
@@ -257,6 +268,11 @@ def _validate_identifier(value: str) -> None:
         raise ValueError(msg)
 
 
+def schema_version_record_id(name: str) -> str:
+    _validate_identifier(name)
+    return f"{SCHEMA_VERSION_TABLE}:{name}"
+
+
 __all__ = [
     "GRAPH_SCHEMA_CURRENT_VERSION",
     "GRAPH_SCHEMA_NAME",
@@ -272,5 +288,6 @@ __all__ = [
     "get_schema_version",
     "rebuild_index_concurrently",
     "record_schema_version",
+    "schema_version_record_id",
     "wait_for_index_ready",
 ]

@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 
 from sibyl_core.backends.surreal.auth_schema import (
+    AUTH_SCHEMA_CURRENT_VERSION,
     AUTH_SCHEMA_DEFINITIONS,
     AUTH_TABLES,
     bootstrap_auth_schema,
 )
 from sibyl_core.backends.surreal.content_schema import (
+    CONTENT_SCHEMA_CURRENT_VERSION,
     CONTENT_SCHEMA_DEFINITIONS,
     CONTENT_TABLES,
     bootstrap_content_schema,
@@ -50,7 +52,7 @@ class _RecordingSchemaClient:
         stripped = statement.strip()
         if statement.strip().startswith("SELECT version FROM schema_version"):
             return [{"version": self.schema_version}]
-        if statement.strip().startswith("UPSERT schema_version:graph"):
+        if statement.strip().startswith("UPSERT schema_version:"):
             self.schema_version = GRAPH_SCHEMA_CURRENT_VERSION
         for table in tuple(self.missing_tables):
             if stripped.startswith(f"DELETE FROM {table}") or stripped.startswith(
@@ -346,3 +348,25 @@ async def test_content_bootstrap_continues_after_duplicate_unique_index() -> Non
     assert any(
         "DEFINE TABLE IF NOT EXISTS system_settings" in statement for statement in client.calls
     )
+
+
+@pytest.mark.asyncio
+async def test_auth_bootstrap_skips_schema_when_version_is_current() -> None:
+    client = _RecordingSchemaClient(schema_version=AUTH_SCHEMA_CURRENT_VERSION)
+
+    await bootstrap_auth_schema(client)  # type: ignore[arg-type]
+
+    assert not any("DEFINE TABLE IF NOT EXISTS users" in statement for statement in client.calls)
+    assert any("SELECT version FROM schema_version" in statement for statement in client.calls)
+
+
+@pytest.mark.asyncio
+async def test_content_bootstrap_skips_schema_when_version_is_current() -> None:
+    client = _RecordingSchemaClient(schema_version=CONTENT_SCHEMA_CURRENT_VERSION)
+
+    await bootstrap_content_schema(client)  # type: ignore[arg-type]
+
+    assert not any(
+        "DEFINE TABLE IF NOT EXISTS crawl_sources" in statement for statement in client.calls
+    )
+    assert any("SELECT version FROM schema_version" in statement for statement in client.calls)

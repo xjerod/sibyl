@@ -9,6 +9,8 @@ from sibyl_core.backends.surreal.schema_version import (
     get_index_build_status,
     get_schema_version,
     rebuild_index_concurrently,
+    record_schema_version,
+    schema_version_record_id,
     wait_for_index_ready,
 )
 
@@ -24,7 +26,7 @@ class _FakeSurreal:
         stripped = statement.strip()
         if stripped.startswith("SELECT version FROM schema_version"):
             return [] if self.version is None else [{"version": self.version}]
-        if stripped.startswith("UPSERT schema_version:graph"):
+        if stripped.startswith("UPSERT schema_version:"):
             self.version = int(params["version"])
             return [{"version": self.version}]
         if stripped.startswith("INFO FOR INDEX"):
@@ -70,6 +72,30 @@ async def test_schema_version_defaults_to_zero_when_missing() -> None:
     fake = _FakeSurreal()
 
     assert await get_schema_version(fake.execute_query) == 0
+
+
+@pytest.mark.asyncio
+async def test_schema_version_record_uses_stable_plane_id() -> None:
+    fake = _FakeSurreal()
+
+    await record_schema_version(
+        fake.execute_query,
+        name="content",
+        version=1,
+        migrations=(SchemaMigration(version=1, name="content_schema_bootstrap"),),
+    )
+
+    statement, params = fake.calls[-1]
+    assert statement.strip().startswith("UPSERT schema_version:content SET")
+    assert params["name"] == "content"
+    assert params["migrations"] == [
+        {"version": 1, "name": "content_schema_bootstrap"},
+    ]
+
+
+def test_schema_version_record_id_rejects_unsafe_names() -> None:
+    with pytest.raises(ValueError, match="invalid SurrealDB identifier"):
+        schema_version_record_id("content;DELETE")
 
 
 @pytest.mark.asyncio
