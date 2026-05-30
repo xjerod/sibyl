@@ -44,6 +44,16 @@ def _set_dedup_entities(
     mock_entity_manager.list_all = AsyncMock(side_effect=_list_all)
 
 
+class _SequencedGraphClient:
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = responses
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **kwargs: object) -> object:
+        self.calls.append((query, kwargs))
+        return self.responses.pop(0)
+
+
 class TestCosineSimilarity:
     """Tests for cosine similarity calculation."""
 
@@ -278,6 +288,59 @@ class TestEntityDeduplicator:
         assert pairs[0].entity2_id == "id2"
         assert pairs[0].similarity > 0.9
         mock_entity_manager.list_all.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_find_duplicates_uses_hnsw_candidate_generation(
+        self, mock_entity_manager: MagicMock
+    ) -> None:
+        """Native clients use SurrealDB KNN instead of materializing all pairs."""
+        client = _SequencedGraphClient(
+            [
+                [
+                    {
+                        "uuid": "id1",
+                        "name": "Error handling",
+                        "entity_type": "pattern",
+                        "name_embedding": [1.0, 0.0, 0.0],
+                    },
+                    {
+                        "uuid": "id2",
+                        "name": "Error handling pattern",
+                        "entity_type": "pattern",
+                        "name_embedding": [0.99, 0.01, 0.0],
+                    },
+                ],
+                [
+                    {
+                        "uuid": "id2",
+                        "name": "Error handling pattern",
+                        "entity_type": "pattern",
+                        "score": 0.99,
+                    }
+                ],
+                [
+                    {
+                        "uuid": "id1",
+                        "name": "Error handling",
+                        "entity_type": "pattern",
+                        "score": 0.99,
+                    }
+                ],
+            ]
+        )
+        dedup = EntityDeduplicator(
+            client=client,
+            entity_manager=mock_entity_manager,
+            config=DedupConfig(batch_size=10, min_name_overlap=0.0),
+        )
+
+        pairs = await dedup.find_duplicates(threshold=0.9)
+
+        assert [(pair.entity1_id, pair.entity2_id) for pair in pairs] == [("id1", "id2")]
+        mock_entity_manager.list_all.assert_not_awaited()
+        queries = [query for query, _ in client.calls]
+        assert len(queries) == 3
+        assert any("name_embedding <|10, 40|> $seed_embedding" in query for query in queries)
 
     @pytest.mark.asyncio
     async def test_find_duplicates_same_type_only(
