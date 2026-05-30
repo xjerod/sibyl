@@ -220,11 +220,11 @@ class EntityManager:
             BEGIN TRANSACTION;
             DELETE FROM relates_to
             WHERE group_id = $group_id
-              AND (in.uuid = $uuid OR out.uuid = $uuid)
+              AND (source_id = $uuid OR target_id = $uuid)
             RETURN BEFORE;
             DELETE FROM mentions
             WHERE group_id = $group_id
-              AND (in.uuid = $uuid OR out.uuid = $uuid)
+              AND (source_id = $uuid OR target_id = $uuid)
             RETURN BEFORE;
             DELETE FROM entity
             WHERE group_id = $group_id AND uuid = $uuid
@@ -1128,8 +1128,8 @@ class RelationshipManager:
                    expired_at,
                    valid_at,
                    invalid_at,
-                   source_id ?? in.uuid AS source_uuid,
-                   target_id ?? out.uuid AS target_uuid
+                   source_id AS source_uuid,
+                   target_id AS target_uuid
             FROM relates_to
             WHERE group_id = $group_id AND uuid = $uuid
             LIMIT 1;
@@ -1150,22 +1150,14 @@ class RelationshipManager:
         type_values = [rel_type.value for rel_type in relationship_types or ()]
         type_clause = " AND name IN $relationship_types" if type_values else ""
         if direction == "outgoing":
-            direction_clause = (
-                " AND (source_id = $entity_id OR (source_id IS NONE AND in.uuid = $entity_id))"
-            )
+            direction_clause = " AND source_id = $entity_id"
         elif direction == "incoming":
-            direction_clause = (
-                " AND (target_id = $entity_id OR (target_id IS NONE AND out.uuid = $entity_id))"
-            )
+            direction_clause = " AND target_id = $entity_id"
         else:
             direction_clause = """
                 AND (
                     source_id = $entity_id
                     OR target_id = $entity_id
-                    OR (
-                        (source_id IS NONE OR target_id IS NONE)
-                        AND (in.uuid = $entity_id OR out.uuid = $entity_id)
-                    )
                 )
             """
 
@@ -1183,8 +1175,8 @@ class RelationshipManager:
                        expired_at,
                        valid_at,
                        invalid_at,
-                       source_id ?? in.uuid AS source_uuid,
-                       target_id ?? out.uuid AS target_uuid
+                       source_id AS source_uuid,
+                       target_id AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
                 """
@@ -1239,13 +1231,6 @@ class RelationshipManager:
             type_values=type_values,
             limit=per_seed_limit,
         )
-        if not edge_rows:
-            edge_rows = await self._get_legacy_related_edge_rows(
-                seed_ids,
-                type_clause=type_clause,
-                type_values=type_values,
-                limit=min(per_seed_limit * len(seed_ids), 5000),
-            )
 
         seed_id_set = set(seed_ids)
         edge_pairs_by_seed: dict[str, list[tuple[SurrealRecord, str]]] = {
@@ -1417,53 +1402,6 @@ class RelationshipManager:
             )
         return rows
 
-    async def _get_legacy_related_edge_rows(
-        self,
-        seed_ids: Sequence[str],
-        *,
-        type_clause: str,
-        type_values: Sequence[str],
-        limit: int,
-    ) -> list[SurrealRecord]:
-        return normalize_records(
-            await self._client.execute_query(
-                """
-                SELECT id AS record_id,
-                       uuid,
-                       name,
-                       fact,
-                       group_id,
-                       episodes,
-                       attributes,
-                       created_at,
-                       expired_at,
-                       valid_at,
-                       invalid_at,
-                       source_id ?? in.uuid AS source_uuid,
-                       target_id ?? out.uuid AS target_uuid
-                FROM relates_to
-                WHERE group_id = $group_id
-                  AND (
-                    source_id IN $entity_ids
-                    OR target_id IN $entity_ids
-                    OR (
-                        (source_id IS NONE OR target_id IS NONE)
-                        AND (in.uuid IN $entity_ids OR out.uuid IN $entity_ids)
-                    )
-                  )
-                """
-                + type_clause
-                + """
-                ORDER BY created_at DESC, uuid DESC
-                LIMIT $limit;
-                """,
-                group_id=self._group_id,
-                entity_ids=list(seed_ids),
-                relationship_types=type_values,
-                limit=limit,
-            )
-        )
-
     async def list_all(
         self,
         relationship_types: Sequence[RelationshipType] | None = None,
@@ -1488,8 +1426,8 @@ class RelationshipManager:
                        expired_at,
                        valid_at,
                        invalid_at,
-                       source_id ?? in.uuid AS source_uuid,
-                       target_id ?? out.uuid AS target_uuid
+                       source_id AS source_uuid,
+                       target_id AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
                 """
@@ -1528,20 +1466,13 @@ class RelationshipManager:
                        expired_at,
                        valid_at,
                        invalid_at,
-                       source_id ?? in.uuid AS source_uuid,
-                       target_id ?? out.uuid AS target_uuid
+                       source_id AS source_uuid,
+                       target_id AS target_uuid
                 FROM relates_to
                 WHERE group_id = $group_id
                   AND (
                     (source_id = $source_id AND target_id = $target_id)
                     OR (source_id = $target_id AND target_id = $source_id)
-                    OR (
-                        (source_id IS NONE OR target_id IS NONE)
-                        AND (
-                            (in.uuid = $source_id AND out.uuid = $target_id)
-                            OR (in.uuid = $target_id AND out.uuid = $source_id)
-                        )
-                    )
                   )
                 """
                 + type_clause
@@ -1569,11 +1500,6 @@ class RelationshipManager:
                 WHERE group_id = $group_id
                   AND (
                     (source_id = $source_id AND target_id = $target_id)
-                    OR (
-                        (source_id IS NONE OR target_id IS NONE)
-                        AND in.uuid = $source_id
-                        AND out.uuid = $target_id
-                    )
                   )
                   AND name = $relationship_type
                 RETURN BEFORE;

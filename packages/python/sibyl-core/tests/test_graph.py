@@ -1586,8 +1586,69 @@ async def test_native_relationship_bulk_skips_edges_with_missing_endpoints() -> 
 
     assert created_ids == ["rel_alpha_beta", "rel_alpha_gamma"]
     assert [row["uuid"] for row in rows] == ["rel_alpha_beta", "rel_alpha_gamma"]
+    assert all(row["source_id"] == "alpha" for row in rows)
+    assert {row["target_id"] for row in rows} == {"beta", "gamma"}
     assert all(row["in_uuid"] == "alpha" for row in rows)
     assert {row["out_uuid"] for row in rows} == {"beta", "gamma"}
+
+
+@pytest.mark.asyncio
+async def test_graph_migration_backfills_relationship_endpoint_mirrors() -> None:
+    client = SurrealGraphClient(group_id="org-native-endpoint-migration", url="memory://")
+    try:
+        await prepare_graph_schema(client)
+        entity_manager = EntityManager(client, group_id=client.group_id)
+        relationship_manager = RelationshipManager(client, group_id=client.group_id)
+        for entity_id in ("alpha", "beta"):
+            await entity_manager.create_direct(
+                Entity(
+                    id=entity_id,
+                    entity_type=EntityType.TOPIC,
+                    name=entity_id.title(),
+                    organization_id=client.group_id,
+                )
+            )
+        await relationship_manager.create_direct_bulk(
+            [
+                Relationship(
+                    id="rel_alpha_beta",
+                    source_id="alpha",
+                    target_id="beta",
+                    relationship_type=RelationshipType.RELATED_TO,
+                )
+            ]
+        )
+        await client.execute_query(
+            """
+            UPDATE relates_to SET source_id = 'stale-alpha', target_id = 'stale-beta'
+            WHERE uuid = 'rel_alpha_beta';
+            """,
+        )
+        await record_schema_version(
+            client.execute_query,
+            version=5,
+            migrations=(),
+            name=GRAPH_SCHEMA_NAME,
+        )
+
+        await bootstrap_schema(client)
+
+        rows = normalize_records(
+            await client.execute_query(
+                """
+                SELECT uuid, source_id, target_id
+                FROM relates_to
+                WHERE uuid = 'rel_alpha_beta';
+                """,
+            )
+        )
+        related = await relationship_manager.get_for_entity("alpha", direction="outgoing")
+
+        assert rows == [{"uuid": "rel_alpha_beta", "source_id": "alpha", "target_id": "beta"}]
+        assert [relationship.target_id for relationship in related] == ["beta"]
+        assert await get_schema_version(client.execute_query) == GRAPH_SCHEMA_CURRENT_VERSION
+    finally:
+        await client.close()
 
 
 @pytest.mark.asyncio

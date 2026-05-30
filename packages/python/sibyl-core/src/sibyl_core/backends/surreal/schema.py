@@ -228,14 +228,20 @@ DEFINE INDEX IF NOT EXISTS idx_mentions_group_target_created ON mentions FIELDS 
 
 RELATION_ENDPOINT_BACKFILL_DEFINITIONS = """
 UPDATE relates_to SET
-    source_id = source_id ?? in.uuid,
-    target_id = target_id ?? out.uuid
-WHERE source_id = NONE OR target_id = NONE;
+    source_id = in.uuid,
+    target_id = out.uuid
+WHERE source_id = NONE
+    OR target_id = NONE
+    OR source_id != in.uuid
+    OR target_id != out.uuid;
 
 UPDATE mentions SET
-    source_id = source_id ?? in.uuid,
-    target_id = target_id ?? out.uuid
-WHERE source_id = NONE OR target_id = NONE;
+    source_id = in.uuid,
+    target_id = out.uuid
+WHERE source_id = NONE
+    OR target_id = NONE
+    OR source_id != in.uuid
+    OR target_id != out.uuid;
 """
 
 
@@ -262,9 +268,7 @@ DEFINE INDEX OVERWRITE idx_entity_group_type_status_updated
 """
 
 
-CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS = (
-    ENTITY_DENORMALIZATION_MAINTENANCE_DEFINITIONS + RELATION_ENDPOINT_BACKFILL_DEFINITIONS
-)
+CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS = ENTITY_DENORMALIZATION_MAINTENANCE_DEFINITIONS
 
 
 GRAPH_TABLES = ("entity", "episode")
@@ -295,9 +299,14 @@ GRAPH_SCHEMA_MIGRATIONS = (
         statements=tuple(split_statements(DEAD_GRAPH_OBJECT_REMOVAL_DEFINITIONS)),
     ),
     SchemaMigration(
-        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        version=5,
         name="entity_updated_at_datetime",
         statements=tuple(split_statements(ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS)),
+    ),
+    SchemaMigration(
+        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        name="relation_endpoint_mirror_backfill",
+        statements=tuple(split_statements(RELATION_ENDPOINT_BACKFILL_DEFINITIONS)),
     ),
 )
 
