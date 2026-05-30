@@ -155,7 +155,7 @@ function MemoryHero({
       <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral shadow-md shadow-sc-purple/30">
-            <Database width={16} height={16} className="text-white" />
+            <Database width={16} height={16} className="text-sc-on-accent" />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -261,11 +261,11 @@ function MemoryExplainer({ onDismiss }: { onDismiss: () => void }) {
   ];
 
   return (
-    <div className="relative rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 p-3 shadow-card">
+    <div className="relative rounded-xl border border-sc-fg-subtle/15 bg-sc-bg-elevated p-3 shadow-card">
       <button
         type="button"
         onClick={onDismiss}
-        className="absolute top-2 right-2 rounded p-1 text-sc-fg-subtle transition-colors hover:bg-sc-bg-highlight hover:text-sc-fg-primary"
+        className="absolute top-2 right-2 rounded p-1 text-sc-fg-subtle transition-colors duration-200 hover:bg-sc-bg-highlight hover:text-sc-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
         aria-label="Dismiss memory explainer"
       >
         <Xmark width={12} height={12} />
@@ -339,7 +339,7 @@ function PrimaryActionTile({
   return (
     <Link
       href={href}
-      className={`group relative overflow-hidden rounded-xl border bg-sc-bg-base p-4 shadow-card transition-all hover:shadow-card-hover ${toneClasses.ring}`}
+      className={`group relative overflow-hidden rounded-xl border bg-sc-bg-elevated p-4 shadow-card transition-all duration-200 hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base ${toneClasses.ring}`}
     >
       <div
         className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${toneClasses.tint} opacity-60 transition-opacity group-hover:opacity-100`}
@@ -397,7 +397,7 @@ function Panel({
   }[iconTone ?? 'cyan'];
 
   return (
-    <section className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base shadow-card overflow-hidden">
+    <section className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated shadow-card overflow-hidden">
       <header className="flex items-center justify-between gap-3 border-b border-sc-fg-subtle/10 px-4 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
           {Icon && <Icon width={14} height={14} className={`${iconColor} shrink-0`} />}
@@ -461,7 +461,7 @@ function CaptureRows({
           <Link
             key={capture.id}
             href={href}
-            className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-sc-bg-highlight/50"
+            className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors duration-200 hover:bg-sc-bg-highlight/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sc-cyan"
           >
             {body}
           </Link>
@@ -491,7 +491,7 @@ function MemorySpacesPanel({ spaces }: { spaces: MemorySpace[] }) {
             <Link
               key={space.id}
               href={`/memory?space=${encodeURIComponent(space.id)}`}
-              className="group flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-sc-bg-highlight/50"
+              className="group flex items-center justify-between gap-3 px-4 py-2.5 transition-colors duration-200 hover:bg-sc-bg-highlight/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sc-cyan"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <span
@@ -743,7 +743,7 @@ export function MemoryHome() {
               captures.length > 6 && (
                 <Link
                   href="/memory/captures"
-                  className="text-[11px] font-medium text-sc-cyan hover:text-sc-cyan/80 transition-colors"
+                  className="rounded text-[11px] font-medium text-sc-cyan transition-colors duration-200 hover:text-sc-cyan/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                 >
                   View all →
                 </Link>
@@ -762,7 +762,7 @@ export function MemoryHome() {
               pending.length > 0 && (
                 <Link
                   href="/memory/captures?link=unlinked"
-                  className="text-[11px] font-medium text-sc-yellow hover:text-sc-yellow/80 transition-colors"
+                  className="rounded text-[11px] font-medium text-sc-yellow transition-colors duration-200 hover:text-sc-yellow/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                 >
                   Open Queue →
                 </Link>

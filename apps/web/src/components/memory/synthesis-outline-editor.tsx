@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { EntityBadge } from '@/components/ui/badge';
 import { FormField } from '@/components/ui/form-field';
 import { Input, Textarea } from '@/components/ui/input';
 import type { SynthesisSectionRequest, SynthesisSourcePack } from '@/lib/api';
@@ -50,7 +49,7 @@ export function SynthesisOutlineEditor({
   }
 
   return (
-    <section className="space-y-3 rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+    <section className="space-y-3 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
       <div>
         <h2 className="text-sm font-semibold text-sc-fg-primary">Outline Review</h2>
         <p className="mt-1 text-sm text-sc-fg-muted">
@@ -84,7 +83,9 @@ export function SynthesisOutlineEditor({
                   <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
                     Section {index + 1}
                   </p>
-                  <EntityBadge type={`${sourceCount} sources`} />
+                  <span className="inline-flex items-center rounded-full bg-sc-bg-highlight px-2 py-0.5 text-xs font-medium text-sc-fg-muted">
+                    {sourceCount} {sourceCount === 1 ? 'source' : 'sources'}
+                  </span>
                 </div>
 
                 <FormField label="Title">
@@ -132,7 +133,7 @@ export function SynthesisOutlineEditor({
                       {sourcePack.sources.slice(0, 4).map(source => (
                         <div
                           key={source.id}
-                          className="rounded border border-sc-fg-subtle/20 bg-sc-bg-base/70 px-3 py-2"
+                          className="rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight/40 px-3 py-2"
                         >
                           <Link
                             href={sourceHref(source.id)}

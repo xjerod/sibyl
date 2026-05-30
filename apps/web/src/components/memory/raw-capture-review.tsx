@@ -360,17 +360,17 @@ export function RawCaptureReview({
       )}
 
       <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+        <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
           <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">Raw Captures</p>
           <p className="mt-2 text-2xl font-semibold text-sc-fg-primary">{stats.total}</p>
           <p className="mt-1 text-sm text-sc-fg-muted">Verbatim quick-capture snapshots</p>
         </div>
-        <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+        <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
           <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">Needs Link</p>
           <p className="mt-2 text-2xl font-semibold text-sc-fg-primary">{stats.unlinked}</p>
           <p className="mt-1 text-sm text-sc-fg-muted">Captures that still need graph linkage</p>
         </div>
-        <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+        <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
           <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">Linked Entities</p>
           <p className="mt-2 text-2xl font-semibold text-sc-fg-primary">{stats.linked}</p>
           <p className="mt-1 text-sm text-sc-fg-muted">Captures already attached to graph memory</p>
@@ -378,7 +378,7 @@ export function RawCaptureReview({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
-        <section className="space-y-3 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+        <section className="space-y-3 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-2">
               {[
@@ -399,7 +399,7 @@ export function RawCaptureReview({
                     }`}
                   >
                     <span>{option.label}</span>
-                    <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">
+                    <span className="rounded-full bg-sc-bg-highlight px-1.5 py-0.5 text-[10px]">
                       {option.count}
                     </span>
                   </button>
@@ -431,7 +431,7 @@ export function RawCaptureReview({
                     }`}
                   >
                     <span>{option.label}</span>
-                    <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">
+                    <span className="rounded-full bg-sc-bg-highlight px-1.5 py-0.5 text-[10px]">
                       {option.count}
                     </span>
                   </button>
@@ -507,10 +507,10 @@ export function RawCaptureReview({
                     type="button"
                     aria-label={`Select capture ${capture.title}`}
                     onClick={() => updateSelection(capture.id)}
-                    className={`w-full rounded-xl border p-4 text-left transition-all ${
+                    className={`w-full rounded-xl border p-4 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated ${
                       isActive
                         ? 'border-sc-purple/40 bg-sc-purple/10 shadow-lg shadow-sc-purple/10'
-                        : 'border-sc-fg-subtle/20 bg-sc-bg-base hover:border-sc-cyan/40 hover:bg-sc-bg-highlight/50'
+                        : 'border-sc-fg-subtle/20 bg-sc-bg-highlight/40 hover:border-sc-cyan/40 hover:bg-sc-bg-highlight/70'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -560,7 +560,7 @@ export function RawCaptureReview({
           )}
         </section>
 
-        <section className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+        <section className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
           {!activeCaptureId ? (
             <EnhancedEmptyState
               icon={<FileText width={40} height={40} className="text-sc-fg-subtle" />}
@@ -582,24 +582,45 @@ export function RawCaptureReview({
             />
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight/30 p-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
-                    {linkFilter === 'unlinked'
-                      ? 'Needs Link Queue'
-                      : linkFilter === 'linked'
-                        ? 'Linked Capture Review'
-                        : 'Capture Review'}
-                  </p>
-                  <p className="mt-1 text-sm text-sc-fg-muted">
-                    Reviewing {activeCaptureIndex + 1} of {filteredCaptures.length}
-                    {linkFilter === 'unlinked'
-                      ? ` | ${stats.unlinked} captures still need graph linkage`
-                      : ''}
-                  </p>
+              <div className="flex flex-col gap-3 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight/30 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
+                      {linkFilter === 'unlinked'
+                        ? 'Needs Link Queue'
+                        : linkFilter === 'linked'
+                          ? 'Linked Capture Review'
+                          : 'Capture Review'}
+                    </p>
+                    <p className="mt-1 text-sm text-sc-fg-muted">
+                      Reviewing {activeCaptureIndex + 1} of {filteredCaptures.length}
+                      {linkFilter === 'unlinked'
+                        ? ` | ${stats.unlinked} captures still need graph linkage`
+                        : ''}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!previousCaptureId}
+                      onClick={() => updateSelection(previousCaptureId || null)}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!nextCaptureId}
+                      onClick={() => updateSelection(nextCaptureId || null)}
+                    >
+                      Next
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 border-t border-sc-fg-subtle/15 pt-3">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -618,6 +639,7 @@ export function RawCaptureReview({
                   >
                     Defer
                   </Button>
+                  <span className="h-5 w-px bg-sc-fg-subtle/20" aria-hidden="true" />
                   <Button
                     variant="danger"
                     size="sm"
@@ -626,22 +648,6 @@ export function RawCaptureReview({
                     onClick={() => handleReviewAction('archived')}
                   >
                     Archive
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!previousCaptureId}
-                    onClick={() => updateSelection(previousCaptureId || null)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={!nextCaptureId}
-                    onClick={() => updateSelection(nextCaptureId || null)}
-                  >
-                    Next
                   </Button>
                 </div>
               </div>
@@ -666,7 +672,7 @@ export function RawCaptureReview({
                       {selectedCapture.tags.map(tag => (
                         <span
                           key={`${selectedCapture.id}-${tag}`}
-                          className="rounded border border-sc-fg-subtle/20 bg-sc-bg-base px-2 py-0.5 text-xs text-sc-fg-muted"
+                          className="rounded border border-sc-fg-subtle/20 bg-sc-bg-surface px-2 py-0.5 text-xs text-sc-fg-muted"
                         >
                           #{tag}
                         </span>
@@ -674,7 +680,7 @@ export function RawCaptureReview({
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base px-4 py-3 text-sm text-sc-fg-muted">
+                  <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-surface px-4 py-3 text-sm text-sc-fg-muted">
                     <div className="flex items-center gap-2">
                       <Calendar width={14} height={14} className="text-sc-cyan" />
                       <span>{formatDateTime(selectedCapture.created_at)}</span>
@@ -684,7 +690,7 @@ export function RawCaptureReview({
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4">
+                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight p-4">
                   <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
                     Capture Surface
                   </p>
@@ -693,7 +699,7 @@ export function RawCaptureReview({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4">
+                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight p-4">
                   <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
                     Linked Entity
                   </p>
@@ -712,7 +718,7 @@ export function RawCaptureReview({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4">
+                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight p-4">
                   <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
                     Created By
                   </p>
@@ -722,7 +728,7 @@ export function RawCaptureReview({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4">
+                <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight p-4">
                   <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
                     Metadata Keys
                   </p>
@@ -732,20 +738,20 @@ export function RawCaptureReview({
                 </div>
               </div>
 
-              <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4">
+              <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight p-4">
                 <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
                   Verbatim Content
                 </p>
-                <pre className="mt-4 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-sc-fg-subtle/20 bg-black/20 p-4 font-mono text-sm leading-6 text-sc-fg-primary">
+                <pre className="mt-4 overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-dark p-4 font-mono text-sm leading-6 text-sc-fg-primary">
                   {selectedCapture.raw_content || '(empty capture)'}
                 </pre>
               </div>
 
-              <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4">
+              <div className="rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight p-4">
                 <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">
                   Original Metadata
                 </p>
-                <pre className="mt-4 overflow-x-auto rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight p-4 font-mono text-xs leading-6 text-sc-fg-muted">
+                <pre className="mt-4 overflow-x-auto rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-surface p-4 font-mono text-xs leading-6 text-sc-fg-muted">
                   {JSON.stringify(selectedCapture.metadata, null, 2)}
                 </pre>
               </div>

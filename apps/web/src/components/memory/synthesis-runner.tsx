@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { type FormEvent, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { EntityBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FormField } from '@/components/ui/form-field';
@@ -172,11 +171,13 @@ function StepDot({
   return (
     <div className="flex items-center gap-2">
       <div
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition-all ${dotClass}`}
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition-all duration-200 ${dotClass}`}
       >
         {done ? <Check width={12} height={12} /> : <Icon width={12} height={12} />}
       </div>
-      <span className={`text-xs font-medium transition-colors ${textClass}`}>{label}</span>
+      <span className={`text-xs font-medium transition-colors duration-200 ${textClass}`}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -191,7 +192,7 @@ function Stepper({
   hasRemembered: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 px-4 py-2.5 shadow-card">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/60 px-4 py-2.5 shadow-card">
       <StepDot active={!hasPlan} done={hasPlan} label="1. Plan outline" icon={LightBulb} />
       <span className="h-px w-6 bg-sc-fg-subtle/20 sm:w-8" />
       <StepDot active={hasPlan && !hasDraft} done={hasDraft} label="2. Review & draft" icon={Eye} />
@@ -308,14 +309,14 @@ export function SynthesisRunner() {
   return (
     <div className="space-y-4">
       {/* Hero / intro band */}
-      <div className="relative overflow-hidden rounded-xl border border-sc-purple/25 bg-gradient-to-br from-sc-bg-base via-sc-bg-elevated to-sc-purple/8 p-5 shadow-xl shadow-black/10">
+      <div className="relative overflow-hidden rounded-xl border border-sc-purple/25 bg-gradient-to-br from-sc-bg-base via-sc-bg-elevated to-sc-purple/8 p-5 shadow-card-elevated">
         <div className="pointer-events-none absolute -top-20 -right-20 h-64 w-64 rounded-full bg-sc-purple/18 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-16 -left-12 h-48 w-48 rounded-full bg-sc-cyan/12 blur-3xl" />
 
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3 min-w-0">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral shadow-lg shadow-sc-purple/30">
-              <Flash width={20} height={20} className="text-white" />
+              <Flash width={20} height={20} className="text-sc-on-accent" />
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-sc-fg-primary">Memory Synthesis</h1>
@@ -344,11 +345,12 @@ export function SynthesisRunner() {
                 <button
                   key={template.id}
                   type="button"
+                  aria-label={`Apply ${template.label} template`}
                   onClick={() => applyTemplate(template)}
-                  className={`group relative overflow-hidden rounded-xl border p-3 text-left transition-all shadow-card hover:shadow-card-hover ${
+                  className={`group relative overflow-hidden rounded-xl border p-3 text-left transition-all duration-200 shadow-card hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base ${
                     isApplied
                       ? 'border-sc-purple/50 bg-sc-purple/10'
-                      : 'border-sc-fg-subtle/20 bg-sc-bg-base hover:border-sc-purple/40 hover:bg-sc-bg-highlight/50'
+                      : 'border-sc-fg-subtle/20 bg-sc-bg-elevated hover:border-sc-purple/40 hover:bg-sc-bg-highlight/50'
                   }`}
                 >
                   <div className="flex items-start gap-2">
@@ -376,7 +378,7 @@ export function SynthesisRunner() {
 
       <div className="grid gap-4 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
         {/* Left form column */}
-        <section className="space-y-4 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+        <section className="space-y-4 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-sc-fg-primary">Synthesis Setup</h2>
@@ -388,7 +390,7 @@ export function SynthesisRunner() {
               <button
                 type="button"
                 onClick={() => setAppliedTemplate(null)}
-                className="text-[11px] text-sc-fg-subtle hover:text-sc-fg-primary transition-colors"
+                className="rounded text-[11px] text-sc-fg-subtle transition-colors duration-200 hover:text-sc-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 Clear template
               </button>
@@ -463,7 +465,7 @@ export function SynthesisRunner() {
               <button
                 type="button"
                 onClick={() => setAdvancedOpen(open => !open)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left"
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                 aria-expanded={advancedOpen}
               >
                 <span className="text-xs font-medium uppercase tracking-wider text-sc-fg-subtle">
@@ -685,16 +687,24 @@ export function SynthesisRunner() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {draft.artifact.remembered_memory_id && (
-                    <EntityBadge type="remembered" className="border-sc-green/40 text-sc-green" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-sc-green/40 bg-sc-green/10 px-2.5 py-0.5 text-xs font-medium text-sc-green">
+                      <Check width={12} height={12} />
+                      Remembered
+                    </span>
                   )}
-                  {draft.artifact.remembered_source_id && <EntityBadge type="source" />}
+                  {draft.artifact.remembered_source_id && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-sc-cyan/40 bg-sc-cyan/10 px-2.5 py-0.5 text-xs font-medium text-sc-cyan">
+                      <FileText width={12} height={12} />
+                      Source
+                    </span>
+                  )}
                 </div>
               </div>
-              <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base/60 p-4">
+              <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-highlight/60 p-4">
                 <Markdown content={draft.artifact.markdown} />
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
-                <div className="rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 p-3">
+                <div className="rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/60 p-3">
                   <p className="text-xs font-medium uppercase tracking-[0.12em] text-sc-fg-subtle">
                     Artifact Receipts
                   </p>
@@ -729,7 +739,7 @@ export function SynthesisRunner() {
                   </dl>
                 </div>
 
-                <div className="rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 p-3">
+                <div className="rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/60 p-3">
                   <p className="text-xs font-medium uppercase tracking-[0.12em] text-sc-fg-subtle">
                     Source Receipts
                   </p>
@@ -780,7 +790,7 @@ function StatusCard({
   }[tone];
 
   return (
-    <div className={`rounded-xl border bg-sc-bg-base p-4 shadow-card ${toneClasses}`}>
+    <div className={`rounded-xl border bg-sc-bg-elevated p-4 shadow-card ${toneClasses}`}>
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-medium uppercase tracking-wider text-sc-fg-subtle">
           {label}
@@ -796,7 +806,7 @@ function StatusCard({
 
 function EmptyResultState() {
   return (
-    <div className="rounded-xl border border-dashed border-sc-fg-subtle/25 bg-sc-bg-base/40 p-8 text-center shadow-card">
+    <div className="rounded-xl border border-dashed border-sc-fg-subtle/25 bg-sc-bg-elevated/40 p-8 text-center shadow-card">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-sc-purple/15 to-sc-cyan/10 shadow-inner">
         <Flash width={20} height={20} className="text-sc-purple" />
       </div>
@@ -829,7 +839,7 @@ function Hint({
     green: 'text-sc-green',
   }[tone];
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base/60 p-2.5">
+    <div className="flex items-start gap-2 rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/60 p-2.5">
       <Icon width={12} height={12} className={`${toneColor} mt-0.5 shrink-0`} />
       <span>{text}</span>
     </div>

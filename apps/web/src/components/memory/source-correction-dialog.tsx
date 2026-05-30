@@ -14,6 +14,13 @@ import {
 } from '@/components/ui/dialog';
 import { AlertTriangle, CheckCircle, EditPencil } from '@/components/ui/icons';
 import { Input, Label, Textarea } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type {
   MemoryCorrectionAction,
   MemoryCorrectionResponse,
@@ -65,7 +72,7 @@ function ImpactList({ title, value }: { title: string; value: Record<string, unk
 
 function PreviewSummary({ preview }: { preview: MemoryCorrectionResponse }) {
   return (
-    <div className="space-y-3 rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base p-3">
+    <div className="space-y-3 rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight p-3">
       <div className="flex items-center justify-between gap-3">
         <span
           className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs ${
@@ -144,23 +151,27 @@ export function SourceCorrectionDialog({ source, onApplied }: SourceCorrectionDi
         </DialogHeader>
 
         <div className="space-y-4">
-          <label className="grid gap-2 text-sm text-sc-fg-muted">
-            Action
-            <select
+          <div className="grid gap-2">
+            <Label htmlFor="memory-correction-action">Action</Label>
+            <Select
               value={action}
-              onChange={event => {
-                setAction(event.target.value as MemoryCorrectionAction);
+              onValueChange={value => {
+                setAction(value as MemoryCorrectionAction);
                 resetPreview();
               }}
-              className="rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight px-3 py-2 text-sc-fg-primary"
             >
-              {CORRECTION_ACTIONS.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger id="memory-correction-action" aria-label="Correction action">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CORRECTION_ACTIONS.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           <div>
             <Label htmlFor="memory-correction-reason">Reason</Label>

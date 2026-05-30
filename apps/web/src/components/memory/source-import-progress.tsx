@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { EntityBadge } from '@/components/ui/badge';
 import type { SourceImportStatus, SourceImportStatusResponse } from '@/lib/api';
 import { formatDateTime, formatDistanceToNow } from '@/lib/constants';
 
@@ -60,9 +59,17 @@ function StatusBadge({ status }: { status: SourceImportStatus }) {
   );
 }
 
+function LabelChip({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-sc-bg-highlight px-2 py-0.5 text-xs font-medium text-sc-fg-muted">
+      {children}
+    </span>
+  );
+}
+
 function CounterCard({ label, value, hint }: { label: string; value: number; hint: string }) {
   return (
-    <div className="rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base p-3">
+    <div className="rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-elevated p-3">
       <p className="text-xs uppercase tracking-[0.12em] text-sc-fg-subtle">{label}</p>
       <p className="mt-2 text-xl font-semibold text-sc-fg-primary">{numberLabel(value)}</p>
       <p className="mt-1 text-xs text-sc-fg-muted">{hint}</p>
@@ -98,7 +105,7 @@ function ObjectRows({
         return (
           <div
             key={`${item.adapter_record_id ?? index}`}
-            className="rounded-lg border border-sc-fg-subtle/20 bg-black/10 p-3"
+            className="rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight/40 p-3"
           >
             {entries.length > 0 ? (
               <dl className="grid gap-2 text-xs sm:grid-cols-2">
@@ -123,7 +130,7 @@ export function SourceImportProgress({ status }: { status: SourceImportStatusRes
   const progress = status.progress;
 
   return (
-    <section className="space-y-4 rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base p-4 shadow-card">
+    <section className="space-y-4 rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-elevated p-4 shadow-card">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -135,8 +142,8 @@ export function SourceImportProgress({ status }: { status: SourceImportStatusRes
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <EntityBadge type={status.adapter_name} />
-          {status.target_memory_scope && <EntityBadge type={status.target_memory_scope} />}
+          <LabelChip>{status.adapter_name}</LabelChip>
+          {status.target_memory_scope && <LabelChip>{status.target_memory_scope}</LabelChip>}
         </div>
       </div>
 
