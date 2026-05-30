@@ -1214,6 +1214,43 @@ async def test_graph_migration_normalizes_legacy_updated_at_values() -> None:
 
 
 @pytest.mark.asyncio
+async def test_graph_migration_rejects_invalid_entity_type_values() -> None:
+    client = SurrealGraphClient(group_id="org-native-entity-type-migration", url="memory://")
+    try:
+        await client.execute_query(
+            render_fulltext_compatible_sql(
+                ANALYZER_DEFINITIONS + "\n" + NODE_DEFINITIONS,
+                url="memory://",
+            )
+        )
+        await client.execute_query(
+            """
+            CREATE entity:bad_type SET
+                uuid = 'bad_type',
+                name = 'Bad Type',
+                entity_type = 'spell',
+                labels = [],
+                attributes = {},
+                group_id = $group_id,
+                created_at = time::now();
+            """,
+            group_id=client.group_id,
+        )
+        await ensure_schema_version_table(client.execute_query, group_id=client.group_id)
+        await record_schema_version(
+            client.execute_query,
+            version=7,
+            migrations=(),
+            name=GRAPH_SCHEMA_NAME,
+        )
+
+        with pytest.raises(RuntimeError, match=r"entity\.entity_type enum assertion"):
+            await bootstrap_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_native_entity_lists_can_omit_heavy_content_fields() -> None:
     client = SurrealGraphClient(group_id="org-native-light-list", url="memory://")
     try:

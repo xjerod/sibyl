@@ -5,10 +5,12 @@ from __future__ import annotations
 import pytest
 
 from sibyl_core.backends.surreal.auth_schema import (
+    AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS,
     AUTH_INVITATION_TOKEN_MIGRATION_DEFINITIONS,
     AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS,
     AUTH_SCHEMA_CURRENT_VERSION,
     AUTH_SCHEMA_DEFINITIONS,
+    AUTH_SCHEMA_MIGRATIONS,
     AUTH_TABLES,
     bootstrap_auth_schema,
 )
@@ -23,6 +25,7 @@ from sibyl_core.backends.surreal.schema import (
     DEAD_GRAPH_OBJECT_REMOVAL_DEFINITIONS,
     EDGE_DEFINITIONS,
     ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS,
+    GRAPH_ENUM_ASSERTION_DEFINITIONS,
     GRAPH_INDEX_PRUNE_DEFINITIONS,
     GRAPH_SCHEMA_MIGRATIONS,
     NODE_DEFINITIONS,
@@ -131,6 +134,24 @@ def test_auth_project_slug_cleanup_is_versioned() -> None:
     assert "REMOVE INDEX IF EXISTS idx_projects_org_slug" in (
         AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS
     )
+
+
+def test_auth_enum_assertions_are_versioned() -> None:
+    migration_sql = "\n".join(
+        statement for migration in AUTH_SCHEMA_MIGRATIONS for statement in migration.statements
+    )
+
+    assert "DEFINE FIELD OVERWRITE role ON organization_members" in (
+        AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS
+    )
+    assert "ASSERT $value IN ['owner', 'admin', 'member', 'viewer']" in (
+        AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS
+    )
+    assert "DEFINE FIELD OVERWRITE status ON device_authorization_requests" in (
+        AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS
+    )
+    assert "auth_enum_assertions" in [migration.name for migration in AUTH_SCHEMA_MIGRATIONS]
+    assert AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS.strip().splitlines()[0] in migration_sql
 
 
 def test_auth_schema_includes_oidc_identity_tables() -> None:
@@ -333,6 +354,19 @@ def test_graph_index_prune_removes_constant_namespace_prefixes() -> None:
     )
     assert "SET parent_task_id = attributes.epic_id" in (PARENT_TASK_CANONICALIZATION_DEFINITIONS)
     assert "DEFINE INDEX OVERWRITE idx_entity_type_parent_task_updated" in migration_sql
+
+
+def test_graph_enum_assertions_are_versioned() -> None:
+    migration_sql = "\n".join(
+        statement for migration in GRAPH_SCHEMA_MIGRATIONS for statement in migration.statements
+    )
+
+    assert "DEFINE FIELD OVERWRITE entity_type ON entity TYPE string" in (
+        GRAPH_ENUM_ASSERTION_DEFINITIONS
+    )
+    assert "ASSERT $value IN ['pattern'" in GRAPH_ENUM_ASSERTION_DEFINITIONS
+    assert "graph_enum_assertions" in [migration.name for migration in GRAPH_SCHEMA_MIGRATIONS]
+    assert GRAPH_ENUM_ASSERTION_DEFINITIONS.strip().splitlines()[0] in migration_sql
 
 
 def test_graph_relation_cleanup_covers_all_relation_tables() -> None:

@@ -23,6 +23,7 @@ from sibyl_core.backends.surreal.schema_version import (
     record_schema_version,
 )
 from sibyl_core.config import core_config
+from sibyl_core.models.entities import EntityType
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.protocols import SchemaDriver
@@ -51,6 +52,12 @@ def _index_names_from_info(value: object) -> list[str]:
 EMBEDDING_DIM = core_config.graph_embedding_dimensions
 HNSW_EFC = core_config.graph_hnsw_efc
 HNSW_M = core_config.graph_hnsw_m
+_GRAPH_ENTITY_TYPE_VALUES = tuple(entity_type.value for entity_type in EntityType)
+
+
+def _surql_string_array(values: tuple[str, ...]) -> str:
+    return "[" + ", ".join(f"'{value}'" for value in values) + "]"
+
 
 ANALYZER_DEFINITIONS = """
 DEFINE ANALYZER IF NOT EXISTS name_analyzer
@@ -348,6 +355,12 @@ DEFINE INDEX OVERWRITE idx_mentions_target_created
 """
 
 
+GRAPH_ENUM_ASSERTION_DEFINITIONS = f"""
+DEFINE FIELD OVERWRITE entity_type ON entity TYPE string
+    ASSERT $value IN {_surql_string_array(_GRAPH_ENTITY_TYPE_VALUES)};
+"""
+
+
 CURRENT_SCHEMA_MAINTENANCE_DEFINITIONS = ENTITY_DENORMALIZATION_MAINTENANCE_DEFINITIONS
 
 
@@ -389,13 +402,18 @@ GRAPH_SCHEMA_MIGRATIONS = (
         statements=tuple(split_statements(RELATION_ENDPOINT_BACKFILL_DEFINITIONS)),
     ),
     SchemaMigration(
-        version=GRAPH_SCHEMA_CURRENT_VERSION,
+        version=7,
         name="graph_index_prune",
         statements=tuple(
             split_statements(
                 PARENT_TASK_CANONICALIZATION_DEFINITIONS + "\n" + GRAPH_INDEX_PRUNE_DEFINITIONS
             )
         ),
+    ),
+    SchemaMigration(
+        version=8,
+        name="graph_enum_assertions",
+        statements=tuple(split_statements(GRAPH_ENUM_ASSERTION_DEFINITIONS)),
     ),
 )
 
@@ -586,6 +604,63 @@ async def _ensure_removed_graph_objects_empty(driver: SchemaDriver) -> None:
         raise RuntimeError(msg)
 
 
+async def _assert_graph_migrations_safe(
+    driver: SchemaDriver,
+    *,
+    current_version: int,
+) -> None:
+    if current_version >= 8:
+        return
+
+    invalid_entity_type = await _first_invalid_graph_enum_value(
+        driver,
+        table="entity",
+        field="entity_type",
+        allowed=_GRAPH_ENTITY_TYPE_VALUES,
+    )
+    if invalid_entity_type is not None:
+        raise RuntimeError(
+            "Cannot migrate entity.entity_type enum assertion: "
+            f"invalid existing value {invalid_entity_type!r}"
+        )
+
+
+async def _first_invalid_graph_enum_value(
+    driver: SchemaDriver,
+    *,
+    table: str,
+    field: str,
+    allowed: tuple[str, ...],
+) -> str | None:
+    _validate_identifier(table)
+    _validate_identifier(field)
+    try:
+        result = await driver.execute_query(
+            f"""
+            SELECT {field}
+            FROM {table}
+            GROUP BY {field};
+            """
+        )
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return None
+        raise
+    rows = result if isinstance(result, list) else []
+    allowed_values = set(allowed)
+    for row in rows:
+        row_map = _object_mapping(row)
+        if row_map is None:
+            continue
+        value = row_map.get(field)
+        if value in {None, ""}:
+            return "" if value == "" else "NONE"
+        normalized = str(value)
+        if normalized not in allowed_values:
+            return normalized
+    return None
+
+
 def render_fulltext_compatible_sql(sql: str, *, url: str) -> str:
     if url.startswith(("memory://", "surrealkv://")):
         return sql.replace("FULLTEXT ANALYZER", "SEARCH ANALYZER")
@@ -614,6 +689,7 @@ async def bootstrap_schema(
                 await _reconcile_embedding_dimension(driver)
                 return
         elif current_version > 0 and not force:
+            await _assert_graph_migrations_safe(driver, current_version=current_version)
             await _ensure_removed_graph_objects_empty(driver)
             await apply_schema_migrations(
                 driver.execute_query,
@@ -698,6 +774,7 @@ __all__ = [
     "EMBEDDING_VECTOR_FIELDS",
     "ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS",
     "GRAPH_EDGES",
+    "GRAPH_ENUM_ASSERTION_DEFINITIONS",
     "GRAPH_INDEX_PRUNE_DEFINITIONS",
     "GRAPH_SCHEMA_MIGRATIONS",
     "GRAPH_TABLES",

@@ -15,6 +15,8 @@ from sibyl_core.backends.surreal.schema_version import (
     get_schema_version,
 )
 from sibyl_core.config import core_config
+from sibyl_core.models.sources import CrawlStatus, SourceType
+from sibyl_core.services.surreal_content import MemoryScope
 
 # Document chunks use the OpenAI embedder dimension (text-embedding-3-small = 1536),
 # which differs from the graph node embedder dimension. Keep them as separate
@@ -37,11 +39,38 @@ CONTENT_TABLES = (
     "backup_settings",
     "backups",
 )
-CONTENT_SCHEMA_CURRENT_VERSION = 4
+CONTENT_SCHEMA_CURRENT_VERSION = 5
 CONTENT_SCHEMA_NAME = "content"
 _SCHEMA_CHECK_BATCH_SIZE = 128
+_CONTENT_MEMORY_SCOPE_VALUES = tuple(scope.value for scope in MemoryScope)
+_CONTENT_REVIEW_STATE_VALUES = (
+    "pending",
+    "promoted",
+    "archived",
+    "deleted",
+    "duplicate",
+    "hidden",
+    "redacted",
+    "sensitive",
+    "stale",
+    "superseded",
+    "wrong",
+)
+_CONTENT_SOURCE_IMPORT_STATUS_VALUES = (
+    "pending",
+    "running",
+    "paused",
+    "completed",
+    "failed",
+    "canceled",
+)
+_CONTENT_BACKUP_STATUS_VALUES = ("pending", "in_progress", "completed", "failed")
 
 _SCHEMA_DIR = Path(__file__).with_name("schemas") / "content"
+
+
+def _surql_string_array(values: tuple[str, ...]) -> str:
+    return "[" + ", ".join(f"'{value}'" for value in values) + "]"
 
 
 def _load_schema_file(filename: str) -> str:
@@ -77,6 +106,30 @@ DEFINE INDEX IF NOT EXISTS idx_document_chunks_org_document
     ON document_chunks FIELDS organization_id, document_id;
 """
 
+CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS = f"""
+UPDATE crawl_sources SET source_type = 'website' WHERE source_type = NONE OR source_type = '';
+UPDATE crawl_sources SET crawl_status = 'pending' WHERE crawl_status = NONE OR crawl_status = '';
+UPDATE raw_captures SET memory_scope = 'private' WHERE memory_scope = NONE OR memory_scope = '';
+UPDATE raw_captures SET review_state = 'pending' WHERE review_state = NONE OR review_state = '';
+UPDATE source_imports SET status = 'pending' WHERE status = NONE OR status = '';
+UPDATE backups SET status = 'pending' WHERE status = NONE OR status = '';
+
+DEFINE FIELD OVERWRITE source_type ON crawl_sources TYPE string DEFAULT 'website'
+    ASSERT $value IN {_surql_string_array(tuple(source_type.value for source_type in SourceType))};
+DEFINE FIELD OVERWRITE crawl_status ON crawl_sources TYPE string DEFAULT 'pending'
+    ASSERT $value IN {_surql_string_array(tuple(status.value for status in CrawlStatus))};
+DEFINE FIELD OVERWRITE memory_scope ON raw_captures TYPE string DEFAULT 'private'
+    ASSERT $value IN {_surql_string_array(_CONTENT_MEMORY_SCOPE_VALUES)};
+DEFINE FIELD OVERWRITE review_state ON raw_captures TYPE string DEFAULT 'pending'
+    ASSERT $value IN {_surql_string_array(_CONTENT_REVIEW_STATE_VALUES)};
+DEFINE FIELD OVERWRITE target_memory_scope ON source_imports TYPE option<string>
+    ASSERT $value = NONE OR $value IN {_surql_string_array(_CONTENT_MEMORY_SCOPE_VALUES)};
+DEFINE FIELD OVERWRITE status ON source_imports TYPE string DEFAULT 'pending'
+    ASSERT $value IN {_surql_string_array(_CONTENT_SOURCE_IMPORT_STATUS_VALUES)};
+DEFINE FIELD OVERWRITE status ON backups TYPE string DEFAULT 'pending'
+    ASSERT $value IN {_surql_string_array(_CONTENT_BACKUP_STATUS_VALUES)};
+"""
+
 
 def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
     compatible_schema = render_fulltext_compatible_sql(
@@ -105,6 +158,11 @@ def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
             version=4,
             name="content_child_scope_fields",
             statements=tuple(split_statements(CONTENT_CHILD_SCOPE_MIGRATION_DEFINITIONS)),
+        ),
+        SchemaMigration(
+            version=5,
+            name="content_enum_assertions",
+            statements=tuple(split_statements(CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS)),
         ),
     )
 
@@ -206,6 +264,34 @@ async def _assert_content_migrations_safe(client: SurrealContentClient) -> None:
                 "Cannot migrate document_chunks content scope: "
                 "parent crawled_documents rows are missing"
             )
+    if current_version < 5:
+        enum_checks = (
+            (
+                "crawl_sources",
+                "source_type",
+                tuple(source_type.value for source_type in SourceType),
+                True,
+            ),
+            ("crawl_sources", "crawl_status", tuple(status.value for status in CrawlStatus), True),
+            ("raw_captures", "memory_scope", _CONTENT_MEMORY_SCOPE_VALUES, True),
+            ("raw_captures", "review_state", _CONTENT_REVIEW_STATE_VALUES, True),
+            ("source_imports", "target_memory_scope", _CONTENT_MEMORY_SCOPE_VALUES, True),
+            ("source_imports", "status", _CONTENT_SOURCE_IMPORT_STATUS_VALUES, True),
+            ("backups", "status", _CONTENT_BACKUP_STATUS_VALUES, True),
+        )
+        for table, field, allowed, optional in enum_checks:
+            invalid_value = await _first_invalid_enum_value(
+                client,
+                table=table,
+                field=field,
+                allowed=allowed,
+                optional=optional,
+            )
+            if invalid_value is not None:
+                raise RuntimeError(
+                    f"Cannot migrate {table}.{field} enum assertion: "
+                    f"invalid existing value {invalid_value!r}"
+                )
 
 
 async def _matching_rows(
@@ -262,6 +348,35 @@ async def _distinct_field_values(
     return sorted(values)
 
 
+async def _first_invalid_enum_value(
+    client: SurrealContentClient,
+    *,
+    table: str,
+    field: str,
+    allowed: tuple[str, ...],
+    optional: bool,
+) -> str | None:
+    rows = await _matching_rows(
+        client,
+        f"""
+        SELECT {field}
+        FROM {table}
+        GROUP BY {field};
+        """,
+    )
+    allowed_values = set(allowed)
+    for row in rows:
+        value = row.get(field)
+        if value in {None, ""}:
+            if optional:
+                continue
+            return "" if value == "" else "NONE"
+        normalized = str(value)
+        if normalized not in allowed_values:
+            return normalized
+    return None
+
+
 def _batches(values: list[str]) -> list[list[str]]:
     return [
         values[index : index + _SCHEMA_CHECK_BATCH_SIZE]
@@ -296,6 +411,7 @@ __all__ = [
     "CONTENT_ANALYZER_DEFINITIONS",
     "CONTENT_CHILD_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_DOCUMENT_URL_SCOPE_MIGRATION_DEFINITIONS",
+    "CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS",
     "CONTENT_SCHEMA_CURRENT_VERSION",
     "CONTENT_SCHEMA_DEFINITIONS",
     "CONTENT_SCHEMA_NAME",

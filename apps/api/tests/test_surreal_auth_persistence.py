@@ -134,6 +134,59 @@ async def test_surreal_user_repository_supports_local_and_github_users(
 
 
 @pytest.mark.asyncio
+async def test_auth_schema_migration_rejects_invalid_role_values() -> None:
+    client = SurrealAuthClient(url="memory://")
+    try:
+        await client.execute_query(
+            """
+            CREATE schema_version:auth SET
+                name = 'auth',
+                version = 3,
+                migrations = [
+                    { version: 1, name: 'auth_schema_bootstrap' },
+                    { version: 2, name: 'auth_invitation_token_hash_cleanup' },
+                    { version: 3, name: 'auth_project_slug_lookup_cleanup' }
+                ],
+                created_at = time::now(),
+                updated_at = time::now();
+            """
+        )
+        await client.execute_query(
+            "CREATE organization_members CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "organization_id": str(uuid4()),
+                "user_id": str(uuid4()),
+                "role": "super_admin",
+            },
+        )
+
+        with pytest.raises(RuntimeError, match=r"organization_members\.role enum assertion"):
+            await bootstrap_auth_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_auth_schema_assertions_reject_invalid_writes(
+    surreal_auth_client: SurrealAuthClient,
+) -> None:
+    with pytest.raises(Exception, match=r"visibility|internet"):
+        await surreal_auth_client.execute_query(
+            "CREATE projects CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "organization_id": str(uuid4()),
+                "name": "Bad Project",
+                "slug": "bad-project",
+                "graph_project_id": "bad-project",
+                "visibility": "internet",
+                "default_role": ProjectRole.VIEWER.value,
+            },
+        )
+
+
+@pytest.mark.asyncio
 async def test_surreal_org_and_membership_repositories_enforce_owner_invariants(
     surreal_auth_client: SurrealAuthClient,
 ) -> None:

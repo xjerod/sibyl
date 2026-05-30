@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sibyl_core.auth import OrganizationRole, ProjectRole, ProjectVisibility
 from sibyl_core.backends.surreal.schema_helpers import split_statements
 from sibyl_core.backends.surreal.schema_version import (
     SCHEMA_VERSION_TABLE,
     SchemaMigration,
     apply_schema_migrations,
+    ensure_schema_version_table,
+    get_schema_version,
 )
+from sibyl_core.services.surreal_content import MemoryScope
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.auth_client import SurrealAuthClient
@@ -40,8 +44,19 @@ EXTENDED_AUTH_TABLES = (
     "llm_usage_buckets",
 )
 AUTH_TABLES = (*CORE_AUTH_TABLES, *EXTENDED_AUTH_TABLES)
-AUTH_SCHEMA_CURRENT_VERSION = 3
+AUTH_SCHEMA_CURRENT_VERSION = 4
 AUTH_SCHEMA_NAME = "auth"
+_AUTH_ORGANIZATION_ROLE_VALUES = tuple(role.value for role in OrganizationRole)
+_AUTH_PROJECT_ROLE_VALUES = tuple(role.value for role in ProjectRole)
+_AUTH_PROJECT_VISIBILITY_VALUES = tuple(visibility.value for visibility in ProjectVisibility)
+_AUTH_MEMORY_SCOPE_VALUES = tuple(scope.value for scope in MemoryScope)
+_AUTH_MEMORY_SPACE_STATE_VALUES = ("active", "disabled")
+_AUTH_DEVICE_AUTHORIZATION_STATUS_VALUES = ("pending", "approved", "denied", "consumed")
+
+
+def _surql_string_array(values: tuple[str, ...]) -> str:
+    return "[" + ", ".join(f"'{value}'" for value in values) + "]"
+
 
 AUTH_SCHEMA_DEFINITIONS = """
 DEFINE TABLE IF NOT EXISTS users SCHEMAFULL;
@@ -544,6 +559,42 @@ AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS = """
 REMOVE INDEX IF EXISTS idx_projects_org_slug ON TABLE projects;
 """
 
+AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS = f"""
+UPDATE organization_members SET role = 'member' WHERE role = NONE OR role = '';
+UPDATE organization_invitations SET invited_role = 'member'
+    WHERE invited_role = NONE OR invited_role = '';
+UPDATE team_members SET role = 'member' WHERE role = NONE OR role = '';
+UPDATE projects SET visibility = 'org' WHERE visibility = NONE OR visibility = '';
+UPDATE projects SET default_role = 'project_viewer'
+    WHERE default_role = NONE OR default_role = '';
+UPDATE project_members SET role = 'project_contributor' WHERE role = NONE OR role = '';
+UPDATE team_projects SET role = 'project_contributor' WHERE role = NONE OR role = '';
+UPDATE memory_spaces SET state = 'active' WHERE state = NONE OR state = '';
+UPDATE device_authorization_requests SET status = 'pending'
+    WHERE status = NONE OR status = '';
+
+DEFINE FIELD OVERWRITE role ON organization_members TYPE string DEFAULT 'member'
+    ASSERT $value IN {_surql_string_array(_AUTH_ORGANIZATION_ROLE_VALUES)};
+DEFINE FIELD OVERWRITE invited_role ON organization_invitations TYPE string DEFAULT 'member'
+    ASSERT $value IN {_surql_string_array(_AUTH_ORGANIZATION_ROLE_VALUES)};
+DEFINE FIELD OVERWRITE role ON team_members TYPE string DEFAULT 'member'
+    ASSERT $value IN {_surql_string_array(_AUTH_ORGANIZATION_ROLE_VALUES)};
+DEFINE FIELD OVERWRITE visibility ON projects TYPE string DEFAULT 'org'
+    ASSERT $value IN {_surql_string_array(_AUTH_PROJECT_VISIBILITY_VALUES)};
+DEFINE FIELD OVERWRITE default_role ON projects TYPE string DEFAULT 'project_viewer'
+    ASSERT $value IN {_surql_string_array(_AUTH_PROJECT_ROLE_VALUES)};
+DEFINE FIELD OVERWRITE role ON project_members TYPE string DEFAULT 'project_contributor'
+    ASSERT $value IN {_surql_string_array(_AUTH_PROJECT_ROLE_VALUES)};
+DEFINE FIELD OVERWRITE role ON team_projects TYPE string DEFAULT 'project_contributor'
+    ASSERT $value IN {_surql_string_array(_AUTH_PROJECT_ROLE_VALUES)};
+DEFINE FIELD OVERWRITE memory_scope ON memory_spaces TYPE string
+    ASSERT $value IN {_surql_string_array(_AUTH_MEMORY_SCOPE_VALUES)};
+DEFINE FIELD OVERWRITE state ON memory_spaces TYPE string DEFAULT 'active'
+    ASSERT $value IN {_surql_string_array(_AUTH_MEMORY_SPACE_STATE_VALUES)};
+DEFINE FIELD OVERWRITE status ON device_authorization_requests TYPE string DEFAULT 'pending'
+    ASSERT $value IN {_surql_string_array(_AUTH_DEVICE_AUTHORIZATION_STATUS_VALUES)};
+"""
+
 AUTH_SCHEMA_MIGRATIONS = (
     SchemaMigration(
         version=1,
@@ -560,6 +611,11 @@ AUTH_SCHEMA_MIGRATIONS = (
         name="auth_project_slug_lookup_cleanup",
         statements=tuple(split_statements(AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS)),
     ),
+    SchemaMigration(
+        version=4,
+        name="auth_enum_assertions",
+        statements=tuple(split_statements(AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS)),
+    ),
 )
 
 
@@ -568,6 +624,7 @@ async def bootstrap_auth_schema(client: SurrealAuthClient, *, reset: bool = Fals
         for table in (*AUTH_TABLES, SCHEMA_VERSION_TABLE):
             await client.execute_query(f"REMOVE TABLE IF EXISTS {table};")
 
+    await _assert_auth_migrations_safe(client)
     await apply_schema_migrations(
         client.execute_query,
         AUTH_SCHEMA_MIGRATIONS,
@@ -576,7 +633,76 @@ async def bootstrap_auth_schema(client: SurrealAuthClient, *, reset: bool = Fals
     )
 
 
+async def _assert_auth_migrations_safe(client: SurrealAuthClient) -> None:
+    await ensure_schema_version_table(
+        client.execute_query,
+        scope="auth_schema_migration_version",
+    )
+    current_version = await get_schema_version(client.execute_query, name=AUTH_SCHEMA_NAME)
+    if current_version >= 4:
+        return
+
+    enum_checks = (
+        ("organization_members", "role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
+        ("organization_invitations", "invited_role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
+        ("team_members", "role", _AUTH_ORGANIZATION_ROLE_VALUES, True),
+        ("projects", "visibility", _AUTH_PROJECT_VISIBILITY_VALUES, True),
+        ("projects", "default_role", _AUTH_PROJECT_ROLE_VALUES, True),
+        ("project_members", "role", _AUTH_PROJECT_ROLE_VALUES, True),
+        ("team_projects", "role", _AUTH_PROJECT_ROLE_VALUES, True),
+        ("memory_spaces", "memory_scope", _AUTH_MEMORY_SCOPE_VALUES, False),
+        ("memory_spaces", "state", _AUTH_MEMORY_SPACE_STATE_VALUES, True),
+        ("device_authorization_requests", "status", _AUTH_DEVICE_AUTHORIZATION_STATUS_VALUES, True),
+    )
+    for table, field, allowed, optional in enum_checks:
+        invalid_value = await _first_invalid_enum_value(
+            client,
+            table=table,
+            field=field,
+            allowed=allowed,
+            optional=optional,
+        )
+        if invalid_value is not None:
+            raise RuntimeError(
+                f"Cannot migrate {table}.{field} enum assertion: "
+                f"invalid existing value {invalid_value!r}"
+            )
+
+
+async def _first_invalid_enum_value(
+    client: SurrealAuthClient,
+    *,
+    table: str,
+    field: str,
+    allowed: tuple[str, ...],
+    optional: bool,
+) -> str | None:
+    from sibyl_core.backends.surreal.records import normalize_records
+
+    rows = normalize_records(
+        await client.execute_query(
+            f"""
+            SELECT {field}
+            FROM {table}
+            GROUP BY {field};
+            """
+        )
+    )
+    allowed_values = set(allowed)
+    for row in rows:
+        value = row.get(field)
+        if value in {None, ""}:
+            if optional:
+                continue
+            return "" if value == "" else "NONE"
+        normalized = str(value)
+        if normalized not in allowed_values:
+            return normalized
+    return None
+
+
 __all__ = [
+    "AUTH_ENUM_ASSERTION_MIGRATION_DEFINITIONS",
     "AUTH_INVITATION_TOKEN_MIGRATION_DEFINITIONS",
     "AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS",
     "AUTH_SCHEMA_CURRENT_VERSION",

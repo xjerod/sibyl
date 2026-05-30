@@ -952,6 +952,62 @@ async def test_content_schema_migration_defines_child_scope_fields_without_backf
 
 
 @pytest.mark.asyncio
+async def test_content_schema_migration_rejects_invalid_enum_values() -> None:
+    client = SurrealContentClient(url="memory://")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    try:
+        await client.execute_query(
+            "CREATE schema_version:content CONTENT $record;",
+            record={
+                "name": "content",
+                "version": 4,
+                "migrations": [
+                    {"version": 1, "name": "content_schema_bootstrap"},
+                    {"version": 2, "name": "content_source_url_org_scope"},
+                    {"version": 3, "name": "content_document_url_source_scope"},
+                    {"version": 4, "name": "content_child_scope_fields"},
+                ],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        await client.execute_query(
+            "CREATE crawl_sources CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "organization_id": str(uuid4()),
+                "name": "Bad Docs",
+                "url": "https://bad-docs.example.com",
+                "source_type": "rss",
+                "crawl_status": "pending",
+            },
+        )
+
+        with pytest.raises(RuntimeError, match=r"crawl_sources\.source_type enum assertion"):
+            await bootstrap_content_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_content_schema_assertions_reject_invalid_writes(
+    surreal_content_client: SurrealContentClient,
+) -> None:
+    with pytest.raises(Exception, match=r"source_type|rss"):
+        await surreal_content_client.execute_query(
+            "CREATE crawl_sources CONTENT $record;",
+            record={
+                "uuid": str(uuid4()),
+                "organization_id": str(uuid4()),
+                "name": "Bad Docs",
+                "url": "https://bad-docs.example.com",
+                "source_type": "rss",
+                "crawl_status": "pending",
+            },
+        )
+
+
+@pytest.mark.asyncio
 async def test_content_archive_restore_preserves_embeddings_and_metadata(
     surreal_content_client: SurrealContentClient,
 ) -> None:
