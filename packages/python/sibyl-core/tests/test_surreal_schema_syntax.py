@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from sibyl_core.backends.surreal.auth_schema import (
+    AUTH_INVITATION_TOKEN_MIGRATION_DEFINITIONS,
+    AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS,
     AUTH_SCHEMA_CURRENT_VERSION,
     AUTH_SCHEMA_DEFINITIONS,
     AUTH_TABLES,
@@ -47,13 +49,14 @@ class _RecordingSchemaClient:
         self._url = ""
         self.group_id = "org_123"
 
-    async def execute_query(self, statement: str, **_params: object) -> object:
+    async def execute_query(self, statement: str, **params: object) -> object:
         self.calls.append(statement)
         stripped = statement.strip()
-        if statement.strip().startswith("SELECT version FROM schema_version"):
+        if stripped.startswith("SELECT version FROM schema_version"):
             return [{"version": self.schema_version}]
-        if statement.strip().startswith("UPSERT schema_version:"):
-            self.schema_version = GRAPH_SCHEMA_CURRENT_VERSION
+        if stripped.startswith("UPSERT schema_version:"):
+            version = params.get("version")
+            self.schema_version = int(version) if isinstance(version, int | str | float) else 0
         for table in tuple(self.missing_tables):
             if stripped.startswith(f"DELETE FROM {table}") or stripped.startswith(
                 f"UPDATE {table}"
@@ -82,26 +85,39 @@ def test_flexible_object_fields_keep_server_accepted_token_order() -> None:
     assert "TYPE object FLEXIBLE" in schema
 
 
-def test_runtime_schemafull_tables_are_altered_after_define() -> None:
+def test_runtime_schemafull_tables_define_schemafull_without_redundant_alter() -> None:
     schema = "\n".join((AUTH_SCHEMA_DEFINITIONS, CONTENT_SCHEMA_DEFINITIONS))
     tables = (*AUTH_TABLES, *CONTENT_TABLES)
 
     for table in tables:
-        assert (
-            f"DEFINE TABLE IF NOT EXISTS {table} SCHEMAFULL;\n"
-            f"ALTER TABLE IF EXISTS {table} SCHEMAFULL;"
-        ) in schema
+        assert f"DEFINE TABLE IF NOT EXISTS {table} SCHEMAFULL;" in schema
+        assert f"ALTER TABLE IF EXISTS {table} SCHEMAFULL;" not in schema
 
 
 def test_auth_invitation_schema_supports_hashed_tokens() -> None:
-    assert "DEFINE FIELD OVERWRITE token ON organization_invitations TYPE option<string>" in (
-        AUTH_SCHEMA_DEFINITIONS
+    assert "DEFINE FIELD IF NOT EXISTS token ON organization_invitations" in AUTH_SCHEMA_DEFINITIONS
+    assert (
+        "DEFINE FIELD OVERWRITE token ON organization_invitations TYPE option<string>"
+        in AUTH_INVITATION_TOKEN_MIGRATION_DEFINITIONS
     )
     assert "DEFINE FIELD IF NOT EXISTS token_hash ON organization_invitations" in (
         AUTH_SCHEMA_DEFINITIONS
     )
-    assert "REMOVE INDEX IF EXISTS idx_organization_invitations_token" in AUTH_SCHEMA_DEFINITIONS
+    assert "REMOVE INDEX IF EXISTS idx_organization_invitations_token" not in (
+        AUTH_SCHEMA_DEFINITIONS
+    )
+    assert "REMOVE INDEX IF EXISTS idx_organization_invitations_token" in (
+        AUTH_INVITATION_TOKEN_MIGRATION_DEFINITIONS
+    )
     assert "idx_organization_invitations_token_hash" in AUTH_SCHEMA_DEFINITIONS
+
+
+def test_auth_project_slug_cleanup_is_versioned() -> None:
+    assert "REMOVE INDEX IF EXISTS idx_projects_org_slug" not in AUTH_SCHEMA_DEFINITIONS
+    assert "idx_projects_org_slug_lookup" in AUTH_SCHEMA_DEFINITIONS
+    assert "REMOVE INDEX IF EXISTS idx_projects_org_slug" in (
+        AUTH_PROJECT_SLUG_MIGRATION_DEFINITIONS
+    )
 
 
 def test_auth_schema_includes_oidc_identity_tables() -> None:
@@ -361,6 +377,41 @@ async def test_auth_bootstrap_skips_schema_when_version_is_current() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auth_bootstrap_applies_legacy_index_cleanup_without_full_rebuild() -> None:
+    client = _RecordingSchemaClient(schema_version=1)
+
+    await bootstrap_auth_schema(client)  # type: ignore[arg-type]
+
+    assert not any("DEFINE TABLE IF NOT EXISTS users" in statement for statement in client.calls)
+    assert any(
+        "DEFINE FIELD OVERWRITE token ON organization_invitations" in statement
+        for statement in client.calls
+    )
+    assert any(
+        "REMOVE INDEX IF EXISTS idx_organization_invitations_token" in statement
+        for statement in client.calls
+    )
+    assert any(
+        "REMOVE INDEX IF EXISTS idx_projects_org_slug" in statement for statement in client.calls
+    )
+    assert client.schema_version == AUTH_SCHEMA_CURRENT_VERSION
+
+
+@pytest.mark.asyncio
+async def test_auth_bootstrap_does_not_repeat_migrations_after_recording_version() -> None:
+    client = _RecordingSchemaClient()
+
+    await bootstrap_auth_schema(client)  # type: ignore[arg-type]
+    first_call_count = len(client.calls)
+    await bootstrap_auth_schema(client)  # type: ignore[arg-type]
+    second_calls = client.calls[first_call_count:]
+
+    assert client.schema_version == AUTH_SCHEMA_CURRENT_VERSION
+    assert not any("DEFINE TABLE IF NOT EXISTS users" in statement for statement in second_calls)
+    assert not any("REMOVE INDEX" in statement for statement in second_calls)
+
+
+@pytest.mark.asyncio
 async def test_content_bootstrap_skips_schema_when_version_is_current() -> None:
     client = _RecordingSchemaClient(schema_version=CONTENT_SCHEMA_CURRENT_VERSION)
 
@@ -370,3 +421,18 @@ async def test_content_bootstrap_skips_schema_when_version_is_current() -> None:
         "DEFINE TABLE IF NOT EXISTS crawl_sources" in statement for statement in client.calls
     )
     assert any("SELECT version FROM schema_version" in statement for statement in client.calls)
+
+
+@pytest.mark.asyncio
+async def test_content_bootstrap_does_not_repeat_migrations_after_recording_version() -> None:
+    client = _RecordingSchemaClient()
+
+    await bootstrap_content_schema(client)  # type: ignore[arg-type]
+    first_call_count = len(client.calls)
+    await bootstrap_content_schema(client)  # type: ignore[arg-type]
+    second_calls = client.calls[first_call_count:]
+
+    assert client.schema_version == CONTENT_SCHEMA_CURRENT_VERSION
+    assert not any(
+        "DEFINE TABLE IF NOT EXISTS crawl_sources" in statement for statement in second_calls
+    )
