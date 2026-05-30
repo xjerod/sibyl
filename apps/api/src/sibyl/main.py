@@ -149,6 +149,12 @@ def create_combined_app(  # noqa: PLR0915
 
         await _bootstrap_surreal_runtime_schemas()
         await _load_runtime_settings_from_db()
+        from sibyl.services.surreal_connectivity import (
+            initialize_shared_surreal_connectivity,
+            stop_surreal_connectivity_monitor,
+        )
+
+        await initialize_shared_surreal_connectivity()
 
         broker_initialized = False
         queue_backend = "unknown"
@@ -231,6 +237,8 @@ def create_combined_app(  # noqa: PLR0915
         # The MCP session manager needs to be started for streamable HTTP
         async with mcp.session_manager.run():
             yield
+
+        await stop_surreal_connectivity_monitor()
 
         try:
             from sibyl.persistence.surreal.auth import close_shared_surreal_auth_client

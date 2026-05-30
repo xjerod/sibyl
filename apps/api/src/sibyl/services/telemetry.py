@@ -23,7 +23,10 @@ log = structlog.get_logger()
 _DEFAULT_WINDOW_SECONDS = 15 * 60
 _ROLLUP_INTERVAL_SECONDS = 60
 _ROLLUP_RETENTION_HOURS = 24
+_ROLLUP_FAILURE_BACKOFF_SECONDS = 60.0
 _last_persisted_bucket: int | None = None
+_next_scheduled_rollup_at = 0.0
+_scheduled_rollup_task: asyncio.Task[object] | None = None
 _persist_lock = asyncio.Lock()
 
 
@@ -109,14 +112,43 @@ async def list_runtime_rollups(*, limit: int = 120) -> list[dict[str, Any]]:
 
 
 def schedule_runtime_rollup_persist(*, window_seconds: int = _DEFAULT_WINDOW_SECONDS) -> None:
+    global _scheduled_rollup_task  # noqa: PLW0603
     if not runtime_rollup_due():
+        return
+    now = time.monotonic()
+    if now < _next_scheduled_rollup_at:
+        return
+    if _scheduled_rollup_task is not None and not _scheduled_rollup_task.done():
         return
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    task = loop.create_task(maybe_persist_runtime_rollup(window_seconds=window_seconds))
-    task.add_done_callback(_log_background_failure)
+    _scheduled_rollup_task = loop.create_task(
+        _scheduled_runtime_rollup(window_seconds=window_seconds)
+    )
+    _scheduled_rollup_task.add_done_callback(_finish_scheduled_rollup_task)
+
+
+async def _scheduled_runtime_rollup(*, window_seconds: int) -> None:
+    global _next_scheduled_rollup_at  # noqa: PLW0603
+    previous_bucket = _last_persisted_bucket
+    try:
+        await maybe_persist_runtime_rollup(window_seconds=window_seconds)
+    except Exception:
+        _next_scheduled_rollup_at = time.monotonic() + _ROLLUP_FAILURE_BACKOFF_SECONDS
+        raise
+    if runtime_rollup_due() and _last_persisted_bucket == previous_bucket:
+        _next_scheduled_rollup_at = time.monotonic() + _ROLLUP_FAILURE_BACKOFF_SECONDS
+    else:
+        _next_scheduled_rollup_at = 0.0
+
+
+def _finish_scheduled_rollup_task(task: asyncio.Task[object]) -> None:
+    global _scheduled_rollup_task  # noqa: PLW0603
+    if _scheduled_rollup_task is task:
+        _scheduled_rollup_task = None
+    _log_background_failure(task)
 
 
 def _log_background_failure(task: asyncio.Task[object]) -> None:

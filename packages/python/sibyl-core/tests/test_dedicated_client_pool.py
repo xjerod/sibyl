@@ -173,3 +173,61 @@ async def test_embedded_url_hard_clamps_explicit_pool_size(monkeypatch) -> None:
     await asyncio.gather(*(client.execute_query("SELECT * FROM crawl_sources;") for _ in range(6)))
 
     assert len(clients) == 1
+
+
+@pytest.mark.asyncio
+async def test_warm_pool_connects_every_pooled_connection(monkeypatch) -> None:
+    tracker = _ConcurrencyTracker()
+    tracker.release.set()
+    clients = _install_overlap_surreal(monkeypatch, tracker)
+
+    client = DedicatedSurrealClient(
+        url="ws://localhost:8000/rpc",
+        username="root",
+        password="root",
+        namespace="org_warm",
+        database="graph",
+        pool_size=3,
+    )
+
+    await client.warm_pool()
+
+    assert len(clients) == 3
+    assert all(fake.namespace == "org_warm" for fake in clients)
+
+
+@pytest.mark.asyncio
+async def test_ping_drops_transient_failed_connection(monkeypatch) -> None:
+    class FakeAsyncSurreal:
+        def __init__(self, _url: str) -> None:
+            self.closed = False
+
+        async def signin(self, _credentials: dict[str, str]) -> None:
+            return None
+
+        async def use(self, _namespace: str, _database: str) -> None:
+            return None
+
+        async def query(self, _query: str, _params: object | None = None) -> object:
+            raise TimeoutError("timed out during opening handshake")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(sys.modules, "surrealdb", SimpleNamespace(AsyncSurreal=FakeAsyncSurreal))
+
+    client = DedicatedSurrealClient(
+        url="ws://localhost:8000/rpc",
+        username="root",
+        password="root",
+        namespace="org_ping",
+        database="graph",
+        pool_size=1,
+    )
+
+    with pytest.raises(TimeoutError):
+        await client.ping()
+
+    pooled = await client._available.get()
+    assert pooled._client is None
+    client._available.put_nowait(pooled)

@@ -219,6 +219,62 @@ async def test_mutating_request_refreshes_401_and_retries_same_pending_write(
 
 
 @pytest.mark.asyncio
+async def test_expired_token_refresh_failure_skips_expired_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent_requests = 0
+
+    def unexpected_request(_request: httpx.Request) -> httpx.Response:
+        nonlocal sent_requests
+        sent_requests += 1
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client_with_transport(httpx.MockTransport(unexpected_request))
+    refresh = AsyncMock(return_value=(False, "Authentication storage temporarily unavailable"))
+    monkeypatch.setattr(client_module, "is_access_token_expired", lambda _api_url, **_kwargs: True)
+    monkeypatch.setattr(client, "_refresh_token", refresh)
+
+    with pytest.raises(SibylClientError) as exc:
+        await client.get("/entities")
+
+    await client.close()
+    refresh.assert_awaited_once()
+    assert sent_requests == 0
+    assert exc.value.status_code == 503
+    assert exc.value.error_code == "token_refresh_failed"
+    assert exc.value.detail == "Authentication storage temporarily unavailable"
+
+
+@pytest.mark.asyncio
+async def test_expired_token_refresh_failure_keeps_pending_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pending_writes.Path, "home", lambda: tmp_path)
+    sent_requests = 0
+
+    def unexpected_request(_request: httpx.Request) -> httpx.Response:
+        nonlocal sent_requests
+        sent_requests += 1
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client_with_transport(httpx.MockTransport(unexpected_request))
+    refresh = AsyncMock(return_value=(False, "Authentication storage temporarily unavailable"))
+    monkeypatch.setattr(client_module, "is_access_token_expired", lambda _api_url, **_kwargs: True)
+    monkeypatch.setattr(client, "_refresh_token", refresh)
+
+    with pytest.raises(SibylClientError) as exc:
+        await client.post("/memory/raw", json={"title": "Keep me", "raw_content": "Body"})
+
+    await client.close()
+    pending = pending_writes.list_pending_writes()
+    assert sent_requests == 0
+    assert len(pending) == 1
+    assert pending[0]["path"] == "/memory/raw"
+    assert exc.value.remediation == client_module.PENDING_WRITE_REMEDIATION
+
+
+@pytest.mark.asyncio
 async def test_mutating_request_keeps_pending_write_on_auth_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from pydantic import SecretStr
 from sibyl import main as main_module
 from sibyl.api.routes import telemetry as telemetry_routes
 from sibyl.jobs import worker as worker_module
+from sibyl.services import telemetry as telemetry_service
 from sibyl_core.observability import telemetry_registry
 
 
@@ -131,3 +133,74 @@ async def test_redis_worker_job_end_records_result_status(
     snapshot = registry.snapshot(window_seconds=60)
     assert snapshot["summaries"]["jobs"]["errors"] == 1
     assert snapshot["recent_events"][-1]["labels"]["function"] == "crawl_source"
+
+
+@pytest.mark.asyncio
+async def test_runtime_rollup_scheduler_coalesces_inflight_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def fake_maybe_persist_runtime_rollup(*, window_seconds: int) -> None:
+        nonlocal calls
+        assert window_seconds == 30
+        calls += 1
+        started.set()
+        await release.wait()
+        telemetry_service._last_persisted_bucket = telemetry_service._current_bucket()
+
+    monkeypatch.setattr(
+        telemetry_service,
+        "maybe_persist_runtime_rollup",
+        fake_maybe_persist_runtime_rollup,
+    )
+    monkeypatch.setattr(telemetry_service, "_last_persisted_bucket", None)
+    monkeypatch.setattr(telemetry_service, "_next_scheduled_rollup_at", 0.0)
+    monkeypatch.setattr(telemetry_service, "_scheduled_rollup_task", None)
+
+    telemetry_service.schedule_runtime_rollup_persist(window_seconds=30)
+    await started.wait()
+    task = telemetry_service._scheduled_rollup_task
+    assert task is not None
+
+    telemetry_service.schedule_runtime_rollup_persist(window_seconds=30)
+
+    assert calls == 1
+    release.set()
+    await task
+    assert telemetry_service._scheduled_rollup_task is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_rollup_scheduler_backs_off_after_noop_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def fake_maybe_persist_runtime_rollup(*, window_seconds: int) -> None:
+        nonlocal calls
+        assert window_seconds == 45
+        calls += 1
+
+    monkeypatch.setattr(
+        telemetry_service,
+        "maybe_persist_runtime_rollup",
+        fake_maybe_persist_runtime_rollup,
+    )
+    monkeypatch.setattr(telemetry_service, "_last_persisted_bucket", None)
+    monkeypatch.setattr(telemetry_service, "_next_scheduled_rollup_at", 0.0)
+    monkeypatch.setattr(telemetry_service, "_scheduled_rollup_task", None)
+
+    telemetry_service.schedule_runtime_rollup_persist(window_seconds=45)
+    task = telemetry_service._scheduled_rollup_task
+    assert task is not None
+    await task
+
+    assert calls == 1
+    assert telemetry_service._next_scheduled_rollup_at > time.monotonic()
+
+    telemetry_service.schedule_runtime_rollup_persist(window_seconds=45)
+
+    assert calls == 1

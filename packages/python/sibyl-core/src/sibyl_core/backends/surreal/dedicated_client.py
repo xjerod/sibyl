@@ -185,6 +185,32 @@ class DedicatedSurrealClient:
                 for connection in drained:
                     self._available.put_nowait(connection)
 
+    async def warm_pool(self) -> None:
+        drained = [await self._available.get() for _ in range(self._pool_size)]
+        try:
+            await asyncio.gather(*(connection.connect() for connection in drained))
+        except Exception:
+            await asyncio.gather(
+                *(connection.drop() for connection in drained),
+                return_exceptions=True,
+            )
+            raise
+        finally:
+            for connection in drained:
+                self._available.put_nowait(connection)
+
+    async def ping(self) -> None:
+        connection = await self._available.get()
+        try:
+            client = await connection.connect()
+            await self._send_query(client, "RETURN true;", params={}, raw=False)
+        except Exception as exc:
+            if _is_transient_connection_error(exc):
+                await connection.drop()
+            raise
+        finally:
+            self._available.put_nowait(connection)
+
     async def _execute(self, query: str, *, params: QueryParams, raw: bool) -> object:
         started_at = query_start()
         retry_count = 0

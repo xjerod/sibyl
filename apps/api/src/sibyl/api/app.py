@@ -154,6 +154,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
     await _bootstrap_surreal_runtime_schemas()
     await _load_runtime_settings_from_db()
     _install_llm_config_source()
+    from sibyl.services.surreal_connectivity import (
+        initialize_shared_surreal_connectivity,
+        stop_surreal_connectivity_monitor,
+    )
+
+    await initialize_shared_surreal_connectivity()
 
     broker_initialized = False
     queue_backend = "unknown"
@@ -228,6 +234,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:  # noqa: PLR0915
         log.warning("Startup source recovery failed", error=str(e))
 
     yield
+
+    await stop_surreal_connectivity_monitor()
 
     try:
         from sibyl.persistence.surreal.auth import close_shared_surreal_auth_client

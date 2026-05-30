@@ -268,6 +268,25 @@ def _should_keep_pending_write(status_code: int) -> bool:
     return status_code in {401, 408, 429} or status_code >= 500
 
 
+def _refresh_failure_status_code(message: str | None) -> int | None:
+    if not message:
+        return None
+    normalized = message.lower()
+    if "temporarily unavailable" in normalized or "timeout" in normalized:
+        return 503
+    if "revoked" in normalized or "invalid refresh token" in normalized:
+        return 401
+    return None
+
+
+def _refresh_failure_remediation(*, pending_write_id: str | None) -> str:
+    if pending_write_id:
+        return PENDING_WRITE_REMEDIATION
+    return (
+        "Retry once Sibyl is healthy, or run 'sibyl auth login' if the refresh token was revoked."
+    )
+
+
 async def anyio_sleep(delay: float) -> None:
     import asyncio
 
@@ -534,15 +553,6 @@ class SibylClient:
         Raises:
             SibylClientError: On API errors or connection issues
         """
-        refresh_failure: str | None = None
-
-        # Proactively refresh if token is about to expire
-        if self.auth_token and is_access_token_expired(
-            self.base_url,
-            credential_scope=self.credential_scope,
-        ):
-            _, refresh_failure = await self._refresh_token()
-
         method = method.upper()
         if (
             not self._explicit_base_url
@@ -569,6 +579,23 @@ class SibylClient:
             )
             pending_write_id = str(pending["id"])
             idempotency_key = str(pending["idempotency_key"])
+
+        refresh_failure: str | None = None
+
+        # Proactively refresh if token is about to expire.
+        if self.auth_token and is_access_token_expired(
+            self.base_url,
+            credential_scope=self.credential_scope,
+        ):
+            refreshed, refresh_failure = await self._refresh_token()
+            if not refreshed:
+                raise SibylClientError(
+                    "Stored access token is expired and automatic token refresh failed.",
+                    status_code=_refresh_failure_status_code(refresh_failure),
+                    detail=refresh_failure,
+                    error_code="token_refresh_failed",
+                    remediation=_refresh_failure_remediation(pending_write_id=pending_write_id),
+                )
 
         client = await self._get_client()
         breaker_key = _failure_key(self.base_url)
