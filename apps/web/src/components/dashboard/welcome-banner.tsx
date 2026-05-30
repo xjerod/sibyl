@@ -63,7 +63,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
       <button
         type="button"
         onClick={handleDismiss}
-        className="absolute top-3 right-3 p-1.5 rounded-lg text-sc-fg-subtle hover:text-sc-fg-primary hover:bg-sc-bg-highlight/50 transition-colors"
+        className="absolute top-3 right-3 p-1.5 rounded-lg text-sc-fg-subtle hover:text-sc-fg-primary hover:bg-sc-bg-highlight/50 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
         aria-label="Dismiss welcome banner"
       >
         <Xmark width={16} height={16} />
@@ -72,8 +72,8 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
       <div className="relative">
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral flex items-center justify-center shadow-lg shadow-sc-purple/30">
-            <Network width={20} height={20} className="text-white sm:w-6 sm:h-6" />
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral flex items-center justify-center shadow-glow-purple">
+            <Network width={20} height={20} className="text-sc-on-accent sm:w-6 sm:h-6" />
           </div>
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-sc-fg-primary">
@@ -84,7 +84,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
                 ? 'Your local memory stack is ready. Capture and search here first, then wire in MCP tools when you want them.'
                 : `You have ${totalEntities} entities. Sibyl stays strongest when the local capture and review loop keeps moving.`}
             </p>
-            <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-sc-fg-subtle">
+            <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-sc-fg-muted">
               Local-first where possible. Org-safe by default.
             </p>
           </div>
@@ -106,7 +106,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
                   setShowConnectModal(true);
                   markConnectedAgent();
                 }}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sc-purple/10 border border-sc-purple/20 text-xs font-medium text-sc-purple hover:bg-sc-purple/20 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sc-purple/10 border border-sc-purple/20 text-xs font-medium text-sc-purple hover:bg-sc-purple/20 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
               >
                 {checklist.connected_agent ? (
                   <>
@@ -134,7 +134,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
               <Link
                 href="/sources"
                 onClick={() => markAddedSource()}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sc-cyan/10 border border-sc-cyan/20 text-xs font-medium text-sc-cyan hover:bg-sc-cyan/20 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sc-cyan/10 border border-sc-cyan/20 text-xs font-medium text-sc-cyan hover:bg-sc-cyan/20 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
               >
                 {checklist.added_source ? (
                   <>
@@ -162,7 +162,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
               <Link
                 href="/search"
                 onClick={() => markTriedSearch()}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sc-coral/10 border border-sc-coral/20 text-xs font-medium text-sc-coral hover:bg-sc-coral/20 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-sc-coral/10 border border-sc-coral/20 text-xs font-medium text-sc-coral hover:bg-sc-coral/20 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
               >
                 {checklist.tried_search ? (
                   <>
@@ -187,7 +187,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
           </div>
           <div className="flex items-center gap-1.5">
             <div
-              className={`w-2 h-2 rounded-full ${apisReady ? 'bg-sc-green shadow-[0_0_6px_rgba(80,250,123,0.6)]' : 'bg-sc-fg-subtle'}`}
+              className={`w-2 h-2 rounded-full ${apisReady ? 'bg-sc-green shadow-[0_0_6px_color-mix(in_oklch,var(--sc-green)_60%,transparent)]' : 'bg-sc-fg-subtle'}`}
             />
             <span className="text-sc-fg-muted">
               {apisReady ? 'API keys configured' : 'API keys need setup'}
@@ -195,7 +195,7 @@ export function WelcomeBanner({ totalEntities, onDismiss }: WelcomeBannerProps) 
           </div>
           <Link
             href="/graph"
-            className="flex items-center gap-1.5 text-sc-purple hover:text-sc-purple/80 transition-colors"
+            className="flex items-center gap-1.5 rounded text-sc-purple hover:text-sc-purple/80 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
           >
             <Network width={12} height={12} />
             <span>View Graph</span>

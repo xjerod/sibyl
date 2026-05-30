@@ -54,7 +54,7 @@ export function NavLink({
     >
       {/* Active indicator glow */}
       {active && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-sc-purple shadow-[0_0_10px_rgba(225,53,255,0.5)]" />
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-sc-purple shadow-[0_0_10px_color-mix(in_oklch,var(--sc-purple)_50%,transparent)]" />
       )}
 
       <Icon
@@ -62,7 +62,7 @@ export function NavLink({
         height={18}
         className={`transition-all duration-200 ${
           active
-            ? 'text-sc-purple drop-shadow-[0_0_6px_rgba(225,53,255,0.5)]'
+            ? 'text-sc-purple drop-shadow-[0_0_6px_color-mix(in_oklch,var(--sc-purple)_50%,transparent)]'
             : 'text-sc-cyan/70 group-hover:text-sc-cyan'
         }`}
       />

@@ -133,7 +133,7 @@ export function CaptureMemoryDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="capture-memory-title"
-        className="relative mx-4 w-full max-w-2xl overflow-hidden rounded-xl border border-sc-purple/20 bg-sc-bg-base shadow-2xl shadow-sc-purple/10"
+        className="relative mx-4 w-full max-w-2xl overflow-hidden rounded-xl border border-sc-purple/20 bg-sc-bg-elevated shadow-glow-purple"
         onKeyDown={handleKeyDown}
       >
         <div className="border-b border-sc-fg-subtle/10 bg-gradient-to-r from-sc-purple/10 via-transparent to-sc-cyan/10 px-5 py-4">
@@ -153,7 +153,7 @@ export function CaptureMemoryDialog({
             <button
               type="button"
               onClick={onClose}
-              className="text-sc-fg-subtle transition-colors hover:text-sc-fg-primary"
+              className="rounded-lg p-1 text-sc-fg-muted transition-colors duration-200 hover:text-sc-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               aria-label="Close capture dialog"
             >
               <Xmark width={18} height={18} />
@@ -169,8 +169,9 @@ export function CaptureMemoryDialog({
                 <button
                   key={option.value}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => setEntityType(option.value)}
-                  className={`rounded-xl border px-3 py-3 text-left transition-all ${
+                  className={`rounded-lg border px-3 py-3 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated ${
                     active
                       ? option.classes
                       : 'border-sc-fg-subtle/20 bg-sc-bg-highlight/40 text-sc-fg-muted hover:border-sc-fg-subtle/40'
@@ -195,7 +196,7 @@ export function CaptureMemoryDialog({
                 value={title}
                 onChange={event => setTitle(event.target.value)}
                 placeholder="Optional. We’ll derive one from the memory if you leave it blank."
-                className="w-full rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight px-4 py-3 text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan focus:outline-none focus:ring-2 focus:ring-sc-cyan/10"
+                className="w-full rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight px-4 py-3 text-sc-fg-primary placeholder:text-sc-fg-muted transition-colors duration-200 focus-visible:border-sc-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               />
             </div>
 
@@ -209,7 +210,7 @@ export function CaptureMemoryDialog({
                 onChange={event => setContent(event.target.value)}
                 rows={8}
                 placeholder="What just happened, what worked, what failed, or what future-you should remember."
-                className="w-full resize-none rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight px-4 py-3 text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan focus:outline-none focus:ring-2 focus:ring-sc-cyan/10"
+                className="w-full resize-none rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight px-4 py-3 text-sc-fg-primary placeholder:text-sc-fg-muted transition-colors duration-200 focus-visible:border-sc-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               />
             </div>
 
@@ -223,13 +224,13 @@ export function CaptureMemoryDialog({
                 value={tags}
                 onChange={event => setTags(event.target.value)}
                 placeholder="optional, comma-separated"
-                className="w-full rounded-xl border border-sc-fg-subtle/20 bg-sc-bg-highlight px-4 py-3 text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan focus:outline-none focus:ring-2 focus:ring-sc-cyan/10"
+                className="w-full rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight px-4 py-3 text-sc-fg-primary placeholder:text-sc-fg-muted transition-colors duration-200 focus-visible:border-sc-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               />
             </div>
           </div>
 
           <div className="flex flex-col gap-3 border-t border-sc-fg-subtle/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-sc-fg-subtle">
+            <div className="text-xs text-sc-fg-muted">
               {title.trim() ? 'Title locked in.' : `Auto title: ${resolvedTitle}`}
             </div>
             <div className="flex items-center gap-2">

@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { KanbanBoard, List, Search } from '@/components/ui/icons';
+import { Plus, Search } from '@/components/ui/icons';
 import { NAVIGATION, withProjectsContext } from '@/lib/constants';
 
 interface CommandItem {
@@ -13,22 +13,16 @@ interface CommandItem {
   icon?: ReactNode;
   shortcut?: string;
   action: () => void;
-  category: 'navigation' | 'action' | 'create';
+  category: 'navigation' | 'action';
 }
 
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
   onCreateTask?: () => void;
-  onCreateProject?: () => void;
 }
 
-export function CommandPalette({
-  isOpen,
-  onClose,
-  onCreateTask,
-  onCreateProject,
-}: CommandPaletteProps) {
+export function CommandPalette({ isOpen, onClose, onCreateTask }: CommandPaletteProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState('');
@@ -37,38 +31,6 @@ export function CommandPalette({
 
   // Build command list
   const commands: CommandItem[] = [
-    // Create actions
-    ...(onCreateTask
-      ? [
-          {
-            id: 'create-task',
-            label: 'Create Task',
-            description: 'Add a new task',
-            icon: <List width={18} height={18} />,
-            shortcut: 'C',
-            action: () => {
-              onClose();
-              onCreateTask();
-            },
-            category: 'create' as const,
-          },
-        ]
-      : []),
-    ...(onCreateProject
-      ? [
-          {
-            id: 'create-project',
-            label: 'Create Project',
-            description: 'Start a new project',
-            icon: <KanbanBoard width={18} height={18} />,
-            action: () => {
-              onClose();
-              onCreateProject();
-            },
-            category: 'create' as const,
-          },
-        ]
-      : []),
     // Navigation
     ...NAVIGATION.map(item => ({
       id: `nav-${item.href}`,
@@ -99,6 +61,22 @@ export function CommandPalette({
       },
       category: 'action',
     },
+    ...(onCreateTask
+      ? [
+          {
+            id: 'create-task',
+            label: 'Create Task',
+            description: 'Add a new task',
+            icon: <Plus width={18} height={18} />,
+            shortcut: 'C',
+            action: () => {
+              onClose();
+              onCreateTask();
+            },
+            category: 'action' as const,
+          },
+        ]
+      : []),
   ];
 
   // Filter commands by query
@@ -162,7 +140,6 @@ export function CommandPalette({
   if (!isOpen) return null;
 
   const categoryLabels: Record<string, string> = {
-    create: 'Create',
     navigation: 'Navigate',
     action: 'Actions',
   };
@@ -188,7 +165,9 @@ export function CommandPalette({
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-sc-fg-subtle/20">
-          <span className="text-sc-fg-subtle">⌘</span>
+          <span className="text-sc-fg-subtle" aria-hidden="true">
+            ⌘
+          </span>
           <input
             ref={inputRef}
             type="text"
@@ -196,6 +175,7 @@ export function CommandPalette({
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type a command or search..."
+            aria-label="Type a command or search"
             className="flex-1 bg-transparent text-sc-fg-primary placeholder:text-sc-fg-subtle outline-none"
           />
           <kbd className="text-xs text-sc-fg-subtle bg-sc-bg-highlight px-1.5 py-0.5 rounded">
@@ -225,7 +205,9 @@ export function CommandPalette({
                       onMouseEnter={() => setSelectedIndex(globalIndex)}
                       className={`
                         w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left
-                        transition-colors duration-75
+                        transition-colors duration-200
+                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan
+                        focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base
                         ${
                           isSelected
                             ? 'bg-sc-purple/20 text-sc-purple'
@@ -233,7 +215,9 @@ export function CommandPalette({
                         }
                       `}
                     >
-                      <span className="w-6 flex justify-center text-sc-fg-muted">{cmd.icon}</span>
+                      <span className="w-6 flex justify-center text-sc-fg-muted" aria-hidden="true">
+                        {cmd.icon}
+                      </span>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{cmd.label}</div>
                         {cmd.description && (

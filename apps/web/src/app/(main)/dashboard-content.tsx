@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { WelcomeBanner } from '@/components/dashboard';
 import { useCaptureMemory } from '@/components/layout/capture-memory-context';
 import { PerformanceTrendChart, VelocityLineChart } from '@/components/metrics/charts';
+import { EnhancedEmptyState } from '@/components/ui/empty-state';
+import type { IconComponent } from '@/components/ui/icons';
 import {
   Activity,
   ArrowRight,
@@ -17,18 +19,20 @@ import {
   EditPencil,
   FileText,
   FolderKanban,
+  Key,
   Layers,
   ListTodo,
   Network,
   Play,
   Search,
+  Settings,
   Target,
   Timer,
   TrendingUp,
   Zap,
 } from '@/components/ui/icons';
 import type { StatsResponse, TelemetryDurationSummary } from '@/lib/api';
-import { ENTITY_COLORS, formatUptime } from '@/lib/constants';
+import { formatUptime, getEntityColorVar } from '@/lib/constants';
 import {
   useHealth,
   useOrgMetrics,
@@ -50,8 +54,11 @@ function EntityRingChart({ counts }: { counts: Record<string, number> }) {
 
   if (total === 0) {
     return (
-      <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-sc-fg-subtle/20 flex items-center justify-center">
-        <span className="text-sc-fg-subtle text-xs sm:text-sm">No data</span>
+      <div className="flex w-24 flex-col items-center justify-center gap-1 text-center sm:w-32">
+        <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-dashed border-sc-fg-subtle/30 sm:h-32 sm:w-32">
+          <Boxes width={24} height={24} className="text-sc-fg-subtle" />
+        </div>
+        <span className="text-[10px] text-sc-fg-muted sm:text-xs">Capture to populate</span>
       </div>
     );
   }
@@ -67,7 +74,7 @@ function EntityRingChart({ counts }: { counts: Record<string, number> }) {
       percentage,
       startAngle: currentAngle,
       endAngle: currentAngle + angle,
-      color: ENTITY_COLORS[type as keyof typeof ENTITY_COLORS] ?? '#8b85a0',
+      color: getEntityColorVar(type),
     };
     currentAngle += angle;
     return segment;
@@ -103,7 +110,9 @@ function EntityRingChart({ counts }: { counts: Record<string, number> }) {
             strokeWidth="12"
             strokeLinecap="round"
             className="transition-all duration-500"
-            style={{ filter: `drop-shadow(0 0 6px ${seg.color}40)` }}
+            style={{
+              filter: `drop-shadow(0 0 6px color-mix(in oklch, ${seg.color} 25%, transparent))`,
+            }}
           />
         ))}
       </svg>
@@ -112,6 +121,101 @@ function EntityRingChart({ counts }: { counts: Record<string, number> }) {
         <span className="text-[8px] sm:text-[10px] text-sc-fg-subtle uppercase tracking-wide">
           Entities
         </span>
+      </div>
+    </div>
+  );
+}
+
+interface FirstRunStep {
+  icon: IconComponent;
+  accent: 'purple' | 'cyan' | 'coral' | 'green';
+  title: string;
+  description: string;
+  href: string;
+}
+
+const FIRST_RUN_STEPS: FirstRunStep[] = [
+  {
+    icon: Settings,
+    accent: 'purple',
+    title: 'Configure AI providers',
+    description: 'Add OpenAI, Anthropic, or Gemini keys so memory and synthesis can run.',
+    href: '/settings/admin/ai',
+  },
+  {
+    icon: BookOpen,
+    accent: 'cyan',
+    title: 'Add your first source',
+    description: 'Crawl docs, wikis, or a website to seed the knowledge graph.',
+    href: '/sources',
+  },
+  {
+    icon: Key,
+    accent: 'coral',
+    title: 'Create an API key',
+    description: 'Mint a key so agents and the MCP server can reach Sibyl.',
+    href: '/settings/security',
+  },
+  {
+    icon: EditPencil,
+    accent: 'green',
+    title: 'Make your first capture',
+    description: 'Save a learning to start building durable memory.',
+    href: '/memory',
+  },
+];
+
+const FIRST_RUN_ACCENTS: Record<FirstRunStep['accent'], string> = {
+  purple: 'bg-sc-purple/10 border-sc-purple/20 text-sc-purple hover:border-sc-purple/40',
+  cyan: 'bg-sc-cyan/10 border-sc-cyan/20 text-sc-cyan hover:border-sc-cyan/40',
+  coral: 'bg-sc-coral/10 border-sc-coral/20 text-sc-coral hover:border-sc-coral/40',
+  green: 'bg-sc-green/10 border-sc-green/20 text-sc-green hover:border-sc-green/40',
+};
+
+const FOCUS_RING =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated';
+
+function FirstRunWelcome({ onCapture }: { onCapture: () => void }) {
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="rounded-xl border border-sc-purple/20 bg-sc-bg-elevated p-6 sm:p-8 shadow-card">
+        <EnhancedEmptyState
+          icon={<Database width={40} height={40} className="text-sc-purple" />}
+          title="Welcome to Sibyl"
+          description="Your memory stack is live but empty. Run through these steps to wire it up, then this dashboard fills with live metrics."
+          actions={[{ label: 'Capture your first memory', onClick: onCapture }]}
+        />
+
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {FIRST_RUN_STEPS.map((step, index) => {
+            const StepIcon = step.icon;
+            return (
+              <Link
+                key={step.href}
+                href={step.href}
+                className={`group flex items-start gap-3 rounded-lg border bg-sc-bg-highlight p-4 transition-colors duration-200 ${FIRST_RUN_ACCENTS[step.accent]} ${FOCUS_RING}`}
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-current/30">
+                  <StepIcon width={18} height={18} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sc-fg-subtle">
+                      Step {index + 1}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-sm font-medium text-sc-fg-primary">{step.title}</div>
+                  <p className="mt-1 text-xs text-sc-fg-muted">{step.description}</p>
+                </div>
+                <ArrowRight
+                  width={16}
+                  height={16}
+                  className="mt-1 shrink-0 text-sc-fg-muted transition-colors duration-200 group-hover:text-sc-fg-primary"
+                />
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -191,19 +295,36 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
       .slice(0, 4);
   }, [stats]);
 
+  // Full entity distribution (populated types only), high → low
+  const entityDistribution = useMemo(() => {
+    if (!stats?.entity_counts) return [];
+    return Object.entries(stats.entity_counts)
+      .filter(([_, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+  }, [stats]);
+
+  // First-run: an org with no captured knowledge gets the onboarding checklist
+  // instead of an all-zero KPI grid. The rich dashboard returns once populated.
+  const totalEntities = stats?.total_entities ?? 0;
+  const isFirstRun = mounted && totalEntities === 0 && taskStats.total === 0;
+
+  if (isFirstRun) {
+    return <FirstRunWelcome onCapture={() => openCaptureMemory('dashboard')} />;
+  }
+
   return (
     <div className="space-y-4 sm:space-y-6 animate-fade-in">
       {/* Welcome Banner - Shows for new users with few entities */}
       <WelcomeBanner totalEntities={stats?.total_entities ?? 0} />
 
       {/* Hero Section - System Overview */}
-      <div className="bg-gradient-to-br from-sc-bg-base via-sc-bg-elevated to-sc-purple/5 border border-sc-fg-subtle/20 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-xl shadow-black/10">
+      <div className="bg-gradient-to-br from-sc-bg-base via-sc-bg-elevated to-sc-purple/5 border border-sc-fg-subtle/20 rounded-xl p-4 sm:p-6 shadow-card">
         <div className="flex flex-col lg:flex-row gap-4 sm:gap-8 items-start lg:items-center justify-between">
           {/* Left: Status & Welcome */}
           <div className="flex-1 space-y-3 sm:space-y-4 min-w-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral flex items-center justify-center shadow-lg shadow-sc-purple/30 shrink-0">
-                <Database width={20} height={20} className="text-white sm:w-6 sm:h-6" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral flex items-center justify-center shadow-glow-purple shrink-0">
+                <Database width={20} height={20} className="text-sc-on-accent sm:w-6 sm:h-6" />
               </div>
               <div className="min-w-0">
                 <h1 className="text-xl sm:text-2xl font-bold text-sc-fg-primary truncate">
@@ -212,14 +333,14 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                 <div className="flex items-center gap-3 sm:gap-4 mt-1 flex-wrap">
                   {mounted && health?.graph_connected && (
                     <div className="flex items-center gap-1.5 text-xs sm:text-sm text-sc-fg-muted">
-                      <div className="w-2 h-2 rounded-full bg-sc-green shadow-[0_0_8px_rgba(80,250,123,0.6)] animate-pulse" />
+                      <div className="w-2 h-2 rounded-full bg-sc-green shadow-[0_0_8px_color-mix(in_oklch,var(--sc-green)_60%,transparent)] animate-pulse" />
                       <Database width={12} height={12} className="text-sc-cyan shrink-0" />
                       <span>Graph Connected</span>
                     </div>
                   )}
                   {mounted && !healthLoading && !health?.graph_connected && (
                     <div className="flex items-center gap-1.5 text-xs sm:text-sm text-sc-fg-muted">
-                      <div className="w-2 h-2 rounded-full bg-sc-red shadow-[0_0_8px_rgba(255,99,99,0.6)]" />
+                      <div className="w-2 h-2 rounded-full bg-sc-red shadow-[0_0_8px_color-mix(in_oklch,var(--sc-red)_60%,transparent)]" />
                       <Database width={12} height={12} className="text-sc-red shrink-0" />
                       <span>Graph Disconnected</span>
                     </div>
@@ -272,7 +393,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                 <div key={type} className="flex items-center gap-2">
                   <div
                     className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: ENTITY_COLORS[type as keyof typeof ENTITY_COLORS] }}
+                    style={{ backgroundColor: getEntityColorVar(type) }}
                   />
                   <span className="text-[10px] sm:text-xs text-sc-fg-muted capitalize">
                     {type.replace(/_/g, ' ')}
@@ -292,7 +413,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
         {/* Left Column - Main content */}
         <div className="flex-1 space-y-4 sm:space-y-6">
           {/* Task Overview */}
-          <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-card">
+          <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-4 sm:p-6 shadow-card">
             <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
               <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-coral/10 border border-sc-coral/20 flex items-center justify-center shrink-0">
@@ -309,7 +430,8 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
               </div>
               <Link
                 href="/tasks"
-                className="flex items-center gap-1 sm:gap-1.5 text-xs sm:text-sm text-sc-purple hover:text-sc-purple/80 transition-colors shrink-0"
+                aria-label="View all tasks"
+                className="flex items-center gap-1 sm:gap-1.5 rounded text-xs sm:text-sm text-sc-purple hover:text-sc-purple/80 transition-colors duration-200 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <span className="hidden xs:inline">View all</span>
                 <ArrowRight width={14} height={14} />
@@ -320,7 +442,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
               <Link
                 href="/tasks"
-                className="bg-sc-bg-elevated rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-cyan/30 transition-all group"
+                className="bg-sc-bg-highlight rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-cyan/30 transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
                   <Target width={14} height={14} className="text-sc-cyan sm:w-4 sm:h-4" />
@@ -333,7 +455,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/tasks"
-                className="bg-sc-bg-elevated rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-purple/30 transition-all group"
+                className="bg-sc-bg-highlight rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-purple/30 transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
                   <Play width={14} height={14} className="text-sc-purple sm:w-4 sm:h-4" />
@@ -346,7 +468,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/tasks"
-                className="bg-sc-bg-elevated rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-yellow/30 transition-all group"
+                className="bg-sc-bg-highlight rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-yellow/30 transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
                   <Clock width={14} height={14} className="text-sc-yellow sm:w-4 sm:h-4" />
@@ -359,7 +481,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/tasks"
-                className="bg-sc-bg-elevated rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-green/30 transition-all group"
+                className="bg-sc-bg-highlight rounded-lg sm:rounded-xl p-3 sm:p-4 border border-sc-fg-subtle/10 hover:border-sc-green/30 transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
                   <CheckCircle2 width={14} height={14} className="text-sc-green sm:w-4 sm:h-4" />
@@ -390,7 +512,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
           {/* Velocity Chart */}
           {orgMetrics && (
-            <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-card">
+            <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-4 sm:p-6 shadow-card">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2 sm:gap-3">
                   <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-green/10 border border-sc-green/20 flex items-center justify-center shrink-0">
@@ -411,7 +533,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
           )}
 
           {/* Knowledge Distribution */}
-          <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-card">
+          <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-4 sm:p-6 shadow-card">
             <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-cyan/10 border border-sc-cyan/20 flex items-center justify-center shrink-0">
                 <Layers width={16} height={16} className="text-sc-cyan sm:w-5 sm:h-5" />
@@ -426,14 +548,20 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
               </div>
             </div>
 
-            <div className="space-y-2.5 sm:space-y-3">
-              {Object.entries(stats?.entity_counts ?? {})
-                .filter(([_, count]) => count > 0)
-                .sort((a, b) => b[1] - a[1])
-                .map(([type, count]) => {
+            {entityDistribution.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-sc-fg-subtle/20 px-4 py-8 text-center">
+                <Layers width={24} height={24} className="text-sc-fg-subtle" />
+                <p className="text-sm font-medium text-sc-fg-primary">No knowledge yet</p>
+                <p className="text-xs text-sc-fg-muted">
+                  Capture a learning or add a source to populate the graph.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 sm:space-y-3">
+                {entityDistribution.map(([type, count]) => {
                   const total = stats?.total_entities ?? 1;
                   const percentage = (count / total) * 100;
-                  const color = ENTITY_COLORS[type as keyof typeof ENTITY_COLORS] ?? '#8b85a0';
+                  const color = getEntityColorVar(type);
 
                   return (
                     <div key={type} className="group">
@@ -460,20 +588,21 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                           style={{
                             width: `${percentage}%`,
                             backgroundColor: color,
-                            boxShadow: `0 0 8px ${color}40`,
+                            boxShadow: `0 0 8px color-mix(in oklch, ${color} 25%, transparent)`,
                           }}
                         />
                       </div>
                     </div>
                   );
                 })}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right Column - Sidebar */}
         <div className="lg:w-80 shrink-0 space-y-4 sm:space-y-6">
-          <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-card">
+          <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-4 sm:p-6 shadow-card">
             <div className="flex items-center gap-2 sm:gap-3 mb-4">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-cyan/10 border border-sc-cyan/20 flex items-center justify-center">
                 <Activity width={16} height={16} className="text-sc-cyan sm:w-5 sm:h-5" />
@@ -513,7 +642,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                       <Link
                         key={task.id}
                         href={`/tasks/${task.id}`}
-                        className="flex items-start justify-between gap-3 rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated px-3 py-2 transition-colors hover:border-sc-purple/30"
+                        className="flex items-start justify-between gap-3 rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-highlight px-3 py-2 transition-colors duration-200 hover:border-sc-purple/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                       >
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-sc-fg-primary">
@@ -544,12 +673,12 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                     </div>
                     <Link
                       href="/search"
-                      className="block rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated px-3 py-3 transition-colors hover:border-sc-cyan/30"
+                      className="block rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-highlight px-3 py-3 transition-colors duration-200 hover:border-sc-cyan/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                     >
                       <div className="text-sm font-medium text-sc-fg-primary">
                         {sessionBundle.relevant_entities[0].name}
                       </div>
-                      <div className="mt-1 text-xs text-sc-fg-subtle line-clamp-3">
+                      <div className="mt-1 text-xs text-sc-fg-muted line-clamp-3">
                         {sessionBundle.relevant_entities[0].preview}
                       </div>
                     </Link>
@@ -560,7 +689,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-card">
+          <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-4 sm:p-6 shadow-card">
             <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-purple/10 border border-sc-purple/20 flex items-center justify-center">
                 <Zap width={16} height={16} className="text-sc-purple sm:w-5 sm:h-5" />
@@ -574,7 +703,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
               <button
                 type="button"
                 onClick={() => openCaptureMemory('dashboard')}
-                className="group flex w-full items-center gap-2 rounded-lg border border-sc-fg-subtle/10 bg-gradient-to-r from-sc-purple/10 via-sc-purple/5 to-sc-cyan/10 p-2.5 text-left transition-all hover:border-sc-purple/30 hover:bg-sc-bg-highlight sm:gap-3 sm:rounded-xl sm:p-3"
+                className="group flex w-full items-center gap-2 rounded-lg border border-sc-fg-subtle/10 bg-gradient-to-r from-sc-purple/10 via-sc-purple/5 to-sc-cyan/10 p-2.5 text-left transition-colors duration-200 hover:border-sc-purple/30 hover:bg-sc-bg-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated sm:gap-3 sm:rounded-xl sm:p-3"
               >
                 <div className="h-8 w-8 shrink-0 rounded-lg bg-sc-purple/15 flex items-center justify-center sm:h-9 sm:w-9">
                   <EditPencil
@@ -587,7 +716,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                   <div className="truncate text-xs font-medium text-sc-fg-primary transition-colors group-hover:text-sc-purple sm:text-sm">
                     Capture Memory
                   </div>
-                  <div className="truncate text-[10px] text-sc-fg-subtle sm:text-xs">
+                  <div className="truncate text-[10px] text-sc-fg-muted sm:text-xs">
                     Save a fresh learning right now
                   </div>
                 </div>
@@ -600,7 +729,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/memory/captures?link=unlinked"
-                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-elevated rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-yellow/30 hover:bg-sc-bg-highlight transition-all group"
+                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-highlight rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-yellow/30 hover:bg-sc-bg-surface transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-sc-yellow/10 flex items-center justify-center shrink-0">
                   <FileText
@@ -613,7 +742,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                   <div className="text-xs sm:text-sm font-medium text-sc-fg-primary group-hover:text-sc-yellow transition-colors truncate">
                     Review Memory
                   </div>
-                  <div className="text-[10px] sm:text-xs text-sc-fg-subtle truncate">
+                  <div className="text-[10px] sm:text-xs text-sc-fg-muted truncate">
                     Triage captures waiting on graph linkage
                   </div>
                 </div>
@@ -626,7 +755,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/search"
-                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-elevated rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-cyan/30 hover:bg-sc-bg-highlight transition-all group"
+                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-highlight rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-cyan/30 hover:bg-sc-bg-surface transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-sc-cyan/10 flex items-center justify-center shrink-0">
                   <Search width={16} height={16} className="text-sc-cyan sm:w-[18px] sm:h-[18px]" />
@@ -635,7 +764,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                   <div className="text-xs sm:text-sm font-medium text-sc-fg-primary group-hover:text-sc-cyan transition-colors truncate">
                     Search Knowledge
                   </div>
-                  <div className="text-[10px] sm:text-xs text-sc-fg-subtle truncate">
+                  <div className="text-[10px] sm:text-xs text-sc-fg-muted truncate">
                     Find patterns & insights
                   </div>
                 </div>
@@ -648,7 +777,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/graph"
-                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-elevated rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-purple/30 hover:bg-sc-bg-highlight transition-all group"
+                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-highlight rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-purple/30 hover:bg-sc-bg-surface transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-sc-purple/10 flex items-center justify-center shrink-0">
                   <Network
@@ -661,7 +790,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                   <div className="text-xs sm:text-sm font-medium text-sc-fg-primary group-hover:text-sc-purple transition-colors truncate">
                     Explore Graph
                   </div>
-                  <div className="text-[10px] sm:text-xs text-sc-fg-subtle truncate">
+                  <div className="text-[10px] sm:text-xs text-sc-fg-muted truncate">
                     Visualize connections
                   </div>
                 </div>
@@ -674,7 +803,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/entities"
-                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-elevated rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-coral/30 hover:bg-sc-bg-highlight transition-all group"
+                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-highlight rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-coral/30 hover:bg-sc-bg-surface transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-sc-coral/10 flex items-center justify-center shrink-0">
                   <Boxes width={16} height={16} className="text-sc-coral sm:w-[18px] sm:h-[18px]" />
@@ -683,7 +812,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                   <div className="text-xs sm:text-sm font-medium text-sc-fg-primary group-hover:text-sc-coral transition-colors truncate">
                     Browse Entities
                   </div>
-                  <div className="text-[10px] sm:text-xs text-sc-fg-subtle truncate">
+                  <div className="text-[10px] sm:text-xs text-sc-fg-muted truncate">
                     View all knowledge
                   </div>
                 </div>
@@ -696,7 +825,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
               <Link
                 href="/sources"
-                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-elevated rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-green/30 hover:bg-sc-bg-highlight transition-all group"
+                className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 bg-sc-bg-highlight rounded-lg sm:rounded-xl border border-sc-fg-subtle/10 hover:border-sc-green/30 hover:bg-sc-bg-surface transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
               >
                 <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-sc-green/10 flex items-center justify-center shrink-0">
                   <BookOpen
@@ -709,7 +838,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                   <div className="text-xs sm:text-sm font-medium text-sc-fg-primary group-hover:text-sc-green transition-colors truncate">
                     Add Source
                   </div>
-                  <div className="text-[10px] sm:text-xs text-sc-fg-subtle truncate">
+                  <div className="text-[10px] sm:text-xs text-sc-fg-muted truncate">
                     Documentation &amp; knowledge
                   </div>
                 </div>
@@ -724,7 +853,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
           {/* This Week Stats */}
           {orgMetrics && (
-            <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-card">
+            <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-4 sm:p-6 shadow-card">
               <div className="flex items-center gap-2 sm:gap-3 mb-3">
                 <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-purple/10 border border-sc-purple/20 flex items-center justify-center">
                   <BarChart3 width={16} height={16} className="text-sc-purple sm:w-5 sm:h-5" />
@@ -733,19 +862,19 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-sc-bg-elevated rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-sc-bg-highlight rounded-lg">
                   <span className="text-sm text-sc-fg-muted">Completion Rate</span>
                   <span className="text-lg font-bold text-sc-green">
                     {orgMetrics.completion_rate}%
                   </span>
                 </div>
-                <div className="flex items-center justify-between p-3 bg-sc-bg-elevated rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-sc-bg-highlight rounded-lg">
                   <span className="text-sm text-sc-fg-muted">Tasks Created</span>
                   <span className="text-lg font-bold text-sc-fg-primary">
                     {orgMetrics.tasks_created_last_7d}
                   </span>
                 </div>
-                <div className="flex items-center justify-between p-3 bg-sc-bg-elevated rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-sc-bg-highlight rounded-lg">
                   <span className="text-sm text-sc-fg-muted">Tasks Completed</span>
                   <span className="text-lg font-bold text-sc-green">
                     {orgMetrics.tasks_completed_last_7d}
@@ -753,7 +882,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                 </div>
                 {orgMetrics.top_assignees.length > 0 && (
                   <div className="pt-2 border-t border-sc-fg-subtle/10">
-                    <p className="text-xs text-sc-fg-subtle mb-2">Top Contributors</p>
+                    <p className="text-xs text-sc-fg-muted mb-2">Top Contributors</p>
                     <div className="space-y-1">
                       {orgMetrics.top_assignees.slice(0, 3).map(a => (
                         <div key={a.name} className="flex items-center justify-between text-sm">
@@ -772,7 +901,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
 
       {/* Error Display */}
       {mounted && health?.errors && health.errors.length > 0 && (
-        <div className="bg-sc-red/10 border border-sc-red/30 rounded-xl sm:rounded-xl p-4 sm:p-6">
+        <div className="bg-sc-red/10 border border-sc-red/30 rounded-xl p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sc-red/20 flex items-center justify-center">
               <Activity width={16} height={16} className="text-sc-red sm:w-5 sm:h-5" />
@@ -794,7 +923,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
       )}
 
       {/* Runtime Performance */}
-      <div className="bg-sc-bg-base border border-sc-fg-subtle/30 rounded-xl sm:rounded-xl p-4 sm:p-6 shadow-card">
+      <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-4 sm:p-6 shadow-card">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -812,14 +941,14 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[520px]">
-            <div className="rounded-lg border border-sc-cyan/20 bg-sc-bg-elevated px-3 py-2">
+            <div className="rounded-lg border border-sc-cyan/20 bg-sc-bg-highlight px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.16em] text-sc-fg-subtle">API</div>
               <div className="mt-1 text-lg font-semibold text-sc-cyan">
                 {formatLatency(apiTelemetry?.p95_ms)}
               </div>
               <div className="text-xs text-sc-fg-muted">{formatCount(apiTelemetry, 'req')}</div>
             </div>
-            <div className="rounded-lg border border-sc-purple/20 bg-sc-bg-elevated px-3 py-2">
+            <div className="rounded-lg border border-sc-purple/20 bg-sc-bg-highlight px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.16em] text-sc-fg-subtle">
                 Surreal
               </div>
@@ -830,7 +959,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
                 {formatCount(surrealTelemetry, 'queries')}
               </div>
             </div>
-            <div className="rounded-lg border border-sc-green/20 bg-sc-bg-elevated px-3 py-2">
+            <div className="rounded-lg border border-sc-green/20 bg-sc-bg-highlight px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.16em] text-sc-fg-subtle">
                 Memory
               </div>
@@ -839,7 +968,7 @@ export function DashboardContent({ initialStats }: DashboardContentProps) {
               </div>
               <div className="text-xs text-sc-fg-muted">{formatCount(memoryTelemetry, 'ops')}</div>
             </div>
-            <div className="rounded-lg border border-sc-coral/20 bg-sc-bg-elevated px-3 py-2">
+            <div className="rounded-lg border border-sc-coral/20 bg-sc-bg-highlight px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.16em] text-sc-fg-subtle">LLM</div>
               <div className="mt-1 text-lg font-semibold text-sc-coral">
                 {formatLatency(llmTelemetry?.p95_ms)}

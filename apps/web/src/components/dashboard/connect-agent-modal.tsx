@@ -1,6 +1,7 @@
 'use client';
 
 import { ConnectPanel } from '@/components/connect';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -21,8 +22,8 @@ export function ConnectAgentModal({ open, onOpenChange }: ConnectAgentModalProps
       <DialogContent size="lg">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral flex items-center justify-center shadow-lg shadow-sc-purple/30">
-              <Network aria-hidden="true" width={20} height={20} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral flex items-center justify-center shadow-glow-purple">
+              <Network aria-hidden="true" width={20} height={20} className="text-sc-on-accent" />
             </div>
             <div>
               <DialogTitle>Connect your agent</DialogTitle>
@@ -38,13 +39,9 @@ export function ConnectAgentModal({ open, onOpenChange }: ConnectAgentModalProps
         </div>
 
         <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-lg bg-sc-purple text-white text-sm font-medium transition-all hover:bg-sc-purple/90 hover:shadow-lg hover:shadow-sc-purple/25"
-          >
+          <Button type="button" variant="primary" onClick={() => onOpenChange(false)}>
             Done
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -55,7 +55,7 @@ function SidebarContent({ onNavClick }: SidebarContentProps) {
               href={APP_CONFIG.GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-lg p-1.5 text-sc-fg-subtle transition-colors hover:bg-sc-bg-highlight hover:text-sc-cyan"
+              className="rounded-lg p-1.5 text-sc-fg-subtle transition-colors duration-200 hover:bg-sc-bg-highlight hover:text-sc-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
               aria-label="Sibyl on GitHub"
             >
               <Github width={15} height={15} />
@@ -66,14 +66,14 @@ function SidebarContent({ onNavClick }: SidebarContentProps) {
               href={APP_CONFIG.SPONSOR_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-lg p-1.5 text-sc-fg-subtle transition-colors hover:bg-sc-bg-highlight hover:text-sc-coral"
+              className="rounded-lg p-1.5 text-sc-fg-subtle transition-colors duration-200 hover:bg-sc-bg-highlight hover:text-sc-coral focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
               aria-label="Sponsor Sibyl"
             >
               <Heart width={15} height={15} />
             </a>
           </Tooltip>
         </div>
-        <div className="flex items-center justify-center text-[10px] text-sc-fg-subtle">
+        <div className="flex items-center justify-center text-[10px] text-sc-fg-muted">
           <span className="uppercase tracking-wider">
             {APP_CONFIG.NAME} v{APP_CONFIG.VERSION}
           </span>

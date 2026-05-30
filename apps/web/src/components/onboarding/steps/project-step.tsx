@@ -53,10 +53,11 @@ export function ProjectStep({ onBack, onNext, onSkip }: ProjectStepProps) {
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="My First Project"
-            className="w-full px-4 py-2.5 bg-sc-bg-dark border border-sc-fg-subtle/20 rounded-xl
-                       text-sc-fg-primary placeholder:text-sc-fg-subtle
-                       focus:border-sc-cyan focus:outline-none focus:ring-1 focus:ring-sc-cyan/30
-                       transition-colors"
+            className="w-full px-4 py-2.5 bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg
+                       text-sc-fg-primary placeholder:text-sc-fg-muted
+                       focus-visible:border-sc-cyan focus-visible:outline-none focus-visible:ring-2
+                       focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated
+                       transition-colors duration-200"
           />
         </div>
 
@@ -73,10 +74,11 @@ export function ProjectStep({ onBack, onNext, onSkip }: ProjectStepProps) {
             onChange={e => setDescription(e.target.value)}
             placeholder="What's this project about?"
             rows={3}
-            className="w-full px-4 py-2.5 bg-sc-bg-dark border border-sc-fg-subtle/20 rounded-xl
-                       text-sc-fg-primary placeholder:text-sc-fg-subtle
-                       focus:border-sc-cyan focus:outline-none focus:ring-1 focus:ring-sc-cyan/30
-                       transition-colors resize-none"
+            className="w-full px-4 py-2.5 bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg
+                       text-sc-fg-primary placeholder:text-sc-fg-muted
+                       focus-visible:border-sc-cyan focus-visible:outline-none focus-visible:ring-2
+                       focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated
+                       transition-colors duration-200 resize-none"
           />
         </div>
 
@@ -86,14 +88,14 @@ export function ProjectStep({ onBack, onNext, onSkip }: ProjectStepProps) {
             <button
               type="button"
               onClick={onBack}
-              className="px-4 py-2 text-sm text-sc-fg-muted hover:text-sc-fg-primary transition-colors"
+              className="rounded px-4 py-2 text-sm text-sc-fg-muted hover:text-sc-fg-primary transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
             >
               Back
             </button>
             <button
               type="button"
               onClick={onSkip}
-              className="text-sc-fg-subtle hover:text-sc-fg-muted transition-colors text-sm"
+              className="rounded text-sm text-sc-fg-muted hover:text-sc-fg-primary transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
             >
               Skip for now
             </button>
@@ -101,7 +103,7 @@ export function ProjectStep({ onBack, onNext, onSkip }: ProjectStepProps) {
           <button
             type="submit"
             disabled={!name.trim() || createEntity.isPending}
-            className="flex items-center gap-2 px-5 py-2.5 bg-sc-cyan hover:bg-sc-cyan/80 text-sc-bg-dark rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-sc-cyan/25"
+            className="flex items-center gap-2 px-5 py-2.5 bg-sc-cyan hover:bg-sc-cyan/80 text-sc-bg-dark rounded-lg font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-glow-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           >
             {createEntity.isPending ? (
               <>

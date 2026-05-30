@@ -48,7 +48,7 @@ export function Header() {
         </button>
         <Link href="/" className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sc-purple via-sc-magenta to-sc-coral flex items-center justify-center">
-            <Database width={16} height={16} className="text-white" />
+            <Database width={16} height={16} className="text-sc-on-accent" />
           </div>
           <span className="font-bold text-sc-fg-primary">Sibyl</span>
         </Link>
@@ -66,7 +66,7 @@ export function Header() {
             height={16}
             className={`absolute left-3 top-1/2 -translate-y-1/2 transition-all duration-300 ${
               isFocused
-                ? 'text-sc-purple drop-shadow-[0_0_8px_rgba(225,53,255,0.5)]'
+                ? 'text-sc-purple drop-shadow-[0_0_8px_color-mix(in_oklch,var(--sc-purple)_50%,transparent)]'
                 : 'text-sc-fg-muted'
             }`}
           />
@@ -81,26 +81,28 @@ export function Header() {
             onBlur={() => setIsFocused(false)}
             placeholder="Search knowledge..."
             className={`
-              w-full pl-10 pr-20 py-2.5 rounded-xl
+              w-full pl-10 pr-20 py-2.5 rounded-lg
               bg-sc-bg-dark/80 border text-sc-fg-primary
               placeholder:text-sc-fg-subtle/50
               transition-all duration-300
-              focus:outline-none focus-visible:outline-none
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan
+              focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base
               ${
                 isFocused
-                  ? 'border-sc-purple bg-sc-bg-dark shadow-[0_0_20px_rgba(225,53,255,0.3),0_0_40px_rgba(225,53,255,0.15)]'
-                  : 'border-sc-fg-subtle/20 hover:border-sc-purple/40 hover:shadow-[0_0_12px_rgba(225,53,255,0.12)]'
+                  ? 'border-sc-purple bg-sc-bg-dark shadow-glow-purple'
+                  : 'border-sc-fg-subtle/20 hover:border-sc-purple/40 hover:shadow-[0_0_12px_color-mix(in_oklch,var(--sc-purple)_12%,transparent)]'
               }
             `}
           />
 
           {/* Keyboard hint */}
           <div
+            aria-hidden="true"
             className={`
               absolute right-3 top-1/2 -translate-y-1/2
               text-[10px] font-mono px-1.5 py-1 rounded
               border hidden md:flex items-center gap-1
-              transition-all duration-300
+              transition-colors duration-300
               ${
                 isFocused
                   ? 'bg-sc-purple/20 border-sc-purple/30 text-sc-purple'

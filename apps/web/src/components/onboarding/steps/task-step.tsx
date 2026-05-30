@@ -15,7 +15,7 @@ const PRIORITY_OPTIONS = [
   {
     value: 'low',
     label: 'Low',
-    color: 'text-sc-fg-subtle',
+    color: 'text-sc-fg-muted',
     bg: 'bg-sc-fg-subtle/10 border-sc-fg-subtle/30',
   },
   {
@@ -87,10 +87,11 @@ export function TaskStep({ projectId, onBack, onNext, onSkip }: TaskStepProps) {
             value={title}
             onChange={e => setTitle(e.target.value)}
             placeholder="e.g., Set up development environment"
-            className="w-full px-4 py-2.5 bg-sc-bg-dark border border-sc-fg-subtle/20 rounded-xl
-                       text-sc-fg-primary placeholder:text-sc-fg-subtle
-                       focus:border-sc-green focus:outline-none focus:ring-1 focus:ring-sc-green/30
-                       transition-colors"
+            className="w-full px-4 py-2.5 bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg
+                       text-sc-fg-primary placeholder:text-sc-fg-muted
+                       focus-visible:border-sc-cyan focus-visible:outline-none focus-visible:ring-2
+                       focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated
+                       transition-colors duration-200"
           />
         </div>
 
@@ -101,12 +102,15 @@ export function TaskStep({ projectId, onBack, onNext, onSkip }: TaskStepProps) {
               <button
                 key={opt.value}
                 type="button"
+                aria-pressed={priority === opt.value}
                 onClick={() => setPriority(opt.value)}
-                className={`flex-1 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all
+                className={`flex-1 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors duration-200
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan
+                  focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated
                   ${
                     priority === opt.value
                       ? `${opt.bg} ${opt.color}`
-                      : 'bg-sc-bg-dark border-sc-fg-subtle/20 text-sc-fg-muted hover:border-sc-fg-subtle/40'
+                      : 'bg-sc-bg-highlight border-sc-fg-subtle/20 text-sc-fg-muted hover:border-sc-fg-subtle/40'
                   }`}
               >
                 {opt.label}
@@ -121,14 +125,14 @@ export function TaskStep({ projectId, onBack, onNext, onSkip }: TaskStepProps) {
             <button
               type="button"
               onClick={onBack}
-              className="px-4 py-2 text-sm text-sc-fg-muted hover:text-sc-fg-primary transition-colors"
+              className="rounded px-4 py-2 text-sm text-sc-fg-muted hover:text-sc-fg-primary transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
             >
               Back
             </button>
             <button
               type="button"
               onClick={onSkip}
-              className="text-sc-fg-subtle hover:text-sc-fg-muted transition-colors text-sm"
+              className="rounded text-sm text-sc-fg-muted hover:text-sc-fg-primary transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
             >
               Skip for now
             </button>
@@ -136,7 +140,7 @@ export function TaskStep({ projectId, onBack, onNext, onSkip }: TaskStepProps) {
           <button
             type="submit"
             disabled={!title.trim() || createEntity.isPending}
-            className="flex items-center gap-2 px-5 py-2.5 bg-sc-green hover:bg-sc-green/80 text-sc-bg-dark rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-sc-green/25"
+            className="flex items-center gap-2 px-5 py-2.5 bg-sc-green hover:bg-sc-green/80 text-sc-bg-dark rounded-lg font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-glow-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           >
             {createEntity.isPending ? (
               <>

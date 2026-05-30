@@ -2,8 +2,14 @@
 
 /**
  * SilkCircuit-styled chart components using Recharts.
+ *
+ * Recharts renders to SVG with literal stroke/fill props, so it can't consume
+ * the `--sc-*` Tailwind utilities directly. Instead we resolve the live token
+ * values off `document.documentElement` and re-read them whenever the theme
+ * flips, so every chart adopts the dawn palette instead of freezing at neon.
  */
 
+import { useEffect, useMemo, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -27,9 +33,23 @@ import type {
   TelemetryTrendPoint,
   TimeSeriesPoint,
 } from '@/lib/api';
+import { useTheme } from '@/lib/theme';
 
-// SilkCircuit color palette
-const COLORS = {
+interface ChartPalette {
+  purple: string;
+  cyan: string;
+  coral: string;
+  yellow: string;
+  green: string;
+  red: string;
+  muted: string;
+  bg: string;
+  bgElevated: string;
+}
+
+// Neon fallbacks used during SSR / before the first client paint, so charts
+// never render with empty stroke colors on the very first frame.
+const FALLBACK_PALETTE: ChartPalette = {
   purple: '#e135ff',
   cyan: '#80ffea',
   coral: '#ff6ac1',
@@ -41,24 +61,40 @@ const COLORS = {
   bgElevated: '#1a162a',
 };
 
-// Status colors matching the app's status config
-const STATUS_COLORS: Record<string, string> = {
-  backlog: COLORS.muted,
-  todo: COLORS.cyan,
-  doing: COLORS.purple,
-  blocked: COLORS.red,
-  review: COLORS.yellow,
-  done: COLORS.green,
+const PALETTE_TOKENS: Record<keyof ChartPalette, string> = {
+  purple: '--sc-purple',
+  cyan: '--sc-cyan',
+  coral: '--sc-coral',
+  yellow: '--sc-yellow',
+  green: '--sc-green',
+  red: '--sc-red',
+  muted: '--sc-fg-muted',
+  bg: '--sc-bg-dark',
+  bgElevated: '--sc-bg-elevated',
 };
 
-// Priority colors
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: COLORS.red,
-  high: COLORS.coral,
-  medium: COLORS.yellow,
-  low: COLORS.cyan,
-  someday: COLORS.muted,
-};
+/**
+ * Read the resolved SilkCircuit tokens off the document root, re-reading on
+ * every theme change so charts track neon <-> dawn. Returns hex/oklch strings
+ * suitable for Recharts SVG props.
+ */
+function useChartPalette(): ChartPalette {
+  const { theme } = useTheme();
+  const [palette, setPalette] = useState<ChartPalette>(FALLBACK_PALETTE);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const styles = getComputedStyle(root);
+    const next = {} as ChartPalette;
+    for (const key of Object.keys(PALETTE_TOKENS) as Array<keyof ChartPalette>) {
+      const value = styles.getPropertyValue(PALETTE_TOKENS[key]).trim();
+      next[key] = value || FALLBACK_PALETTE[key];
+    }
+    setPalette(next);
+  }, [theme]);
+
+  return palette;
+}
 
 // Custom tooltip component
 function CustomTooltip({
@@ -73,13 +109,13 @@ function CustomTooltip({
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-lg px-3 py-2 shadow-xl">
+    <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-lg px-3 py-2 shadow-card-elevated">
       {label && <p className="text-xs text-sc-fg-muted mb-1">{label}</p>}
       {payload.map((entry, index) => (
         <p
           key={index}
           className="text-sm font-medium"
-          style={{ color: entry.color || COLORS.cyan }}
+          style={{ color: entry.color || 'var(--sc-cyan)' }}
         >
           {entry.name}: {entry.value}
         </p>
@@ -98,12 +134,25 @@ interface StatusDonutProps {
 }
 
 export function StatusDonutChart({ data, className }: StatusDonutProps) {
+  const COLORS = useChartPalette();
+  const statusColors = useMemo<Record<string, string>>(
+    () => ({
+      backlog: COLORS.muted,
+      todo: COLORS.cyan,
+      doing: COLORS.purple,
+      blocked: COLORS.red,
+      review: COLORS.yellow,
+      done: COLORS.green,
+    }),
+    [COLORS]
+  );
+
   const chartData = Object.entries(data)
     .filter(([_, value]) => value > 0)
     .map(([name, value]) => ({
       name: name.charAt(0).toUpperCase() + name.slice(1),
       value,
-      color: STATUS_COLORS[name] || COLORS.muted,
+      color: statusColors[name] || COLORS.muted,
     }));
 
   const total = chartData.reduce((sum, item) => sum + item.value, 0);
@@ -164,10 +213,22 @@ interface PriorityBarProps {
 }
 
 export function PriorityBarChart({ data, className }: PriorityBarProps) {
+  const COLORS = useChartPalette();
+  const priorityColors = useMemo<Record<string, string>>(
+    () => ({
+      critical: COLORS.red,
+      high: COLORS.coral,
+      medium: COLORS.yellow,
+      low: COLORS.cyan,
+      someday: COLORS.muted,
+    }),
+    [COLORS]
+  );
+
   const chartData = Object.entries(data).map(([name, value]) => ({
     name: name.charAt(0).toUpperCase() + name.slice(1),
     value,
-    fill: PRIORITY_COLORS[name] || COLORS.muted,
+    fill: priorityColors[name] || COLORS.muted,
   }));
 
   return (
@@ -205,6 +266,8 @@ interface VelocityChartProps {
 }
 
 export function VelocityLineChart({ data, className }: VelocityChartProps) {
+  const COLORS = useChartPalette();
+
   // Format dates for display
   const chartData = data.map(point => ({
     ...point,
@@ -281,6 +344,8 @@ interface PerformanceTrendChartProps {
 }
 
 export function PerformanceTrendChart({ data, className }: PerformanceTrendChartProps) {
+  const COLORS = useChartPalette();
+
   const chartData = data.map(point => ({
     ...point,
     displayTime: new Date(point.timestamp).toLocaleTimeString('en-US', {
@@ -399,6 +464,8 @@ interface AssigneeChartProps {
 }
 
 export function AssigneeBarChart({ data, className, maxItems = 8 }: AssigneeChartProps) {
+  const COLORS = useChartPalette();
+
   const chartData = data.slice(0, maxItems).map(assignee => ({
     name: assignee.name.length > 12 ? `${assignee.name.slice(0, 12)}...` : assignee.name,
     fullName: assignee.name,
@@ -488,6 +555,8 @@ interface ProjectComparisonProps {
 }
 
 export function ProjectComparisonChart({ data, className, maxItems = 10 }: ProjectComparisonProps) {
+  const COLORS = useChartPalette();
+
   const chartData = data.slice(0, maxItems).map(project => ({
     name: project.name.length > 15 ? `${project.name.slice(0, 15)}...` : project.name,
     fullName: project.name,

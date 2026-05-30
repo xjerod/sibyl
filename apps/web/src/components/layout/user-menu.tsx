@@ -77,12 +77,17 @@ export function UserMenu() {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
+        aria-label="Open user menu"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
         className={`
-          flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl
-          border transition-all duration-200
+          flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg
+          border transition-colors duration-200
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan
+          focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base
           ${
             isOpen
-              ? 'bg-sc-bg-highlight border-sc-purple/30 shadow-[0_0_16px_rgba(225,53,255,0.15)]'
+              ? 'bg-sc-bg-highlight border-sc-purple/30 shadow-[0_0_16px_color-mix(in_oklch,var(--sc-purple)_15%,transparent)]'
               : 'border-transparent hover:bg-sc-bg-highlight/50 hover:border-sc-fg-subtle/20'
           }
         `}
@@ -94,7 +99,7 @@ export function UserMenu() {
             alt={user.name || 'User'}
             className={`w-8 h-8 rounded-full border-2 transition-all duration-200 ${
               isOpen
-                ? 'border-sc-purple/50 shadow-[0_0_12px_rgba(225,53,255,0.3)]'
+                ? 'border-sc-purple/50 shadow-[0_0_12px_color-mix(in_oklch,var(--sc-purple)_30%,transparent)]'
                 : 'border-sc-fg-subtle/20 hover:border-sc-purple/30'
             }`}
           />
@@ -102,7 +107,7 @@ export function UserMenu() {
           <div
             className={`w-8 h-8 rounded-full bg-gradient-to-br from-sc-purple/20 to-sc-magenta/20 border-2 flex items-center justify-center transition-all duration-200 ${
               isOpen
-                ? 'border-sc-purple/50 shadow-[0_0_12px_rgba(225,53,255,0.3)]'
+                ? 'border-sc-purple/50 shadow-[0_0_12px_color-mix(in_oklch,var(--sc-purple)_30%,transparent)]'
                 : 'border-sc-fg-subtle/20'
             }`}
           >
@@ -129,7 +134,8 @@ export function UserMenu() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute right-0 top-full mt-2 w-60 rounded-xl bg-sc-bg-elevated border border-sc-purple/20 shadow-[0_4px_24px_rgba(0,0,0,0.4),0_0_48px_rgba(225,53,255,0.08),inset_0_1px_0_rgba(255,255,255,0.05)] overflow-hidden z-50"
+            role="menu"
+            className="absolute right-0 top-full mt-2 w-60 rounded-xl bg-sc-bg-elevated border border-sc-purple/20 shadow-glow-purple overflow-hidden z-50"
           >
             {/* User info header */}
             <div className="px-4 py-3.5 border-b border-sc-fg-subtle/10 bg-gradient-to-r from-sc-purple/5 to-transparent">
@@ -145,8 +151,9 @@ export function UserMenu() {
             <div className="py-1.5">
               <Link
                 href="/settings/profile"
+                role="menuitem"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-sc-fg-muted hover:bg-sc-purple/10 hover:text-sc-fg-primary transition-all group"
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-sc-fg-muted hover:bg-sc-purple/10 hover:text-sc-fg-primary transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-inset"
               >
                 <User
                   width={16}
@@ -157,8 +164,9 @@ export function UserMenu() {
               </Link>
               <Link
                 href="/settings"
+                role="menuitem"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-sc-fg-muted hover:bg-sc-purple/10 hover:text-sc-fg-primary transition-all group"
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-sc-fg-muted hover:bg-sc-purple/10 hover:text-sc-fg-primary transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-inset"
               >
                 <Settings
                   width={16}
@@ -179,9 +187,10 @@ export function UserMenu() {
                   <button
                     key={org.slug}
                     type="button"
+                    role="menuitem"
                     onClick={() => handleSwitchOrg(org.slug)}
                     disabled={org.slug === currentOrg?.slug || switchOrg.isPending}
-                    className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-all ${
+                    className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-inset ${
                       org.slug === currentOrg?.slug
                         ? 'text-sc-purple bg-sc-purple/10'
                         : 'text-sc-fg-muted hover:bg-sc-purple/10 hover:text-sc-fg-primary'
@@ -205,8 +214,9 @@ export function UserMenu() {
             <div className="border-t border-sc-fg-subtle/10 py-1.5">
               <button
                 type="button"
+                role="menuitem"
                 onClick={handleSignOut}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-sc-fg-muted hover:text-sc-red hover:bg-sc-red/10 transition-all group"
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-sc-fg-muted hover:text-sc-red hover:bg-sc-red/10 transition-colors duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-red focus-visible:ring-inset"
               >
                 <svg
                   width={16}

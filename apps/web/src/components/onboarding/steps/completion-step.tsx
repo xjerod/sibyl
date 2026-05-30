@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Check, Command } from 'lucide-react';
+import { ArrowRight, Check, Command, Plus, Zap } from 'lucide-react';
 
 interface CompletionStepProps {
   onFinish: () => void;
@@ -43,14 +43,14 @@ export function CompletionStep({ onFinish }: CompletionStepProps) {
               </span>
             </li>
             <li className="flex items-start gap-2.5">
-              <span className="w-5 h-5 rounded bg-sc-cyan/15 text-sc-cyan flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                +
+              <span className="w-5 h-5 rounded bg-sc-cyan/15 text-sc-cyan flex items-center justify-center shrink-0 mt-0.5">
+                <Plus className="w-3 h-3" />
               </span>
               <span>Add learnings after completing tasks to build memory</span>
             </li>
             <li className="flex items-start gap-2.5">
-              <span className="w-5 h-5 rounded bg-sc-green/15 text-sc-green flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                ⚡
+              <span className="w-5 h-5 rounded bg-sc-green/15 text-sc-green flex items-center justify-center shrink-0 mt-0.5">
+                <Zap className="w-3 h-3" />
               </span>
               <span>Connect Sibyl to your AI agent via the CLI or MCP</span>
             </li>
@@ -60,7 +60,7 @@ export function CompletionStep({ onFinish }: CompletionStepProps) {
         <button
           type="button"
           onClick={onFinish}
-          className="flex items-center justify-center gap-2 w-full px-5 py-3 bg-sc-purple hover:bg-sc-purple/80 text-white rounded-xl font-medium transition-colors shadow-lg shadow-sc-purple/25"
+          className="flex items-center justify-center gap-2 w-full px-5 py-3 bg-sc-purple hover:bg-sc-purple/80 text-sc-on-accent rounded-lg font-medium transition-colors duration-200 shadow-glow-purple focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
         >
           Go to Dashboard
           <ArrowRight className="w-4 h-4" />

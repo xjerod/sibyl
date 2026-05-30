@@ -15,7 +15,7 @@ export function WelcomeStep({ onNext, onSkip }: WelcomeStepProps) {
         <div className="relative inline-flex items-center justify-center mb-4">
           <div className="absolute w-20 h-20 rounded-full bg-sc-purple/10 animate-pulse" />
           <div className="absolute w-16 h-16 rounded-full bg-sc-purple/15 animate-pulse delay-75" />
-          <div className="relative inline-flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-br from-sc-purple to-sc-coral text-white">
+          <div className="relative inline-flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-br from-sc-purple to-sc-coral text-sc-on-accent">
             <Brain className="w-7 h-7" />
           </div>
         </div>
@@ -52,14 +52,14 @@ export function WelcomeStep({ onNext, onSkip }: WelcomeStepProps) {
         <button
           type="button"
           onClick={onSkip}
-          className="text-sc-fg-subtle hover:text-sc-fg-muted transition-colors text-sm"
+          className="rounded text-sm text-sc-fg-muted transition-colors duration-200 hover:text-sc-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
         >
           Skip for now
         </button>
         <button
           type="button"
           onClick={onNext}
-          className="flex items-center gap-2 px-5 py-2.5 bg-sc-purple hover:bg-sc-purple/80 text-white rounded-xl font-medium transition-colors shadow-lg shadow-sc-purple/25"
+          className="flex items-center gap-2 px-5 py-2.5 bg-sc-purple hover:bg-sc-purple/80 text-sc-on-accent rounded-lg font-medium transition-colors duration-200 shadow-glow-purple focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
         >
           Get Started
           <ArrowRight className="w-4 h-4" />
@@ -105,7 +105,7 @@ function FeatureCard({
         {icon}
       </div>
       <h3 className="font-medium text-sc-fg-primary text-sm mb-0.5">{title}</h3>
-      <p className="text-sc-fg-subtle text-xs">{description}</p>
+      <p className="text-sc-fg-muted text-xs">{description}</p>
     </div>
   );
 }
