@@ -1,9 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { SettingsPageHeader, SettingsSectionSkeleton } from '@/components/settings/primitives';
 import { StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Archive,
   Calendar,
@@ -15,7 +25,15 @@ import {
   RefreshDouble,
   Trash,
 } from '@/components/ui/icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 import type { BackupInfo, BackupStatus } from '@/lib/api';
 import { api } from '@/lib/api';
 import {
@@ -134,7 +152,8 @@ function BackupRow({
           <button
             type="button"
             onClick={handleDownload}
-            className="p-2 rounded-lg hover:bg-sc-bg-base text-sc-fg-muted hover:text-sc-cyan transition-colors"
+            className="p-2 rounded-lg text-sc-fg-muted transition-colors duration-200 hover:bg-sc-bg-highlight hover:text-sc-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
+            aria-label={`Download backup ${backup.backup_id}`}
             title="Download backup"
           >
             <Download width={16} height={16} />
@@ -144,7 +163,8 @@ function BackupRow({
           type="button"
           onClick={() => onDelete(backup.backup_id)}
           disabled={isDeleting || backup.status === 'in_progress'}
-          className="p-2 rounded-lg hover:bg-sc-bg-base text-sc-fg-muted hover:text-sc-red transition-colors disabled:opacity-50"
+          className="p-2 rounded-lg text-sc-fg-muted transition-colors duration-200 hover:bg-sc-bg-highlight hover:text-sc-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated disabled:opacity-50"
+          aria-label={`Delete backup ${backup.backup_id}`}
           title="Delete backup"
         >
           {isDeleting ? <Spinner size="xs" /> : <Trash width={16} height={16} />}
@@ -158,26 +178,15 @@ function Toggle({
   enabled,
   onChange,
   disabled,
+  label,
 }: {
   enabled: boolean;
   onChange: () => void;
   disabled?: boolean;
+  label: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onChange}
-      disabled={disabled}
-      className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${
-        enabled ? 'bg-sc-green' : 'bg-sc-fg-subtle/30'
-      }`}
-    >
-      <span
-        className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
-          enabled ? 'left-6' : 'left-1'
-        }`}
-      />
-    </button>
+    <Switch checked={enabled} onCheckedChange={onChange} disabled={disabled} aria-label={label} />
   );
 }
 
@@ -221,8 +230,6 @@ function CreateBackupModal({
     }
   }, [step, isPending]);
 
-  if (!isOpen) return null;
-
   const handleConfirm = () => {
     setStep('running');
     onConfirm({ include_database_dump: includeDatabaseDump, include_graph: includeGraph });
@@ -236,34 +243,39 @@ function CreateBackupModal({
   const archiveSummary = archiveContents.length > 0 ? archiveContents.join(', ') : 'runtime data';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-sc-bg-dark/80 backdrop-blur-sm"
-        onClick={step === 'running' ? undefined : onClose}
-      />
-
-      {/* Modal */}
-      <div className="relative bg-sc-bg-base border border-sc-fg-subtle/20 rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+    <Dialog
+      open={isOpen}
+      onOpenChange={open => {
+        // Don't let an outside-click / Escape abandon an in-flight backup.
+        if (!open && step !== 'running') onClose();
+      }}
+    >
+      <DialogContent size="md" showClose={step !== 'running'} className="p-0 overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-sc-fg-subtle/10">
+        <DialogHeader className="mb-0 px-6 py-4 border-b border-sc-fg-subtle/10">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-sc-purple/10">
               <Archive width={20} height={20} className="text-sc-purple" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-sc-fg-primary">Create Backup</h2>
-              <p className="text-xs text-sc-fg-muted">Configure what to include in this backup</p>
+              <DialogTitle>Create Backup</DialogTitle>
+              <DialogDescription className="text-xs">
+                Configure what to include in this backup
+              </DialogDescription>
             </div>
           </div>
-        </div>
+        </DialogHeader>
 
         {/* Content */}
         <div className="px-6 py-5">
           {step === 'options' && (
             <div className="space-y-4">
-              <div
-                className={`p-4 rounded-lg border transition-all cursor-pointer ${
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={includeDatabaseDump}
+                aria-label={dataSnapshotLabel}
+                className={`w-full text-left p-4 rounded-lg border transition-colors duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated ${
                   includeDatabaseDump
                     ? 'bg-sc-cyan/5 border-sc-cyan/30'
                     : 'bg-sc-bg-highlight/30 border-sc-fg-subtle/10 hover:border-sc-fg-subtle/20'
@@ -272,11 +284,13 @@ function CreateBackupModal({
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors duration-200 ${
                       includeDatabaseDump ? 'bg-sc-cyan border-sc-cyan' : 'border-sc-fg-subtle/40'
                     }`}
                   >
-                    {includeDatabaseDump && <Check width={12} height={12} className="text-white" />}
+                    {includeDatabaseDump && (
+                      <Check width={12} height={12} className="text-sc-on-accent" />
+                    )}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -286,11 +300,15 @@ function CreateBackupModal({
                     <p className="text-xs text-sc-fg-muted mt-1">{dataSnapshotDescription}</p>
                   </div>
                 </div>
-              </div>
+              </button>
 
               {/* Knowledge Graph Option */}
-              <div
-                className={`p-4 rounded-lg border transition-all cursor-pointer ${
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={includeGraph}
+                aria-label="Knowledge Graph"
+                className={`w-full text-left p-4 rounded-lg border transition-colors duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated ${
                   includeGraph
                     ? 'bg-sc-coral/5 border-sc-coral/30'
                     : 'bg-sc-bg-highlight/30 border-sc-fg-subtle/10 hover:border-sc-fg-subtle/20'
@@ -299,11 +317,11 @@ function CreateBackupModal({
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors duration-200 ${
                       includeGraph ? 'bg-sc-coral border-sc-coral' : 'border-sc-fg-subtle/40'
                     }`}
                   >
-                    {includeGraph && <Check width={12} height={12} className="text-white" />}
+                    {includeGraph && <Check width={12} height={12} className="text-sc-on-accent" />}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -315,7 +333,7 @@ function CreateBackupModal({
                     </p>
                   </div>
                 </div>
-              </div>
+              </button>
 
               {/* Info */}
               <div className="flex items-start gap-2 p-3 rounded-lg bg-sc-bg-highlight/50 text-xs text-sc-fg-muted">
@@ -389,40 +407,30 @@ function CreateBackupModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-sc-fg-subtle/10 flex justify-end gap-3">
+        <DialogFooter className="mt-0 px-6 py-4 border-t border-sc-fg-subtle/10">
           {step === 'options' && (
             <>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-lg text-sm text-sc-fg-secondary hover:text-sc-fg-primary hover:bg-sc-bg-highlight transition-colors"
-              >
+              <Button variant="ghost" onClick={onClose}>
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
                 onClick={handleConfirm}
                 disabled={!canCreate}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-sc-purple text-white text-sm font-medium hover:bg-sc-purple/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                icon={<Play width={14} height={14} />}
               >
-                <Play width={14} height={14} />
                 Start Backup
-              </button>
+              </Button>
             </>
           )}
           {step === 'running' && <p className="text-xs text-sc-fg-muted">Please wait...</p>}
           {step === 'success' && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg bg-sc-green text-white text-sm font-medium hover:bg-sc-green/90 transition-colors"
-            >
+            <Button variant="primary" onClick={onClose}>
               Done
-            </button>
+            </Button>
           )}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -434,6 +442,7 @@ export default function BackupsPage() {
   const deleteBackup = useDeleteBackup();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const isLoading = settingsLoading || backupsLoading;
 
@@ -448,16 +457,19 @@ export default function BackupsPage() {
       await createBackup.mutateAsync(options);
       refetchBackups();
     } catch (error) {
-      console.error('Failed to create backup:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to create backup');
     }
   };
 
-  const handleDeleteBackup = async (backupId: string) => {
-    if (!confirm(`Delete backup ${backupId}? This action cannot be undone.`)) return;
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      await deleteBackup.mutateAsync(backupId);
+      await deleteBackup.mutateAsync(pendingDelete);
+      toast.success('Backup deleted');
     } catch (error) {
-      console.error('Failed to delete backup:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete backup');
+    } finally {
+      setPendingDelete(null);
     }
   };
 
@@ -471,7 +483,7 @@ export default function BackupsPage() {
     try {
       await updateSettings.mutateAsync(updates);
     } catch (error) {
-      console.error('Failed to update settings:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to update backup settings');
     }
   };
 
@@ -524,7 +536,7 @@ export default function BackupsPage() {
 
       {/* Scheduled Backup Configuration */}
       {settings && (
-        <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
+        <div className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-fg-subtle/10 p-6">
           <h3 className="font-semibold text-sc-fg-primary mb-4">Scheduled Backups</h3>
           <div className="space-y-4">
             {/* Enable Toggle */}
@@ -539,6 +551,7 @@ export default function BackupsPage() {
                 </div>
               </div>
               <Toggle
+                label="Enable automatic backups"
                 enabled={settings.enabled}
                 onChange={() => handleUpdateSetting({ enabled: !settings.enabled })}
                 disabled={updateSettings.isPending}
@@ -554,18 +567,22 @@ export default function BackupsPage() {
                   <p className="text-xs text-sc-fg-muted">When to run automatic backups</p>
                 </div>
               </div>
-              <select
+              <Select
                 value={settings.schedule}
-                onChange={e => handleUpdateSetting({ schedule: e.target.value })}
+                onValueChange={value => handleUpdateSetting({ schedule: value })}
                 disabled={updateSettings.isPending}
-                className="bg-sc-bg-base border border-sc-fg-subtle/20 rounded-lg px-3 py-1.5 text-sm text-sc-fg-primary focus:outline-none focus:border-sc-purple disabled:opacity-50"
               >
-                {SCHEDULE_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-auto min-w-[180px]" aria-label="Backup schedule">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SCHEDULE_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Retention */}
@@ -577,18 +594,22 @@ export default function BackupsPage() {
                   <p className="text-xs text-sc-fg-muted">How long to keep old backups</p>
                 </div>
               </div>
-              <select
-                value={settings.retention_days}
-                onChange={e => handleUpdateSetting({ retention_days: Number(e.target.value) })}
+              <Select
+                value={String(settings.retention_days)}
+                onValueChange={value => handleUpdateSetting({ retention_days: Number(value) })}
                 disabled={updateSettings.isPending}
-                className="bg-sc-bg-base border border-sc-fg-subtle/20 rounded-lg px-3 py-1.5 text-sm text-sc-fg-primary focus:outline-none focus:border-sc-purple disabled:opacity-50"
               >
-                {RETENTION_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-auto min-w-[140px]" aria-label="Backup retention">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RETENTION_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={String(opt.value)}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Last Backup */}
@@ -619,6 +640,7 @@ export default function BackupsPage() {
                     </span>
                   </div>
                   <Toggle
+                    label="Include data snapshot in scheduled backups"
                     enabled={settings.include_database_dump}
                     onChange={() =>
                       handleUpdateSetting({
@@ -634,6 +656,7 @@ export default function BackupsPage() {
                     <span className="text-sm text-sc-fg-primary">Knowledge Graph</span>
                   </div>
                   <Toggle
+                    label="Include knowledge graph in scheduled backups"
                     enabled={settings.include_graph}
                     onChange={() => handleUpdateSetting({ include_graph: !settings.include_graph })}
                     disabled={updateSettings.isPending}
@@ -646,13 +669,14 @@ export default function BackupsPage() {
       )}
 
       {/* Backup List */}
-      <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
+      <div className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-fg-subtle/10 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-sc-fg-primary">Archives ({backupsData?.total ?? 0})</h3>
           <button
             type="button"
             onClick={() => refetchBackups()}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/20 text-sm text-sc-fg-secondary hover:bg-sc-bg-base transition-colors"
+            aria-label="Refresh backups list"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/20 text-sm text-sc-fg-secondary transition-colors duration-200 hover:bg-sc-bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           >
             <RefreshDouble width={14} height={14} />
             Refresh
@@ -673,13 +697,30 @@ export default function BackupsPage() {
               <BackupRow
                 key={backup.id}
                 backup={backup}
-                onDelete={handleDeleteBackup}
+                onDelete={setPendingDelete}
                 isDeleting={deleteBackup.isPending}
               />
             ))}
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={open => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="Delete backup?"
+        description={
+          pendingDelete
+            ? `Backup "${pendingDelete}" will be permanently removed. This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete Backup"
+        variant="danger"
+        loading={deleteBackup.isPending}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

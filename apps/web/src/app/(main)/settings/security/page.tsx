@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { SettingsPageHeader } from '@/components/settings/primitives';
+import { SettingsPageHeader, SettingsSection } from '@/components/settings/primitives';
 import { Button, IconButton } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Check,
   Clock,
@@ -14,6 +15,7 @@ import {
   Github,
   Key,
   Plus,
+  RefreshDouble,
   Settings,
   Trash,
   User,
@@ -90,19 +92,18 @@ function PasswordSection() {
   };
 
   return (
-    <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <Settings width={18} height={18} className="text-sc-purple" />
-          <h3 className="font-semibold text-sc-fg-primary">Password</h3>
-        </div>
-        {!isEditing && (
+    <SettingsSection
+      title="Password"
+      icon={Settings}
+      iconColor="text-sc-purple"
+      actions={
+        !isEditing && (
           <Button variant="secondary" size="sm" onClick={() => setIsEditing(true)}>
             Change Password
           </Button>
-        )}
-      </div>
-
+        )
+      }
+    >
       {isEditing ? (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -174,7 +175,7 @@ function PasswordSection() {
       ) : (
         <p className="text-sc-fg-muted text-sm">Use a strong, unique password for your account.</p>
       )}
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -183,9 +184,10 @@ function PasswordSection() {
 // =============================================================================
 
 function SessionsSection() {
-  const { data, isLoading, error } = useSessions();
+  const { data, isLoading, error, refetch, isRefetching } = useSessions();
   const revokeSession = useRevokeSession();
   const revokeAll = useRevokeAllSessions();
+  const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
 
   const handleRevoke = async (sessionId: string) => {
     try {
@@ -197,12 +199,13 @@ function SessionsSection() {
   };
 
   const handleRevokeAll = async () => {
-    if (!confirm('Revoke all other sessions? You will remain logged in on this device.')) return;
     try {
       const result = await revokeAll.mutateAsync();
       toast.success(`Revoked ${result.revoked} session(s)`);
     } catch {
       toast.error('Failed to revoke sessions');
+    } finally {
+      setConfirmRevokeAll(false);
     }
   };
 
@@ -216,32 +219,50 @@ function SessionsSection() {
     });
   };
 
+  const hasOtherSessions = !!data && data.sessions.length > 1;
+
   return (
-    <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <User width={18} height={18} className="text-sc-cyan" />
-          <h3 className="font-semibold text-sc-fg-primary">Active Sessions</h3>
-        </div>
-        {data && data.sessions.length > 1 && (
+    <SettingsSection
+      title="Active Sessions"
+      icon={User}
+      iconColor="text-sc-cyan"
+      actions={
+        hasOtherSessions && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleRevokeAll}
+            onClick={() => setConfirmRevokeAll(true)}
             loading={revokeAll.isPending}
             className="text-sc-red hover:text-sc-red"
           >
             Revoke All Others
           </Button>
-        )}
-      </div>
-
+        )
+      }
+    >
       {isLoading && <SectionSkeleton />}
 
-      {error && <p className="text-sc-red text-sm">Failed to load sessions. Please try again.</p>}
+      {/* A failed fetch on the trust surface gets a quiet inline notice plus a
+          retry, never a hard red wall that reads like the account is broken. */}
+      {error && (
+        <div className="flex flex-col items-start gap-3 rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-highlight/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-sc-fg-muted">We couldn&apos;t load your sessions just now.</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<RefreshDouble width={14} height={14} />}
+            onClick={() => refetch()}
+            loading={isRefetching}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
 
-      {data && data.sessions.length === 0 && (
-        <p className="text-sc-fg-muted text-sm">No active sessions found.</p>
+      {data && data.sessions.length <= 1 && (
+        <p className="text-sc-fg-muted text-sm">
+          No other active sessions. You&apos;re only signed in on this device.
+        </p>
       )}
 
       {data && data.sessions.length > 0 && (
@@ -289,7 +310,18 @@ function SessionsSection() {
           ))}
         </div>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={confirmRevokeAll}
+        onOpenChange={setConfirmRevokeAll}
+        title="Revoke all other sessions?"
+        description="You'll remain logged in on this device. Every other signed-in session will be ended immediately."
+        confirmLabel="Revoke All Others"
+        variant="danger"
+        loading={revokeAll.isPending}
+        onConfirm={handleRevokeAll}
+      />
+    </SettingsSection>
   );
 }
 
@@ -297,11 +329,25 @@ function SessionsSection() {
 // API Keys Section
 // =============================================================================
 
+// A key is "near expiry" inside this window; past it, it's expired.
+const NEAR_EXPIRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+type KeyExpiry = 'active' | 'near' | 'expired';
+
+function keyExpiryState(expiresAt: string | null): KeyExpiry {
+  if (!expiresAt) return 'active';
+  const remaining = new Date(expiresAt).getTime() - Date.now();
+  if (remaining <= 0) return 'expired';
+  if (remaining <= NEAR_EXPIRY_WINDOW_MS) return 'near';
+  return 'active';
+}
+
 function ApiKeysSection() {
   const [showCreate, setShowCreate] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pendingRevoke, setPendingRevoke] = useState<{ id: string; name: string } | null>(null);
 
   const { data, isLoading, error } = useApiKeys();
   const createKey = useCreateApiKey();
@@ -333,13 +379,15 @@ function ApiKeysSection() {
     setShowCreate(false);
   };
 
-  const handleRevoke = async (keyId: string, keyName: string) => {
-    if (!confirm(`Revoke API key "${keyName}"? This cannot be undone.`)) return;
+  const handleConfirmRevoke = async () => {
+    if (!pendingRevoke) return;
     try {
-      await revokeKey.mutateAsync(keyId);
+      await revokeKey.mutateAsync(pendingRevoke.id);
       toast.success('API key revoked');
     } catch {
       toast.error('Failed to revoke API key');
+    } finally {
+      setPendingRevoke(null);
     }
   };
 
@@ -350,13 +398,13 @@ function ApiKeysSection() {
   };
 
   return (
-    <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <Command width={18} height={18} className="text-sc-coral" />
-          <h3 className="font-semibold text-sc-fg-primary">API Keys</h3>
-        </div>
-        {!showCreate && !newKey && (
+    <SettingsSection
+      title="API Keys"
+      icon={Command}
+      iconColor="text-sc-coral"
+      actions={
+        !showCreate &&
+        !newKey && (
           <Button
             variant="secondary"
             size="sm"
@@ -365,9 +413,9 @@ function ApiKeysSection() {
           >
             Create Key
           </Button>
-        )}
-      </div>
-
+        )
+      }
+    >
       <p className="text-sc-fg-muted text-sm mb-4">
         API keys allow programmatic access to the Sibyl API. Keep them secret.
       </p>
@@ -431,7 +479,9 @@ function ApiKeysSection() {
 
       {isLoading && <SectionSkeleton />}
 
-      {error && <p className="text-sc-red text-sm">Failed to load API keys. Please try again.</p>}
+      {error && (
+        <p className="text-sc-fg-muted text-sm">We couldn&apos;t load your API keys just now.</p>
+      )}
 
       {data && data.api_keys.length === 0 && !showCreate && !newKey && (
         <div className="text-center py-6">
@@ -442,35 +492,78 @@ function ApiKeysSection() {
 
       {data && data.api_keys.length > 0 && (
         <div className="space-y-3">
-          {data.api_keys.map(key => (
-            <div
-              key={key.id}
-              className="flex items-center gap-3 p-3 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/10"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-sc-fg-primary">{key.name}</p>
-                <div className="flex items-center gap-3 text-xs text-sc-fg-muted mt-1">
-                  <code className="text-sc-coral">{key.prefix}...</code>
-                  <span>Created {formatDate(key.created_at)}</span>
-                  {key.last_used_at && <span>Last used {formatDate(key.last_used_at)}</span>}
-                  {key.expires_at && (
-                    <span className="text-sc-yellow">Expires {formatDate(key.expires_at)}</span>
-                  )}
+          {data.api_keys.map(key => {
+            const expiry = keyExpiryState(key.expires_at);
+            const isExpired = expiry === 'expired';
+            return (
+              <div
+                key={key.id}
+                className={`flex items-center gap-3 p-3 rounded-lg border ${
+                  isExpired
+                    ? 'bg-sc-bg-highlight/40 border-sc-red/30 opacity-75'
+                    : 'bg-sc-bg-highlight border-sc-fg-subtle/10'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-sc-fg-primary truncate">{key.name}</p>
+                    {isExpired && (
+                      <span className="shrink-0 rounded-full bg-sc-red/15 px-2 py-0.5 text-[11px] font-medium text-sc-red">
+                        Expired
+                      </span>
+                    )}
+                    {expiry === 'near' && (
+                      <span className="shrink-0 rounded-full bg-sc-yellow/15 px-2 py-0.5 text-[11px] font-medium text-sc-yellow">
+                        Expiring soon
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-sc-fg-muted mt-1">
+                    <code className="text-sc-fg-muted">{key.prefix}...</code>
+                    <span>Created {formatDate(key.created_at)}</span>
+                    {key.last_used_at && <span>Last used {formatDate(key.last_used_at)}</span>}
+                    {key.expires_at && (
+                      <span
+                        className={
+                          isExpired ? 'text-sc-red' : expiry === 'near' ? 'text-sc-yellow' : ''
+                        }
+                      >
+                        {isExpired ? 'Expired' : 'Expires'} {formatDate(key.expires_at)}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                <IconButton
+                  icon={<Trash width={14} height={14} />}
+                  label={`Revoke ${key.name}`}
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setPendingRevoke({ id: key.id, name: key.name })}
+                  className="text-sc-red hover:text-sc-red"
+                />
               </div>
-              <IconButton
-                icon={<Trash width={14} height={14} />}
-                label="Revoke key"
-                size="sm"
-                variant="ghost"
-                onClick={() => handleRevoke(key.id, key.name)}
-                className="text-sc-red hover:text-sc-red"
-              />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={!!pendingRevoke}
+        onOpenChange={open => {
+          if (!open) setPendingRevoke(null);
+        }}
+        title="Revoke API key?"
+        description={
+          pendingRevoke
+            ? `Revoking "${pendingRevoke.name}" immediately breaks any integration using it. This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Revoke Key"
+        variant="danger"
+        loading={revokeKey.isPending}
+        onConfirm={handleConfirmRevoke}
+      />
+    </SettingsSection>
   );
 }
 
@@ -481,17 +574,18 @@ function ApiKeysSection() {
 function OAuthConnectionsSection() {
   const { data, isLoading, error } = useOAuthConnections();
   const removeConnection = useRemoveOAuthConnection();
+  const [pendingRemove, setPendingRemove] = useState<{ id: string; provider: string } | null>(null);
 
-  const handleRemove = async (connectionId: string, provider: string) => {
-    if (
-      !confirm(`Disconnect ${provider}? You may need to re-authenticate to use this login method.`)
-    )
-      return;
+  const handleConfirmRemove = async () => {
+    if (!pendingRemove) return;
+    const { id, provider } = pendingRemove;
     try {
-      await removeConnection.mutateAsync(connectionId);
+      await removeConnection.mutateAsync(id);
       toast.success(`${provider} disconnected`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to disconnect');
+    } finally {
+      setPendingRemove(null);
     }
   };
 
@@ -508,12 +602,7 @@ function OAuthConnectionsSection() {
   };
 
   return (
-    <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
-      <div className="flex items-center gap-3 mb-4">
-        <Eye width={18} height={18} className="text-sc-yellow" />
-        <h3 className="font-semibold text-sc-fg-primary">Connected Accounts</h3>
-      </div>
-
+    <SettingsSection title="Connected Accounts" icon={Eye} iconColor="text-sc-yellow">
       <p className="text-sc-fg-muted text-sm mb-4">
         External accounts linked to your Sibyl account for authentication.
       </p>
@@ -521,7 +610,7 @@ function OAuthConnectionsSection() {
       {isLoading && <SectionSkeleton />}
 
       {error && (
-        <p className="text-sc-red text-sm">Failed to load connections. Please try again.</p>
+        <p className="text-sc-fg-muted text-sm">We couldn&apos;t load your connections just now.</p>
       )}
 
       {data && data.connections.length === 0 && (
@@ -555,17 +644,30 @@ function OAuthConnectionsSection() {
               </div>
               <IconButton
                 icon={<Trash width={14} height={14} />}
-                label="Disconnect"
+                label={`Disconnect ${conn.provider}`}
                 size="sm"
                 variant="ghost"
-                onClick={() => handleRemove(conn.id, conn.provider)}
+                onClick={() => setPendingRemove({ id: conn.id, provider: conn.provider })}
                 className="text-sc-red hover:text-sc-red"
               />
             </div>
           ))}
         </div>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={!!pendingRemove}
+        onOpenChange={open => {
+          if (!open) setPendingRemove(null);
+        }}
+        title={pendingRemove ? `Disconnect ${pendingRemove.provider}?` : 'Disconnect account?'}
+        description="You may need to re-authenticate to use this login method again."
+        confirmLabel="Disconnect"
+        variant="danger"
+        loading={removeConnection.isPending}
+        onConfirm={handleConfirmRemove}
+      />
+    </SettingsSection>
   );
 }
 

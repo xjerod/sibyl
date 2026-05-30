@@ -187,7 +187,7 @@ export default function SystemStatusPage() {
         />
       </div>
 
-      <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
+      <div className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-fg-subtle/10 p-6">
         <h3 className="font-semibold text-sc-fg-primary mb-4">Connections</h3>
         <div className="space-y-3">
           <div className="flex items-center justify-between p-3 rounded-lg bg-sc-bg-highlight/50 border border-sc-fg-subtle/10">
@@ -222,7 +222,7 @@ export default function SystemStatusPage() {
         </div>
       </div>
 
-      <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
+      <div className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-fg-subtle/10 p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex items-center gap-3 mb-2">
@@ -373,7 +373,7 @@ export default function SystemStatusPage() {
       </div>
 
       {stats?.entity_counts && Object.keys(stats.entity_counts).length > 0 && (
-        <div className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
+        <div className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-fg-subtle/10 p-6">
           <h3 className="font-semibold text-sc-fg-primary mb-4">Entity Breakdown</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {Object.entries(stats.entity_counts)
@@ -394,7 +394,7 @@ export default function SystemStatusPage() {
       )}
 
       {health?.errors && health.errors.length > 0 && (
-        <div className="bg-sc-bg-base rounded-lg border border-sc-red/20 p-6">
+        <div className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-red/20 p-6">
           <h3 className="font-semibold text-sc-red mb-4">Active Errors</h3>
           <div className="space-y-2">
             {health.errors.map((error, idx) => (

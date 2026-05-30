@@ -14,6 +14,14 @@ import {
 } from '@/components/settings/primitives';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Check,
   Database,
   EditPencil,
@@ -26,7 +34,15 @@ import {
   WarningTriangle,
   Xmark,
 } from '@/components/ui/icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { Tooltip } from '@/components/ui/tooltip';
 import type {
   AIModelEntry,
   LLMSurface,
@@ -218,22 +234,20 @@ function ApiKeyRow({
           <h3 className="text-sm font-semibold text-sc-fg-primary">{name}</h3>
           {pill}
           {configured && source === 'environment' && (
-            <span
-              className="inline-flex items-center gap-1 text-[11px] text-sc-fg-subtle"
-              title="Value set via environment variable"
-            >
-              <Globe width={11} height={11} className="text-sc-purple" />
-              env
-            </span>
+            <Tooltip content="Value comes from a deployment environment variable. Update here only overrides if the env var is unset.">
+              <span className="inline-flex items-center gap-1 rounded-full bg-sc-purple/10 px-2 py-0.5 text-[11px] text-sc-purple">
+                <Globe width={11} height={11} />
+                env
+              </span>
+            </Tooltip>
           )}
           {configured && source === 'database' && (
-            <span
-              className="inline-flex items-center gap-1 text-[11px] text-sc-fg-subtle"
-              title="Value stored in the database"
-            >
-              <Database width={11} height={11} className="text-sc-cyan" />
-              db
-            </span>
+            <Tooltip content="Value entered here and stored in the database for this deployment.">
+              <span className="inline-flex items-center gap-1 rounded-full bg-sc-cyan/10 px-2 py-0.5 text-[11px] text-sc-cyan">
+                <Database width={11} height={11} />
+                db
+              </span>
+            </Tooltip>
           )}
         </div>
         <p className="mt-0.5 text-xs text-sc-fg-muted">{description}</p>
@@ -298,58 +312,55 @@ function EditModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={onClose}
-        className="absolute inset-0 bg-sc-bg-dark/80 backdrop-blur-sm"
-      />
-      <div className="relative w-full max-w-md rounded-xl border border-sc-fg-subtle/15 bg-sc-bg-dark shadow-2xl">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold text-sc-fg-primary">{name} API key</h3>
-          <p className="mt-1 text-sm text-sc-fg-muted">
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>{name} API key</DialogTitle>
+          <DialogDescription>
             {currentMasked
               ? `Replacing ${currentMasked}.`
               : 'Configure this provider to enable its routes.'}
-          </p>
-          <form onSubmit={handleSubmit} className="mt-4">
-            <div className="relative">
-              <input
-                type={showValue ? 'text' : 'password'}
-                value={value}
-                onChange={e => setValue(e.target.value)}
-                placeholder={placeholder}
-                className="w-full rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-base px-3 py-2.5 pr-10 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20"
-              />
-              <button
-                type="button"
-                onClick={() => setShowValue(v => !v)}
-                aria-label={showValue ? 'Hide value' : 'Show value'}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-sc-fg-subtle transition-colors hover:text-sc-fg-secondary"
-              >
-                {showValue ? <Xmark width={16} height={16} /> : <Eye width={16} height={16} />}
-              </button>
-            </div>
-            <div className="mt-4 flex gap-3">
-              <Button variant="secondary" size="md" onClick={onClose} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                disabled={!value.trim()}
-                loading={isSaving}
-                className="flex-1"
-              >
-                Save key
-              </Button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <div className="relative">
+            <input
+              // biome-ignore lint/a11y/noAutofocus: secret entry is the modal's sole purpose
+              autoFocus
+              type={showValue ? 'text' : 'password'}
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              placeholder={placeholder}
+              aria-label={`${name} API key`}
+              className="w-full rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight px-3 py-2.5 pr-10 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
+            />
+            <button
+              type="button"
+              onClick={() => setShowValue(v => !v)}
+              aria-label={showValue ? 'Hide value' : 'Show value'}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-sc-fg-subtle transition-colors duration-200 hover:text-sc-fg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
+            >
+              {showValue ? <Xmark width={16} height={16} /> : <Eye width={16} height={16} />}
+            </button>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" size="md" onClick={onClose} className="flex-1">
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={!value.trim()}
+              loading={isSaving}
+              className="flex-1"
+            >
+              Save key
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -382,21 +393,26 @@ function EmbeddingPanel({
       </div>
       <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)_140px]">
         <SettingsField label="Provider">
-          <select
+          <Select
             value={provider}
-            onChange={e => onProviderChange(e.target.value as EmbeddingProvider)}
-            className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/40 px-3 py-2 text-sm text-sc-fg-primary focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20"
+            onValueChange={value => onProviderChange(value as EmbeddingProvider)}
           >
-            <option value="openai">OpenAI</option>
-            <option value="gemini">Gemini</option>
-          </select>
+            <SelectTrigger className="w-full" aria-label={`${title} provider`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="openai">OpenAI</SelectItem>
+              <SelectItem value="gemini">Gemini</SelectItem>
+            </SelectContent>
+          </Select>
         </SettingsField>
         <SettingsField label="Model">
           <input
             type="text"
             value={model}
             onChange={e => onModelChange(e.target.value)}
-            className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/40 px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20"
+            aria-label={`${title} model`}
+            className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/40 px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           />
         </SettingsField>
         <SettingsField label="Dimensions">
@@ -407,7 +423,8 @@ function EmbeddingPanel({
             step={1}
             value={dimensions}
             onChange={e => onDimensionsChange(e.target.value)}
-            className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/40 px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20"
+            aria-label={`${title} dimensions`}
+            className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/40 px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           />
         </SettingsField>
       </div>
@@ -630,6 +647,22 @@ export default function AIServicesPage() {
         description="Configure here, or set environment variables for deployment-wide overrides."
         flush
       >
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-sc-fg-subtle/5 px-6 py-3 text-[11px] text-sc-fg-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-sc-purple/10 px-2 py-0.5 text-sc-purple">
+              <Globe width={11} height={11} />
+              env
+            </span>
+            from a deployment environment variable
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-sc-cyan/10 px-2 py-0.5 text-sc-cyan">
+              <Database width={11} height={11} />
+              db
+            </span>
+            entered here and stored in the database
+          </span>
+        </div>
         {API_KEYS.map(config => (
           <ApiKeyRow
             key={config.key}

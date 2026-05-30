@@ -4,7 +4,27 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { SettingsPageHeader } from '@/components/settings/primitives';
 import { Button, IconButton } from '@/components/ui/button';
-import { Check, Copy, Eye, Send, Settings, Star, Trash, User, Users } from '@/components/ui/icons';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Check,
+  Copy,
+  Eye,
+  NavArrowDown,
+  NavArrowUp,
+  Send,
+  Settings,
+  Star,
+  Trash,
+  User,
+  Users,
+} from '@/components/ui/icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import {
   useCreateOrgInvitation,
@@ -59,6 +79,7 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<(typeof INVITE_ROLES)[number]>('member');
   const [latestInviteUrl, setLatestInviteUrl] = useState('');
+  const [pendingRemove, setPendingRemove] = useState<{ id: string; name: string } | null>(null);
   const { data, isLoading } = useOrgMembers(org.slug, { enabled: expanded });
   const { data: invitationsData, isLoading: isLoadingInvites } = useOrgInvitations(org.slug, {
     enabled: expanded && (org.role === 'owner' || org.role === 'admin'),
@@ -83,13 +104,15 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
     }
   };
 
-  const handleRemove = async (userId: string, userName: string | null) => {
-    if (!confirm(`Remove ${userName || 'this member'} from ${org.name}?`)) return;
+  const handleConfirmRemove = async () => {
+    if (!pendingRemove) return;
     try {
-      await removeMember.mutateAsync({ slug: org.slug, userId });
+      await removeMember.mutateAsync({ slug: org.slug, userId: pendingRemove.id });
       toast.success('Member removed');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to remove member');
+    } finally {
+      setPendingRemove(null);
     }
   };
 
@@ -142,9 +165,9 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
 
   return (
     <div
-      className={`bg-sc-bg-base rounded-lg border transition-all ${
+      className={`bg-sc-bg-elevated shadow-card rounded-lg border transition-colors duration-200 ${
         isCurrentOrg
-          ? 'border-sc-purple/50 shadow-lg shadow-sc-purple/10'
+          ? 'border-sc-purple/50 shadow-glow-purple'
           : 'border-sc-fg-subtle/10 hover:border-sc-fg-subtle/30'
       }`}
     >
@@ -198,11 +221,15 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
           )}
           <button
             type="button"
-            className="text-sc-fg-muted text-sm hover:text-sc-fg-primary transition-colors"
+            className="flex items-center justify-center rounded-lg p-1.5 text-sc-fg-muted transition-colors duration-200 hover:text-sc-fg-primary hover:bg-sc-bg-highlight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
             onClick={() => setExpanded(!expanded)}
             aria-label={expanded ? 'Collapse members' : 'Expand members'}
           >
-            {expanded ? '▲' : '▼'}
+            {expanded ? (
+              <NavArrowUp width={16} height={16} />
+            ) : (
+              <NavArrowDown width={16} height={16} />
+            )}
           </button>
         </div>
       </div>
@@ -218,21 +245,24 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
                   value={inviteEmail}
                   onChange={event => setInviteEmail(event.target.value)}
                   placeholder="teammate@example.com"
-                  className="min-w-0 flex-1 rounded border border-sc-fg-subtle/20 bg-sc-bg-base px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle/50 focus:border-sc-purple/60 focus:outline-none focus:ring-2 focus:ring-sc-purple/20"
+                  aria-label={`Invite email for ${org.name}`}
+                  className="min-w-0 flex-1 rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                 />
-                <select
+                <Select
                   value={inviteRole}
-                  onChange={event =>
-                    setInviteRole(event.target.value as (typeof INVITE_ROLES)[number])
-                  }
-                  className="rounded border border-sc-fg-subtle/20 bg-sc-bg-base px-3 py-2 text-sm text-sc-fg-secondary"
+                  onValueChange={value => setInviteRole(value as (typeof INVITE_ROLES)[number])}
                 >
-                  {INVITE_ROLES.map(role => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-auto min-w-[120px]" aria-label="Invite role">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INVITE_ROLES.map(role => (
+                      <SelectItem key={role} value={role} className="capitalize">
+                        {role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   type="submit"
                   size="sm"
@@ -248,8 +278,9 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
                 <div className="mt-3 flex items-center gap-2">
                   <input
                     readOnly
+                    aria-label="Invite link"
                     value={latestInviteUrl}
-                    className="min-w-0 flex-1 rounded border border-sc-cyan/20 bg-sc-bg-base px-3 py-2 text-xs text-sc-cyan"
+                    className="min-w-0 flex-1 rounded-lg border border-sc-cyan/20 bg-sc-bg-highlight px-3 py-2 text-xs text-sc-cyan"
                   />
                   <IconButton
                     icon={<Copy width={14} height={14} />}
@@ -271,7 +302,7 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
                     return (
                       <div
                         key={invitation.id}
-                        className="flex items-center gap-2 rounded bg-sc-bg-base/70 px-2 py-2"
+                        className="flex items-center gap-2 rounded-lg bg-sc-bg-highlight/60 px-2 py-2"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-xs font-medium text-sc-fg-secondary">
@@ -350,23 +381,35 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
                     </div>
                     {canManage && !isYou && (canManageOwnerRoles || member.role !== 'owner') ? (
                       <div className="flex items-center gap-2">
-                        <select
+                        <Select
                           value={member.role}
-                          onChange={e => handleRoleChange(member.user.id, e.target.value)}
-                          className="text-xs bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded px-2 py-1 text-sc-fg-secondary"
+                          onValueChange={value => handleRoleChange(member.user.id, value)}
                         >
-                          {(canManageOwnerRoles ? ROLES : NON_OWNER_ROLES).map(role => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger
+                            className="h-8 min-w-[120px] py-1 text-xs"
+                            aria-label={`Role for ${member.user.name || member.user.email || 'member'}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(canManageOwnerRoles ? ROLES : NON_OWNER_ROLES).map(role => (
+                              <SelectItem key={role} value={role} className="capitalize">
+                                {role}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <IconButton
                           icon={<Trash width={14} height={14} />}
-                          label="Remove member"
+                          label={`Remove ${member.user.name || 'member'}`}
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleRemove(member.user.id, member.user.name)}
+                          onClick={() =>
+                            setPendingRemove({
+                              id: member.user.id,
+                              name: member.user.name || member.user.email || 'this member',
+                            })
+                          }
                           className="text-sc-red hover:text-sc-red"
                         />
                       </div>
@@ -383,6 +426,21 @@ function OrgMembersCard({ org, currentUserId, isCurrentOrg }: OrgMembersCardProp
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingRemove}
+        onOpenChange={open => {
+          if (!open) setPendingRemove(null);
+        }}
+        title="Remove member?"
+        description={
+          pendingRemove ? `${pendingRemove.name} will lose access to ${org.name}.` : undefined
+        }
+        confirmLabel="Remove"
+        variant="danger"
+        loading={removeMember.isPending}
+        onConfirm={handleConfirmRemove}
+      />
     </div>
   );
 }
@@ -444,10 +502,10 @@ export default function TeamsPage() {
       />
 
       {orgs.length === 0 ? (
-        <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base p-10 text-center">
+        <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated shadow-card p-10 text-center">
           <Users width={32} height={32} className="mx-auto mb-3 text-sc-fg-muted" />
           <p className="text-sc-fg-muted">No organizations yet.</p>
-          <p className="mt-1 text-sm text-sc-fg-subtle">
+          <p className="mt-1 text-sm text-sc-fg-muted">
             Join or create an organization to collaborate with others.
           </p>
         </div>

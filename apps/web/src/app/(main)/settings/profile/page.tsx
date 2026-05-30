@@ -4,7 +4,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { EditableText } from '@/components/editable';
-import { Calendar, Check, EditPencil, Link, Upload, User, X } from '@/components/ui/icons';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Calendar, Check, Copy, EditPencil, Link, Upload, User } from '@/components/ui/icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/hooks';
 
@@ -27,7 +42,7 @@ const TIMEZONE_OPTIONS = [
 function ProfileSkeleton() {
   return (
     <div className="space-y-6 animate-pulse">
-      <div className="bg-sc-bg-base rounded-xl border border-sc-fg-subtle/10 p-8">
+      <div className="bg-sc-bg-elevated shadow-card rounded-xl border border-sc-fg-subtle/10 p-8">
         <div className="flex items-start gap-8">
           <div className="w-28 h-28 rounded-full bg-sc-bg-highlight" />
           <div className="flex-1 space-y-4">
@@ -98,37 +113,22 @@ function AvatarUploadModal({
     onSave(urlInput.trim());
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-sc-bg-dark/80 backdrop-blur-sm cursor-default"
-        onClick={onClose}
-        aria-label="Close"
-      />
-      <div className="relative w-full max-w-md bg-sc-bg-base border border-sc-fg-subtle/20 rounded-xl shadow-2xl overflow-hidden">
+    <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>
+      <DialogContent size="md" className="p-0 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-sc-fg-subtle/10">
-          <h2 className="text-lg font-semibold text-sc-fg-primary">Update Avatar</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 text-sc-fg-subtle hover:text-sc-fg-primary transition-colors rounded-lg hover:bg-sc-bg-highlight"
-          >
-            <X width={20} height={20} />
-          </button>
-        </div>
+        <DialogHeader className="mb-0 px-6 py-4 border-b border-sc-fg-subtle/10">
+          <DialogTitle>Update Avatar</DialogTitle>
+        </DialogHeader>
 
         {/* Mode Toggle */}
         <div className="flex gap-1 p-1 m-4 bg-sc-bg-highlight rounded-lg">
           <button
             type="button"
             onClick={() => setMode('url')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated ${
               mode === 'url'
-                ? 'bg-sc-purple text-white shadow-lg shadow-sc-purple/20'
+                ? 'bg-sc-purple text-sc-on-accent shadow-glow-purple'
                 : 'text-sc-fg-muted hover:text-sc-fg-primary'
             }`}
           >
@@ -138,9 +138,9 @@ function AvatarUploadModal({
           <button
             type="button"
             onClick={() => setMode('upload')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated ${
               mode === 'upload'
-                ? 'bg-sc-purple text-white shadow-lg shadow-sc-purple/20'
+                ? 'bg-sc-purple text-sc-on-accent shadow-glow-purple'
                 : 'text-sc-fg-muted hover:text-sc-fg-primary'
             }`}
           >
@@ -166,7 +166,7 @@ function AvatarUploadModal({
                     setPreviewUrl(null);
                   }}
                   placeholder="https://example.com/avatar.jpg"
-                  className="w-full px-4 py-3 bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-purple focus:outline-none focus:ring-2 focus:ring-sc-purple/20 transition-all"
+                  className="w-full px-4 py-3 bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg text-sc-fg-primary placeholder:text-sc-fg-subtle transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                 />
               </div>
               <p className="text-xs text-sc-fg-subtle">
@@ -203,7 +203,7 @@ function AvatarUploadModal({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-sc-purple hover:text-sc-purple/80 font-medium"
+                  className="rounded font-medium text-sc-purple transition-colors duration-200 hover:text-sc-purple/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                 >
                   browse
                 </button>
@@ -234,32 +234,21 @@ function AvatarUploadModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-sc-fg-subtle/10 bg-sc-bg-highlight/50">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sc-fg-muted hover:text-sc-fg-primary transition-colors"
-          >
+        <DialogFooter className="mt-0 px-6 py-4 border-t border-sc-fg-subtle/10 bg-sc-bg-highlight/50">
+          <Button variant="ghost" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={handleSubmit}
-            disabled={!urlInput.trim() || isSaving}
-            className="flex items-center gap-2 px-5 py-2 bg-sc-purple hover:bg-sc-purple/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-all shadow-lg shadow-sc-purple/20"
+            disabled={!urlInput.trim()}
+            loading={isSaving}
+            icon={<Check width={16} height={16} />}
           >
-            {isSaving ? (
-              'Saving...'
-            ) : (
-              <>
-                <Check width={16} height={16} />
-                Save
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -303,7 +292,7 @@ export default function ProfilePage() {
 
   if (error || !profile) {
     return (
-      <div className="bg-sc-bg-base rounded-xl border border-sc-red/20 p-8">
+      <div className="bg-sc-bg-elevated shadow-card rounded-xl border border-sc-red/20 p-8">
         <p className="text-sc-red">Failed to load profile. Please try again.</p>
       </div>
     );
@@ -315,7 +304,7 @@ export default function ProfilePage() {
   return (
     <div className="space-y-6 max-w-2xl">
       {/* Hero Card - Avatar & Name */}
-      <div className="bg-gradient-to-br from-sc-bg-base to-sc-bg-highlight rounded-xl border border-sc-fg-subtle/10 p-8 relative overflow-hidden">
+      <div className="bg-gradient-to-br from-sc-bg-elevated to-sc-bg-highlight shadow-card rounded-xl border border-sc-fg-subtle/10 p-8 relative overflow-hidden">
         {/* Decorative gradient orb */}
         <div className="absolute -top-20 -right-20 w-40 h-40 bg-sc-purple/20 rounded-full blur-3xl" />
 
@@ -324,7 +313,8 @@ export default function ProfilePage() {
           <button
             type="button"
             onClick={() => setShowAvatarModal(true)}
-            className="relative group shrink-0"
+            aria-label="Change avatar"
+            className="relative group shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           >
             {profile.avatar_url ? (
               <img
@@ -338,8 +328,8 @@ export default function ProfilePage() {
               </div>
             )}
             {/* Edit overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-sc-bg-dark/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-              <EditPencil width={24} height={24} className="text-white" />
+            <div className="absolute inset-0 flex items-center justify-center bg-sc-bg-dark/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <EditPencil width={24} height={24} className="text-sc-on-accent" />
             </div>
           </button>
 
@@ -367,7 +357,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Bio */}
-      <div className="bg-sc-bg-base rounded-xl border border-sc-fg-subtle/10 p-6">
+      <div className="bg-sc-bg-elevated shadow-card rounded-xl border border-sc-fg-subtle/10 p-6">
         <h3 className="text-sm font-medium text-sc-fg-muted uppercase tracking-wider mb-3">Bio</h3>
         <EditableText
           value={profile.bio || ''}
@@ -382,31 +372,34 @@ export default function ProfilePage() {
       </div>
 
       {/* Timezone */}
-      <div className="bg-sc-bg-base rounded-xl border border-sc-fg-subtle/10 p-6">
+      <div className="bg-sc-bg-elevated shadow-card rounded-xl border border-sc-fg-subtle/10 p-6">
         <h3 className="text-sm font-medium text-sc-fg-muted uppercase tracking-wider mb-3">
           Timezone
         </h3>
-        <select
+        <Select
           value={profile.timezone || ''}
-          onChange={async e => {
-            await updateMutation.mutateAsync({ timezone: e.target.value || null });
+          onValueChange={async value => {
+            await updateMutation.mutateAsync({ timezone: value || null });
           }}
-          className="w-full max-w-md px-4 py-3 bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg text-sc-fg-primary focus:border-sc-purple focus:outline-none focus:ring-2 focus:ring-sc-purple/20 transition-all"
         >
-          <option value="">Select timezone...</option>
-          {TIMEZONE_OPTIONS.map(tz => (
-            <option key={tz.value} value={tz.value}>
-              {tz.label}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-sc-fg-subtle mt-2">
+          <SelectTrigger className="w-full max-w-md" aria-label="Timezone">
+            <SelectValue placeholder="Select timezone..." />
+          </SelectTrigger>
+          <SelectContent>
+            {TIMEZONE_OPTIONS.map(tz => (
+              <SelectItem key={tz.value} value={tz.value}>
+                {tz.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-sc-fg-muted mt-2">
           Used for displaying dates and scheduling notifications.
         </p>
       </div>
 
       {/* Account Stats */}
-      <div className="bg-sc-bg-base rounded-xl border border-sc-fg-subtle/10 p-6">
+      <div className="bg-sc-bg-elevated shadow-card rounded-xl border border-sc-fg-subtle/10 p-6">
         <h3 className="text-sm font-medium text-sc-fg-muted uppercase tracking-wider mb-4">
           Account
         </h3>
@@ -439,11 +432,24 @@ export default function ProfilePage() {
           </div>
         </div>
         <div className="mt-4 pt-4 border-t border-sc-fg-subtle/10">
-          <div className="flex justify-between items-center text-sm">
+          <div className="flex justify-between items-center gap-3 text-sm">
             <span className="text-sc-fg-muted">User ID</span>
-            <code className="font-mono text-xs text-sc-coral bg-sc-bg-highlight px-2 py-1 rounded">
-              {profile.id}
-            </code>
+            <button
+              type="button"
+              onClick={async () => {
+                await navigator.clipboard.writeText(profile.id);
+                toast.success('User ID copied to clipboard');
+              }}
+              aria-label="Copy user ID"
+              className="group inline-flex min-w-0 items-center gap-2 rounded-lg bg-sc-bg-highlight px-2 py-1 transition-colors duration-200 hover:bg-sc-bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
+            >
+              <code className="truncate font-mono text-xs text-sc-fg-muted">{profile.id}</code>
+              <Copy
+                width={12}
+                height={12}
+                className="shrink-0 text-sc-fg-subtle transition-colors duration-200 group-hover:text-sc-cyan"
+              />
+            </button>
           </div>
         </div>
       </div>

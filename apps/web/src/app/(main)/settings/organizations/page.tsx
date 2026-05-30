@@ -4,8 +4,16 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { SettingsPageHeader } from '@/components/settings/primitives';
 import { Button, IconButton } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Check, Edit, Plus, Trash, User, Users } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import {
   useCreateOrg,
@@ -113,6 +121,28 @@ function OrgMembersList({ slug, currentUserId, userRole }: OrgMembersListProps) 
   const removeMember = useRemoveOrgMember();
   const canManage = userRole === 'owner' || userRole === 'admin';
   const canManageOwnerRoles = userRole === 'owner';
+  const [pendingRemove, setPendingRemove] = useState<{ id: string; name: string } | null>(null);
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    try {
+      await updateRole.mutateAsync({ slug, userId, role: newRole });
+      toast.success('Role updated');
+    } catch {
+      toast.error('Failed to update role');
+    }
+  };
+
+  const handleConfirmRemove = async () => {
+    if (!pendingRemove) return;
+    try {
+      await removeMember.mutateAsync({ slug, userId: pendingRemove.id });
+      toast.success('Member removed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove member');
+    } finally {
+      setPendingRemove(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -125,25 +155,6 @@ function OrgMembersList({ slug, currentUserId, userRole }: OrgMembersListProps) 
   if (!data?.members.length) {
     return <p className="text-sc-fg-muted text-sm p-4">No members found.</p>;
   }
-
-  const handleRoleChange = async (userId: string, newRole: string) => {
-    try {
-      await updateRole.mutateAsync({ slug, userId, role: newRole });
-      toast.success('Role updated');
-    } catch {
-      toast.error('Failed to update role');
-    }
-  };
-
-  const handleRemove = async (userId: string, userName: string | null) => {
-    if (!confirm(`Remove ${userName || 'this member'} from the organization?`)) return;
-    try {
-      await removeMember.mutateAsync({ slug, userId });
-      toast.success('Member removed');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove member');
-    }
-  };
 
   return (
     <div className="divide-y divide-sc-fg-subtle/10">
@@ -173,33 +184,62 @@ function OrgMembersList({ slug, currentUserId, userRole }: OrgMembersListProps) 
           member.user.id !== currentUserId &&
           (canManageOwnerRoles || member.role !== 'owner') ? (
             <div className="flex items-center gap-2">
-              <select
+              <Select
                 value={member.role}
-                onChange={e => handleRoleChange(member.user.id, e.target.value)}
-                className="text-xs bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded px-2 py-1 text-sc-fg-secondary"
+                onValueChange={value => handleRoleChange(member.user.id, value)}
               >
-                {(canManageOwnerRoles ? ROLES : NON_OWNER_ROLES).map(role => (
-                  <option key={role} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  className="h-8 min-w-[120px] py-1 text-xs"
+                  aria-label={`Role for ${member.user.name || member.user.email || 'member'}`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(canManageOwnerRoles ? ROLES : NON_OWNER_ROLES).map(role => (
+                    <SelectItem key={role} value={role} className="capitalize">
+                      {role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <IconButton
                 icon={<Trash width={14} height={14} />}
-                label="Remove member"
+                label={`Remove ${member.user.name || 'member'}`}
                 size="sm"
                 variant="ghost"
-                onClick={() => handleRemove(member.user.id, member.user.name)}
+                onClick={() =>
+                  setPendingRemove({
+                    id: member.user.id,
+                    name: member.user.name || member.user.email || 'this member',
+                  })
+                }
                 className="text-sc-red hover:text-sc-red"
               />
             </div>
           ) : (
-            <span className="text-xs text-sc-fg-muted capitalize px-2 py-1 bg-sc-bg-highlight rounded">
+            <span className="text-xs text-sc-fg-muted capitalize px-2 py-1 bg-sc-bg-highlight rounded-full">
               {member.role}
             </span>
           )}
         </div>
       ))}
+
+      <ConfirmDialog
+        open={!!pendingRemove}
+        onOpenChange={open => {
+          if (!open) setPendingRemove(null);
+        }}
+        title="Remove member?"
+        description={
+          pendingRemove
+            ? `${pendingRemove.name} will lose access to this organization's knowledge graph.`
+            : undefined
+        }
+        confirmLabel="Remove"
+        variant="danger"
+        loading={removeMember.isPending}
+        onConfirm={handleConfirmRemove}
+      />
     </div>
   );
 }
@@ -221,6 +261,7 @@ function OrgCard({ org, isCurrent, currentUserId }: OrgCardProps) {
   const [showMembers, setShowMembers] = useState(false);
   const [editName, setEditName] = useState(org.name);
   const [editSlug, setEditSlug] = useState(org.slug);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const switchOrg = useSwitchOrg();
   const updateOrg = useUpdateOrg();
@@ -252,21 +293,22 @@ function OrgCard({ org, isCurrent, currentUserId }: OrgCardProps) {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Delete "${org.name}"? This cannot be undone.`)) return;
+  const handleConfirmDelete = async () => {
     try {
       await deleteOrg.mutateAsync(org.slug);
       toast.success('Organization deleted');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete');
+    } finally {
+      setConfirmDelete(false);
     }
   };
 
   return (
     <div
-      className={`bg-sc-bg-base rounded-lg border p-4 transition-all ${
+      className={`bg-sc-bg-elevated shadow-card rounded-lg border p-4 transition-colors duration-200 ${
         isCurrent
-          ? 'border-sc-purple/50 shadow-lg shadow-sc-purple/10'
+          ? 'border-sc-purple/50 shadow-glow-purple'
           : 'border-sc-fg-subtle/10 hover:border-sc-fg-subtle/30'
       }`}
     >
@@ -377,7 +419,7 @@ function OrgCard({ org, isCurrent, currentUserId }: OrgCardProps) {
                   label="Delete organization"
                   size="sm"
                   variant="ghost"
-                  onClick={handleDelete}
+                  onClick={() => setConfirmDelete(true)}
                   className="text-sc-red hover:text-sc-red"
                 />
               )}
@@ -392,6 +434,17 @@ function OrgCard({ org, isCurrent, currentUserId }: OrgCardProps) {
           <OrgMembersList slug={org.slug} currentUserId={currentUserId} userRole={org.role} />
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete "${org.name}"?`}
+        description="This permanently removes the organization and its knowledge graph. This cannot be undone."
+        confirmLabel="Delete Organization"
+        variant="danger"
+        loading={deleteOrg.isPending}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }
@@ -453,7 +506,7 @@ export default function OrganizationsPage() {
       />
 
       {showCreate && (
-        <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base p-5">
+        <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated shadow-card p-5">
           <h3 className="mb-4 text-sm font-medium text-sc-fg-primary">Create new organization</h3>
           <CreateOrgForm
             onSuccess={() => setShowCreate(false)}
@@ -463,7 +516,7 @@ export default function OrganizationsPage() {
       )}
 
       {orgs.length === 0 ? (
-        <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base p-10 text-center">
+        <div className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated shadow-card p-10 text-center">
           <Users width={32} height={32} className="mx-auto mb-3 text-sc-fg-muted" />
           <p className="text-sc-fg-muted">No organizations yet.</p>
           <p className="mt-1 text-sm text-sc-fg-subtle">

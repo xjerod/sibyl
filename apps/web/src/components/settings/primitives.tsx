@@ -70,7 +70,9 @@ export function SettingsSection({
 }: SettingsSectionProps) {
   const showHeader = !!(title || description || actions || aside);
   return (
-    <section className={`rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base ${className}`}>
+    <section
+      className={`rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated shadow-card ${className}`}
+    >
       {showHeader && (
         <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-2.5 min-w-0">
@@ -278,7 +280,7 @@ export function SettingsSectionSkeleton({
   showHeader = true,
 }: SettingsSectionSkeletonProps) {
   return (
-    <section className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base">
+    <section className="rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-elevated shadow-card">
       {showHeader && (
         <div className="flex items-start gap-2.5 px-6 py-4">
           <Skeleton className="mt-1 h-4 w-4 rounded" />

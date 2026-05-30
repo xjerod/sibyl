@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Check,
   NavArrowDown,
@@ -10,6 +11,13 @@ import {
   RefreshDouble,
   WarningTriangle,
 } from '@/components/ui/icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import type {
   AIModelEntry,
@@ -315,18 +323,22 @@ export function LLMSurfaceRow({
           locked={surface.provider.locked_by_env}
           envVar={surface.provider.env_var}
         >
-          <select
+          <Select
             value={draft.provider}
-            onChange={event => handleProviderChange(event.target.value as LLMProviderName)}
+            onValueChange={value => handleProviderChange(value as LLMProviderName)}
             disabled={surface.provider.locked_by_env}
-            className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/40 px-3 py-2 text-sm text-sc-fg-primary focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {PROVIDERS.map(provider => (
-              <option key={provider.value} value={provider.value}>
-                {provider.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label={`${label} provider`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROVIDERS.map(provider => (
+                <SelectItem key={provider.value} value={provider.value}>
+                  {provider.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingsField>
 
         <SettingsField
@@ -335,10 +347,10 @@ export function LLMSurfaceRow({
           locked={surface.model.locked_by_env}
           envVar={surface.model.env_var}
         >
-          <select
+          <Select
             value={selectedModel}
-            onChange={event => {
-              if (event.target.value === CUSTOM_MODEL) {
+            onValueChange={value => {
+              if (value === CUSTOM_MODEL) {
                 updateDraft({
                   model: CUSTOM_MODEL,
                   customModel: modelIsCustom ? draft.customModel || draft.model : '',
@@ -347,19 +359,23 @@ export function LLMSurfaceRow({
                 setAdvancedOpen(true);
                 return;
               }
-              updateDraft({ model: event.target.value, customModel: '', customConfirmed: false });
+              updateDraft({ model: value, customModel: '', customConfirmed: false });
             }}
             disabled={surface.model.locked_by_env}
-            className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight/40 px-3 py-2 text-sm text-sc-fg-primary focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {providerModels.map(model => (
-              <option key={model.alias} value={model.alias}>
-                {model.alias}
-                {model.alias === recommended?.alias ? ' — recommended' : ''}
-              </option>
-            ))}
-            <option value={CUSTOM_MODEL}>Custom model…</option>
-          </select>
+            <SelectTrigger aria-label={`${label} model`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {providerModels.map(model => (
+                <SelectItem key={model.alias} value={model.alias}>
+                  {model.alias}
+                  {model.alias === recommended?.alias ? ' — recommended' : ''}
+                </SelectItem>
+              ))}
+              <SelectItem value={CUSTOM_MODEL}>Custom model…</SelectItem>
+            </SelectContent>
+          </Select>
         </SettingsField>
       </div>
 
@@ -395,7 +411,7 @@ export function LLMSurfaceRow({
                 value={draft.temperature}
                 onChange={e => updateDraft({ temperature: e.target.value })}
                 disabled={surface.temperature.locked_by_env}
-                className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base px-3 py-2 text-sm text-sc-fg-primary focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight px-3 py-2 text-sm text-sc-fg-primary transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
               />
             </SettingsField>
 
@@ -414,7 +430,7 @@ export function LLMSurfaceRow({
                 onChange={e => updateDraft({ maxTokens: e.target.value })}
                 disabled={surface.max_tokens.locked_by_env}
                 placeholder="default"
-                className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
               />
             </SettingsField>
 
@@ -432,7 +448,7 @@ export function LLMSurfaceRow({
                 value={draft.timeoutSeconds}
                 onChange={e => updateDraft({ timeoutSeconds: e.target.value })}
                 disabled={surface.timeout_seconds.locked_by_env}
-                className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base px-3 py-2 text-sm text-sc-fg-primary focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight px-3 py-2 text-sm text-sc-fg-primary transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
               />
             </SettingsField>
 
@@ -453,17 +469,15 @@ export function LLMSurfaceRow({
                       })
                     }
                     placeholder="provider model id"
-                    className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-base px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle focus:border-sc-cyan/50 focus:outline-none focus:ring-1 focus:ring-sc-cyan/20"
+                    aria-label="Custom model ID"
+                    className="w-full rounded-lg border border-sc-fg-subtle/15 bg-sc-bg-highlight px-3 py-2 text-sm text-sc-fg-primary placeholder:text-sc-fg-subtle transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
                   />
-                  <label className="inline-flex items-center gap-2 text-xs text-sc-fg-muted">
-                    <input
-                      type="checkbox"
-                      checked={draft.customConfirmed}
-                      onChange={e => updateDraft({ customConfirmed: e.target.checked })}
-                      className="h-3.5 w-3.5 accent-sc-yellow"
-                    />
-                    I understand this model is unverified
-                  </label>
+                  <Checkbox
+                    checked={draft.customConfirmed}
+                    onCheckedChange={checked => updateDraft({ customConfirmed: checked === true })}
+                    label="I understand this model is unverified"
+                    className="h-4 w-4"
+                  />
                 </div>
               </SettingsField>
             </div>

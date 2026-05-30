@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { SettingsPageHeader } from '@/components/settings/primitives';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -60,10 +61,10 @@ export default function DataSettingsPage() {
           setRestoreFile(data);
           setRestoreFileName(file.name);
         } else {
-          alert('Invalid backup file format');
+          toast.error('Invalid backup file format');
         }
       } catch {
-        alert('Failed to parse backup file');
+        toast.error('Failed to parse backup file');
       }
     };
     reader.readAsText(file);
@@ -76,7 +77,7 @@ export default function DataSettingsPage() {
         title="Data"
         description="Export and restore your graph as a JSON archive."
       />
-      <section className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
+      <section className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-fg-subtle/10 p-6">
         <div className="flex items-start gap-4">
           <div className="p-3 rounded-lg bg-sc-cyan/10">
             <Download className="w-6 h-6 text-sc-cyan" />
@@ -117,7 +118,7 @@ export default function DataSettingsPage() {
       </section>
 
       {/* Restore Section */}
-      <section className="bg-sc-bg-base rounded-lg border border-sc-fg-subtle/10 p-6">
+      <section className="bg-sc-bg-elevated shadow-card rounded-lg border border-sc-fg-subtle/10 p-6">
         <div className="flex items-start gap-4">
           <div className="p-3 rounded-lg bg-sc-purple/10">
             <Upload className="w-6 h-6 text-sc-purple" />
@@ -226,7 +227,7 @@ export default function DataSettingsPage() {
       </section>
 
       {/* Info Section */}
-      <section className="bg-sc-bg-base/50 rounded-lg border border-sc-fg-subtle/5 p-4">
+      <section className="bg-sc-bg-highlight/40 rounded-lg border border-sc-fg-subtle/5 p-4">
         <h3 className="text-sm font-medium text-sc-fg-muted mb-2">About Backups</h3>
         <ul className="text-xs text-sc-fg-subtle space-y-1">
           <li>

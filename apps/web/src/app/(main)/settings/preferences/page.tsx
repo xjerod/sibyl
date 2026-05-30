@@ -4,6 +4,14 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { SettingsPageHeader, SettingsRow, SettingsSection } from '@/components/settings/primitives';
 import { Eye, Flash, Globe, Network, Settings } from '@/components/ui/icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import type { UserPreferences } from '@/lib/api';
 import { usePreferences, useUpdatePreferences } from '@/lib/hooks';
 import { type ThemePreference, useTheme } from '@/lib/theme';
@@ -19,66 +27,49 @@ function SectionSkeleton() {
 }
 
 // =============================================================================
-// Toggle Switch Component
+// Preference Controls (built on the shared Switch / Select primitives)
 // =============================================================================
 
 interface ToggleProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  label: string;
 }
 
-function Toggle({ checked, onChange, disabled }: ToggleProps) {
+function Toggle({ checked, onChange, disabled, label }: ToggleProps) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => !disabled && onChange(!checked)}
-      disabled={disabled}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-sc-purple focus:ring-offset-2 focus:ring-offset-sc-bg-dark ${
-        checked ? 'bg-sc-purple' : 'bg-sc-fg-subtle/30'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-          checked ? 'translate-x-5' : 'translate-x-0'
-        }`}
-      />
-    </button>
+    <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={label} />
   );
 }
-
-// =============================================================================
-// Select Component
-// =============================================================================
 
 interface SelectOption {
   value: string;
   label: string;
 }
 
-interface SelectProps {
+interface PrefSelectProps {
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
   disabled?: boolean;
+  label: string;
 }
 
-function Select({ value, onChange, options, disabled }: SelectProps) {
+function PrefSelect({ value, onChange, options, disabled, label }: PrefSelectProps) {
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      disabled={disabled}
-      className="bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg px-3 py-2 text-sm text-sc-fg-primary focus:outline-none focus:ring-2 focus:ring-sc-purple disabled:opacity-50"
-    >
-      {options.map(opt => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className="w-auto min-w-[180px]" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(opt => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -146,7 +137,8 @@ function AppearanceSection({ backendTheme, onBackendUpdate, isUpdating }: Appear
         label="Theme"
         description="Choose your preferred color theme"
         control={
-          <Select
+          <PrefSelect
+            label="Theme"
             value={toDisplayValue(preference)}
             onChange={handleThemeChange}
             options={themes}
@@ -192,7 +184,8 @@ function LocaleSection({ prefs, onUpdate, isUpdating }: SectionProps) {
         description="Select your preferred language"
         divider
         control={
-          <Select
+          <PrefSelect
+            label="Language"
             value={prefs.locale || 'en'}
             onChange={v => onUpdate({ locale: v })}
             options={locales}
@@ -204,7 +197,8 @@ function LocaleSection({ prefs, onUpdate, isUpdating }: SectionProps) {
         label="Timezone"
         description="Used for displaying dates and times"
         control={
-          <Select
+          <PrefSelect
+            label="Timezone"
             value={prefs.timezone || 'auto'}
             onChange={v => onUpdate({ timezone: v })}
             options={timezones}
@@ -229,6 +223,7 @@ function GraphSection({ prefs, onUpdate, isUpdating }: SectionProps) {
         divider
         control={
           <Toggle
+            label="Show labels on graph nodes"
             checked={prefs.graphShowLabels ?? true}
             onChange={v => onUpdate({ graphShowLabels: v })}
             disabled={isUpdating}
@@ -240,7 +235,8 @@ function GraphSection({ prefs, onUpdate, isUpdating }: SectionProps) {
         description="Initial zoom when opening the graph"
         divider
         control={
-          <Select
+          <PrefSelect
+            label="Default zoom level"
             value={String(prefs.graphDefaultZoom || 1)}
             onChange={v => onUpdate({ graphDefaultZoom: parseFloat(v) })}
             options={[
@@ -258,7 +254,8 @@ function GraphSection({ prefs, onUpdate, isUpdating }: SectionProps) {
         label="Default Dashboard View"
         description="Layout for dashboard and entity lists"
         control={
-          <Select
+          <PrefSelect
+            label="Default dashboard view"
             value={prefs.dashboardDefaultView || 'grid'}
             onChange={v => onUpdate({ dashboardDefaultView: v as 'grid' | 'list' })}
             options={[
@@ -286,6 +283,7 @@ function NotificationsSection({ prefs, onUpdate, isUpdating }: SectionProps) {
         divider
         control={
           <Toggle
+            label="Notify on task assignments"
             checked={prefs.notifyOnTaskAssigned ?? true}
             onChange={v => onUpdate({ notifyOnTaskAssigned: v })}
             disabled={isUpdating}
@@ -297,6 +295,7 @@ function NotificationsSection({ prefs, onUpdate, isUpdating }: SectionProps) {
         description="Notify when you are mentioned"
         control={
           <Toggle
+            label="Notify on mentions"
             checked={prefs.notifyOnMention ?? true}
             onChange={v => onUpdate({ notifyOnMention: v })}
             disabled={isUpdating}
