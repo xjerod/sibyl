@@ -45,6 +45,18 @@ export function ThemeToggle() {
 export function ThemeToggleCompact() {
   const { preference, toggleTheme } = useTheme();
 
+  // Keyboard shortcut: Cmd/Ctrl + Shift + L
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        toggleTheme();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleTheme]);
+
   const current = THEME_OPTIONS.find(o => o.value === preference) ?? THEME_OPTIONS[0];
   const Icon = current.icon;
 
@@ -52,7 +64,8 @@ export function ThemeToggleCompact() {
     <button
       type="button"
       onClick={toggleTheme}
-      className="p-2 rounded-lg text-sc-fg-muted hover:text-sc-fg-primary hover:bg-sc-bg-highlight transition-colors"
+      aria-label={`Theme: ${current.label}. Toggle theme`}
+      className="p-2 rounded-lg text-sc-fg-muted hover:text-sc-fg-primary hover:bg-sc-bg-highlight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base"
       title={`Theme: ${current.label} (⌘⇧L)`}
     >
       <Icon className="w-5 h-5" />
