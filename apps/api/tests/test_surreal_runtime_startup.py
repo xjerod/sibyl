@@ -8,6 +8,13 @@ import pytest
 from sibyl import surreal_runtime_startup
 
 
+@pytest.fixture(autouse=True)
+def reset_schema_bootstrap_status() -> None:
+    surreal_runtime_startup.reset_runtime_schema_bootstrap_status()
+    yield
+    surreal_runtime_startup.reset_runtime_schema_bootstrap_status()
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_surreal_runtime_schemas_runs_auth_and_content(
     monkeypatch: pytest.MonkeyPatch,
@@ -26,10 +33,14 @@ async def test_bootstrap_surreal_runtime_schemas_runs_auth_and_content(
 
     bootstrap_auth.assert_awaited_once()
     bootstrap_content.assert_awaited_once()
+    status = surreal_runtime_startup.get_runtime_schema_bootstrap_status()
+    assert status.ready is True
+    assert status.auth_ready is True
+    assert status.content_ready is True
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_surreal_runtime_schemas_continues_after_auth_failure(
+async def test_bootstrap_surreal_runtime_schemas_records_auth_failure_in_development(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bootstrap_auth = AsyncMock(side_effect=RuntimeError("auth offline"))
@@ -42,10 +53,46 @@ async def test_bootstrap_surreal_runtime_schemas_continues_after_auth_failure(
         bootstrap_content,
     )
 
-    assert await surreal_runtime_startup.bootstrap_surreal_runtime_schemas() is True
+    monkeypatch.setattr(
+        surreal_runtime_startup.config_module.settings, "environment", "development"
+    )
+
+    assert await surreal_runtime_startup.bootstrap_surreal_runtime_schemas() is False
 
     bootstrap_auth.assert_awaited_once()
     bootstrap_content.assert_awaited_once()
+    status = surreal_runtime_startup.get_runtime_schema_bootstrap_status()
+    assert status.ready is False
+    assert status.auth_ready is False
+    assert status.content_ready is True
+    assert [failure.plane for failure in status.failures] == ["auth"]
+    assert "auth offline" in status.failures[0].error
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_surreal_runtime_schemas_raises_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bootstrap_auth = AsyncMock(side_effect=RuntimeError("auth offline"))
+    bootstrap_content = AsyncMock()
+
+    monkeypatch.setattr(surreal_runtime_startup.config_module.settings, "environment", "production")
+    monkeypatch.setattr(surreal_runtime_startup, "bootstrap_surreal_auth_schema", bootstrap_auth)
+    monkeypatch.setattr(
+        surreal_runtime_startup,
+        "bootstrap_surreal_content_schema",
+        bootstrap_content,
+    )
+
+    with pytest.raises(surreal_runtime_startup.RuntimeSchemaBootstrapError) as exc_info:
+        await surreal_runtime_startup.bootstrap_surreal_runtime_schemas()
+
+    bootstrap_auth.assert_awaited_once()
+    bootstrap_content.assert_awaited_once()
+    assert "auth v" in str(exc_info.value)
+    status = surreal_runtime_startup.get_runtime_schema_bootstrap_status()
+    assert status.ready is False
+    assert status.content_ready is True
 
 
 @pytest.mark.asyncio

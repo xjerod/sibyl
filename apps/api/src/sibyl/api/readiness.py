@@ -81,9 +81,30 @@ async def check_surreal_ready() -> DependencyStatus:
     return DependencyStatus(name="surrealdb", ready=True, latency_ms=latency_ms)
 
 
+def check_schema_bootstrap_ready() -> DependencyStatus | None:
+    from sibyl.surreal_runtime_startup import get_runtime_schema_bootstrap_status
+
+    status = get_runtime_schema_bootstrap_status()
+    if not status.attempted:
+        return None
+    if status.ready:
+        return DependencyStatus(name="schemas", ready=True)
+    detail = "; ".join(
+        f"{failure.plane} v{failure.target_version}: {failure.error}" for failure in status.failures
+    )
+    return DependencyStatus(
+        name="schemas",
+        ready=False,
+        detail=detail or "Surreal schema bootstrap incomplete",
+    )
+
+
 async def check_readiness() -> ReadinessReport:
     """Aggregate readiness across the dependencies needed to serve traffic."""
     dependencies = [await check_surreal_ready()]
+    schema_status = check_schema_bootstrap_ready()
+    if schema_status is not None:
+        dependencies.append(schema_status)
     return ReadinessReport(
         ready=all(dep.ready for dep in dependencies),
         dependencies=dependencies,
@@ -94,5 +115,6 @@ __all__ = [
     "DependencyStatus",
     "ReadinessReport",
     "check_readiness",
+    "check_schema_bootstrap_ready",
     "check_surreal_ready",
 ]

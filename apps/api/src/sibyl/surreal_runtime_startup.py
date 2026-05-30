@@ -2,9 +2,59 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from typing import Literal
+
 import structlog
 
+from sibyl import config as config_module
+
 log = structlog.get_logger()
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaBootstrapFailure:
+    plane: Literal["auth", "content"]
+    target_version: int
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSchemaBootstrapStatus:
+    attempted: bool = False
+    auth_ready: bool = False
+    content_ready: bool = False
+    failures: tuple[SchemaBootstrapFailure, ...] = ()
+
+    @property
+    def ready(self) -> bool:
+        return self.attempted and self.auth_ready and self.content_ready and not self.failures
+
+
+class RuntimeSchemaBootstrapError(RuntimeError):
+    def __init__(self, status: RuntimeSchemaBootstrapStatus) -> None:
+        self.status = status
+        failures = ", ".join(
+            f"{failure.plane} v{failure.target_version}: {failure.error}"
+            for failure in status.failures
+        )
+        super().__init__(f"Surreal schema bootstrap failed: {failures}")
+
+
+@dataclass(slots=True)
+class _RuntimeSchemaBootstrapState:
+    status: RuntimeSchemaBootstrapStatus = field(default_factory=RuntimeSchemaBootstrapStatus)
+
+
+_schema_bootstrap_state = _RuntimeSchemaBootstrapState()
+
+
+def get_runtime_schema_bootstrap_status() -> RuntimeSchemaBootstrapStatus:
+    return _schema_bootstrap_state.status
+
+
+def reset_runtime_schema_bootstrap_status() -> None:
+    _schema_bootstrap_state.status = RuntimeSchemaBootstrapStatus()
 
 
 async def bootstrap_surreal_auth_schema() -> None:
@@ -30,29 +80,70 @@ async def bootstrap_surreal_content_schema() -> None:
 
 
 async def bootstrap_surreal_runtime_schemas() -> bool:
-    bootstrap_auth = True
+    from sibyl_core.backends.surreal.auth_schema import AUTH_SCHEMA_CURRENT_VERSION
+    from sibyl_core.backends.surreal.content_schema import CONTENT_SCHEMA_CURRENT_VERSION
 
-    bootstrapped = False
-    if bootstrap_auth:
-        try:
-            log.info("Bootstrapping Surreal auth schema")
-            await bootstrap_surreal_auth_schema()
-            bootstrapped = True
-        except Exception as exc:
-            log.warning("Surreal auth schema bootstrap failed", error=str(exc))
+    failures: list[SchemaBootstrapFailure] = []
+    auth_ready = False
+    content_ready = False
 
     try:
-        log.info("Bootstrapping Surreal content schema")
-        await bootstrap_surreal_content_schema()
-        bootstrapped = True
+        log.info("Bootstrapping Surreal auth schema", target_version=AUTH_SCHEMA_CURRENT_VERSION)
+        await bootstrap_surreal_auth_schema()
+        auth_ready = True
     except Exception as exc:
-        log.warning("Surreal content schema bootstrap failed", error=str(exc))
+        failures.append(
+            SchemaBootstrapFailure(
+                plane="auth",
+                target_version=AUTH_SCHEMA_CURRENT_VERSION,
+                error=str(exc),
+            )
+        )
+        log.warning(
+            "Surreal auth schema bootstrap failed",
+            target_version=AUTH_SCHEMA_CURRENT_VERSION,
+            error=str(exc),
+        )
 
-    return bootstrapped
+    try:
+        log.info(
+            "Bootstrapping Surreal content schema",
+            target_version=CONTENT_SCHEMA_CURRENT_VERSION,
+        )
+        await bootstrap_surreal_content_schema()
+        content_ready = True
+    except Exception as exc:
+        failures.append(
+            SchemaBootstrapFailure(
+                plane="content",
+                target_version=CONTENT_SCHEMA_CURRENT_VERSION,
+                error=str(exc),
+            )
+        )
+        log.warning(
+            "Surreal content schema bootstrap failed",
+            target_version=CONTENT_SCHEMA_CURRENT_VERSION,
+            error=str(exc),
+        )
+
+    _schema_bootstrap_state.status = RuntimeSchemaBootstrapStatus(
+        attempted=True,
+        auth_ready=auth_ready,
+        content_ready=content_ready,
+        failures=tuple(failures),
+    )
+    if failures and config_module.settings.environment != "development":
+        raise RuntimeSchemaBootstrapError(_schema_bootstrap_state.status)
+    return _schema_bootstrap_state.status.ready
 
 
 __all__ = [
+    "RuntimeSchemaBootstrapError",
+    "RuntimeSchemaBootstrapStatus",
+    "SchemaBootstrapFailure",
     "bootstrap_surreal_auth_schema",
     "bootstrap_surreal_content_schema",
     "bootstrap_surreal_runtime_schemas",
+    "get_runtime_schema_bootstrap_status",
+    "reset_runtime_schema_bootstrap_status",
 ]

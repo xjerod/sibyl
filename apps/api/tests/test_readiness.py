@@ -18,6 +18,10 @@ from sibyl.api.readiness import (
     ReadinessReport,
     check_readiness,
 )
+from sibyl.surreal_runtime_startup import (
+    RuntimeSchemaBootstrapStatus,
+    SchemaBootstrapFailure,
+)
 
 
 def test_liveness_health_stays_cheap_and_unauthenticated() -> None:
@@ -119,3 +123,38 @@ async def test_check_readiness_aggregates_dependency_status() -> None:
     assert isinstance(report, ReadinessReport)
     assert report.ready is False
     assert report.as_payload()["status"] == "not_ready"
+
+
+@pytest.mark.asyncio
+async def test_check_readiness_reports_schema_bootstrap_failure() -> None:
+    ready = DependencyStatus(name="surrealdb", ready=True, latency_ms=1.5)
+    schema_status = RuntimeSchemaBootstrapStatus(
+        attempted=True,
+        auth_ready=False,
+        content_ready=True,
+        failures=(
+            SchemaBootstrapFailure(
+                plane="auth",
+                target_version=1,
+                error="auth offline",
+            ),
+        ),
+    )
+
+    with (
+        patch("sibyl.api.readiness.check_surreal_ready", AsyncMock(return_value=ready)),
+        patch(
+            "sibyl.surreal_runtime_startup.get_runtime_schema_bootstrap_status",
+            return_value=schema_status,
+        ),
+    ):
+        report = await check_readiness()
+
+    assert report.ready is False
+    payload = report.as_payload()
+    assert payload["status"] == "not_ready"
+    assert payload["dependencies"][1] == {
+        "name": "schemas",
+        "ready": False,
+        "detail": "auth v1: auth offline",
+    }
