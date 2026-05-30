@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { Button } from '@/components/ui';
 import { Check, HelpCircle, Key, WarningTriangle, Xmark } from '@/components/ui/icons';
 import { Spinner } from '@/components/ui/spinner';
 import type { SetupStatus, UpdateSettingsRequest } from '@/lib/api';
@@ -269,28 +270,30 @@ export function ApiKeysStep({ initialStatus, onBack, onValidated }: ApiKeysStepP
 
       {/* Buttons */}
       <div className="flex gap-3">
-        <button
+        <Button
           type="button"
+          variant="secondary"
           onClick={onBack}
-          className="flex-1 py-2.5 px-4 rounded-lg border border-sc-fg-subtle/20 text-sc-fg-secondary font-medium text-sm transition-colors hover:bg-sc-bg-base"
+          className="flex-1 focus-visible:ring-offset-sc-bg-elevated"
         >
           Back
-        </button>
+        </Button>
 
         {requiredConfigured ? (
-          <button
+          <Button
             type="button"
+            variant="primary"
             onClick={handleContinue}
-            className="flex-1 py-2.5 px-4 rounded-lg bg-sc-purple text-white font-medium text-sm transition-all hover:bg-sc-purple/90 hover:shadow-lg hover:shadow-sc-purple/25"
+            className="flex-1 focus-visible:ring-offset-sc-bg-elevated"
           >
             Continue
-          </button>
+          </Button>
         ) : hasKeyInput ? (
           <button
             type="button"
             onClick={handleSaveKeys}
             disabled={isSaving}
-            className="flex-1 py-2.5 px-4 rounded-lg bg-sc-cyan text-sc-bg-dark font-medium text-sm transition-all hover:bg-sc-cyan/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 py-2.5 px-4 rounded-lg bg-sc-cyan text-sc-bg-dark font-medium text-sm transition-colors duration-200 hover:bg-sc-cyan/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           >
             {isSaving ? (
               <>
@@ -302,13 +305,9 @@ export function ApiKeysStep({ initialStatus, onBack, onValidated }: ApiKeysStepP
             )}
           </button>
         ) : (
-          <button
-            type="button"
-            disabled
-            className="flex-1 py-2.5 px-4 rounded-lg bg-sc-fg-subtle/20 text-sc-fg-muted font-medium text-sm cursor-not-allowed"
-          >
+          <Button type="button" variant="primary" disabled className="flex-1">
             {disabledPrompt}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -363,11 +362,15 @@ function ApiKeyInput({
   }
   // When not configured, no badge is shown (statusIcon remains null)
 
+  const inputId = `api-key-${name.toLowerCase()}`;
+
   return (
-    <div className="p-4 rounded-xl bg-sc-bg-base/50 border border-sc-fg-subtle/10">
+    <div className="p-4 rounded-xl bg-sc-bg-highlight border border-sc-fg-subtle/10">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h3 className="font-medium text-sc-fg-primary">{name}</h3>
+          <label htmlFor={inputId} className="font-medium text-sc-fg-primary">
+            {name}
+          </label>
           <p className="text-xs text-sc-fg-muted">{description}</p>
         </div>
         {statusIcon && (
@@ -380,16 +383,19 @@ function ApiKeyInput({
 
       <div className="relative">
         <input
+          id={inputId}
           type={showValue ? 'text' : 'password'}
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={configured && masked ? masked : placeholder}
-          className="w-full px-3 py-2 rounded-lg bg-sc-bg-dark border border-sc-fg-subtle/20 text-sc-fg-primary text-sm placeholder:text-sc-fg-subtle focus:outline-none focus:border-sc-cyan/50 focus:ring-1 focus:ring-sc-cyan/20"
+          aria-label={`${name} API key`}
+          className="w-full px-3 py-2 rounded-lg bg-sc-bg-dark border border-sc-fg-subtle/20 text-sc-fg-primary text-sm placeholder:text-sc-fg-subtle transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-highlight"
         />
         <button
           type="button"
           onClick={onToggleShow}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-sc-fg-subtle hover:text-sc-fg-secondary transition-colors"
+          aria-label={showValue ? `Hide ${name} API key` : `Show ${name} API key`}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-sc-fg-subtle hover:text-sc-fg-secondary transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-highlight"
         >
           {showValue ? (
             <svg

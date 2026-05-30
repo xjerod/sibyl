@@ -1,8 +1,8 @@
 'use client';
 
 import { type FormEvent, useState } from 'react';
+import { Button } from '@/components/ui';
 import { User } from '@/components/ui/icons';
-import { Spinner } from '@/components/ui/spinner';
 
 interface AdminAccountStepProps {
   onBack: () => void;
@@ -93,7 +93,7 @@ export function AdminAccountStep({ onBack, onAccountCreated }: AdminAccountStepP
             required
             autoComplete="name"
             placeholder="Your name"
-            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-base border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 focus:outline-none focus:border-sc-purple/60 focus:ring-2 focus:ring-sc-purple/20 transition-all"
+            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           />
         </div>
 
@@ -108,7 +108,7 @@ export function AdminAccountStep({ onBack, onAccountCreated }: AdminAccountStepP
             required
             autoComplete="email"
             placeholder="admin@example.com"
-            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-base border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 focus:outline-none focus:border-sc-purple/60 focus:ring-2 focus:ring-sc-purple/20 transition-all"
+            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           />
         </div>
 
@@ -124,7 +124,7 @@ export function AdminAccountStep({ onBack, onAccountCreated }: AdminAccountStepP
             autoComplete="new-password"
             minLength={8}
             placeholder="At least 8 characters"
-            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-base border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 focus:outline-none focus:border-sc-purple/60 focus:ring-2 focus:ring-sc-purple/20 transition-all"
+            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           />
         </div>
 
@@ -140,34 +140,29 @@ export function AdminAccountStep({ onBack, onAccountCreated }: AdminAccountStepP
             autoComplete="new-password"
             minLength={8}
             placeholder="Repeat password"
-            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-base border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 focus:outline-none focus:border-sc-purple/60 focus:ring-2 focus:ring-sc-purple/20 transition-all"
+            className="w-full px-3 py-2.5 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
           />
         </div>
 
         {/* Buttons */}
         <div className="flex gap-3 pt-2">
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={onBack}
             disabled={isSubmitting}
-            className="flex-1 py-2.5 px-4 rounded-lg border border-sc-fg-subtle/20 text-sc-fg-secondary font-medium text-sm transition-colors hover:bg-sc-bg-base disabled:opacity-50"
+            className="flex-1 focus-visible:ring-offset-sc-bg-elevated"
           >
             Back
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            disabled={isSubmitting}
-            className="flex-1 py-2.5 px-4 rounded-lg bg-sc-purple text-white font-medium text-sm transition-all hover:bg-sc-purple/90 hover:shadow-lg hover:shadow-sc-purple/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            variant="primary"
+            loading={isSubmitting}
+            className="flex-1 focus-visible:ring-offset-sc-bg-elevated"
           >
-            {isSubmitting ? (
-              <>
-                <Spinner size="sm" />
-                Creating...
-              </>
-            ) : (
-              'Create Account'
-            )}
-          </button>
+            {isSubmitting ? 'Creating...' : 'Create Account'}
+          </Button>
         </div>
       </form>
 

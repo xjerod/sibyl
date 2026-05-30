@@ -1,5 +1,6 @@
 'use client';
 
+import { Button } from '@/components/ui';
 import { ClipboardCheck, Code, LightBulb, Page } from '@/components/ui/icons';
 
 interface WelcomeStepProps {
@@ -43,13 +44,15 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
       </div>
 
       {/* CTA */}
-      <button
+      <Button
         type="button"
+        variant="primary"
+        size="lg"
         onClick={onNext}
-        className="w-full py-3 px-4 rounded-lg bg-sc-purple text-white font-medium transition-all duration-200 hover:bg-sc-purple/90 hover:shadow-lg hover:shadow-sc-purple/25 active:scale-[0.98]"
+        className="w-full focus-visible:ring-offset-sc-bg-elevated"
       >
         Let's Get Started
-      </button>
+      </Button>
     </div>
   );
 }
@@ -64,7 +67,7 @@ function Feature({
   description: string;
 }) {
   return (
-    <div className="flex gap-4 p-4 rounded-xl bg-sc-bg-base/50 border border-sc-fg-subtle/10">
+    <div className="flex gap-4 p-4 rounded-xl bg-sc-bg-highlight border border-sc-fg-subtle/10">
       <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-sc-purple/10 flex items-center justify-center text-sc-purple">
         {icon}
       </div>

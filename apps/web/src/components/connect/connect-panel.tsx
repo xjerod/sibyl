@@ -44,7 +44,7 @@ export function ConnectPanel() {
         description="Install the CLI and Sibyl is yours from any terminal: search, remember, track tasks."
       >
         <CopyBlock value={data.cli_install} />
-        <p className="mt-2 text-xs text-sc-fg-subtle">
+        <p className="mt-2 text-xs text-sc-fg-muted">
           Already use uv? <code className="font-mono text-sc-cyan">{data.cli_install_alt}</code>
         </p>
       </Section>
@@ -63,7 +63,7 @@ export function ConnectPanel() {
         description="Paste this into your agent's instructions so it actually uses Sibyl."
       >
         <CopyBlock value={data.prompt_snippet} scroll />
-        <p className="mt-2 text-xs text-sc-fg-subtle">
+        <p className="mt-2 text-xs text-sc-fg-muted">
           Goes in AGENTS.md, CLAUDE.md, or your agent's system prompt.
         </p>
       </Section>
@@ -88,7 +88,7 @@ function McpClientTabs({ clients }: { clients: McpClientConfig[] }) {
       {clients.map(client => (
         <TabsContent key={client.id} value={client.id}>
           <CopyBlock value={client.snippet} scroll={client.kind === 'config'} />
-          <p className="mt-2 text-xs text-sc-fg-subtle">
+          <p className="mt-2 text-xs text-sc-fg-muted">
             {client.kind === 'command'
               ? 'Run this in your terminal.'
               : `Add this to ${client.target ?? 'your MCP client config'}.`}
@@ -136,7 +136,7 @@ function CopyBlock({ value, scroll = false }: { value: string; scroll?: boolean 
   return (
     <div className="relative">
       <pre
-        className={`w-full overflow-x-auto rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-base p-3 pr-11 ${
+        className={`w-full overflow-x-auto rounded-lg border border-sc-fg-subtle/10 bg-sc-bg-dark p-3 pr-11 ${
           scroll ? 'max-h-60 overflow-y-auto' : ''
         }`}
       >
@@ -145,7 +145,7 @@ function CopyBlock({ value, scroll = false }: { value: string; scroll?: boolean 
       <button
         type="button"
         onClick={handleCopy}
-        className="absolute right-2 top-2 rounded-lg bg-sc-bg-elevated/80 p-1.5 text-sc-fg-muted transition-colors hover:bg-sc-bg-elevated hover:text-sc-fg-primary"
+        className="absolute right-2 top-2 rounded-lg bg-sc-bg-elevated/80 p-1.5 text-sc-fg-muted transition-colors duration-200 hover:bg-sc-bg-elevated hover:text-sc-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-dark"
         title="Copy to clipboard"
         aria-label="Copy to clipboard"
       >

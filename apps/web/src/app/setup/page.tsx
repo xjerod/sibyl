@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { SetupWizard } from '@/components/setup';
+import { Button } from '@/components/ui';
 import { WarningTriangle } from '@/components/ui/icons';
 import { Spinner } from '@/components/ui/spinner';
 import { isSetupAlreadyInitializedError } from '@/lib/api';
@@ -58,13 +59,9 @@ export default function SetupPage() {
           <p className="text-sc-fg-muted mb-6">
             Unable to reach the Sibyl API server. Please ensure the server is running and try again.
           </p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 rounded-lg bg-sc-purple text-white font-medium text-sm hover:bg-sc-purple/90 transition-colors"
-          >
+          <Button type="button" variant="primary" onClick={() => window.location.reload()}>
             Retry Connection
-          </button>
+          </Button>
         </div>
       </div>
     );

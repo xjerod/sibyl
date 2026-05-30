@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
+import { Button } from '@/components/ui';
 import { Spinner } from '@/components/ui/spinner';
 import type { AuthProvider } from '@/lib/api';
 import { useAuthProviders, useSetupStatus } from '@/lib/hooks';
@@ -144,7 +145,7 @@ function LoginContent() {
               <button
                 type="button"
                 onClick={() => setMode('signin')}
-                className={`flex-1 py-3 text-sm font-medium transition-all duration-200 relative ${
+                className={`flex-1 py-3 text-sm font-medium transition-colors duration-200 relative rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-inset ${
                   mode === 'signin'
                     ? 'text-sc-fg-primary'
                     : 'text-sc-fg-muted hover:text-sc-fg-secondary'
@@ -160,7 +161,7 @@ function LoginContent() {
               <button
                 type="button"
                 onClick={() => setMode('signup')}
-                className={`flex-1 py-3 text-sm font-medium transition-all duration-200 relative ${
+                className={`flex-1 py-3 text-sm font-medium transition-colors duration-200 relative rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-inset ${
                   mode === 'signup'
                     ? 'text-sc-fg-primary'
                     : 'text-sc-fg-muted hover:text-sc-fg-secondary'
@@ -238,7 +239,7 @@ function LoginContent() {
 }
 
 const inputClasses =
-  'w-full px-3 py-2.5 rounded-lg bg-sc-bg-base border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 focus:outline-none focus:border-sc-purple/60 focus:ring-2 focus:ring-sc-purple/20 transition-all duration-200';
+  'w-full px-3 py-2.5 rounded-lg bg-sc-bg-highlight border border-sc-fg-subtle/20 text-sc-fg-primary placeholder:text-sc-fg-subtle/50 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated';
 
 function OIDCProviderList({ providers, next }: { providers: AuthProvider[]; next: string | null }) {
   return (
@@ -247,7 +248,7 @@ function OIDCProviderList({ providers, next }: { providers: AuthProvider[]; next
         <a
           key={provider.name}
           href={getProviderHref(provider, next)}
-          className="flex w-full items-center justify-center rounded-lg border border-sc-cyan/30 bg-sc-cyan/10 px-3 py-2.5 text-sm font-medium text-sc-cyan transition-colors hover:border-sc-cyan/60 hover:bg-sc-cyan/15"
+          className="flex w-full items-center justify-center rounded-lg border border-sc-cyan/30 bg-sc-cyan/10 px-3 py-2.5 text-sm font-medium text-sc-cyan transition-colors duration-200 hover:border-sc-cyan/60 hover:bg-sc-cyan/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
         >
           {provider.label}
         </a>
@@ -268,6 +269,8 @@ function SignInForm({
   inviteToken: string | null;
   breakGlassEnabled: boolean;
 }) {
+  const [showResetNotice, setShowResetNotice] = useState(false);
+
   return (
     <form action="/api/auth/local/login" method="post" className="h-full relative pb-14">
       <input type="hidden" name="redirect" value={next || '/'} />
@@ -328,28 +331,36 @@ function SignInForm({
             <input
               type="checkbox"
               name="remember"
-              className="w-4 h-4 rounded border-sc-fg-subtle/30 bg-sc-bg-base text-sc-purple focus:ring-sc-purple/30 focus:ring-offset-0 cursor-pointer"
+              className="w-4 h-4 rounded border-sc-fg-subtle/30 bg-sc-bg-highlight text-sc-purple cursor-pointer transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
             />
-            <span className="text-xs text-sc-fg-muted group-hover:text-sc-fg-secondary transition-colors">
+            <span className="text-xs text-sc-fg-muted group-hover:text-sc-fg-secondary transition-colors duration-200">
               Remember me
             </span>
           </label>
           <button
             type="button"
-            className="text-xs text-sc-fg-muted hover:text-sc-purple transition-colors"
-            onClick={() => alert('Password reset coming soon!')}
+            aria-expanded={showResetNotice}
+            className="text-xs text-sc-fg-muted hover:text-sc-purple transition-colors duration-200 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
+            onClick={() => setShowResetNotice(true)}
           >
             Forgot password?
           </button>
         </div>
+
+        {showResetNotice && (
+          <div className="text-xs px-3 py-2 rounded-lg border border-sc-cyan/30 bg-sc-cyan/10 text-sc-cyan">
+            Password reset isn't available yet. Contact your administrator to reset your password.
+          </div>
+        )}
       </div>
 
-      <button
+      <Button
         type="submit"
-        className="absolute bottom-0 left-0 right-0 w-full py-2.5 px-4 rounded-lg bg-sc-purple text-white font-medium text-sm transition-all duration-200 hover:bg-sc-purple/90 hover:shadow-lg hover:shadow-sc-purple/25 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-sc-purple/50 focus:ring-offset-2 focus:ring-offset-sc-bg-elevated"
+        variant="primary"
+        className="absolute bottom-0 left-0 right-0 w-full focus-visible:ring-offset-sc-bg-elevated"
       >
         Sign In
-      </button>
+      </Button>
     </form>
   );
 }
@@ -408,12 +419,13 @@ function SignUpForm({ next, inviteToken }: { next: string | null; inviteToken: s
         </div>
       </div>
 
-      <button
+      <Button
         type="submit"
-        className="absolute bottom-0 left-0 right-0 w-full py-2.5 px-4 rounded-lg bg-sc-purple text-white font-medium text-sm transition-all duration-200 hover:bg-sc-purple/90 hover:shadow-lg hover:shadow-sc-purple/25 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-sc-purple/50 focus:ring-offset-2 focus:ring-offset-sc-bg-elevated"
+        variant="primary"
+        className="absolute bottom-0 left-0 right-0 w-full focus-visible:ring-offset-sc-bg-elevated"
       >
         Create Account
-      </button>
+      </Button>
     </form>
   );
 }

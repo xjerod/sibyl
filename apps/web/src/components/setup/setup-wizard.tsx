@@ -85,7 +85,7 @@ export function SetupWizard({ initialStatus, onComplete }: SetupWizardProps) {
 
   return (
     <div className="w-full max-w-2xl">
-      <div className="bg-sc-bg-elevated border border-sc-fg-subtle/20 rounded-xl shadow-2xl shadow-black/40 overflow-hidden">
+      <div className="bg-sc-bg-elevated border border-sc-fg-subtle/20 rounded-xl shadow-card-elevated overflow-hidden">
         {/* Progress indicator */}
         {!isLastStep && (
           <div className="px-6 pt-5 pb-3 border-b border-sc-fg-subtle/10">
@@ -94,7 +94,7 @@ export function SetupWizard({ initialStatus, onComplete }: SetupWizardProps) {
                 {STEPS.slice(0, -1).map((s, i) => (
                   <div
                     key={s}
-                    className={`w-2 h-2 rounded-full transition-colors ${
+                    className={`w-2 h-2 rounded-full transition-colors duration-200 ${
                       s === step
                         ? 'bg-sc-purple'
                         : i < currentIndex

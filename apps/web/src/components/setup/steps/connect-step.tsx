@@ -1,6 +1,7 @@
 'use client';
 
 import { ConnectPanel } from '@/components/connect';
+import { Button } from '@/components/ui';
 import { CheckCircle } from '@/components/ui/icons';
 
 interface ConnectStepProps {
@@ -29,13 +30,15 @@ export function ConnectStep({ onFinish }: ConnectStepProps) {
       </div>
 
       {/* CTA */}
-      <button
+      <Button
         type="button"
+        variant="primary"
+        size="lg"
         onClick={onFinish}
-        className="w-full py-3 px-4 rounded-lg bg-sc-purple text-white font-medium transition-all duration-200 hover:bg-sc-purple/90 hover:shadow-lg hover:shadow-sc-purple/25 active:scale-[0.98]"
+        className="w-full focus-visible:ring-offset-sc-bg-elevated"
       >
         Start Using Sibyl
-      </button>
+      </Button>
     </div>
   );
 }
