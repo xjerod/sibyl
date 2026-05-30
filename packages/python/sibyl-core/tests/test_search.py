@@ -18,6 +18,7 @@ from sibyl_core.retrieval.search import (
     FusionBackend,
     RetrievalCandidate,
     RetrievalSignal,
+    VectorCandidateFetch,
     build_context_retrieval_plan,
     coerce_fusion_backend,
     fusion_backend_from_env,
@@ -956,7 +957,7 @@ async def test_context_search_pushes_facet_types_into_graph_queries(
 
     monkeypatch.setattr(search_module, "get_surreal_graph_runtime", fake_runtime)
 
-    await search_module.context_search(
+    response = await search_module.context_search(
         plan=plan,
         types=["task"],
         facet=ContextFacet.ACTIVE_WORK,
@@ -965,6 +966,9 @@ async def test_context_search_pushes_facet_types_into_graph_queries(
         raw_memory_recall_fn=fake_raw_recall,
     )
 
+    assert response.filters["vector_status"] == "empty"
+    assert response.filters["vector_degraded"] is False
+    assert response.filters["vector_candidate_count"] == 0
     assert client.calls
     assert all("FROM relates_to" not in query for query, _ in client.calls)
     assert all("FROM episode" not in query for query, _ in client.calls)
@@ -1107,6 +1111,110 @@ async def test_vector_candidate_sources_use_embedding_contract() -> None:
     assert len(edge_params["query_embedding"]) == 4
     assert node_params["project_ids"] == ["project_123"]
     assert edge_params["project_ids"] == ["project_123"]
+
+
+def test_vector_candidate_fetch_metadata_distinguishes_empty_and_failure() -> None:
+    empty = VectorCandidateFetch(
+        node_candidates=[],
+        edge_candidates=[],
+        requested=True,
+        attempted=True,
+    )
+    failed = VectorCandidateFetch(
+        node_candidates=[],
+        edge_candidates=[],
+        requested=True,
+        attempted=True,
+        failures=("embedding:RuntimeError",),
+        reason="embedding_failed",
+    )
+
+    assert empty.as_metadata() == {
+        "vector_status": "empty",
+        "vector_requested": True,
+        "vector_attempted": True,
+        "vector_degraded": False,
+        "vector_candidate_count": 0,
+    }
+    assert failed.as_metadata()["vector_status"] == "embedding_failed"
+    assert failed.as_metadata()["vector_degraded"] is True
+    assert failed.as_metadata()["vector_failures"] == ["embedding:RuntimeError"]
+
+
+@pytest.mark.asyncio
+async def test_vector_candidate_sources_report_embedding_failure() -> None:
+    plan = build_context_retrieval_plan(
+        query="native vectors",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+    )
+
+    class FailingProvider:
+        metadata = EmbeddingMetadata(
+            provider="failing",
+            model="unit-test",
+            dimensions=4,
+            cache_namespace="retrieval-test",
+            tokenizer_estimate_method="utf8-byte-length",
+        )
+
+        async def embed_texts(self, *_args: object, **_kwargs: object) -> list[list[float]]:
+            raise RuntimeError("provider offline")
+
+    result = await search_module._vector_candidate_sources_detailed(
+        client=_VectorClient(),
+        plan=plan,
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
+        embedding_provider=FailingProvider(),
+    )
+
+    assert result.status == "embedding_failed"
+    assert result.degraded is True
+    assert result.failures == ("embedding:RuntimeError",)
+
+
+@pytest.mark.asyncio
+async def test_vector_candidate_sources_report_partial_query_failure() -> None:
+    plan = build_context_retrieval_plan(
+        query="native vectors",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+    )
+    provider = DeterministicEmbeddingProvider(
+        EmbeddingMetadata(
+            provider="deterministic",
+            model="unit-test",
+            dimensions=4,
+            cache_namespace="retrieval-test",
+            tokenizer_estimate_method="utf8-byte-length",
+        )
+    )
+
+    class PartiallyFailingVectorClient(_VectorClient):
+        async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
+            if "fact_embedding" in query:
+                raise RuntimeError("edge index unavailable")
+            return await super().execute_query(query, **params)
+
+    result = await search_module._vector_candidate_sources_detailed(
+        client=PartiallyFailingVectorClient(),
+        plan=plan,
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
+        embedding_provider=provider,
+    )
+
+    assert result.status == "partial"
+    assert [candidate.id for candidate in result.node_candidates] == ["task-vector"]
+    assert result.edge_candidates == []
+    assert result.failures == ("edge_vector:RuntimeError",)
 
 
 @pytest.mark.asyncio

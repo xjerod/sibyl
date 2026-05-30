@@ -157,6 +157,52 @@ class RetrievalCandidate:
     visibility: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class VectorCandidateFetch:
+    node_candidates: list[RetrievalCandidate]
+    edge_candidates: list[RetrievalCandidate]
+    requested: bool
+    attempted: bool
+    failures: tuple[str, ...] = ()
+    reason: str | None = None
+
+    @property
+    def candidate_count(self) -> int:
+        return len(self.node_candidates) + len(self.edge_candidates)
+
+    @property
+    def degraded(self) -> bool:
+        return bool(self.failures or self.reason in {"embedding_failed", "invalid_embedding"})
+
+    @property
+    def status(self) -> str:
+        if not self.requested:
+            return "not_requested"
+        if self.reason is not None:
+            return self.reason
+        if self.failures and self.candidate_count:
+            return "partial"
+        if self.failures:
+            return "query_failed"
+        if not self.attempted:
+            return "unavailable"
+        if self.candidate_count == 0:
+            return "empty"
+        return "ok"
+
+    def as_metadata(self) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "vector_status": self.status,
+            "vector_requested": self.requested,
+            "vector_attempted": self.attempted,
+            "vector_degraded": self.degraded,
+            "vector_candidate_count": self.candidate_count,
+        }
+        if self.failures:
+            metadata["vector_failures"] = list(self.failures)
+        return metadata
+
+
 def coerce_fusion_backend(
     value: str | FusionBackend | None,
 ) -> FusionBackend:
@@ -338,12 +384,13 @@ async def context_search(
         include_nodes=node_sources_allowed,
         include_edges=edge_sources_allowed,
     )
-    vector_candidate_lists = await _vector_candidate_sources(
+    vector_fetch = await _vector_candidate_sources_detailed(
         client=client,
         plan=vector_plan,
         search_filter=search_filter,
         embedding_provider=embedding_provider,
     )
+    vector_candidate_lists = [vector_fetch.node_candidates, vector_fetch.edge_candidates]
     graph_expansion_candidates = await _graph_expansion_candidates(
         client=client,
         plan=search_plan,
@@ -413,6 +460,7 @@ async def context_search(
             "project": search_plan.project,
             "retrieval_mode": "native",
             "fusion_backend": fusion_backend.value,
+            **vector_fetch.as_metadata(),
         },
         graph_count=len([result for result in results if result.result_origin == "graph"]),
         document_count=0,
@@ -816,19 +864,35 @@ async def _vector_candidate_sources(
     search_filter: SearchFilter,
     embedding_provider: EmbeddingProvider | None,
 ) -> list[list[RetrievalCandidate]]:
+    result = await _vector_candidate_sources_detailed(
+        client=client,
+        plan=plan,
+        search_filter=search_filter,
+        embedding_provider=embedding_provider,
+    )
+    return [result.node_candidates, result.edge_candidates]
+
+
+async def _vector_candidate_sources_detailed(
+    *,
+    client: Any,
+    plan: RetrievalPlan,
+    search_filter: SearchFilter,
+    embedding_provider: EmbeddingProvider | None,
+) -> VectorCandidateFetch:
+    vector_requested = (
+        RetrievalSignal.NODE_VECTOR in plan.signals or RetrievalSignal.EDGE_VECTOR in plan.signals
+    )
+    empty = VectorCandidateFetch(
+        node_candidates=[],
+        edge_candidates=[],
+        requested=vector_requested,
+        attempted=False,
+    )
     if embedding_provider is None:
-        return [
-            [],
-            [],
-        ]
-    if (
-        RetrievalSignal.NODE_VECTOR not in plan.signals
-        and RetrievalSignal.EDGE_VECTOR not in plan.signals
-    ):
-        return [
-            [],
-            [],
-        ]
+        return empty
+    if not vector_requested:
+        return empty
     try:
         embeddings = await embedding_provider.embed_texts([plan.query], input_kind="query")
     except Exception as exc:
@@ -838,10 +902,14 @@ async def _vector_candidate_sources(
             query_length=len(plan.query),
             error_type=type(exc).__name__,
         )
-        return [
-            [],
-            [],
-        ]
+        return VectorCandidateFetch(
+            node_candidates=[],
+            edge_candidates=[],
+            requested=True,
+            attempted=True,
+            failures=(f"embedding:{type(exc).__name__}",),
+            reason="embedding_failed",
+        )
     try:
         query_embedding = _query_embedding_from_batch(
             embeddings,
@@ -853,10 +921,14 @@ async def _vector_candidate_sources(
             organization_id=plan.organization_id,
             error=str(exc),
         )
-        return [
-            [],
-            [],
-        ]
+        return VectorCandidateFetch(
+            node_candidates=[],
+            edge_candidates=[],
+            requested=True,
+            attempted=True,
+            failures=("embedding:invalid",),
+            reason="invalid_embedding",
+        )
     node_candidates: list[RetrievalCandidate] = []
     edge_candidates: list[RetrievalCandidate] = []
     tasks: list[Awaitable[list[RetrievalCandidate]]] = []
@@ -886,8 +958,10 @@ async def _vector_candidate_sources(
         )
         task_signals.append(RetrievalSignal.EDGE_VECTOR)
     gathered = await asyncio.gather(*tasks, return_exceptions=True)
+    failures: list[str] = []
     for signal, result in zip(task_signals, gathered, strict=True):
         if isinstance(result, BaseException):
+            failures.append(f"{signal.value}:{type(result).__name__}")
             log.warning(
                 "vector_query_failed",
                 organization_id=plan.organization_id,
@@ -899,7 +973,13 @@ async def _vector_candidate_sources(
             node_candidates = _candidate_list_or_empty(result)
         else:
             edge_candidates = _candidate_list_or_empty(result)
-    return [node_candidates, edge_candidates]
+    return VectorCandidateFetch(
+        node_candidates=node_candidates,
+        edge_candidates=edge_candidates,
+        requested=True,
+        attempted=True,
+        failures=tuple(failures),
+    )
 
 
 async def _node_vector_candidates(

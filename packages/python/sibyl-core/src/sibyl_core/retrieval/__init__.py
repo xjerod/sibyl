@@ -46,6 +46,7 @@ from sibyl_core.retrieval.search import (
     RetrievalWeights,
     ScopeSpec,
     SearchFilter,
+    VectorCandidateFetch,
     build_context_retrieval_plan,
     context_search,
 )
@@ -74,6 +75,7 @@ __all__ = [
     "ScopeSpec",
     "SearchFilter",
     "TemporalConfig",
+    "VectorCandidateFetch",
     "build_context_retrieval_plan",
     "calculate_boost",
     "context_search",
