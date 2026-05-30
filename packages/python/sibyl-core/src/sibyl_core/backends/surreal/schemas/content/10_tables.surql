@@ -24,7 +24,7 @@ DEFINE FIELD IF NOT EXISTS updated_at ON crawl_sources TYPE datetime DEFAULT tim
 
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_uuid ON crawl_sources FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_org ON crawl_sources FIELDS organization_id;
-DEFINE INDEX IF NOT EXISTS idx_crawl_sources_url ON crawl_sources FIELDS url UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_crawl_sources_org_url ON crawl_sources FIELDS organization_id, url UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_status ON crawl_sources FIELDS crawl_status;
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_name_ft ON crawl_sources FIELDS name FULLTEXT ANALYZER title_analyzer BM25;
 
@@ -54,7 +54,7 @@ DEFINE FIELD IF NOT EXISTS updated_at ON crawled_documents TYPE datetime DEFAULT
 
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_uuid ON crawled_documents FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_source ON crawled_documents FIELDS source_id;
-DEFINE INDEX IF NOT EXISTS idx_crawled_documents_url ON crawled_documents FIELDS url UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_crawled_documents_source_url ON crawled_documents FIELDS source_id, url UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_crawled_at ON crawled_documents FIELDS crawled_at;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_title_ft ON crawled_documents FIELDS title FULLTEXT ANALYZER title_analyzer BM25;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_content_ft ON crawled_documents FIELDS content FULLTEXT ANALYZER content_analyzer BM25;

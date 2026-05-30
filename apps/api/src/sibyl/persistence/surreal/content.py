@@ -1021,8 +1021,10 @@ async def create_crawl_source_record(
         except Exception as exc:
             duplicate = await _select_one(
                 client,
-                "SELECT * FROM crawl_sources WHERE url = $url LIMIT 1;",
+                "SELECT * FROM crawl_sources "
+                "WHERE url = $url AND organization_id = $organization_id LIMIT 1;",
                 url=normalized_url,
+                organization_id=str(organization_id),
             )
             if duplicate is not None:
                 raise SourceAlreadyExistsError(normalized_url) from exc

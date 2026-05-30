@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
+from sibyl.crawler.service import SourceAlreadyExistsError
 from sibyl.persistence import content_archive
 from sibyl.persistence.backups_common import BackupRecord, BackupSettingsRecord
 from sibyl.persistence.content_archive import restore_content_archive_payload
@@ -423,6 +424,212 @@ async def test_surreal_content_schema_bootstrap_creates_tables(
         "backups",
     ):
         assert table_name in tables
+
+
+@pytest.mark.asyncio
+async def test_surreal_content_allows_same_source_url_across_orgs(
+    surreal_content_client: SurrealContentClient,
+) -> None:
+    org_a = uuid4()
+    org_b = uuid4()
+
+    @asynccontextmanager
+    async def fake_content_client():
+        yield surreal_content_client
+
+    with patch("sibyl.persistence.surreal.content.surreal_content_client", fake_content_client):
+        first = await create_crawl_source_record(
+            None,
+            name="Docs A",
+            url="https://docs.example.com/",
+            organization_id=org_a,
+            source_type=SourceType.WEBSITE,
+            description=None,
+            crawl_depth=2,
+            include_patterns=None,
+            exclude_patterns=None,
+        )
+        second = await create_crawl_source_record(
+            None,
+            name="Docs B",
+            url="https://docs.example.com/",
+            organization_id=org_b,
+            source_type=SourceType.WEBSITE,
+            description=None,
+            crawl_depth=2,
+            include_patterns=None,
+            exclude_patterns=None,
+        )
+
+    assert first.url == "https://docs.example.com"
+    assert second.url == "https://docs.example.com"
+    assert first.organization_id == org_a
+    assert second.organization_id == org_b
+
+
+@pytest.mark.asyncio
+async def test_surreal_content_rejects_duplicate_source_url_in_same_org(
+    surreal_content_client: SurrealContentClient,
+) -> None:
+    org_id = uuid4()
+
+    @asynccontextmanager
+    async def fake_content_client():
+        yield surreal_content_client
+
+    with patch("sibyl.persistence.surreal.content.surreal_content_client", fake_content_client):
+        await create_crawl_source_record(
+            None,
+            name="Docs",
+            url="https://docs.example.com/",
+            organization_id=org_id,
+            source_type=SourceType.WEBSITE,
+            description=None,
+            crawl_depth=2,
+            include_patterns=None,
+            exclude_patterns=None,
+        )
+
+        with pytest.raises(SourceAlreadyExistsError):
+            await create_crawl_source_record(
+                None,
+                name="Docs Again",
+                url="https://docs.example.com",
+                organization_id=org_id,
+                source_type=SourceType.WEBSITE,
+                description=None,
+                crawl_depth=2,
+                include_patterns=None,
+                exclude_patterns=None,
+            )
+
+
+@pytest.mark.asyncio
+async def test_surreal_content_allows_same_document_url_across_sources(
+    surreal_content_client: SurrealContentClient,
+) -> None:
+    org_id = uuid4()
+
+    @asynccontextmanager
+    async def fake_content_client():
+        yield surreal_content_client
+
+    with patch("sibyl.persistence.surreal.content.surreal_content_client", fake_content_client):
+        first_source = await create_crawl_source_record(
+            None,
+            name="Docs A",
+            url="https://docs-a.example.com",
+            organization_id=org_id,
+            source_type=SourceType.WEBSITE,
+            description=None,
+            crawl_depth=2,
+            include_patterns=None,
+            exclude_patterns=None,
+        )
+        second_source = await create_crawl_source_record(
+            None,
+            name="Docs B",
+            url="https://docs-b.example.com",
+            organization_id=org_id,
+            source_type=SourceType.WEBSITE,
+            description=None,
+            crawl_depth=2,
+            include_patterns=None,
+            exclude_patterns=None,
+        )
+        first_document = await save_crawled_document_record(
+            None,
+            document=CrawledDocumentRecord(
+                source_id=first_source.id,
+                url="https://shared.example.com/page",
+                title="Shared",
+            ),
+        )
+        second_document = await save_crawled_document_record(
+            None,
+            document=CrawledDocumentRecord(
+                source_id=second_source.id,
+                url="https://shared.example.com/page",
+                title="Shared",
+            ),
+        )
+
+    assert first_document.url == second_document.url
+    assert first_document.source_id == first_source.id
+    assert second_document.source_id == second_source.id
+
+
+@pytest.mark.asyncio
+async def test_content_schema_migration_rejects_duplicate_source_urls() -> None:
+    client = SurrealContentClient(url="memory://")
+    org_id = str(uuid4())
+    now = datetime.now(UTC).replace(tzinfo=None)
+    try:
+        await client.execute_query(
+            "CREATE schema_version:content CONTENT $record;",
+            record={
+                "name": "content",
+                "version": 1,
+                "migrations": [{"version": 1, "name": "content_schema_bootstrap"}],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        for name in ("Docs A", "Docs B"):
+            await client.execute_query(
+                "CREATE crawl_sources CONTENT $record;",
+                record={
+                    "uuid": str(uuid4()),
+                    "organization_id": org_id,
+                    "name": name,
+                    "url": "https://docs.example.com",
+                    "source_type": SourceType.WEBSITE.value,
+                },
+            )
+
+        with pytest.raises(RuntimeError, match="duplicate organization_id/url"):
+            await bootstrap_content_schema(client)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_content_schema_migration_rejects_duplicate_document_urls() -> None:
+    client = SurrealContentClient(url="memory://")
+    source_id = str(uuid4())
+    now = datetime.now(UTC).replace(tzinfo=None)
+    try:
+        await client.execute_query(
+            "CREATE schema_version:content CONTENT $record;",
+            record={
+                "name": "content",
+                "version": 2,
+                "migrations": [
+                    {"version": 1, "name": "content_schema_bootstrap"},
+                    {"version": 2, "name": "content_source_url_org_scope"},
+                ],
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        for title in ("Page A", "Page B"):
+            await client.execute_query(
+                "CREATE crawled_documents CONTENT $record;",
+                record={
+                    "uuid": str(uuid4()),
+                    "source_id": source_id,
+                    "url": "https://docs.example.com/page",
+                    "title": title,
+                    "raw_content": "",
+                    "content": "",
+                    "content_hash": "",
+                },
+            )
+
+        with pytest.raises(RuntimeError, match="duplicate source_id/url"):
+            await bootstrap_content_schema(client)
+    finally:
+        await client.close()
 
 
 @pytest.mark.asyncio
