@@ -9,6 +9,7 @@ from sibyl_core.models.entities import Entity, EntityType, RelationshipType
 from sibyl_core.models.memory_extraction import ExtractedMemoryEntity
 from sibyl_core.projection import (
     extract_projected_memory_entities,
+    extract_projected_memory_facts,
     project_extracted_memory_entities,
     project_memory_entities,
     project_memory_entity,
@@ -47,9 +48,35 @@ def test_extract_projected_memory_entities_finds_memory_handles() -> None:
     assert "Maya" in names
 
 
+def test_extract_projected_memory_facts_materializes_typed_evidence() -> None:
+    source = _session(
+        "I've been watching documentaries lately, especially on Netflix.",
+        metadata={"valid_at": "2026/01/08 09:00"},
+    )
+
+    facts = extract_projected_memory_facts(source)
+
+    assert facts
+    fact = facts[0]
+    assert fact.entity_type == EntityType.EVENT
+    assert {"service", "media"} <= set(fact.categories)
+    assert "recency" in fact.relations
+    assert "Netflix" in fact.span
+    assert "Valid at: 2026/01/08 09:00" in fact.content
+
+
+def test_extract_projected_memory_facts_uses_fact_confidence_floor() -> None:
+    source = _session("Watching documentaries on Netflix can be relaxing.")
+
+    assert not extract_projected_memory_facts(source)
+
+
 @pytest.mark.asyncio
 async def test_project_memory_entity_creates_projected_entities_and_mentions() -> None:
-    source = _session("I bought a Samsung TV for the den.")
+    source = _session(
+        "I bought a Samsung TV for the den.",
+        metadata={"source_id": "raw-session-source"},
+    )
     entity_manager = SimpleNamespace(
         create_direct_bulk=AsyncMock(
             side_effect=lambda entities, **_: [entity.id for entity in entities]
@@ -67,19 +94,35 @@ async def test_project_memory_entity_creates_projected_entities_and_mentions() -
 
     assert result.extracted >= 1
     assert result.projected_entities >= 1
-    assert result.relationships == 1
+    assert result.relationships >= 1
 
     entity_manager.create_direct_bulk.assert_awaited_once()
     created_entities = entity_manager.create_direct_bulk.await_args.args[0]
     assert created_entities[0].entity_type == EntityType.TOPIC
     assert "I bought a Samsung TV" in created_entities[0].content
+    fact_entities = [
+        entity
+        for entity in created_entities
+        if entity.metadata.get("category") == "memory_fact_projection"
+    ]
+    assert fact_entities
+    assert fact_entities[0].entity_type == EntityType.EVENT
+    assert fact_entities[0].metadata["projection_kind"] == "memory_fact"
+    assert fact_entities[0].metadata["valid_at"] == "2026/01/03 12:00"
+    assert fact_entities[0].metadata["source_id"] == "raw-session-source"
+    assert fact_entities[0].metadata["source_entity_id"] == source.id
 
     relationship_manager.create_bulk.assert_awaited_once()
     relationships = relationship_manager.create_bulk.await_args.args[0]
-    assert relationships[0].relationship_type == RelationshipType.MENTIONS
-    assert relationships[0].source_id == source.id
-    assert relationships[0].metadata["auto_projected"] is True
-    assert relationships[0].metadata["valid_at"] == "2026/01/03 12:00"
+    assert all(
+        relationship.relationship_type == RelationshipType.MENTIONS
+        for relationship in relationships
+    )
+    assert all(relationship.source_id == source.id for relationship in relationships)
+    assert all(relationship.metadata["auto_projected"] is True for relationship in relationships)
+    assert all(
+        relationship.metadata["valid_at"] == "2026/01/03 12:00" for relationship in relationships
+    )
 
 
 @pytest.mark.asyncio
@@ -104,11 +147,16 @@ async def test_project_memory_entities_batches_and_dedupes_targets() -> None:
     )
 
     assert result.sources == 2
-    assert result.projected_entities == 1
-    assert result.relationships == 2
+    assert result.projected_entities >= 1
+    assert result.relationships >= 2
 
     created_entities = entity_manager.create_direct_bulk.await_args.args[0]
-    assert [entity.name for entity in created_entities] == ["Samsung TV"]
+    topic_entities = [
+        entity
+        for entity in created_entities
+        if entity.metadata.get("category") == "memory_projection"
+    ]
+    assert [entity.name for entity in topic_entities] == ["Samsung TV"]
 
 
 @pytest.mark.asyncio

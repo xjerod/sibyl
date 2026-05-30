@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 import sibyl_core.retrieval.hybrid as hybrid_module
@@ -1558,6 +1560,116 @@ def test_context_query_coverage_preserves_base_order_for_thin_query() -> None:
     )
 
     assert [candidate.id for candidate, _score, _meta in reranked] == ["first", "second"]
+
+
+def test_context_query_coverage_prefers_valid_at_timestamp() -> None:
+    fact = RetrievalCandidate(
+        id="fact",
+        type="event",
+        name="Event: Disney Plus free trial",
+        content="Evidence: I started a Disney+ free trial last month.",
+        score=1.0,
+        source=None,
+        metadata={"valid_at": "2026/01/08 09:00"},
+        created_at=datetime(2026, 5, 1, tzinfo=UTC),
+    )
+    captured: list[datetime | None] = []
+
+    def spy(query, items, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs["timestamp_fn"](fact))
+        return items, False, False
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(search_module, "rank_items_by_query_coverage", spy)
+    try:
+        search_module._apply_query_coverage_to_fused(
+            "Which streaming service did I start using most recently?",
+            [_fused_entry(fact, 1.0)],
+            temporal_target=None,
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert captured == [datetime(2026, 1, 8, 9, 0, tzinfo=UTC)]
+
+
+def test_context_query_coverage_promotes_projected_fact_card() -> None:
+    candidates = [
+        RetrievalCandidate(
+            id="streaming-device",
+            type="session",
+            name="Streaming advice",
+            content="User: I asked about streaming device recommendations for my living room.",
+            score=1.0,
+            source=None,
+            metadata={},
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        RetrievalCandidate(
+            id="internet-service",
+            type="session",
+            name="Internet service",
+            content="User: I compared internet service bundles for the apartment.",
+            score=0.99,
+            source=None,
+            metadata={},
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        RetrievalCandidate(
+            id="media-cabinet",
+            type="session",
+            name="Media cabinet",
+            content="User: I updated media cabinet cable labels.",
+            score=0.98,
+            source=None,
+            metadata={},
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        RetrievalCandidate(
+            id="free-trial-reminders",
+            type="session",
+            name="Trial reminders",
+            content="User: I read about free trial cancellation reminders.",
+            score=0.97,
+            source=None,
+            metadata={},
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        RetrievalCandidate(
+            id="movie-snacks",
+            type="session",
+            name="Movie snacks",
+            content="User: I planned movie night snacks for Friday.",
+            score=0.96,
+            source=None,
+            metadata={},
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        RetrievalCandidate(
+            id="projected-fact",
+            type="event",
+            name="Event: I started a Disney free trial last month",
+            content=(
+                "Evidence: I started a Disney+ free trial last month.\n"
+                "Actions: use\n"
+                "Categories: media, service\n"
+                "Relations: recency\n"
+                "Terms: started, disney, free, trial"
+            ),
+            score=0.75,
+            source=None,
+            metadata={"valid_at": "2026/01/08 09:00"},
+            created_at=datetime(2026, 5, 1, tzinfo=UTC),
+        ),
+    ]
+
+    reranked = search_module._apply_query_coverage_to_fused(
+        "Which streaming service did I start using most recently?",
+        [_fused_entry(candidate, candidate.score) for candidate in candidates],
+        temporal_target=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+
+    assert "projected-fact" in [candidate.id for candidate, _score, _meta in reranked[:5]]
 
 
 def test_scope_decisions_includes_project_less_agent_diary_scope() -> None:

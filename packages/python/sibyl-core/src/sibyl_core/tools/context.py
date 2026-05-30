@@ -66,6 +66,8 @@ FACET_TYPES = {
     ContextFacet.VERIFICATION: ["claim", "rule", "procedure"],
 }
 
+_RECENT_MEMORY_FACT_TYPES = ("claim", "event", "preference")
+
 INTENT_FACETS = {
     ContextIntent.BUILD: [
         ContextFacet.ACTIVE_WORK,
@@ -661,7 +663,10 @@ def _types_for_facets(facets: Sequence[ContextFacet]) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
     for facet in facets:
-        for entity_type in FACET_TYPES[facet]:
+        entity_types = FACET_TYPES[facet]
+        if facet is ContextFacet.RECENT_MEMORY:
+            entity_types = [*entity_types, *_RECENT_MEMORY_FACT_TYPES]
+        for entity_type in entity_types:
             normalized = entity_type.lower()
             if normalized in seen:
                 continue

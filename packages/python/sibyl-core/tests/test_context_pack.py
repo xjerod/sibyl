@@ -97,6 +97,15 @@ def _types_include(kwargs: dict[str, Any], facet: ContextFacet) -> bool:
     return not requested or bool(requested.intersection(FACET_TYPES[facet]))
 
 
+def test_recent_memory_types_include_projected_fact_cards() -> None:
+    types = context_module._types_for_facets([ContextFacet.RECENT_MEMORY])
+
+    assert {"claim", "event", "preference"} <= set(types)
+    assert context_module._facet_for_type("event", [ContextFacet.RECENT_MEMORY]) == (
+        ContextFacet.RECENT_MEMORY
+    )
+
+
 @pytest.mark.asyncio
 async def test_compile_context_groups_build_context_by_agent_facets(
     monkeypatch: pytest.MonkeyPatch,
