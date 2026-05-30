@@ -1,14 +1,15 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { KanbanBoard } from '@/components/tasks/kanban-board';
 import { type QuickTaskData, QuickTaskModal } from '@/components/tasks/quick-task-modal';
 import { TaskListMobile } from '@/components/tasks/task-list-mobile';
+import { RemovableBadge } from '@/components/ui/badge';
 import { CommandPalette, useKeyboardShortcuts } from '@/components/ui/command-palette';
 import { TasksEmptyState } from '@/components/ui/empty-state';
-import { Hash, Search, X } from '@/components/ui/icons';
+import { ChevronDown, Hash, Search, X } from '@/components/ui/icons';
 import { LoadingState } from '@/components/ui/spinner';
 import { TagChip } from '@/components/ui/toggle';
 import { ErrorState } from '@/components/ui/tooltip';
@@ -28,6 +29,21 @@ function TasksPageContent() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isQuickTaskOpen, setIsQuickTaskOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [tagSearch, setTagSearch] = useState('');
+  const tagMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the tag menu on outside click
+  useEffect(() => {
+    if (!tagMenuOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (tagMenuRef.current && !tagMenuRef.current.contains(event.target as Node)) {
+        setTagMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [tagMenuOpen]);
 
   const { data: tasksData, isLoading, error } = useTasks({ project_ids: projectFilters });
   const { data: projectsData } = useProjects();
@@ -54,6 +70,13 @@ function TasksPageContent() {
     }
     return Array.from(tagSet).sort();
   }, [allTasks]);
+
+  // Tags shown inside the filter menu, narrowed by the menu's search box
+  const filteredTags = useMemo(() => {
+    const query = tagSearch.trim().toLowerCase();
+    if (!query) return allTags;
+    return allTags.filter(tag => tag.toLowerCase().includes(query));
+  }, [allTags, tagSearch]);
 
   // Filter tasks by tag and search query
   const tasks = useMemo(() => {
@@ -188,31 +211,79 @@ function TasksPageContent() {
           </button>
         </div>
 
-        {/* Tag Filter - Desktop only */}
+        {/* Tag Filter - contained popover so it never floods the board */}
         {allTags.length > 0 && (
-          <div className="hidden sm:flex flex-wrap items-center gap-2">
-            <span className="text-xs text-sc-fg-subtle font-medium flex items-center gap-1">
-              <Hash width={12} height={12} />
-              Tags:
-            </span>
-            {tagFilter && (
+          <div className="hidden sm:flex items-center gap-2">
+            <div ref={tagMenuRef} className="relative">
               <button
                 type="button"
-                onClick={() => handleTagFilter(null)}
-                className="text-xs text-sc-fg-muted hover:text-sc-fg-primary flex items-center gap-1 px-2 py-0.5 rounded bg-sc-bg-elevated hover:bg-sc-bg-highlight transition-colors"
+                onClick={() => setTagMenuOpen(open => !open)}
+                aria-expanded={tagMenuOpen}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base ${
+                  tagFilter
+                    ? 'bg-sc-purple/10 text-sc-purple border-sc-purple/30'
+                    : 'text-sc-fg-muted border-sc-fg-subtle/20 hover:text-sc-fg-primary hover:border-sc-fg-subtle/40'
+                }`}
               >
-                <X width={12} height={12} />
-                Clear
+                <Hash width={12} height={12} />
+                <span>Filter tags</span>
+                {allTags.length > 0 && (
+                  <span className="text-sc-fg-subtle">({allTags.length})</span>
+                )}
+                <ChevronDown
+                  width={12}
+                  height={12}
+                  className={`transition-transform ${tagMenuOpen ? 'rotate-180' : ''}`}
+                />
               </button>
+
+              {tagMenuOpen && (
+                <div className="absolute top-full left-0 mt-1.5 w-72 bg-sc-bg-elevated border border-sc-fg-subtle/20 rounded-xl shadow-card-elevated z-50 overflow-hidden animate-fade-in">
+                  <div className="p-2 border-b border-sc-fg-subtle/10">
+                    <div className="relative">
+                      <Search
+                        width={14}
+                        height={14}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 text-sc-fg-subtle"
+                      />
+                      <input
+                        type="text"
+                        value={tagSearch}
+                        onChange={e => setTagSearch(e.target.value)}
+                        placeholder="Search tags..."
+                        // biome-ignore lint/a11y/noAutofocus: focus the search when the menu opens
+                        autoFocus
+                        className="w-full pl-7 pr-2 py-1.5 text-xs bg-sc-bg-highlight border border-sc-fg-subtle/20 rounded-lg text-sc-fg-primary placeholder:text-sc-fg-subtle focus-visible:outline-none focus-visible:border-sc-purple/50"
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto p-2 flex flex-wrap gap-1.5">
+                    {filteredTags.length === 0 ? (
+                      <span className="text-xs text-sc-fg-subtle px-1 py-2">No matching tags</span>
+                    ) : (
+                      filteredTags.map(tag => (
+                        <TagChip
+                          key={tag}
+                          tag={tag}
+                          active={tagFilter === tag}
+                          onClick={() => {
+                            handleTagFilter(tagFilter === tag ? null : tag);
+                            setTagMenuOpen(false);
+                            setTagSearch('');
+                          }}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {tagFilter && (
+              <RemovableBadge color="purple" onRemove={() => handleTagFilter(null)}>
+                {tagFilter}
+              </RemovableBadge>
             )}
-            {allTags.map(tag => (
-              <TagChip
-                key={tag}
-                tag={tag}
-                active={tagFilter === tag}
-                onClick={() => handleTagFilter(tagFilter === tag ? null : tag)}
-              />
-            ))}
           </div>
         )}
       </div>
