@@ -943,6 +943,22 @@ function GraphPageContent() {
   const graphData = useMemo(() => {
     if (!data) return { nodes: [], links: [], maxDegree: 1, matchCount: 0 };
 
+    // react-force-graph mutates each link's source/target from string IDs into
+    // node-object refs in place. Those refs leak into the React Query cache, so
+    // on revisit the edges point at dead nodes — the link force finds nothing
+    // and the graph scatters with no edges. Hand the library FRESH link objects
+    // with the string IDs recovered, every time.
+    const freshLinks = (edges: typeof data.edges) =>
+      edges.map(edge => {
+        const source = edge.source as unknown as string | { id: string };
+        const target = edge.target as unknown as string | { id: string };
+        return {
+          ...edge,
+          source: typeof source === 'object' && source !== null ? source.id : source,
+          target: typeof target === 'object' && target !== null ? target.id : target,
+        };
+      });
+
     // Build node ID set (also filters by cluster if selected)
     const clusterNodeIds = new Set<string>();
     const nodeIdToNode = new Map<string, (typeof data.nodes)[0]>();
@@ -1025,7 +1041,7 @@ function GraphPageContent() {
       }
 
       graphNodes.sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
-      return { nodes: graphNodes, links: filteredEdges, maxDegree, matchCount };
+      return { nodes: graphNodes, links: freshLinks(filteredEdges), maxDegree, matchCount };
     }
 
     // No cluster filter - show all nodes
@@ -1081,7 +1097,7 @@ function GraphPageContent() {
     // Sort by zIndex so important nodes render last (on top)
     graphNodes.sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
 
-    return { nodes: graphNodes, links: filteredEdges, maxDegree, matchCount };
+    return { nodes: graphNodes, links: freshLinks(filteredEdges), maxDegree, matchCount };
   }, [data, selectedCluster, clusterColorMap, matchesSearch]);
 
   useEffect(() => {
