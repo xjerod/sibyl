@@ -31,6 +31,7 @@ CONTENT_RELATION_TABLES = (
     "derived_from",
     "chunk_of",
     "supersedes",
+    "extracted_into",
 )
 CONTENT_TABLES = (
     *CONTENT_RELATION_TABLES,
@@ -46,7 +47,7 @@ CONTENT_TABLES = (
     "backup_settings",
     "backups",
 )
-CONTENT_SCHEMA_CURRENT_VERSION = 11
+CONTENT_SCHEMA_CURRENT_VERSION = 12
 CONTENT_SCHEMA_NAME = "content"
 _SCHEMA_CHECK_BATCH_SIZE = 128
 _CONTENT_MEMORY_SCOPE_VALUES = tuple(scope.value for scope in MemoryScope)
@@ -192,6 +193,8 @@ ALTER TABLE IF EXISTS chunk_of PERMISSIONS
     FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
 ALTER TABLE IF EXISTS supersedes PERMISSIONS
     FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS extracted_into PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
 """
 
 CONTENT_RAW_CAPTURE_CHANGEFEED_MIGRATION_DEFINITIONS = """
@@ -287,6 +290,36 @@ DEFINE INDEX IF NOT EXISTS idx_supersedes_org_raw ON supersedes FIELDS organizat
 DEFINE INDEX IF NOT EXISTS idx_supersedes_org_superseded ON supersedes FIELDS organization_id, superseded_raw_memory_id;
 ALTER TABLE IF EXISTS supersedes PERMISSIONS
     FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+
+DEFINE TABLE IF NOT EXISTS extracted_into SCHEMAFULL TYPE RELATION IN entity OUT document_chunks;
+DEFINE FIELD IF NOT EXISTS uuid ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS entity_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS chunk_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS document_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS source_id ON extracted_into TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON extracted_into TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_uuid ON extracted_into FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_org_entity ON extracted_into FIELDS organization_id, entity_id;
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_org_chunk ON extracted_into FIELDS organization_id, chunk_id;
+ALTER TABLE IF EXISTS extracted_into PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+"""
+
+CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS = """
+DEFINE TABLE IF NOT EXISTS extracted_into SCHEMAFULL TYPE RELATION IN entity OUT document_chunks;
+DEFINE FIELD IF NOT EXISTS uuid ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS entity_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS chunk_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS document_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS source_id ON extracted_into TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON extracted_into TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_uuid ON extracted_into FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_org_entity ON extracted_into FIELDS organization_id, entity_id;
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_org_chunk ON extracted_into FIELDS organization_id, chunk_id;
+ALTER TABLE IF EXISTS extracted_into PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
 """
 
 
@@ -360,6 +393,13 @@ def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
                         url=url,
                     )
                 )
+            ),
+        ),
+        SchemaMigration(
+            version=12,
+            name="content_extracted_into_relation_table",
+            statements=tuple(
+                split_statements(CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS)
             ),
         ),
     )
@@ -657,6 +697,7 @@ __all__ = [
     "CONTENT_CHILD_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_DOCUMENT_URL_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS",
+    "CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS",
     "CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS",
     "CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS",
     "CONTENT_PERMISSION_MIGRATION_DEFINITIONS",

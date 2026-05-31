@@ -109,7 +109,7 @@ FOR $edge_record IN $edges {
     )[0];
     IF $raw != NONE AND $import_id != NONE {
         LET $raw_id = $raw.id;
-        LET $edge = type::thing('derived_from', $edge_record.uuid);
+        LET $edge = type::record($edge_record.edge_ref);
         LET $existing_edge = (SELECT VALUE id FROM derived_from WHERE id = $edge LIMIT 1)[0];
         IF $existing_edge = NONE {
             RELATE $raw_id->$edge->$import_id CONTENT {
@@ -155,7 +155,7 @@ FOR $edge_record IN $edges {
         LIMIT 1
     )[0];
     IF $chunk_id != NONE AND $document_id != NONE {
-        LET $edge = type::thing('chunk_of', $edge_record.uuid);
+        LET $edge = type::record($edge_record.edge_ref);
         LET $existing_edge = (SELECT VALUE id FROM chunk_of WHERE id = $edge LIMIT 1)[0];
         IF $existing_edge = NONE {
             RELATE $chunk_id->$edge->$document_id CONTENT $edge_record;
@@ -195,7 +195,7 @@ FOR $edge_record IN $edges {
     )[0];
     IF $raw != NONE AND $superseded_id != NONE {
         LET $raw_id = $raw.id;
-        LET $edge = type::thing('supersedes', $edge_record.uuid);
+        LET $edge = type::record($edge_record.edge_ref);
         LET $existing_edge = (SELECT VALUE id FROM supersedes WHERE id = $edge LIMIT 1)[0];
         IF $existing_edge = NONE {
             RELATE $raw_id->$edge->$superseded_id CONTENT {
@@ -213,6 +213,41 @@ FOR $edge_record IN $edges {
                 raw_memory_id = $edge_record.raw_memory_id,
                 superseded_raw_memory_id = $edge_record.superseded_raw_memory_id,
                 source_id = $raw.source_id;
+        };
+    };
+};
+"""
+_EXTRACTED_INTO_LINEAGE_CANDIDATE_QUERY = """
+    SELECT id, uuid, organization_id, source_id, document_id, entity_ids, created_at
+    FROM document_chunks
+    WHERE organization_id = $organization_id
+        AND entity_ids != NONE
+        AND array::len(entity_ids) > 0
+    ORDER BY created_at ASC, uuid ASC
+    LIMIT $page_size START $offset;
+"""
+_EXTRACTED_INTO_LINEAGE_RELATE_QUERY = """
+FOR $edge_record IN $edges {
+    LET $chunk_id = (
+        SELECT VALUE id FROM document_chunks
+        WHERE organization_id = $edge_record.organization_id
+            AND uuid = $edge_record.chunk_id
+        LIMIT 1
+    )[0];
+    IF $chunk_id != NONE {
+        LET $entity_id = type::record($edge_record.entity_ref);
+        LET $edge = type::record($edge_record.edge_ref);
+        LET $existing_edge = (SELECT VALUE id FROM extracted_into WHERE id = $edge LIMIT 1)[0];
+        IF $existing_edge = NONE {
+            RELATE $entity_id->$edge->$chunk_id CONTENT $edge_record;
+        } ELSE {
+            UPDATE $edge SET
+                uuid = $edge_record.uuid,
+                organization_id = $edge_record.organization_id,
+                entity_id = $edge_record.entity_id,
+                chunk_id = $edge_record.chunk_id,
+                document_id = $edge_record.document_id,
+                source_id = $edge_record.source_id;
         };
     };
 };
@@ -333,6 +368,7 @@ class ContentLineageBackfillResult:
     derived_from: int = 0
     chunk_of: int = 0
     supersedes: int = 0
+    extracted_into: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1042,6 +1078,11 @@ def _lineage_edge_id(prefix: str, organization_id: str, *parts: str) -> str:
     return f"{prefix}_{digest}"
 
 
+def _lineage_record_ref(table: str, record_id: str) -> str:
+    escaped = record_id.replace("\\", "\\\\").replace("`", "\\`")
+    return f"{table}:`{escaped}`"
+
+
 def _lineage_edge_batches(
     edges: Sequence[SurrealRecord],
     *,
@@ -1171,14 +1212,16 @@ async def _materialize_derived_from_lineage(
         for row in rows:
             source_import_id = _coerce_str(row.get("uuid"))
             for raw_memory_id in _coerce_str_list(row.get("raw_memory_ids")):
+                edge_uuid = _lineage_edge_id(
+                    "derived_from",
+                    organization_id,
+                    raw_memory_id,
+                    source_import_id,
+                )
                 edges.append(
                     {
-                        "uuid": _lineage_edge_id(
-                            "derived_from",
-                            organization_id,
-                            raw_memory_id,
-                            source_import_id,
-                        ),
+                        "uuid": edge_uuid,
+                        "edge_ref": _lineage_record_ref("derived_from", edge_uuid),
                         "organization_id": organization_id,
                         "raw_memory_id": raw_memory_id,
                         "source_import_id": source_import_id,
@@ -1230,12 +1273,8 @@ async def _materialize_chunk_of_lineage(
         offset += len(rows)
         edges: list[SurrealRecord] = [
             {
-                "uuid": _lineage_edge_id(
-                    "chunk_of",
-                    organization_id,
-                    _coerce_str(row.get("uuid")),
-                    _coerce_str(row.get("document_id")),
-                ),
+                "uuid": edge_uuid,
+                "edge_ref": _lineage_record_ref("chunk_of", edge_uuid),
                 "organization_id": organization_id,
                 "chunk_id": _coerce_str(row.get("uuid")),
                 "document_id": _coerce_str(row.get("document_id")),
@@ -1243,6 +1282,14 @@ async def _materialize_chunk_of_lineage(
                 "created_at": _utcnow(),
             }
             for row in rows
+            for edge_uuid in [
+                _lineage_edge_id(
+                    "chunk_of",
+                    organization_id,
+                    _coerce_str(row.get("uuid")),
+                    _coerce_str(row.get("document_id")),
+                )
+            ]
         ]
         existing_document_ids = await _existing_content_uuids(
             client,
@@ -1293,14 +1340,16 @@ async def _materialize_supersedes_lineage(
             if not superseded_id:
                 continue
             raw_memory_id = _coerce_str(row.get("uuid"))
+            edge_uuid = _lineage_edge_id(
+                "supersedes",
+                organization_id,
+                raw_memory_id,
+                superseded_id,
+            )
             edges.append(
                 {
-                    "uuid": _lineage_edge_id(
-                        "supersedes",
-                        organization_id,
-                        raw_memory_id,
-                        superseded_id,
-                    ),
+                    "uuid": edge_uuid,
+                    "edge_ref": _lineage_record_ref("supersedes", edge_uuid),
                     "organization_id": organization_id,
                     "raw_memory_id": raw_memory_id,
                     "superseded_raw_memory_id": superseded_id,
@@ -1332,6 +1381,62 @@ async def _materialize_supersedes_lineage(
     return await _lineage_total_count(client, "supersedes", organization_id=organization_id)
 
 
+async def _materialize_extracted_into_lineage(
+    client: SurrealContentClient,
+    *,
+    organization_id: str,
+    limit: int,
+) -> int:
+    remaining = limit
+    offset = 0
+    page_size = min(max(limit, 1), _DEFAULT_BATCH_SIZE)
+    while remaining > 0:
+        rows = await _select_many(
+            client,
+            _EXTRACTED_INTO_LINEAGE_CANDIDATE_QUERY,
+            organization_id=organization_id,
+            page_size=page_size,
+            offset=offset,
+        )
+        if not rows:
+            break
+        offset += len(rows)
+        edges: list[SurrealRecord] = []
+        for row in rows:
+            chunk_id = _coerce_str(row.get("uuid"))
+            for entity_id in _coerce_str_list(row.get("entity_ids")):
+                edge_uuid = _lineage_edge_id(
+                    "extracted_into",
+                    organization_id,
+                    entity_id,
+                    chunk_id,
+                )
+                edges.append(
+                    {
+                        "uuid": edge_uuid,
+                        "edge_ref": _lineage_record_ref("extracted_into", edge_uuid),
+                        "entity_ref": _lineage_record_ref("entity", entity_id),
+                        "organization_id": organization_id,
+                        "entity_id": entity_id,
+                        "chunk_id": chunk_id,
+                        "document_id": _coerce_str(row.get("document_id")),
+                        "source_id": _coerce_optional_str(row.get("source_id")),
+                        "created_at": _utcnow(),
+                    }
+                )
+        pending = await _pending_lineage_edges(client, "extracted_into", edges)
+        batch = pending[:remaining]
+        if batch:
+            await _write_lineage_edges(
+                client,
+                _EXTRACTED_INTO_LINEAGE_RELATE_QUERY,
+                edges=batch,
+                organization_id=organization_id,
+            )
+            remaining -= len(batch)
+    return await _lineage_total_count(client, "extracted_into", organization_id=organization_id)
+
+
 async def materialize_content_lineage(
     client: SurrealContentClient,
     *,
@@ -1357,10 +1462,16 @@ async def materialize_content_lineage(
         organization_id=organization_id,
         limit=bounded_limit,
     )
+    extracted_into_count = await _materialize_extracted_into_lineage(
+        client,
+        organization_id=organization_id,
+        limit=bounded_limit,
+    )
     return ContentLineageBackfillResult(
         derived_from=derived_from_count,
         chunk_of=chunk_of_count,
         supersedes=supersedes_count,
+        extracted_into=extracted_into_count,
     )
 
 

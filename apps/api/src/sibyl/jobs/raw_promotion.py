@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -34,6 +34,7 @@ from sibyl_core.observability import elapsed_ms
 from sibyl_core.services.source_adapters import build_source_record_id
 from sibyl_core.services.surreal_content import (
     RawMemory,
+    backfill_content_lineage,
     get_raw_memory_by_source_id,
     list_raw_memories_for_promotion,
     raw_memory_recallable,
@@ -117,7 +118,34 @@ async def promote_raw_captures(
             result["skipped_review_count"] += 1
 
     result["duration_ms"] = elapsed_ms(started_at)
+    if result["selected_count"]:
+        result["content_lineage"] = await _safe_content_lineage_backfill(
+            organization_id=organization_id,
+            limit=max(limit, result["chunk_count"], result["selected_count"]),
+        )
     return result
+
+
+async def _safe_content_lineage_backfill(
+    *,
+    organization_id: str,
+    limit: int,
+) -> dict[str, object]:
+    try:
+        return asdict(
+            await backfill_content_lineage(
+                organization_id=organization_id,
+                limit=max(limit, 1),
+            )
+        )
+    except Exception as exc:
+        log.warning(
+            "content_lineage_backfill_failed", organization_id=organization_id, error=str(exc)
+        )
+        return {
+            "error": str(exc),
+            "status": "failed",
+        }
 
 
 async def _promote_one(

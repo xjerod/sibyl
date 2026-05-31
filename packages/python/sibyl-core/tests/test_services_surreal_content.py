@@ -167,6 +167,7 @@ class TestSurrealContentHelpers:
                 DEFINE FIELD organization_id ON document_chunks TYPE string;
                 DEFINE FIELD source_id ON document_chunks TYPE string DEFAULT '';
                 DEFINE FIELD document_id ON document_chunks TYPE string;
+                DEFINE FIELD entity_ids ON document_chunks TYPE array<string> DEFAULT [];
                 DEFINE FIELD created_at ON document_chunks TYPE datetime DEFAULT time::now();
                 """
             )
@@ -231,6 +232,7 @@ class TestSurrealContentHelpers:
                     organization_id: 'org-1',
                     source_id: 'source-new',
                     document_id: 'doc-1',
+                    entity_ids: ['entity-a', 'entity-b'],
                     created_at: time::now()
                 };
                 CREATE document_chunks CONTENT {
@@ -238,6 +240,7 @@ class TestSurrealContentHelpers:
                     organization_id: 'org-1',
                     source_id: 'source-new',
                     document_id: 'doc-1',
+                    entity_ids: [],
                     created_at: time::now()
                 };
                 CREATE document_chunks CONTENT {
@@ -245,6 +248,7 @@ class TestSurrealContentHelpers:
                     organization_id: 'org-1',
                     source_id: 'source-new',
                     document_id: 'doc-1',
+                    entity_ids: ['entity-c'],
                     created_at: time::now()
                 };
                 """
@@ -271,15 +275,20 @@ class TestSurrealContentHelpers:
                 "SELECT raw_memory_id, superseded_raw_memory_id FROM supersedes "
                 "ORDER BY raw_memory_id;"
             )
+            extracted_into = await db.query(
+                "SELECT entity_id, chunk_id FROM extracted_into ORDER BY entity_id, chunk_id;"
+            )
         finally:
             await db.close()
 
         assert first.derived_from == 2
         assert first.chunk_of == 2
         assert first.supersedes == 2
+        assert first.extracted_into == 2
         assert second.derived_from == 3
         assert second.chunk_of == 3
         assert second.supersedes == 3
+        assert second.extracted_into == 3
         assert derived_from == [
             {"raw_memory_id": "raw-new-1", "source_import_id": "import-1"},
             {"raw_memory_id": "raw-new-2", "source_import_id": "import-1"},
@@ -294,6 +303,11 @@ class TestSurrealContentHelpers:
             {"raw_memory_id": "raw-new-1", "superseded_raw_memory_id": "raw-old-1"},
             {"raw_memory_id": "raw-new-2", "superseded_raw_memory_id": "raw-old-2"},
             {"raw_memory_id": "raw-new-3", "superseded_raw_memory_id": "raw-old-3"},
+        ]
+        assert extracted_into == [
+            {"entity_id": "entity-a", "chunk_id": "chunk-1"},
+            {"entity_id": "entity-b", "chunk_id": "chunk-1"},
+            {"entity_id": "entity-c", "chunk_id": "chunk-3"},
         ]
 
     @pytest.mark.asyncio
@@ -328,6 +342,7 @@ class TestSurrealContentHelpers:
                 DEFINE FIELD organization_id ON document_chunks TYPE string;
                 DEFINE FIELD source_id ON document_chunks TYPE string DEFAULT '';
                 DEFINE FIELD document_id ON document_chunks TYPE string;
+                DEFINE FIELD entity_ids ON document_chunks TYPE array<string> DEFAULT [];
                 DEFINE FIELD created_at ON document_chunks TYPE datetime DEFAULT time::now();
                 """
             )
@@ -378,6 +393,7 @@ class TestSurrealContentHelpers:
                     organization_id: 'org-1',
                     source_id: 'source-valid',
                     document_id: 'doc-missing',
+                    entity_ids: [],
                     created_at: time::now()
                 };
                 CREATE document_chunks CONTENT {
@@ -385,6 +401,7 @@ class TestSurrealContentHelpers:
                     organization_id: 'org-1',
                     source_id: 'source-valid',
                     document_id: 'doc-valid',
+                    entity_ids: ['entity-valid'],
                     created_at: time::now()
                 };
                 """
@@ -403,17 +420,20 @@ class TestSurrealContentHelpers:
             supersedes = await db.query(
                 "SELECT raw_memory_id, superseded_raw_memory_id FROM supersedes;"
             )
+            extracted_into = await db.query("SELECT entity_id, chunk_id FROM extracted_into;")
         finally:
             await db.close()
 
         assert result.derived_from == 1
         assert result.chunk_of == 1
         assert result.supersedes == 1
+        assert result.extracted_into == 1
         assert derived_from == [{"raw_memory_id": "raw-valid", "source_import_id": "import-1"}]
         assert chunk_of == [{"chunk_id": "chunk-valid", "document_id": "doc-valid"}]
         assert supersedes == [
             {"raw_memory_id": "raw-new-valid", "superseded_raw_memory_id": "raw-old-valid"}
         ]
+        assert extracted_into == [{"entity_id": "entity-valid", "chunk_id": "chunk-valid"}]
 
     @pytest.mark.asyncio
     async def test_surreal_content_client_creates_per_context_client(self) -> None:

@@ -246,6 +246,19 @@ DEFINE INDEX IF NOT EXISTS idx_supersedes_uuid ON supersedes FIELDS uuid UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_supersedes_org_raw ON supersedes FIELDS organization_id, raw_memory_id;
 DEFINE INDEX IF NOT EXISTS idx_supersedes_org_superseded ON supersedes FIELDS organization_id, superseded_raw_memory_id;
 
+DEFINE TABLE IF NOT EXISTS extracted_into SCHEMAFULL TYPE RELATION IN entity OUT document_chunks;
+DEFINE FIELD IF NOT EXISTS uuid ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS entity_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS chunk_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS document_id ON extracted_into TYPE string;
+DEFINE FIELD IF NOT EXISTS source_id ON extracted_into TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON extracted_into TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_uuid ON extracted_into FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_org_entity ON extracted_into FIELDS organization_id, entity_id;
+DEFINE INDEX IF NOT EXISTS idx_extracted_into_org_chunk ON extracted_into FIELDS organization_id, chunk_id;
+
 DEFINE TABLE IF NOT EXISTS system_settings SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS key ON system_settings TYPE string;
 DEFINE FIELD IF NOT EXISTS value ON system_settings TYPE string DEFAULT '';

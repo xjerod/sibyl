@@ -21,6 +21,7 @@ from sibyl_core.backends.surreal.auth_schema import (
 )
 from sibyl_core.backends.surreal.content_schema import (
     CONTENT_ANALYZER_DEFINITIONS,
+    CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS,
     CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS,
     CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS,
     CONTENT_PERMISSION_MIGRATION_DEFINITIONS,
@@ -361,7 +362,13 @@ def test_content_lineage_relation_tables_are_versioned() -> None:
     assert "IN raw_captures OUT raw_captures ENFORCED" in (
         CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS
     )
+    assert "IN entity OUT document_chunks" in CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS
     assert CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS.strip().splitlines()[0] in migration_sql
+    assert "content_extracted_into_relation_table" in [migration.name for migration in migrations]
+    assert (
+        CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS.strip().splitlines()[0]
+        in migration_sql
+    )
 
 
 def test_raw_capture_changefeed_cursor_is_versioned() -> None:
@@ -397,7 +404,7 @@ def test_content_highlight_snippets_and_code_analyzer_are_versioned() -> None:
     )
     migration_names = [migration.name for migration in migrations]
 
-    assert CONTENT_SCHEMA_CURRENT_VERSION == 11
+    assert CONTENT_SCHEMA_CURRENT_VERSION == 12
     assert "DEFINE ANALYZER IF NOT EXISTS code_analyzer" in CONTENT_ANALYZER_DEFINITIONS
     assert "idx_document_chunks_code_ft" in CONTENT_SCHEMA_DEFINITIONS
     assert "HIGHLIGHTS" in CONTENT_SCHEMA_DEFINITIONS

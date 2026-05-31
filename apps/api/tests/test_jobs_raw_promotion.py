@@ -11,7 +11,11 @@ from sibyl.jobs import raw_promotion
 from sibyl_core.models.entities import RelationshipType
 from sibyl_core.models.sources import SourceImportManifest
 from sibyl_core.services.source_adapters import build_source_record_id
-from sibyl_core.services.surreal_content import MemoryScope, RawMemory
+from sibyl_core.services.surreal_content import (
+    ContentLineageBackfillResult,
+    MemoryScope,
+    RawMemory,
+)
 
 
 def _raw_memory(
@@ -60,6 +64,16 @@ def _list_memories(memories: list[RawMemory]):
         return memories
 
     return fake_list
+
+
+@pytest.fixture(autouse=True)
+def _stub_content_lineage_backfill(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_backfill_content_lineage(*, organization_id: str, limit: int):
+        assert organization_id
+        assert limit >= 1
+        return ContentLineageBackfillResult()
+
+    monkeypatch.setattr(raw_promotion, "backfill_content_lineage", fake_backfill_content_lineage)
 
 
 def _source_record_id(adapter_record_id: str) -> str:
@@ -132,6 +146,12 @@ async def test_promote_raw_captures_writes_chunks_and_graph_entity(
     assert result["promoted_count"] == 1
     assert result["failed_count"] == 0
     assert result["chunk_count"] == len(saved_chunks)
+    assert result["content_lineage"] == {
+        "derived_from": 0,
+        "chunk_of": 0,
+        "supersedes": 0,
+        "extracted_into": 0,
+    }
     assert saved_documents[0].id == UUID(memory.id)
     assert saved_documents[0].source_id == memory.source_id
     assert deleted_documents == [(UUID(memory.id), UUID(memory.organization_id))]
