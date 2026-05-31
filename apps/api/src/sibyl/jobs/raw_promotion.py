@@ -13,6 +13,7 @@ import structlog
 from sibyl.config import settings
 from sibyl.crawler.chunker import ChunkStrategy, DocumentChunker
 from sibyl.crawler.embedder import EmbeddingService
+from sibyl.jobs.memory_extraction import enqueue_memory_extraction_batches
 from sibyl.persistence.content_common import (
     CrawledDocumentRecord,
     DocumentChunkRecord,
@@ -173,8 +174,13 @@ async def _promote_one(
             "raw_promotion_promoted_at": promoted_at,
         }
     )
-    if not settings.auto_extract_entities:
-        metadata["source_extraction_state"] = "disabled"
+    metadata.update(
+        await _source_extraction_metadata(
+            memory,
+            stored_document,
+            entity_id=entity_id,
+        )
+    )
     memory.metadata = metadata
     memory.entity_id = entity_id
     await save_raw_memory(memory)
@@ -300,6 +306,76 @@ async def _upsert_document_entity(
         generate_embedding=False,
     )
     return entity_id
+
+
+async def _source_extraction_metadata(
+    memory: RawMemory,
+    document: CrawledDocumentRecord,
+    *,
+    entity_id: str,
+) -> dict[str, object]:
+    if not settings.auto_extract_entities:
+        return {"source_extraction_state": "disabled"}
+    try:
+        result = await enqueue_memory_extraction_batches(
+            [_memory_extraction_source_payload(memory, document, entity_id=entity_id)],
+            memory.organization_id,
+            created_source_ids=[entity_id],
+        )
+    except Exception as exc:
+        return {
+            "source_extraction_state": "failed",
+            "source_extraction_error": str(exc),
+            "source_extraction_failed_at": datetime.now(UTC).isoformat(),
+        }
+
+    metadata: dict[str, object] = {
+        "source_extraction_enqueue_status": result.status,
+        "source_extraction_updated_at": datetime.now(UTC).isoformat(),
+    }
+    if result.job_ids:
+        metadata["source_extraction_job_ids"] = list(result.job_ids)
+    if result.reason:
+        metadata["source_extraction_reason"] = result.reason
+    if result.status in {"queued", "partial"}:
+        metadata["source_extraction_state"] = "queued"
+    elif result.reason == "disabled":
+        metadata["source_extraction_state"] = "disabled"
+    elif result.reason == "no_projectable_sources":
+        metadata["source_extraction_state"] = "not_projectable"
+    else:
+        metadata["source_extraction_state"] = "failed"
+    return metadata
+
+
+def _memory_extraction_source_payload(
+    memory: RawMemory,
+    document: CrawledDocumentRecord,
+    *,
+    entity_id: str,
+) -> dict[str, object]:
+    metadata = {
+        **dict(memory.metadata),
+        "raw_memory_id": memory.id,
+        "source_id": memory.source_id,
+        "document_id": str(document.id),
+        "memory_scope": memory.memory_scope.value,
+        "scope_key": memory.scope_key,
+        "principal_id": memory.principal_id,
+        "capture_surface": memory.capture_surface,
+    }
+    return {
+        "id": entity_id,
+        "entity_type": EntityType.DOCUMENT.value,
+        "name": document.title or memory.title or entity_id,
+        "description": document.title or "",
+        "content": memory.raw_content,
+        "organization_id": memory.organization_id,
+        "created_by": memory.created_by_user_id or memory.principal_id,
+        "created_by_user_id": memory.created_by_user_id or memory.principal_id,
+        "principal_id": memory.principal_id,
+        "metadata": metadata,
+    }
 
 
 async def _mark_skipped(memory: RawMemory, status: str) -> None:

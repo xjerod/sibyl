@@ -201,6 +201,40 @@ async def test_enqueue_memory_extraction_batches_chunks_bounded_jobs(
 
 
 @pytest.mark.asyncio
+async def test_enqueue_memory_extraction_batches_accepts_document_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = FakeQueue()
+    monkeypatch.setattr(settings, "auto_extract_entities", True)
+    monkeypatch.setattr(settings, "memory_extraction_max_queue_depth", 10)
+    monkeypatch.setattr(settings, "memory_extraction_max_sources_per_job", 10)
+    monkeypatch.setattr(settings, "memory_extraction_max_source_chars", 128)
+    monkeypatch.setattr(settings, "memory_extraction_max_job_chars", 1024)
+    monkeypatch.setattr(settings, "memory_extraction_max_entities_per_source", 3)
+    monkeypatch.setattr(settings, "memory_extraction_max_concurrency", 1)
+    monkeypatch.setattr(settings, "memory_extraction_max_tokens", 512)
+    monkeypatch.setattr(memory_extraction, "get_queue", lambda: queue)
+
+    result = await memory_extraction.enqueue_memory_extraction_batches(
+        [
+            {
+                "id": "raw-doc",
+                "entity_type": "document",
+                "name": "Imported capture",
+                "content": "SurrealDB is mentioned in an imported email.",
+            }
+        ],
+        "org-123",
+        created_source_ids=["raw-doc"],
+    )
+
+    assert result.status == "queued"
+    assert result.queued_sources == 1
+    assert queue.calls[0]["sources_data"][0]["entity_type"] == "document"
+    assert queue.calls[0]["kwargs"]["created_source_ids"] == ["raw-doc"]
+
+
+@pytest.mark.asyncio
 async def test_enqueue_memory_extraction_batches_reports_partial_backpressure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

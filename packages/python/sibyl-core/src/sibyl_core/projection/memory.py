@@ -19,7 +19,7 @@ from sibyl_core.tools.helpers import _generate_id
 
 log = structlog.get_logger()
 
-PROJECTABLE_ENTITY_TYPES = frozenset({EntityType.EPISODE, EntityType.SESSION})
+PROJECTABLE_ENTITY_TYPES = frozenset({EntityType.DOCUMENT, EntityType.EPISODE, EntityType.SESSION})
 DEFAULT_MAX_PROJECTED_ENTITIES = 8
 DEFAULT_MAX_PROJECTED_FACTS = 6
 DEFAULT_MIN_CONFIDENCE = 0.55
@@ -123,6 +123,7 @@ _SCOPE_METADATA_KEYS = (
     "project_id",
     "memory_scope",
     "scope_key",
+    "principal_id",
     "agent_id",
     "source_id",
     "raw_source_id",
@@ -972,13 +973,12 @@ def _projection_allowed(source: Entity) -> bool:
 
 def _projection_identity_scope(source: Entity) -> str:
     metadata = dict(source.metadata or {})
-    memory_scope = str(metadata.get("memory_scope") or "org")
-    scope_key = str(
-        metadata.get("scope_key")
-        or metadata.get("project_id")
-        or metadata.get("agent_id")
-        or "default"
-    )
+    memory_scope = str(metadata.get("memory_scope") or "org").strip().lower()
+    scope_key: object = metadata.get("scope_key")
+    if not scope_key and memory_scope == "private":
+        scope_key = metadata.get("principal_id") or source.created_by or source.id
+    if not scope_key:
+        scope_key = metadata.get("project_id") or metadata.get("agent_id") or "default"
     return f"{memory_scope}:{scope_key}"
 
 

@@ -28,7 +28,7 @@ from sibyl_core.services.graph import get_surreal_graph_runtime
 
 log = structlog.get_logger()
 
-_PROJECTABLE_MEMORY_TYPES = frozenset({"episode", "session"})
+_PROJECTABLE_MEMORY_TYPES = frozenset({"document", "episode", "session"})
 
 
 @dataclass(frozen=True, slots=True)

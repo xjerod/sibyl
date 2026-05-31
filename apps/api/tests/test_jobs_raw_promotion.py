@@ -136,6 +136,78 @@ async def test_promote_raw_captures_writes_chunks_and_graph_entity(
 
 
 @pytest.mark.asyncio
+async def test_promote_raw_captures_enqueues_extraction_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = _raw_memory(raw_content="SurrealDB extraction should see this imported note.")
+    extraction_calls = []
+    saved_memories = []
+
+    @asynccontextmanager
+    async def fake_session():
+        yield None
+
+    async def fake_save_document(_session, *, document):
+        return document
+
+    async def fake_delete_chunks(_session, *, document_id, organization_id):
+        return 0
+
+    async def fake_save_chunks(_session, *, chunks):
+        return chunks
+
+    async def fake_save_memory(updated: RawMemory) -> RawMemory:
+        saved_memories.append(updated)
+        return updated
+
+    async def fake_enqueue(sources_data, group_id, *, created_source_ids=None):
+        extraction_calls.append((sources_data, group_id, created_source_ids))
+        return SimpleNamespace(
+            status="queued",
+            job_ids=("extract-1",),
+            queued_sources=1,
+            skipped_sources=0,
+            queue_depth=0,
+            reason=None,
+        )
+
+    class FakeEntityManager:
+        async def create_direct(self, entity, *, generate_embedding: bool = False):
+            return entity.id
+
+    async def fake_graph_runtime(_group_id: str):
+        return SimpleNamespace(entity_manager=FakeEntityManager())
+
+    monkeypatch.setattr(
+        raw_promotion,
+        "list_raw_memories_for_promotion",
+        _list_memories([memory]),
+    )
+    monkeypatch.setattr(raw_promotion, "EmbeddingService", _fake_embedder)
+    monkeypatch.setattr(raw_promotion, "get_content_read_session", fake_session)
+    monkeypatch.setattr(raw_promotion, "save_crawled_document_record", fake_save_document)
+    monkeypatch.setattr(raw_promotion, "delete_document_chunks_for_document", fake_delete_chunks)
+    monkeypatch.setattr(raw_promotion, "save_document_chunks", fake_save_chunks)
+    monkeypatch.setattr(raw_promotion, "get_entity_graph_runtime", fake_graph_runtime)
+    monkeypatch.setattr(raw_promotion, "save_raw_memory", fake_save_memory)
+    monkeypatch.setattr(raw_promotion, "enqueue_memory_extraction_batches", fake_enqueue)
+    monkeypatch.setattr(raw_promotion.settings, "auto_extract_entities", True)
+
+    result = await raw_promotion.promote_raw_captures({}, memory.organization_id)
+
+    assert result["promoted_count"] == 1
+    assert len(extraction_calls) == 1
+    sources_data, group_id, created_source_ids = extraction_calls[0]
+    assert group_id == memory.organization_id
+    assert created_source_ids == [memory.id]
+    assert sources_data[0]["entity_type"] == "document"
+    assert sources_data[0]["content"] == memory.raw_content
+    assert sources_data[0]["metadata"]["raw_memory_id"] == memory.id
+    assert saved_memories[-1].metadata["source_extraction_state"] == "queued"
+    assert saved_memories[-1].metadata["source_extraction_job_ids"] == ["extract-1"]
+
+
+@pytest.mark.asyncio
 async def test_promote_raw_captures_skips_existing_without_rewriting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

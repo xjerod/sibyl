@@ -33,6 +33,23 @@ def _session(
     )
 
 
+def _document(
+    content: str,
+    *,
+    entity_id: str = "document_source",
+    metadata: dict[str, object] | None = None,
+) -> Entity:
+    merged_metadata = {"raw_memory_id": "raw-1", **(metadata or {})}
+    return Entity(
+        id=entity_id,
+        entity_type=EntityType.DOCUMENT,
+        name="Imported document",
+        content=content,
+        organization_id="org-123",
+        metadata=merged_metadata,
+    )
+
+
 def test_extract_projected_memory_entities_finds_memory_handles() -> None:
     source = _session(
         "I bought a Samsung TV for the den. "
@@ -279,6 +296,119 @@ async def test_project_extracted_memory_entities_materializes_llm_mentions() -> 
     assert (
         relationships[0].metadata["fact"].endswith("SurrealDB: SurrealDB 3.0 RRF helped retrieval.")
     )
+
+
+@pytest.mark.asyncio
+async def test_project_extracted_memory_entities_accepts_imported_documents() -> None:
+    source = _document(
+        "An imported email says SurrealDB powers the memory graph.",
+        metadata={"memory_scope": "private", "principal_id": "user-1"},
+    )
+    entity_manager = SimpleNamespace(
+        create_direct_bulk=AsyncMock(
+            side_effect=lambda entities, **_: [entity.id for entity in entities]
+        )
+    )
+    relationship_manager = SimpleNamespace(create_bulk=AsyncMock(return_value=(1, 0)))
+
+    result = await project_extracted_memory_entities(
+        entity_manager=entity_manager,
+        relationship_manager=relationship_manager,
+        sources=[source],
+        group_id="org-123",
+        created_source_ids=["raw-doc"],
+        extractions_by_source_id={
+            "raw-doc": [
+                ExtractedMemoryEntity(
+                    name="SurrealDB",
+                    entity_type="tool",
+                    summary="Native graph database",
+                    evidence="SurrealDB powers the memory graph.",
+                    confidence=0.9,
+                )
+            ]
+        },
+        generate_embeddings=False,
+    )
+
+    assert result.extracted == 1
+    assert result.projected_entities == 1
+    assert result.relationships == 1
+    created_entities = entity_manager.create_direct_bulk.await_args.args[0]
+    assert created_entities[0].metadata["source_entity_type"] == "document"
+    assert created_entities[0].metadata["principal_id"] == "user-1"
+    relationships = relationship_manager.create_bulk.await_args.args[0]
+    assert relationships[0].source_id == "raw-doc"
+
+
+@pytest.mark.asyncio
+async def test_project_extracted_memory_entities_scopes_private_documents_by_principal() -> None:
+    sources = [
+        _document(
+            "An imported email says SurrealDB powers the memory graph.",
+            entity_id="document-user-1",
+            metadata={
+                "raw_memory_id": "raw-1",
+                "memory_scope": "private",
+                "principal_id": "user-1",
+            },
+        ),
+        _document(
+            "Another imported email says SurrealDB powers the memory graph.",
+            entity_id="document-user-2",
+            metadata={
+                "raw_memory_id": "raw-2",
+                "memory_scope": "private",
+                "principal_id": "user-2",
+            },
+        ),
+    ]
+    entity_manager = SimpleNamespace(
+        create_direct_bulk=AsyncMock(
+            side_effect=lambda entities, **_: [entity.id for entity in entities]
+        )
+    )
+    relationship_manager = SimpleNamespace(
+        create_bulk=AsyncMock(side_effect=lambda relationships: (len(relationships), 0))
+    )
+
+    result = await project_extracted_memory_entities(
+        entity_manager=entity_manager,
+        relationship_manager=relationship_manager,
+        sources=sources,
+        group_id="org-123",
+        created_source_ids=["raw-doc-1", "raw-doc-2"],
+        extractions_by_source_id={
+            "raw-doc-1": [
+                ExtractedMemoryEntity(
+                    name="SurrealDB",
+                    entity_type="tool",
+                    summary="Native graph database",
+                    evidence="SurrealDB powers the memory graph.",
+                    confidence=0.9,
+                )
+            ],
+            "raw-doc-2": [
+                ExtractedMemoryEntity(
+                    name="SurrealDB",
+                    entity_type="tool",
+                    summary="Native graph database",
+                    evidence="SurrealDB powers the memory graph.",
+                    confidence=0.9,
+                )
+            ],
+        },
+        generate_embeddings=False,
+    )
+
+    assert result.projected_entities == 2
+    assert result.relationships == 2
+    created_entities = entity_manager.create_direct_bulk.await_args.args[0]
+    assert len({entity.id for entity in created_entities}) == 2
+    assert {entity.metadata["principal_id"] for entity in created_entities} == {
+        "user-1",
+        "user-2",
+    }
 
 
 @pytest.mark.asyncio
