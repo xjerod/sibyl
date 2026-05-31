@@ -416,6 +416,17 @@ async def test_import_source_archive_denies_paths_outside_import_root(tmp_path: 
         )
 
 
+def test_document_url_import_bypasses_filesystem_root_resolution(tmp_path: Path) -> None:
+    import_root = tmp_path / "imports"
+    import_root.mkdir()
+    url = "https://docs.example.com/page"
+
+    with patch("sibyl.jobs.source_imports.settings.source_import_dir", import_root):
+        resolved = source_imports._resolve_import_source_uri_for_adapter("document_url", url)
+
+    assert resolved == url
+
+
 @pytest.mark.asyncio
 async def test_source_import_drain_resumes_from_persisted_checkpoint(
     tmp_path: Path,

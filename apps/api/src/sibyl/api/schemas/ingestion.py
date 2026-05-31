@@ -1,9 +1,11 @@
 """Source ingestion request/response models."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .common import MemoryScopeLiteral
 
@@ -26,6 +28,49 @@ class SourceAdapterListResponse(BaseModel):
     """Registered source adapter list."""
 
     adapters: list[SourceAdapterResponse]
+
+
+DocumentImportKindLiteral = Literal["file", "folder", "url", "text"]
+
+
+class DocumentImportRequest(BaseModel):
+    """Start a document import through the source-ingestion runtime."""
+
+    kind: DocumentImportKindLiteral
+    source_uri: str | None = Field(default=None, max_length=2000)
+    text: str | None = None
+    title: str | None = Field(default=None, max_length=1000)
+    collection: str | None = Field(default=None, max_length=200)
+    target_scope_key: str = Field(..., min_length=1, max_length=500)
+    batch_size: int = Field(default=100, ge=1, le=1000)
+    promotion_preview_approved: bool = False
+    allow_private_network: bool = False
+
+    @model_validator(mode="after")
+    def validate_source(self) -> DocumentImportRequest:
+        if self.kind == "text":
+            if not self.text or not self.text.strip():
+                msg = "Text document imports require non-empty text"
+                raise ValueError(msg)
+            return self
+        if not self.source_uri or not self.source_uri.strip():
+            msg = f"{self.kind} document imports require source_uri"
+            raise ValueError(msg)
+        return self
+
+
+class DocumentCollectionResponse(BaseModel):
+    """Document import collection summary."""
+
+    name: str
+    document_count: int = 0
+    updated_at: datetime | None = None
+
+
+class DocumentCollectionListResponse(BaseModel):
+    """Accessible document import collections."""
+
+    collections: list[DocumentCollectionResponse]
 
 
 SourceImportStatusLiteral = Literal[

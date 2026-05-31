@@ -13,6 +13,11 @@ import structlog
 
 from sibyl.api.event_types import WSEvent
 from sibyl.config import settings
+from sibyl.services.document_adapters import (
+    DOCUMENT_TEXT_ADAPTER_NAME,
+    DOCUMENT_URL_ADAPTER_NAME,
+    ensure_document_adapters_registered,
+)
 from sibyl_core.auth import MemoryPolicyContext, authorize_memory_write
 from sibyl_core.models.sources import SourceImportCheckpoint, SourceRecord
 from sibyl_core.services.mailbox_adapter import ensure_mailbox_adapter_registered
@@ -122,6 +127,10 @@ class SourceImportRun:
 
 
 _SOURCE_IMPORT_RUNS: dict[str, SourceImportRun] = {}
+_NON_PATH_SOURCE_ADAPTERS = {
+    DOCUMENT_TEXT_ADAPTER_NAME,
+    DOCUMENT_URL_ADAPTER_NAME,
+}
 
 
 def _store_run(run: SourceImportRun) -> None:
@@ -496,6 +505,18 @@ def _resolve_import_source_uri(source_uri: str) -> str:
     return str(source_path)
 
 
+def _resolve_import_source_uri_for_adapter(adapter_name: str, source_uri: str) -> str:
+    if adapter_name in _NON_PATH_SOURCE_ADAPTERS:
+        return source_uri
+    return _resolve_import_source_uri(source_uri)
+
+
+def _ensure_builtin_source_adapters() -> None:
+    ensure_mailbox_adapter_registered()
+    ensure_transcript_adapters_registered()
+    ensure_document_adapters_registered()
+
+
 async def import_source_archive(
     ctx: dict[str, Any],
     source_uri: str,
@@ -513,9 +534,8 @@ async def import_source_archive(
     supersession_handler: SourceRecordSupersessionHandler | None = None,
 ) -> dict[str, Any]:
     """Import a bounded source archive batch into raw memory."""
-    source_uri = _resolve_import_source_uri(source_uri)
-    ensure_mailbox_adapter_registered()
-    ensure_transcript_adapters_registered()
+    _ensure_builtin_source_adapters()
+    source_uri = _resolve_import_source_uri_for_adapter(adapter_name, source_uri)
     adapter = get_source_adapter(adapter_name)
     manifest = await adapter.prepare_manifest(
         source_uri=source_uri,

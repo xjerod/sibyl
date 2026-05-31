@@ -85,6 +85,10 @@ from .graph import (
     SubgraphRequest,
 )
 from .ingestion import (
+    DocumentCollectionListResponse,
+    DocumentCollectionResponse,
+    DocumentImportKindLiteral,
+    DocumentImportRequest,
     SourceAdapterListResponse,
     SourceAdapterResponse,
     SourceImportProgressResponse,
@@ -213,6 +217,10 @@ __all__ = [
     "DebugQueryRequest",
     "DebugQueryResponse",
     "DevStatusResponse",
+    "DocumentCollectionListResponse",
+    "DocumentCollectionResponse",
+    "DocumentImportKindLiteral",
+    "DocumentImportRequest",
     "DocumentRelatedEntitiesResponse",
     "DocumentRelatedEntity",
     "DocumentUpdateRequest",

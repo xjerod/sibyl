@@ -10,13 +10,21 @@ import pytest
 from fastapi import HTTPException
 
 from sibyl.api.routes.ingestion import (
+    _document_collections_from_captures,
     _resolve_route_import_source_uri,
+    list_document_collections_route,
     list_import_adapters,
     resume_source_import_route,
+    start_document_import_route,
     start_source_import_route,
 )
-from sibyl.api.schemas import SourceImportResumeRequest, SourceImportStartRequest
+from sibyl.api.schemas import (
+    DocumentImportRequest,
+    SourceImportResumeRequest,
+    SourceImportStartRequest,
+)
 from sibyl.config import settings
+from sibyl.persistence.content_common import RawCaptureRecord
 from sibyl_core.models.sources import (
     SourceAdapterCapability,
     SourceAdapterDescriptor,
@@ -24,6 +32,45 @@ from sibyl_core.models.sources import (
     SourceTransformBehavior,
 )
 from sibyl_core.services.source_adapters import clear_source_adapters
+
+
+def _source_import_payload(
+    *,
+    adapter_name: str = "mbox",
+    target_memory_scope: str = "private",
+    target_scope_key: str | None = None,
+) -> dict[str, object]:
+    now = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
+    return {
+        "import_id": "source_import:run-1",
+        "adapter_name": adapter_name,
+        "adapter_version": None,
+        "source_identity": None,
+        "source_version": None,
+        "status": "pending",
+        "privacy_class": None,
+        "target_memory_scope": target_memory_scope,
+        "target_scope_key": target_scope_key,
+        "checkpoint": None,
+        "progress": {
+            "imported_count": 0,
+            "skipped_count": 0,
+            "dedupe_count": 0,
+            "superseded_count": 0,
+            "error_count": 0,
+            "attachment_count": 0,
+            "extraction_pending_count": 0,
+            "raw_memory_count": 0,
+        },
+        "raw_memory_ids": [],
+        "dedupe_keys": [],
+        "duplicate_dedupe_keys": [],
+        "skipped_records": [],
+        "errors": [],
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -65,6 +112,10 @@ async def test_list_import_adapters_includes_builtin_mailbox() -> None:
     assert "mbox" in names
     assert "claude_code_jsonl" in names
     assert "codex_jsonl" in names
+    assert "document_file" in names
+    assert "document_folder" in names
+    assert "document_url" in names
+    assert "document_text" in names
 
 
 def test_source_import_route_rejects_paths_outside_import_root(
@@ -165,6 +216,117 @@ async def test_start_source_import_route_enqueues_drain_without_inline_resume(
 
 
 @pytest.mark.asyncio
+async def test_start_document_import_route_enqueues_url_import() -> None:
+    policy_context = {
+        "actor_user_id": "user-1",
+        "organization_id": "00000000-0000-0000-0000-000000000111",
+        "memory_space": "project",
+        "scope_key": "project_123",
+    }
+    request = DocumentImportRequest(
+        kind="url",
+        source_uri="https://docs.example.com/page",
+        target_scope_key="project_123",
+        collection="docs",
+        batch_size=25,
+        allow_private_network=True,
+    )
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    ctx = SimpleNamespace(user_id="user-1")
+
+    with (
+        patch(
+            "sibyl.api.routes.ingestion._source_import_policy_context",
+            AsyncMock(return_value=policy_context),
+        ),
+        patch(
+            "sibyl.api.routes.ingestion.start_source_import",
+            AsyncMock(
+                return_value=_source_import_payload(
+                    adapter_name="document_url",
+                    target_memory_scope="project",
+                    target_scope_key="project_123",
+                )
+            ),
+        ) as start,
+        patch(
+            "sibyl.jobs.queue.enqueue_source_import_drain",
+            AsyncMock(return_value="source_import_drain:source_import:run-1"),
+        ) as enqueue,
+    ):
+        response = await start_document_import_route(request, org=org, ctx=ctx)
+
+    assert response.import_id == "source_import:run-1"
+    start.assert_awaited_once_with(
+        source_uri="https://docs.example.com/page",
+        organization_id=str(org.id),
+        principal_id="user-1",
+        policy_context=policy_context,
+        adapter_name="document_url",
+        options={
+            "target_memory_scope": "project",
+            "target_scope_key": "project_123",
+            "collection": "docs",
+            "allow_private_network": True,
+        },
+        batch_size=25,
+        promotion_preview_approved=False,
+    )
+    enqueue.assert_awaited_once_with(
+        "source_import:run-1",
+        organization_id=str(org.id),
+        principal_id="user-1",
+        policy_context=policy_context,
+        batch_size=25,
+        promotion_preview_approved=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_document_import_route_uses_text_payload_identity() -> None:
+    policy_context = {
+        "actor_user_id": "user-1",
+        "organization_id": "00000000-0000-0000-0000-000000000111",
+        "memory_space": "project",
+        "scope_key": "project_123",
+    }
+    request = DocumentImportRequest(
+        kind="text",
+        text="Pinned launch notes",
+        title="Launch notes",
+        target_scope_key="project_123",
+    )
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    ctx = SimpleNamespace(user_id="user-1")
+
+    with (
+        patch(
+            "sibyl.api.routes.ingestion._source_import_policy_context",
+            AsyncMock(return_value=policy_context),
+        ),
+        patch(
+            "sibyl.api.routes.ingestion.start_source_import",
+            AsyncMock(
+                return_value=_source_import_payload(
+                    adapter_name="document_text",
+                    target_memory_scope="project",
+                    target_scope_key="project_123",
+                )
+            ),
+        ) as start,
+        patch("sibyl.jobs.queue.enqueue_source_import_drain", AsyncMock()),
+    ):
+        response = await start_document_import_route(request, org=org, ctx=ctx)
+
+    assert response.adapter_name == "document_text"
+    call = start.await_args.kwargs
+    assert call["source_uri"].startswith("text://")
+    assert call["adapter_name"] == "document_text"
+    assert call["options"]["text"] == "Pinned launch notes"
+    assert call["options"]["title"] == "Launch notes"
+
+
+@pytest.mark.asyncio
 async def test_resume_source_import_route_enqueues_drain_without_inline_batch() -> None:
     now = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
     status_payload = {
@@ -236,4 +398,89 @@ async def test_resume_source_import_route_enqueues_drain_without_inline_batch() 
         policy_context=policy_context,
         batch_size=50,
         promotion_preview_approved=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_document_collections_route_returns_accessible_collections() -> None:
+    org_id = UUID("00000000-0000-0000-0000-000000000111")
+    visible = RawCaptureRecord(
+        organization_id=org_id,
+        title="Guide",
+        raw_content="guide",
+        entity_type="raw_memory",
+        memory_scope="project",
+        scope_key="project_123",
+        capture_surface="source_import",
+        metadata={
+            "source_type": "document",
+            "source_record_metadata": {"collection": "docs"},
+        },
+        captured_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
+    )
+    newer = RawCaptureRecord(
+        organization_id=org_id,
+        title="Guide 2",
+        raw_content="guide",
+        entity_type="raw_memory",
+        memory_scope="project",
+        scope_key="project_123",
+        capture_surface="source_import",
+        metadata={
+            "source_type": "document",
+            "source_record_metadata": {"collection": "docs"},
+        },
+        captured_at=datetime(2026, 5, 14, 13, 0, tzinfo=UTC),
+    )
+    hidden = RawCaptureRecord(
+        organization_id=org_id,
+        title="Private project guide",
+        raw_content="guide",
+        entity_type="raw_memory",
+        memory_scope="project",
+        scope_key="project_hidden",
+        capture_surface="source_import",
+        metadata={
+            "source_type": "document",
+            "source_record_metadata": {"collection": "hidden"},
+        },
+    )
+    org = SimpleNamespace(id=org_id)
+    ctx = SimpleNamespace(user_id="user-1")
+
+    with (
+        patch(
+            "sibyl.api.routes.ingestion.list_accessible_project_graph_ids",
+            AsyncMock(return_value={"project_123"}),
+        ),
+        patch(
+            "sibyl.api.routes.ingestion._load_document_collection_captures",
+            AsyncMock(return_value=[visible, newer, hidden]),
+        ),
+    ):
+        response = await list_document_collections_route(org=org, ctx=ctx)
+
+    assert [(item.name, item.document_count) for item in response.collections] == [("docs", 2)]
+    assert response.collections[0].updated_at == newer.captured_at
+
+
+def test_document_collections_from_captures_skips_non_documents() -> None:
+    org_id = UUID("00000000-0000-0000-0000-000000000111")
+    capture = RawCaptureRecord(
+        organization_id=org_id,
+        title="Mail",
+        raw_content="mail",
+        entity_type="raw_memory",
+        memory_scope="project",
+        scope_key="project_123",
+        capture_surface="source_import",
+        metadata={"source_type": "mailbox"},
+    )
+
+    assert (
+        _document_collections_from_captures(
+            [capture],
+            accessible_project_ids={"project_123"},
+        )
+        == []
     )
