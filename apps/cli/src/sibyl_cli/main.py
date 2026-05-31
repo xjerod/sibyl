@@ -53,6 +53,7 @@ from sibyl_cli.host import service_app
 from sibyl_cli.host import start as start_cmd
 from sibyl_cli.host import stop as stop_cmd
 from sibyl_cli.id_resolution import resolve_id_prefix, resolve_raw_memory_id_prefix
+from sibyl_cli.ingest import app as ingest_app
 from sibyl_cli.local import app as local_app
 from sibyl_cli.local import start as up_cmd
 from sibyl_cli.local import stop as down_cmd
@@ -119,6 +120,7 @@ app.add_typer(local_app, name="local")
 app.add_typer(logs_app, name="logs")
 app.add_typer(update_app, name="update")
 app.add_typer(skill_app, name="skill")
+app.add_typer(ingest_app, name="ingest")
 app.add_typer(pending_writes_app, name="pending-writes")
 app.add_typer(memory_space_app, name="memory-space")
 app.add_typer(memory_review_app, name="memory-review")
