@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>Persistent memory for the AI you build with</strong><br>
-  <sub>✦ Yours alone · In your projects · In the systems you share ✦</sub>
+  <strong>One CLI. One graph. Every AI tool you use, sharing memory.</strong><br>
+  <sub>✦ Cross-agent memory for AI coding tools · self-hostable · yours to keep ✦</sub>
 </p>
 
 <p align="center">
@@ -40,23 +40,24 @@
 
 ## 🔮 Why Sibyl
 
-Sibyl is persistent memory for the coding agents in your terminal, the projects you ship with them,
-and the teams you build alongside. One self-hostable knowledge graph, scoped by context. Yours to
-run, yours to keep.
+Sibyl is **cross-agent memory** for AI coding tools: one self-hostable knowledge graph shared across
+Claude Code, Codex, OpenCode, Cursor, and the agents you build yourself. Tell one tool your context,
+and every tool keeps it.
 
 Most AI sessions start cold. Coding agents forget yesterday's decisions. Notes drift between
 worktrees, tasks scatter across tools, and the context you earned the hard way evaporates the moment
 a session ends.
+
+The interaction surface is the shell. If your agent can run a command, it already speaks Sibyl. No
+SDK to adopt, no MCP server you are locked into. Claude Code, Codex, Cursor, Aider, Cline, and your
+own scripts all recall context, capture learnings, and run task workflows the same way you do. MCP
+is there for the clients that prefer it; the depth lives in the CLI.
 
 A durable knowledge graph holds what matters: personal context, project work, shared spaces, source
 documents, decisions, agent state. Each lives in its own scope and gets tied to the others when
 context calls for it. A built-in memory loop (`recall → act → remember → reflect`) keeps hard-won
 context close at hand for humans and AI alike. Source-grounded synthesis turns what you already know
 into verified documents.
-
-The CLI is the interaction surface. Any agent that runs shell commands (Claude Code, Codex, Cursor,
-Aider, Cline, your own scripts) can recall context, capture learnings, and run task workflows the
-same way you do. MCP is available for clients that prefer it; the depth lives in the CLI.
 
 **Every session adds up instead of starting over.**
 

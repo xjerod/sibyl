@@ -3,10 +3,10 @@ layout: home
 
 hero:
   name: Sibyl
-  text: Durable Project Memory
+  text: Cross-agent memory for AI coding tools
   tagline:
-    Stop rediscovering the same solutions every session. Sibyl gives your projects a knowledge
-    graph, an agent memory loop, semantic search, and durable task context.
+    One self-hostable knowledge graph, shared across Claude Code, Codex, OpenCode, Cursor, and the
+    agents you build. If it runs a shell command, it speaks Sibyl.
   actions:
     - theme: brand
       text: Get Started
@@ -17,10 +17,10 @@ hero:
 
 features:
   - icon: 🔮
-    title: Memory That Sticks
+    title: Every Agent, One Graph
     details:
-      Knowledge survives across sessions. Patterns, decisions, gotchas, and hard-won lessons stay
-      searchable in a SurrealDB-native knowledge graph.
+      Claude Code, Codex, OpenCode, Cursor, and the agents you build share one durable knowledge
+      graph. Tell one tool your context; every tool keeps it.
   - icon: 🪄
     title: The Memory Loop
     details:
@@ -56,7 +56,8 @@ configuration quirk that took forever to figure out? Lost to the void.
 
 ## The Solution
 
-Sibyl is a **knowledge graph, agent memory loop, and task workflow** that gives your team:
+Sibyl is **cross-agent memory**. A knowledge graph, memory loop, and task workflow shared across
+every coding agent you use:
 
 - **Memory:** Store patterns, decisions, and solutions that persist across sessions
 - **The Memory Loop:** `recall → act → remember → reflect`, built into every surface
