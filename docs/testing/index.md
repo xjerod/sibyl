@@ -14,12 +14,12 @@ landscape.
 
 ## At A Glance
 
-::: tip Latest LongMemEval-S live run **500/500 `hit@5`** · **96.67% strict `recall@5`** · **98.68%
-`recall@10`** · 94.21 nDCG@5
+::: tip Latest LongMemEval-S live run **500/500 `hit@5`** · **96.96% strict `recall@5`** · **98.90%
+`recall@10`** · 94.63 nDCG@5
 
 Live API path. SurrealDB-native graph + vector retrieval. OpenAI embeddings. No LLM extraction. No
 LLM reranking. Per-question physical tenant isolation. Full artifact and diagnostics published
-([run 26273942749](https://github.com/hyperb1iss/sibyl/actions/runs/26273942749)). :::
+([run 26304777971](https://github.com/hyperb1iss/sibyl/actions/runs/26304777971)). :::
 
 ## Pages In This Section
 

@@ -6,7 +6,7 @@ description: Honest competitive positioning for Sibyl in the May 2026 AI memory 
 # AI Memory Landscape
 
 This page positions Sibyl against the May 2026 AI memory systems field. The headline result —
-[500/500 hit@5, 96.67% strict R@5, 98.68% R@10 on LongMemEval-S](./longmemeval.md) — is one number
+[500/500 hit@5, 96.96% strict R@5, 98.90% R@10 on LongMemEval-S](./longmemeval.md) — is one number
 in a noisy landscape. The point of this page is to make the comparison legible without overclaim and
 without burying real competitive strengths.
 
@@ -44,7 +44,7 @@ There is a second distinction inside the retrieval lane:
   2, 41 have 3, the rest more). `recall_any` is strictly easier than `recall_all`.
 
 Sibyl reports both: `hit@5 = 100%` (the easier metric, equivalent to `recall_any@5`) and
-`recall@5 = 96.67%` (the strict multi-answer metric). When MemPalace, agentmemory, and Schift report
+`recall@5 = 96.96%` (the strict multi-answer metric). When MemPalace, agentmemory, and Schift report
 "R@5", they generally mean `recall_any@5`.
 
 ## Where Sibyl Sits
@@ -90,7 +90,7 @@ it.
 
 | System           | Headline                        | Metric type  | Strict multi-answer | LLM in retrieval | Live API | Tenant isolation |
 | ---------------- | ------------------------------- | ------------ | :-----------------: | :--------------: | :------: | :--------------: |
-| **Sibyl**        | 96.67% R@5, 98.68% R@10         | strict R@K   |          ✓          |        ✗         |    ✓     |        ✓         |
+| **Sibyl**        | 96.96% R@5, 98.90% R@10         | strict R@K   |          ✓          |        ✗         |    ✓     |        ✓         |
 | MemPalace raw    | 96.6% R@5                       | recall_any@K |          ✗          |        ✗         |    ✗     |        ✗         |
 | MemPalace hybrid | 100% R@5 (full), 98.4% held-out | recall_any@K |          ✗          |   yes (Haiku)    |    ✗     |        ✗         |
 | Memweave         | 98.0% R@5, 99.11% R@10          | recall_any@K |       unclear       |        ✗         |    ✗     |    filesystem    |
@@ -147,7 +147,7 @@ comparison cannot be misread.
 | RetainDB               |        79% | (in-context)   | GPT-4o         |       ✓        |      ✗       |
 | Zep (Cloud)            |      71.2% | GPT-4o         | GPT-4o         |       ✓        |      —       |
 
-Putting Sibyl's 96.67% R@5 next to Mem0's 94.4% QA-accuracy or Mastra's 94.87% as if they were the
+Putting Sibyl's 96.96% R@5 next to Mem0's 94.4% QA-accuracy or Mastra's 94.87% as if they were the
 same metric is the exact category error MemPalace was called out for. The two axes answer different
 questions:
 
@@ -273,7 +273,7 @@ Things we do not yet have, and want to be explicit about:
 3. **No LongMemEval-V2 number.** The benchmark was published mid-2026; Sibyl has not been evaluated
    against it yet.
 4. **No LOCOMO, BEAM, FiFA numbers.** LongMemEval-S is one dataset. The field is broader.
-5. **No published latency-cost trade-off curve.** Search p95 is 942 ms in the full run; that's a
+5. **No published latency-cost trade-off curve.** Search p95 is 1,115 ms in the full run; that's a
    working number but not yet contextualized against competitors' published latency-cost envelopes.
 6. **No cross-encoder reranker.** We chose interpretable ranking; that choice has a cost on
    strict-recall ranking quality.
@@ -283,7 +283,7 @@ Things we do not yet have, and want to be explicit about:
 ## How To Read This Page
 
 If you remember one thing: retrieval R@K and end-to-end QA accuracy are different axes, and most
-LongMemEval leaderboard tables mix them. Sibyl's 96.67% strict R@5 is in the retrieval lane. When
+LongMemEval leaderboard tables mix them. Sibyl's 96.96% strict R@5 is in the retrieval lane. When
 comparing against numbers from Mem0, Mastra, OMEGA, Hindsight, Zep, ByteRover, RetainDB,
 Supermemory, or Emergence AI — those are QA-accuracy numbers and they answer a different question.
 
