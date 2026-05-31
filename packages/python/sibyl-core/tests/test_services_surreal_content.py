@@ -1654,6 +1654,7 @@ class TestSurrealContentHelpers:
                 organization_id="org-1",
                 principal_id="user-a",
                 query="surrealdb",
+                source_ids=["source-mail-1"],
                 participants=["nova@example.com"],
                 labels=["email"],
                 thread_id="thread-1",
@@ -1663,6 +1664,7 @@ class TestSurrealContentHelpers:
             )
 
         query, params = fake_client.calls[0]
+        assert "source_id IN $source_ids" in query
         assert "metadata.participants CONTAINSANY $participants" in query
         assert "metadata.labels CONTAINSANY $labels" in query
         assert "metadata.source_record_metadata.thread_id = $thread_id" in query
@@ -1677,6 +1679,7 @@ class TestSurrealContentHelpers:
         assert "metadata.valid_from <= $as_of_text" in query
         assert "metadata.invalid_at > $as_of_text" in query
         assert "type::is" in query
+        assert params["source_ids"] == ["source-mail-1"]
         assert params["participants"] == ["nova@example.com"]
         assert params["labels"] == ["email"]
         assert params["thread_id"] == "thread-1"

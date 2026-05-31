@@ -20,6 +20,7 @@ from sibyl_core.retrieval.candidates import (
 from sibyl_core.retrieval.fusion import rrf_merge
 from sibyl_core.retrieval.temporal import parse_temporal_datetime
 from sibyl_core.services import document_search as document_search_service
+from sibyl_core.services.surreal_content import MemoryScope, RawMemory, recall_raw_memory
 from sibyl_core.tools.helpers import (
     VALID_ENTITY_TYPES,
     _build_entity_metadata,
@@ -423,9 +424,16 @@ def _merge_document_results(
 def _rank_fuse_search_results(
     graph_results: Sequence[SearchResult],
     doc_results: Sequence[SearchResult],
+    raw_memory_results: Sequence[SearchResult] = (),
 ) -> list[SearchResult]:
-    if not graph_results or not doc_results:
-        return sorted([*graph_results, *doc_results], key=lambda r: r.score, reverse=True)
+    result_groups = [graph_results, doc_results, raw_memory_results]
+    non_empty_groups = [results for results in result_groups if results]
+    if len(non_empty_groups) < 2:
+        return sorted(
+            [result for results in non_empty_groups for result in results],
+            key=lambda r: r.score,
+            reverse=True,
+        )
 
     ranked_sources = [
         [
@@ -436,7 +444,12 @@ def _rank_fuse_search_results(
             (result, result.score)
             for result in sorted(doc_results, key=lambda r: r.score, reverse=True)
         ],
+        [
+            (result, result.score)
+            for result in sorted(raw_memory_results, key=lambda r: r.score, reverse=True)
+        ],
     ]
+    ranked_sources = [source for source in ranked_sources if source]
     return [result for result, _score in rrf_merge(ranked_sources, dedup_key=lambda r: r.id)]
 
 
@@ -464,6 +477,94 @@ async def _search_documents(
         return []
 
 
+def _raw_memory_search_result(
+    memory: RawMemory,
+    *,
+    organization_id: str,
+) -> SearchResult:
+    source = memory.source_id or memory.capture_surface
+    project_id = (
+        memory.metadata.get("project_id")
+        or memory.project_id
+        or (memory.scope_key if memory.memory_scope is MemoryScope.PROJECT else None)
+    )
+    metadata = candidate_contract_metadata(
+        kind=CandidateKind.RAW_MEMORY,
+        signals=[CandidateSignal.RAW_LEXICAL.value],
+        scope=CandidateScope(
+            organization_id=organization_id,
+            project_id=str(project_id) if project_id is not None else None,
+            memory_scope=memory.memory_scope.value,
+            scope_key=memory.scope_key,
+            principal_id=memory.principal_id,
+            visibility=memory.memory_scope.value,
+            policy_reason="search_scope_verified",
+        ),
+        metadata={
+            "source_id": source,
+            "principal_id": memory.principal_id,
+            "memory_scope": memory.memory_scope.value,
+            "scope_key": memory.scope_key,
+            "capture_surface": memory.capture_surface,
+            "tags": list(memory.tags),
+            **memory.metadata,
+        },
+    )
+    return SearchResult(
+        id=f"raw_memory:{memory.id}",
+        type="raw_memory",
+        name=memory.title or "Untitled raw memory",
+        content=memory.snippet or memory.raw_content[:500],
+        score=memory.score,
+        source=source,
+        result_origin="raw_memory",
+        metadata=metadata,
+    )
+
+
+async def _search_raw_memories(
+    *,
+    query: str,
+    organization_id: str,
+    principal_id: str,
+    memory_scope: str,
+    scope_key: str | None,
+    project_id: str | None,
+    source_id: str | None,
+    participants: Sequence[str] | None,
+    labels: Sequence[str] | None,
+    thread_id: str | None,
+    occurred_after: datetime | str | None,
+    occurred_before: datetime | str | None,
+    as_of: datetime | str | None,
+    limit: int,
+) -> list[SearchResult]:
+    try:
+        memories = await recall_raw_memory(
+            organization_id=organization_id,
+            principal_id=principal_id,
+            query=query,
+            memory_scope=memory_scope,
+            scope_key=scope_key,
+            project_id=project_id,
+            source_ids=[source_id] if source_id else None,
+            participants=participants,
+            labels=labels,
+            thread_id=thread_id,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            as_of=as_of,
+            limit=limit,
+        )
+        return [
+            _raw_memory_search_result(memory, organization_id=organization_id)
+            for memory in memories
+        ]
+    except Exception as e:
+        log.warning("raw_memory_search_failed", error_type=type(e).__name__)
+        return []
+
+
 async def search(
     query: str,
     types: list[str] | None = None,
@@ -482,6 +583,14 @@ async def search(
     include_content: bool = True,
     include_documents: bool = True,
     include_graph: bool = True,
+    include_raw_memory: bool = True,
+    memory_scope: str = "private",
+    scope_key: str | None = None,
+    participants: Sequence[str] | None = None,
+    labels: Sequence[str] | None = None,
+    thread_id: str | None = None,
+    occurred_after: datetime | str | None = None,
+    occurred_before: datetime | str | None = None,
     use_enhanced: bool = True,
     boost_recent: bool = True,
     temporal_decay_days: float | None = None,
@@ -528,6 +637,7 @@ async def search(
         include_content: Include full content in results (default True).
         include_documents: Include crawled documentation in search (default True).
         include_graph: Include knowledge graph entities in search (default True).
+        include_raw_memory: Include raw memory captures in search (default True).
         use_enhanced: Use enhanced hybrid retrieval for graph (default True).
         boost_recent: Apply temporal boosting for graph results (default True).
         reference_time: Optional query as-of timestamp for temporal ranking.
@@ -558,6 +668,7 @@ async def search(
         source_name=source_name,
         include_documents=include_documents,
         include_graph=include_graph,
+        include_raw_memory=include_raw_memory,
         limit=limit,
     )
 
@@ -578,6 +689,21 @@ async def search(
         filters["source_id"] = source_id
     if source_name:
         filters["source_name"] = source_name
+    if include_raw_memory:
+        filters["include_raw_memory"] = include_raw_memory
+        filters["memory_scope"] = memory_scope
+    if scope_key:
+        filters["scope_key"] = scope_key
+    if participants:
+        filters["participants"] = list(participants)
+    if labels:
+        filters["labels"] = list(labels)
+    if thread_id:
+        filters["thread_id"] = thread_id
+    if occurred_after:
+        filters["occurred_after"] = str(occurred_after)
+    if occurred_before:
+        filters["occurred_before"] = str(occurred_before)
     if assignee:
         filters["assignee"] = assignee
     if since:
@@ -592,7 +718,17 @@ async def search(
     # Determine if we should search documents based on types filter
     search_documents = include_documents
     search_graph = include_graph
+    search_raw_memory = bool(include_raw_memory and organization_id and principal_id and query)
     explicit_document_request = bool(source_id or source_name)
+    explicit_raw_memory_request = bool(
+        scope_key
+        or participants
+        or labels
+        or thread_id
+        or occurred_after
+        or occurred_before
+        or memory_scope != "private"
+    )
     if types:
         # If 'document' is in types, search documents
         # If only 'document' is in types, skip graph search
@@ -602,10 +738,19 @@ async def search(
             search_documents = include_documents
             if type_set == {"document"}:
                 search_graph = False
-        elif source_id or source_name:
+                search_raw_memory = False
+        if "raw_memory" in type_set:
+            explicit_raw_memory_request = True
+            search_raw_memory = bool(include_raw_memory and organization_id and principal_id)
+            if type_set == {"raw_memory"}:
+                search_graph = False
+                search_documents = False
+        elif not explicit_raw_memory_request:
+            search_raw_memory = False
+        if "document" not in type_set and (source_id or source_name):
             # If source filters are set but document not in types, add document search
             search_documents = include_documents
-        else:
+        elif "document" not in type_set:
             # Types specified but document not included - skip document search
             search_documents = False
 
@@ -626,7 +771,9 @@ async def search(
 
     graph_results: list[SearchResult] = []
     doc_results: list[SearchResult] = []
+    raw_memory_results: list[SearchResult] = []
     document_search_task: asyncio.Task[list[SearchResult]] | None = None
+    raw_memory_search_task: asyncio.Task[list[SearchResult]] | None = None
     if search_documents and query and organization_id:
         document_timeout_seconds = (
             DOCUMENT_SEARCH_GRAPH_JOIN_TIMEOUT_SECONDS
@@ -646,6 +793,30 @@ async def search(
                 ),
                 timeout_seconds=document_timeout_seconds,
                 operation_name="document_search",
+            )
+        )
+
+    if search_raw_memory and query and organization_id and principal_id:
+        raw_memory_search_task = asyncio.create_task(
+            with_timeout(
+                _search_raw_memories(
+                    query=query,
+                    organization_id=organization_id,
+                    principal_id=principal_id,
+                    memory_scope=memory_scope,
+                    scope_key=scope_key,
+                    project_id=project,
+                    source_id=source_id,
+                    participants=participants,
+                    labels=labels,
+                    thread_id=thread_id,
+                    occurred_after=occurred_after,
+                    occurred_before=occurred_before,
+                    as_of=resolved_as_of,
+                    limit=limit,
+                ),
+                timeout_seconds=TIMEOUTS["search"],
+                operation_name="raw_memory_search",
             )
         )
 
@@ -910,12 +1081,19 @@ async def search(
         except Exception as e:
             log.warning("document_search_failed", error_type=type(e).__name__)
 
+    if raw_memory_search_task is not None:
+        try:
+            raw_memory_results = await raw_memory_search_task
+            log.debug("raw_memory_search_complete", results=len(raw_memory_results))
+        except Exception as e:
+            log.warning("raw_memory_search_failed", error_type=type(e).__name__)
+
     # =========================================================================
     # MERGE AND RANK RESULTS
     # =========================================================================
     # Deduplicate by ID, keeping highest score for each entity
     seen_ids: dict[str, SearchResult] = {}
-    for result in graph_results + doc_results:
+    for result in graph_results + doc_results + raw_memory_results:
         if result.id not in seen_ids or result.score > seen_ids[result.id].score:
             seen_ids[result.id] = result
 
@@ -923,8 +1101,15 @@ async def search(
         result for result in graph_results if seen_ids.get(result.id) is result
     ]
     deduped_doc_results = [result for result in doc_results if seen_ids.get(result.id) is result]
+    deduped_raw_memory_results = [
+        result for result in raw_memory_results if seen_ids.get(result.id) is result
+    ]
 
-    all_results = _rank_fuse_search_results(deduped_graph_results, deduped_doc_results)
+    all_results = _rank_fuse_search_results(
+        deduped_graph_results,
+        deduped_doc_results,
+        deduped_raw_memory_results,
+    )
 
     # Apply pagination
     total_count = len(all_results)
@@ -938,6 +1123,7 @@ async def search(
         filters=filters,
         graph_count=len([r for r in paginated_results if r.result_origin == "graph"]),
         document_count=len([r for r in paginated_results if r.result_origin == "document"]),
+        raw_memory_count=len([r for r in paginated_results if r.result_origin == "raw_memory"]),
         limit=limit,
         offset=offset,
         has_more=has_more,

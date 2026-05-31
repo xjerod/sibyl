@@ -1205,6 +1205,107 @@ class TestSearchTool:
         document_search.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_search_includes_raw_memory_with_facets(self) -> None:
+        search_module = import_module("sibyl_core.tools.search")
+        from sibyl_core.services.surreal_content import MemoryScope, RawMemory
+
+        occurred_after = datetime(2014, 1, 1, tzinfo=UTC)
+        occurred_before = datetime(2014, 12, 31, 23, 59, 59, tzinfo=UTC)
+        as_of = datetime(2014, 7, 1, tzinfo=UTC)
+        raw_memory = RawMemory(
+            id="memory-1",
+            organization_id="org_123",
+            source_id="source-mail-1",
+            principal_id="user-123",
+            memory_scope=MemoryScope.PRIVATE,
+            project_id="project_123",
+            title="Mailbox thread",
+            raw_content="Nova and Bliss discussed SurrealDB.",
+            tags=["email"],
+            metadata={
+                "participants": ["nova@example.com", "bliss@example.com"],
+                "labels": ["email"],
+                "source_record_metadata": {"thread_id": "thread-1"},
+            },
+            capture_surface="mailbox",
+            score=0.87,
+            snippet="Nova and Bliss discussed <mark>SurrealDB</mark>.",
+        )
+        recall = AsyncMock(return_value=[raw_memory])
+
+        with patch("sibyl_core.tools.search.recall_raw_memory", recall):
+            response = await search_module.search(
+                query="surrealdb",
+                organization_id="org_123",
+                principal_id="user-123",
+                include_graph=False,
+                include_documents=False,
+                source_id="source-mail-1",
+                project="project_123",
+                participants=["nova@example.com"],
+                labels=["email"],
+                thread_id="thread-1",
+                occurred_after=occurred_after,
+                occurred_before=occurred_before,
+                as_of=as_of,
+                limit=5,
+            )
+
+        recall.assert_awaited_once_with(
+            organization_id="org_123",
+            principal_id="user-123",
+            query="surrealdb",
+            memory_scope="private",
+            scope_key=None,
+            project_id="project_123",
+            source_ids=["source-mail-1"],
+            participants=["nova@example.com"],
+            labels=["email"],
+            thread_id="thread-1",
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            as_of=as_of,
+            limit=5,
+        )
+        assert response.total == 1
+        assert response.raw_memory_count == 1
+        result = response.results[0]
+        assert result.id == "raw_memory:memory-1"
+        assert result.type == "raw_memory"
+        assert result.result_origin == "raw_memory"
+        assert result.content == "Nova and Bliss discussed <mark>SurrealDB</mark>."
+        assert result.metadata["candidate_kind"] == "raw_memory"
+        assert result.metadata["candidate_memory_scope"] == "private"
+        assert result.metadata["candidate_project_id"] == "project_123"
+        assert result.metadata["source_id"] == "source-mail-1"
+
+    @pytest.mark.asyncio
+    async def test_search_raw_memory_type_skips_graph_and_documents(self) -> None:
+        search_module = import_module("sibyl_core.tools.search")
+        recall = AsyncMock(return_value=[])
+        document_search = AsyncMock(return_value=[])
+        graph_runtime = AsyncMock()
+
+        with (
+            patch("sibyl_core.tools.search.recall_raw_memory", recall),
+            patch("sibyl_core.tools.search._search_documents", document_search),
+            patch("sibyl_core.tools.search.get_graph_runtime", graph_runtime),
+        ):
+            response = await search_module.search(
+                query="raw memory",
+                types=["raw_memory"],
+                organization_id="org_123",
+                principal_id="user-123",
+                include_graph=True,
+                include_documents=True,
+            )
+
+        assert response.total == 0
+        recall.assert_awaited_once()
+        document_search.assert_not_awaited()
+        graph_runtime.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_search_source_filters_respect_include_documents_false(self) -> None:
         """Graph-only searches stay graph-only even with document source filters."""
         search_module = import_module("sibyl_core.tools.search")

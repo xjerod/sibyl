@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
+from fastapi import HTTPException
 
 from sibyl.api.routes.search import explore, search
 from sibyl.api.schemas import ExploreRequest, SearchRequest
 from sibyl.auth.errors import ProjectAccessDeniedError
-from sibyl_core.auth import ProjectRole
+from sibyl_core.auth import OrganizationRole, ProjectRole
 
 
 @dataclass
@@ -21,9 +23,23 @@ class _SearchResult:
     filters: dict[str, object] = field(default_factory=dict)
     graph_count: int = 0
     document_count: int = 0
+    raw_memory_count: int = 0
     limit: int = 10
     offset: int = 0
     has_more: bool = False
+
+
+def _ctx(
+    *,
+    user_id: str = "user-123",
+    api_key_memory_scope_keys: set[str] | list[str] | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        user_id=user_id,
+        organization_id="org-1",
+        org_role=OrganizationRole.MEMBER,
+        api_key_memory_scope_keys=api_key_memory_scope_keys,
+    )
 
 
 class TestSearchRoute:
@@ -70,6 +86,7 @@ class TestSearchRoute:
         assert response.results[0].id == "pattern_unassigned"
         assert core_search.await_args.kwargs["project"] is None
         assert core_search.await_args.kwargs["accessible_projects"] == {"proj_1"}
+        assert core_search.await_args.kwargs["include_raw_memory"] is False
 
     @pytest.mark.asyncio
     async def test_search_verifies_project_filter_directly(self) -> None:
@@ -191,6 +208,99 @@ class TestSearchRoute:
             )
 
         assert core_search.await_args.kwargs["as_of"] == "2025-03-15T00:00:00+00:00"
+
+    @pytest.mark.asyncio
+    async def test_search_forwards_raw_memory_facets_after_policy_check(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        occurred_after = datetime(2014, 1, 1, tzinfo=UTC)
+        occurred_before = datetime(2014, 12, 31, 23, 59, 59, tzinfo=UTC)
+        result = _SearchResult(
+            results=[
+                {
+                    "id": "raw_memory:memory-1",
+                    "type": "raw_memory",
+                    "name": "Mailbox thread",
+                    "content": "Nova and Bliss discussed SurrealDB.",
+                    "score": 0.87,
+                    "metadata": {},
+                    "source": "source-mail-1",
+                    "source_id": None,
+                    "result_origin": "raw_memory",
+                    "usage_hint": None,
+                    "created_at": None,
+                    "updated_at": None,
+                }
+            ],
+            total=1,
+            query="surrealdb",
+            raw_memory_count=1,
+        )
+
+        with (
+            patch(
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
+                AsyncMock(return_value={"project_123"}),
+            ) as list_projects,
+            patch("sibyl_core.tools.core.search", AsyncMock(return_value=result)) as core_search,
+        ):
+            response = await search(
+                request=SearchRequest(
+                    query="surrealdb",
+                    include_graph=False,
+                    include_documents=False,
+                    memory_scope="project",
+                    scope_key="project_123",
+                    source_id="source-mail-1",
+                    participants=["nova@example.com"],
+                    labels=["email"],
+                    thread_id="thread-1",
+                    occurred_after=occurred_after,
+                    occurred_before=occurred_before,
+                ),
+                org=org,
+                ctx=_ctx(),
+            )
+
+        list_projects.assert_awaited_once()
+        assert response.raw_memory_count == 1
+        kwargs = core_search.await_args.kwargs
+        assert kwargs["include_raw_memory"] is True
+        assert kwargs["memory_scope"] == "project"
+        assert kwargs["scope_key"] == "project_123"
+        assert kwargs["source_id"] == "source-mail-1"
+        assert kwargs["participants"] == ["nova@example.com"]
+        assert kwargs["labels"] == ["email"]
+        assert kwargs["thread_id"] == "thread-1"
+        assert kwargs["occurred_after"] == occurred_after
+        assert kwargs["occurred_before"] == occurred_before
+        assert kwargs["principal_id"] == "user-123"
+        assert kwargs["accessible_projects"] == {"project_123"}
+
+    @pytest.mark.asyncio
+    async def test_search_rejects_api_key_without_raw_memory_grant(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+
+        with (
+            patch(
+                "sibyl.api.routes.search.list_accessible_project_graph_ids",
+                AsyncMock(return_value=set()),
+            ),
+            patch("sibyl_core.tools.core.search", AsyncMock()) as core_search,
+            pytest.raises(HTTPException) as exc,
+        ):
+            await search(
+                request=SearchRequest(
+                    query="raw memory",
+                    include_graph=False,
+                    include_documents=False,
+                ),
+                org=org,
+                ctx=_ctx(api_key_memory_scope_keys=[]),
+            )
+
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "api_key_memory_space_denied"
+        core_search.assert_not_awaited()
 
 
 class TestExploreRoute:

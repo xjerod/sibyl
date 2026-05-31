@@ -16,7 +16,7 @@ class SearchResult:
     score: float
     source: str | None = None
     url: str | None = None
-    result_origin: Literal["graph", "document"] = "graph"
+    result_origin: Literal["graph", "document", "raw_memory"] = "graph"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -30,6 +30,7 @@ class SearchResponse:
     filters: dict[str, Any]
     graph_count: int = 0
     document_count: int = 0
+    raw_memory_count: int = 0
     limit: int = 10
     offset: int = 0
     has_more: bool = False

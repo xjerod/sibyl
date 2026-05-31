@@ -337,6 +337,7 @@ class ContentLineageBackfillResult:
 
 @dataclass(frozen=True, slots=True)
 class _RawMemoryRecallFilters:
+    source_ids: tuple[str, ...] = ()
     participants: tuple[str, ...] = ()
     labels: tuple[str, ...] = ()
     thread_id: str | None = None
@@ -1713,6 +1714,9 @@ def _raw_memory_recall_where(
     )
     clauses = [where_clause]
     filters = filters or _RawMemoryRecallFilters()
+    if filters.source_ids:
+        clauses.append("source_id IN $source_ids")
+        params["source_ids"] = list(filters.source_ids)
     if filters.participants:
         clauses.append("metadata.participants CONTAINSANY $participants")
         params["participants"] = list(filters.participants)
@@ -1976,6 +1980,7 @@ async def _fuse_raw_memory_results(
 
 def _raw_recall_filters(
     *,
+    source_ids: Sequence[str] | None,
     participants: Sequence[str] | None,
     labels: Sequence[str] | None,
     thread_id: str | None,
@@ -1985,6 +1990,7 @@ def _raw_recall_filters(
 ) -> _RawMemoryRecallFilters:
     as_of_datetime = _as_of_filter_value(as_of)
     return _RawMemoryRecallFilters(
+        source_ids=tuple(_normalized_filter_values(source_ids)),
         participants=tuple(_normalized_filter_values(participants)),
         labels=tuple(_normalized_filter_values(labels)),
         thread_id=_coerce_optional_str(thread_id),
@@ -2341,6 +2347,7 @@ async def recall_raw_memory(
     scope_key: str | None = None,
     agent_id: str | None = None,
     project_id: str | None = None,
+    source_ids: Sequence[str] | None = None,
     participants: Sequence[str] | None = None,
     labels: Sequence[str] | None = None,
     thread_id: str | None = None,
@@ -2355,6 +2362,7 @@ async def recall_raw_memory(
 
     normalized_scope = _coerce_memory_scope(memory_scope)
     filters = _raw_recall_filters(
+        source_ids=source_ids,
         participants=participants,
         labels=labels,
         thread_id=thread_id,

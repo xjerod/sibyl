@@ -21,11 +21,18 @@ from sibyl.api.schemas import (
     TemporalRequest,
     TemporalResponse,
 )
+from sibyl.auth.api_key_common import api_key_memory_scope_key
 from sibyl.auth.authorization import verify_entity_project_access
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
-from sibyl_core.auth import AuthOrganization, OrganizationRole, ProjectRole
+from sibyl_core.auth import (
+    AuthOrganization,
+    MemoryPolicyContext,
+    OrganizationRole,
+    ProjectRole,
+    authorize_memory_read,
+)
 from sibyl_core.observability import elapsed_ms, telemetry_registry
 
 log = structlog.get_logger()
@@ -41,6 +48,59 @@ router = APIRouter(
     tags=["search"],
     dependencies=[Depends(require_org_role(*_READ_ROLES))],
 )
+
+
+def _policy_http_status(reason: str) -> int:
+    if reason in {"missing_scope_key", "missing_memory_scope"}:
+        return 400
+    if reason == "principal_mismatch":
+        return 401
+    return 403
+
+
+def _api_key_memory_scope_allowed(
+    ctx: AuthContext,
+    *,
+    memory_scope: str,
+    scope_key: str | None,
+) -> bool:
+    allowed_scope_keys = getattr(ctx, "api_key_memory_scope_keys", None)
+    if allowed_scope_keys is None:
+        return True
+    if not isinstance(allowed_scope_keys, list | tuple | set | frozenset):
+        return True
+    effective_scope_key = ctx.user_id if memory_scope == "private" and not scope_key else scope_key
+    return api_key_memory_scope_key(memory_scope, effective_scope_key) in allowed_scope_keys
+
+
+def _authorize_raw_memory_search(
+    *,
+    request: SearchRequest,
+    ctx: AuthContext,
+    accessible_projects: set[str] | None,
+) -> None:
+    policy_context = MemoryPolicyContext(
+        actor_user_id=ctx.user_id,
+        organization_id=ctx.organization_id,
+        organization_role=ctx.org_role,
+        memory_space=request.memory_scope,
+        scope_key=request.scope_key,
+        project_id=request.project,
+        accessible_projects=accessible_projects,
+        source_surface="search",
+    )
+    decision = authorize_memory_read(policy_context=policy_context)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=_policy_http_status(decision.reason),
+            detail=decision.reason,
+        )
+    if not _api_key_memory_scope_allowed(
+        ctx,
+        memory_scope=request.memory_scope,
+        scope_key=request.scope_key,
+    ):
+        raise HTTPException(status_code=403, detail="api_key_memory_space_denied")
 
 
 @router.post("", response_model=SearchResponse)
@@ -83,6 +143,18 @@ async def search(
             accessible_projects = await list_accessible_project_graph_ids(ctx)
 
         api_key_memory_scope_keys = getattr(ctx, "api_key_memory_scope_keys", None)
+        include_raw_memory = bool(request.include_raw_memory and getattr(ctx, "user_id", None))
+        if include_raw_memory:
+            raw_accessible_projects = (
+                {project_filter}
+                if project_filter and accessible_projects is None
+                else accessible_projects
+            )
+            _authorize_raw_memory_search(
+                request=request,
+                ctx=ctx,
+                accessible_projects=raw_accessible_projects,
+            )
 
         # Pass accessible projects to filter results
         # If a specific project is requested, use that; otherwise use accessible set
@@ -106,6 +178,14 @@ async def search(
             include_content=request.include_content,
             include_documents=request.include_documents,
             include_graph=request.include_graph,
+            include_raw_memory=include_raw_memory,
+            memory_scope=request.memory_scope,
+            scope_key=request.scope_key,
+            participants=request.participants,
+            labels=request.labels,
+            thread_id=request.thread_id,
+            occurred_after=request.occurred_after,
+            occurred_before=request.occurred_before,
             use_enhanced=request.use_enhanced,
             boost_recent=request.boost_recent,
             organization_id=group_id,
