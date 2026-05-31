@@ -30,6 +30,7 @@ from sibyl_core.auth import AuthOrganization, OrganizationRole
 from sibyl_core.models.sources import SourceAdapterDescriptor
 from sibyl_core.services.mailbox_adapter import ensure_mailbox_adapter_registered
 from sibyl_core.services.source_adapters import list_source_adapters
+from sibyl_core.services.transcript_adapters import ensure_transcript_adapters_registered
 
 router = APIRouter(
     prefix="/ingestion",
@@ -135,6 +136,7 @@ def _resolve_route_import_source_uri(source_uri: str) -> str:
 async def list_import_adapters() -> SourceAdapterListResponse:
     """List registered source import adapters."""
     ensure_mailbox_adapter_registered()
+    ensure_transcript_adapters_registered()
     return SourceAdapterListResponse(
         adapters=[_source_adapter_to_response(adapter) for adapter in list_source_adapters()],
     )

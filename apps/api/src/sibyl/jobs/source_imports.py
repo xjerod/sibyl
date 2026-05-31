@@ -33,6 +33,7 @@ from sibyl_core.services.surreal_content import (
     get_raw_memory_by_source_id,
     save_raw_memory,
 )
+from sibyl_core.services.transcript_adapters import ensure_transcript_adapters_registered
 
 log = structlog.get_logger()
 
@@ -514,6 +515,7 @@ async def import_source_archive(
     """Import a bounded source archive batch into raw memory."""
     source_uri = _resolve_import_source_uri(source_uri)
     ensure_mailbox_adapter_registered()
+    ensure_transcript_adapters_registered()
     adapter = get_source_adapter(adapter_name)
     manifest = await adapter.prepare_manifest(
         source_uri=source_uri,

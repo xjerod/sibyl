@@ -63,6 +63,8 @@ async def test_list_import_adapters_includes_builtin_mailbox() -> None:
     names = {adapter.name for adapter in response.adapters}
 
     assert "mbox" in names
+    assert "claude_code_jsonl" in names
+    assert "codex_jsonl" in names
 
 
 def test_source_import_route_rejects_paths_outside_import_root(
