@@ -9,6 +9,7 @@ from pathlib import Path
 from sibyl.api.routes.backups import router as backups_router
 from sibyl.api.routes.crawler import router as crawler_router
 from sibyl.api.routes.entities import router as entities_router
+from sibyl.api.routes.ingestion import router as ingestion_router
 from sibyl.backup_ids import generate_backup_id
 
 
@@ -59,13 +60,17 @@ class TestRouteOrdering:
     def test_crawler_link_graph_routes_precede_dynamic_source_route(self) -> None:
         paths = [route.path for route in crawler_router.routes]
 
-        assert paths.index("/sources/import-adapters") < paths.index("/sources/{source_id}")
-        assert paths.index("/sources/imports") < paths.index("/sources/{source_id}")
-        assert paths.index("/sources/imports/{import_id:path}") < paths.index(
-            "/sources/{source_id}"
-        )
         assert paths.index("/sources/link-graph/status") < paths.index("/sources/{source_id}")
         assert paths.index("/sources/link-graph") < paths.index("/sources/{source_id}")
+
+    def test_ingestion_import_routes_live_on_neutral_router(self) -> None:
+        paths = [route.path for route in ingestion_router.routes]
+
+        assert "/ingestion/import-adapters" in paths
+        assert "/ingestion/imports" in paths
+        assert "/ingestion/imports/{import_id:path}" in paths
+        assert "/ingestion/imports/{import_id:path}/resume" in paths
+        assert "/ingestion/imports/{import_id:path}/cancel" in paths
 
     def test_entity_capture_routes_precede_dynamic_entity_id_route(self) -> None:
         paths = [route.path for route in entities_router.routes]

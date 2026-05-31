@@ -9,6 +9,7 @@ from sibyl.api.routes.crawler import router as crawler_router
 from sibyl.api.routes.entities import router as entities_router
 from sibyl.api.routes.epics import router as epics_router
 from sibyl.api.routes.graph import router as graph_router
+from sibyl.api.routes.ingestion import router as ingestion_router
 from sibyl.api.routes.jobs import router as jobs_router
 from sibyl.api.routes.logs import router as logs_router
 from sibyl.api.routes.memory import router as memory_router
@@ -38,6 +39,7 @@ __all__ = [
     "entities_router",
     "epics_router",
     "graph_router",
+    "ingestion_router",
     "jobs_router",
     "logs_router",
     "memory_router",

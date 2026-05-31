@@ -2189,17 +2189,17 @@ export const api = {
   },
 
   sourceImports: {
-    adapters: () => fetchApi<SourceAdapterListResponse>('/sources/import-adapters'),
+    adapters: () => fetchApi<SourceAdapterListResponse>('/ingestion/import-adapters'),
     start: (request: SourceImportStartRequest) =>
-      fetchApi<SourceImportStatusResponse>('/sources/imports', {
+      fetchApi<SourceImportStatusResponse>('/ingestion/imports', {
         method: 'POST',
         body: JSON.stringify(request),
       }),
     get: (importId: string) =>
-      fetchApi<SourceImportStatusResponse>(`/sources/imports/${encodeURIComponent(importId)}`),
+      fetchApi<SourceImportStatusResponse>(`/ingestion/imports/${encodeURIComponent(importId)}`),
     resume: (importId: string, request: SourceImportResumeRequest = {}) =>
       fetchApi<SourceImportStatusResponse>(
-        `/sources/imports/${encodeURIComponent(importId)}/resume`,
+        `/ingestion/imports/${encodeURIComponent(importId)}/resume`,
         {
           method: 'POST',
           body: JSON.stringify(request),
@@ -2207,7 +2207,7 @@ export const api = {
       ),
     cancel: (importId: string) =>
       fetchApi<SourceImportStatusResponse>(
-        `/sources/imports/${encodeURIComponent(importId)}/cancel`,
+        `/ingestion/imports/${encodeURIComponent(importId)}/cancel`,
         { method: 'POST' }
       ),
   },

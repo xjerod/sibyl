@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-from sibyl.api.routes.crawler import _resolve_route_import_source_uri, list_import_adapters
+from sibyl.api.routes.ingestion import _resolve_route_import_source_uri, list_import_adapters
 from sibyl.config import settings
 from sibyl_core.models.sources import (
     SourceAdapterCapability,
@@ -31,7 +31,7 @@ async def test_list_import_adapters_returns_registered_contracts() -> None:
         supports_incremental=True,
     )
 
-    with patch("sibyl.api.routes.crawler.list_source_adapters", return_value=[descriptor]):
+    with patch("sibyl.api.routes.ingestion.list_source_adapters", return_value=[descriptor]):
         response = await list_import_adapters()
 
     assert len(response.adapters) == 1
