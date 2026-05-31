@@ -158,7 +158,14 @@ FOR $edge_record IN $edges {
         LET $edge = type::record($edge_record.edge_ref);
         LET $existing_edge = (SELECT VALUE id FROM chunk_of WHERE id = $edge LIMIT 1)[0];
         IF $existing_edge = NONE {
-            RELATE $chunk_id->$edge->$document_id CONTENT $edge_record;
+            RELATE $chunk_id->$edge->$document_id CONTENT {
+                uuid: $edge_record.uuid,
+                organization_id: $edge_record.organization_id,
+                chunk_id: $edge_record.chunk_id,
+                document_id: $edge_record.document_id,
+                source_id: $edge_record.source_id,
+                created_at: $edge_record.created_at
+            };
         } ELSE {
             UPDATE $edge SET
                 uuid = $edge_record.uuid,
@@ -239,7 +246,15 @@ FOR $edge_record IN $edges {
         LET $edge = type::record($edge_record.edge_ref);
         LET $existing_edge = (SELECT VALUE id FROM extracted_into WHERE id = $edge LIMIT 1)[0];
         IF $existing_edge = NONE {
-            RELATE $entity_id->$edge->$chunk_id CONTENT $edge_record;
+            RELATE $entity_id->$edge->$chunk_id CONTENT {
+                uuid: $edge_record.uuid,
+                organization_id: $edge_record.organization_id,
+                entity_id: $edge_record.entity_id,
+                chunk_id: $edge_record.chunk_id,
+                document_id: $edge_record.document_id,
+                source_id: $edge_record.source_id,
+                created_at: $edge_record.created_at
+            };
         } ELSE {
             UPDATE $edge SET
                 uuid = $edge_record.uuid,
@@ -2000,8 +2015,8 @@ async def _raw_memory_query_embedding(query: str) -> list[float] | None:
     try:
         embeddings = await provider.embed_texts([query], input_kind="query")
         return _embedding_vector_from_batch(embeddings, provider.metadata.dimensions)
-    except Exception:
-        return None
+    except Exception as exc:
+        raise RuntimeError("raw memory query embedding failed") from exc
 
 
 def _python_raw_memory_rrf_scores(
@@ -2320,6 +2335,23 @@ async def get_raw_memory_by_source_id(
             **params,
         )
     return _raw_memory_from_record(record) if record is not None else None
+
+
+async def list_raw_memories_by_source_id(
+    *,
+    organization_id: str,
+    source_id: str,
+) -> list[RawMemory]:
+    async with surreal_content_client() as client:
+        rows = await _select_many(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE source_id = $source_id AND organization_id = $organization_id "
+            "ORDER BY captured_at DESC LIMIT 100;",
+            source_id=source_id,
+            organization_id=organization_id,
+        )
+    return [_raw_memory_from_record(row) for row in rows]
 
 
 async def get_raw_memory_by_dedupe_key(
@@ -3040,6 +3072,7 @@ __all__ = [
     "get_raw_memory_by_source_id",
     "lexical_score",
     "lexical_score_from_tokens",
+    "list_raw_memories_by_source_id",
     "list_raw_memories_for_promotion",
     "list_raw_memories_for_scope",
     "list_reflection_candidate_reviews",

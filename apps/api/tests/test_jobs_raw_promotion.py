@@ -76,6 +76,35 @@ def _stub_content_lineage_backfill(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(raw_promotion, "backfill_content_lineage", fake_backfill_content_lineage)
 
 
+@pytest.mark.asyncio
+async def test_promote_raw_captures_fails_when_content_lineage_backfill_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = _raw_memory(
+        metadata={"raw_promotion_state": "promoted"},
+        entity_id="document-entity",
+    )
+
+    async def failing_backfill_content_lineage(*, organization_id: str, limit: int):
+        assert organization_id == memory.organization_id
+        assert limit >= 1
+        raise RuntimeError("content lineage unavailable")
+
+    monkeypatch.setattr(
+        raw_promotion,
+        "list_raw_memories_for_promotion",
+        _list_memories([memory]),
+    )
+    monkeypatch.setattr(
+        raw_promotion,
+        "backfill_content_lineage",
+        failing_backfill_content_lineage,
+    )
+
+    with pytest.raises(RuntimeError, match="content lineage unavailable"):
+        await raw_promotion.promote_raw_captures({}, memory.organization_id)
+
+
 def _source_record_id(adapter_record_id: str) -> str:
     return build_source_record_id(
         manifest=SourceImportManifest(

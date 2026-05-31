@@ -1915,6 +1915,36 @@ class TestSurrealContentHelpers:
         assert "embedding <|8, 40|> $query_embedding" in vector_query
 
     @pytest.mark.asyncio
+    async def test_recall_raw_memory_raises_when_query_embedding_fails(self) -> None:
+        class FailingEmbeddingProvider:
+            metadata = EmbeddingMetadata(
+                provider="deterministic",
+                model="failing-query-provider",
+                dimensions=2,
+                cache_namespace="test",
+                tokenizer_estimate_method="unit-test",
+            )
+
+            async def embed_texts(self, texts, *, input_kind: str = "document"):
+                raise RuntimeError("embedding provider unavailable")
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                content_service,
+                "_configured_raw_memory_embedding_provider",
+                FailingEmbeddingProvider,
+            )
+            with pytest.raises(RuntimeError, match="raw memory query embedding failed"):
+                await recall_raw_memory(
+                    organization_id="org-1",
+                    principal_id="user-a",
+                    query="surrealdb graph",
+                    limit=2,
+                )
+
+    @pytest.mark.asyncio
     async def test_recall_raw_memory_filters_agent_diaries_explicitly(self) -> None:
         fake_client = FakeClient(
             [

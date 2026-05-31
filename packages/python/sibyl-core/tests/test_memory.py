@@ -1028,6 +1028,83 @@ async def test_promote_review_candidate_bounds_contradicted_source_for_as_of_rea
 
 
 @pytest.mark.asyncio
+async def test_promote_review_candidate_skips_other_private_principal_invalidations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _raw_review_candidate(
+        metadata={
+            **_raw_review_candidate().metadata,
+            "raw_source_ids": ["source-new"],
+            "source_ids": ["source-new"],
+            "contradiction_source_ids": ["source-foreign"],
+            "valid_at": "2026-02-01T00:00:00+00:00",
+        }
+    )
+    source = _raw_import_memory(id="source-new")
+    foreign = _raw_import_memory(
+        id="source-foreign",
+        principal_id="user-2",
+        metadata={"promoted_entity_id": "decision_foreign"},
+    )
+    memories = {memory.id: memory for memory in (candidate, source, foreign)}
+    saved: list[RawMemory] = []
+
+    class FakeEntityManager:
+        def __init__(self) -> None:
+            self.updated: list[tuple[str, dict[str, object]]] = []
+
+        async def create_direct(self, _entity):
+            return "decision_new"
+
+        async def get(self, entity_id: str):
+            return None
+
+        async def update(self, entity_id: str, updates: dict[str, object]):
+            self.updated.append((entity_id, updates))
+            return SimpleNamespace(id=entity_id, metadata=updates.get("metadata", {}))
+
+    entity_manager = FakeEntityManager()
+    runtime = SimpleNamespace(
+        entity_manager=entity_manager,
+        relationship_manager=SimpleNamespace(
+            create_bulk=AsyncMock(return_value=(0, 0)),
+        ),
+    )
+
+    async def fake_get_raw_memory(*, organization_id: str, memory_id: str):
+        assert organization_id == "org-1"
+        return memories.get(memory_id)
+
+    async def fake_save_raw_memory(memory: RawMemory) -> RawMemory:
+        memories[memory.id] = memory
+        saved.append(memory)
+        return memory
+
+    monkeypatch.setattr(memory_module, "get_raw_memory", fake_get_raw_memory)
+    monkeypatch.setattr(
+        memory_module,
+        "list_raw_memories_by_source_id",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(memory_module, "save_raw_memory", fake_save_raw_memory)
+    monkeypatch.setattr(memory_module, "get_surreal_graph_runtime", AsyncMock(return_value=runtime))
+
+    result = await promote_reflection_candidate_review(
+        candidate_id="candidate-1",
+        organization_id="org-1",
+        principal_id="user-1",
+        promote_to_scope="private",
+    )
+
+    assert result.success
+    assert result.metadata is not None
+    assert result.metadata["invalidated_source_ids"] == []
+    assert result.metadata["invalidation_skipped_source_ids"] == ["source-foreign"]
+    assert all(memory.id != "source-foreign" for memory in saved)
+    assert entity_manager.updated == []
+
+
+@pytest.mark.asyncio
 async def test_promote_raw_memory_persists_native_record_and_marks_promoted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

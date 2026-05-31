@@ -37,6 +37,7 @@ from sibyl_core.services.surreal_content import (
     RawMemory,
     get_raw_memory,
     get_raw_memory_by_source_id,
+    list_raw_memories_by_source_id,
     list_raw_memories_for_scope,
     raw_memory_recallable,
     save_raw_memory,
@@ -1993,6 +1994,8 @@ def _raw_memory_write_allowed(
     principal_id: str | None,
     accessible_projects: Iterable[str] | None,
 ) -> bool:
+    if memory.memory_scope is MemoryScope.PRIVATE and memory.principal_id != principal_id:
+        return False
     decision = authorize_memory_write(
         principal_id=principal_id,
         memory_scope=memory.memory_scope,
@@ -2036,15 +2039,18 @@ def _temporal_invalidation_metadata(
     return next_metadata
 
 
-async def _load_temporal_invalidation_raw_target(
+async def _load_temporal_invalidation_raw_targets(
     *,
     organization_id: str,
     source_id: str,
-) -> RawMemory | None:
+) -> list[RawMemory]:
     memory = await get_raw_memory(organization_id=organization_id, memory_id=source_id)
     if memory is not None:
-        return memory
-    return await get_raw_memory_by_source_id(organization_id=organization_id, source_id=source_id)
+        return [memory]
+    return await list_raw_memories_by_source_id(
+        organization_id=organization_id,
+        source_id=source_id,
+    )
 
 
 async def _invalidate_promoted_entity_targets(
@@ -2093,19 +2099,24 @@ async def _apply_candidate_temporal_invalidations(
     skipped_source_ids: list[str] = []
 
     for target in targets:
-        memory = await _load_temporal_invalidation_raw_target(
+        target_memories = await _load_temporal_invalidation_raw_targets(
             organization_id=organization_id,
             source_id=target.source_id,
         )
+        memory = next(
+            (
+                candidate
+                for candidate in target_memories
+                if _raw_memory_write_allowed(
+                    memory=candidate,
+                    principal_id=principal_id,
+                    accessible_projects=accessible_projects,
+                )
+            ),
+            None,
+        )
         if memory is None:
             skipped_source_ids.append(target.source_id)
-            continue
-        if not _raw_memory_write_allowed(
-            memory=memory,
-            principal_id=principal_id,
-            accessible_projects=accessible_projects,
-        ):
-            skipped_source_ids.append(memory.id)
             continue
         metadata = _temporal_invalidation_metadata(
             memory.metadata,

@@ -119,33 +119,24 @@ async def promote_raw_captures(
 
     result["duration_ms"] = elapsed_ms(started_at)
     if result["selected_count"]:
-        result["content_lineage"] = await _safe_content_lineage_backfill(
+        result["content_lineage"] = await _content_lineage_backfill(
             organization_id=organization_id,
             limit=max(limit, result["chunk_count"], result["selected_count"]),
         )
     return result
 
 
-async def _safe_content_lineage_backfill(
+async def _content_lineage_backfill(
     *,
     organization_id: str,
     limit: int,
 ) -> dict[str, object]:
-    try:
-        return asdict(
-            await backfill_content_lineage(
-                organization_id=organization_id,
-                limit=max(limit, 1),
-            )
+    return asdict(
+        await backfill_content_lineage(
+            organization_id=organization_id,
+            limit=max(limit, 1),
         )
-    except Exception as exc:
-        log.warning(
-            "content_lineage_backfill_failed", organization_id=organization_id, error=str(exc)
-        )
-        return {
-            "error": str(exc),
-            "status": "failed",
-        }
+    )
 
 
 async def _promote_one(
