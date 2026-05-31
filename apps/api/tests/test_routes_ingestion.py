@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
 
-from sibyl.api.routes.ingestion import _resolve_route_import_source_uri, list_import_adapters
+from sibyl.api.routes.ingestion import (
+    _resolve_route_import_source_uri,
+    list_import_adapters,
+    resume_source_import_route,
+    start_source_import_route,
+)
+from sibyl.api.schemas import SourceImportResumeRequest, SourceImportStartRequest
 from sibyl.config import settings
 from sibyl_core.models.sources import (
     SourceAdapterCapability,
@@ -74,3 +83,155 @@ def test_source_import_route_rejects_paths_outside_import_root(
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "source_import_path_denied"
+
+
+@pytest.mark.asyncio
+async def test_start_source_import_route_enqueues_drain_without_inline_resume(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "mail.mbox"
+    source_path.write_text("", encoding="utf-8")
+    now = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
+    payload = {
+        "import_id": "source_import:run-1",
+        "adapter_name": "mbox",
+        "adapter_version": None,
+        "source_identity": None,
+        "source_version": None,
+        "status": "pending",
+        "privacy_class": None,
+        "target_memory_scope": "private",
+        "target_scope_key": None,
+        "checkpoint": None,
+        "progress": {
+            "imported_count": 0,
+            "skipped_count": 0,
+            "dedupe_count": 0,
+            "superseded_count": 0,
+            "error_count": 0,
+            "attachment_count": 0,
+            "extraction_pending_count": 0,
+            "raw_memory_count": 0,
+        },
+        "raw_memory_ids": [],
+        "dedupe_keys": [],
+        "duplicate_dedupe_keys": [],
+        "skipped_records": [],
+        "errors": [],
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": None,
+    }
+    policy_context = {
+        "actor_user_id": "user-1",
+        "organization_id": "00000000-0000-0000-0000-000000000111",
+        "memory_space": "private",
+        "scope_key": None,
+    }
+    request = SourceImportStartRequest(source_uri=str(source_path), batch_size=25)
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    ctx = SimpleNamespace(user_id="user-1")
+
+    with (
+        patch("sibyl.api.routes.ingestion.settings.source_import_dir", tmp_path),
+        patch(
+            "sibyl.api.routes.ingestion._source_import_policy_context",
+            AsyncMock(return_value=policy_context),
+        ),
+        patch(
+            "sibyl.api.routes.ingestion.start_source_import",
+            AsyncMock(return_value=payload),
+        ) as start,
+        patch(
+            "sibyl.jobs.queue.enqueue_source_import_drain",
+            AsyncMock(return_value="source_import_drain:source_import:run-1"),
+        ) as enqueue,
+    ):
+        response = await start_source_import_route(request, org=org, ctx=ctx)
+
+    assert response.import_id == "source_import:run-1"
+    assert response.status == "pending"
+    start.assert_awaited_once()
+    enqueue.assert_awaited_once_with(
+        "source_import:run-1",
+        organization_id=str(org.id),
+        principal_id="user-1",
+        policy_context=policy_context,
+        batch_size=25,
+        promotion_preview_approved=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_resume_source_import_route_enqueues_drain_without_inline_batch() -> None:
+    now = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
+    status_payload = {
+        "import_id": "source_import:run-1",
+        "adapter_name": "mbox",
+        "adapter_version": "1.0",
+        "source_identity": "mailbox",
+        "source_version": "v1",
+        "status": "paused",
+        "privacy_class": "personal",
+        "target_memory_scope": "private",
+        "target_scope_key": None,
+        "checkpoint": {"cursor": "100", "done": False},
+        "progress": {
+            "imported_count": 100,
+            "skipped_count": 0,
+            "dedupe_count": 0,
+            "superseded_count": 0,
+            "error_count": 0,
+            "attachment_count": 0,
+            "extraction_pending_count": 0,
+            "raw_memory_count": 100,
+        },
+        "raw_memory_ids": [],
+        "dedupe_keys": [],
+        "duplicate_dedupe_keys": [],
+        "skipped_records": [],
+        "errors": [],
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": None,
+    }
+    policy_context = {
+        "actor_user_id": "user-1",
+        "organization_id": "00000000-0000-0000-0000-000000000111",
+        "memory_space": "private",
+        "scope_key": None,
+    }
+    org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+    ctx = SimpleNamespace(user_id="user-1")
+
+    with (
+        patch(
+            "sibyl.api.routes.ingestion.get_source_import_status",
+            AsyncMock(return_value=status_payload),
+        ),
+        patch(
+            "sibyl.api.routes.ingestion._source_import_policy_context",
+            AsyncMock(return_value=policy_context),
+        ),
+        patch(
+            "sibyl.jobs.queue.enqueue_source_import_drain",
+            AsyncMock(return_value="source_import_drain:source_import:run-1"),
+        ) as enqueue,
+    ):
+        response = await resume_source_import_route(
+            "source_import:run-1",
+            SourceImportResumeRequest(batch_size=50),
+            org=org,
+            ctx=ctx,
+        )
+
+    assert response.import_id == "source_import:run-1"
+    assert response.status == "paused"
+    enqueue.assert_awaited_once_with(
+        "source_import:run-1",
+        organization_id=str(org.id),
+        principal_id="user-1",
+        policy_context=policy_context,
+        batch_size=50,
+        promotion_preview_approved=None,
+    )

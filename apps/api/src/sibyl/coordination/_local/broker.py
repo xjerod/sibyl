@@ -384,6 +384,29 @@ class LocalQueueBroker:
         )
         return result.job_id
 
+    async def enqueue_source_import_drain(
+        self,
+        import_id: str,
+        *,
+        organization_id: str,
+        principal_id: str,
+        policy_context: dict[str, Any],
+        batch_size: int | None = None,
+        promotion_preview_approved: bool | None = None,
+    ) -> str:
+        result = await self._enqueue_unique(
+            "drain_source_import",
+            import_id,
+            job_id=f"source_import_drain:{import_id}",
+            clear_result=True,
+            organization_id=organization_id,
+            principal_id=principal_id,
+            policy_context=policy_context,
+            batch_size=batch_size,
+            promotion_preview_approved=promotion_preview_approved,
+        )
+        return result.job_id
+
     async def get_job_status(self, job_id: str) -> JobInfo:
         self._purge_expired_jobs()
         record = self._jobs.get(job_id)

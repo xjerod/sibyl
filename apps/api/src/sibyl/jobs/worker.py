@@ -7,7 +7,7 @@ This is the worker entrypoint. Job implementations are in:
 - entities.py: create_entity, create_learning_episode, create_learning_procedure, update_entity
 - memory_extraction.py: extract_memory_entities
 - backup.py: run_backup, cleanup_old_backups
-- source_imports.py: import_source_archive
+- source_imports.py: import_source_archive, drain_source_import
 """
 
 import time
@@ -37,7 +37,7 @@ from sibyl.jobs.entities import (
 from sibyl.jobs.memory_extraction import extract_memory_entities
 from sibyl.jobs.privacy import purge_due_deleted_personal_memories
 from sibyl.jobs.reflection import run_reflection_dream_cycle, run_reflection_dream_cycle_all_orgs
-from sibyl.jobs.source_imports import import_source_archive
+from sibyl.jobs.source_imports import drain_source_import, import_source_archive
 from sibyl_core.observability import elapsed_ms, telemetry_registry
 
 log = structlog.get_logger()
@@ -277,6 +277,7 @@ class WorkerSettings:
         run_scheduled_backups,
         # Source import jobs
         import_source_archive,
+        drain_source_import,
         # Consolidation jobs
         consolidate_org,
         consolidate_all_orgs,

@@ -34,6 +34,7 @@ __all__ = [
     "enqueue_memory_projection",
     "enqueue_priority_decay",
     "enqueue_reflection_dream_cycle",
+    "enqueue_source_import_drain",
     "enqueue_sync",
     "enqueue_update_entity",
     "enqueue_update_task",
@@ -201,6 +202,26 @@ async def enqueue_update_task(
         new_status=new_status,
         add_depends_on=add_depends_on,
         remove_depends_on=remove_depends_on,
+    )
+
+
+async def enqueue_source_import_drain(
+    import_id: str,
+    *,
+    organization_id: str,
+    principal_id: str,
+    policy_context: dict[str, Any],
+    batch_size: int | None = None,
+    promotion_preview_approved: bool | None = None,
+) -> str:
+    """Enqueue a source import drain job."""
+    return await get_queue().enqueue_source_import_drain(
+        import_id,
+        organization_id=organization_id,
+        principal_id=principal_id,
+        policy_context=policy_context,
+        batch_size=batch_size,
+        promotion_preview_approved=promotion_preview_approved,
     )
 
 

@@ -304,6 +304,39 @@ async def test_enqueue_sync_includes_org_metadata_when_provided() -> None:
 
 
 @pytest.mark.asyncio
+async def test_enqueue_source_import_drain_indexes_run_scoped_job() -> None:
+    pool = RecordingEnqueuePool()
+    broker = make_broker(pool)
+    policy_context = {
+        "actor_user_id": "user-1",
+        "organization_id": "org-123",
+        "memory_space": "private",
+    }
+
+    job_id = await broker.enqueue_source_import_drain(
+        "source_import:run-123",
+        organization_id="org-123",
+        principal_id="user-1",
+        policy_context=policy_context,
+        batch_size=25,
+        promotion_preview_approved=False,
+    )
+
+    assert job_id == "source_import_drain:source_import:run-123"
+    assert pool.calls[0][0] == "drain_source_import"
+    assert pool.calls[0][1] == "source_import:run-123"
+    assert pool.calls[0][2]["organization_id"] == "org-123"
+    assert pool.calls[0][2]["principal_id"] == "user-1"
+    assert pool.calls[0][2]["policy_context"] == policy_context
+    assert pool.calls[0][2]["batch_size"] == 25
+    assert pool.calls[0][2]["promotion_preview_approved"] is False
+    assert pool.delete.await_args_list[-1].args == (
+        "arq:result:source_import_drain:source_import:run-123",
+    )
+    assert_recent_job_indexed(pool, job_id)
+
+
+@pytest.mark.asyncio
 async def test_enqueue_backup_cleanup_indexes_recent_job() -> None:
     pool = RecordingEnqueuePool()
     broker = make_broker(pool)

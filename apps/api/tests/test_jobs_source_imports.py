@@ -224,6 +224,38 @@ def _raw_memory_write(
     )
 
 
+def _source_import_result_payload(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "adapter_name": "mbox",
+        "adapter_version": "1.0",
+        "source_identity": "mailbox",
+        "source_uri": "memory://mailbox",
+        "source_version": "v1",
+        "imported_count": 1,
+        "skipped_count": 0,
+        "dedupe_count": 0,
+        "superseded_count": 0,
+        "attachment_count": 0,
+        "extraction_pending_count": 0,
+        "raw_memory_ids": ["raw-new"],
+        "source_ids": ["msg-1"],
+        "dedupe_keys": ["dedupe-msg-1"],
+        "duplicate_dedupe_keys": [],
+        "skipped_records": [],
+        "checkpoint": {"source_version": "v1", "done": True},
+        "policy": {
+            "privacy_class": "personal",
+            "target_memory_scope": "private",
+            "target_scope_key": None,
+            "requires_promotion_preview": False,
+            "reasons": ["privacy_default_scope"],
+            "write_reason": "same_scope_write_allowed",
+        },
+    }
+    values.update(overrides)
+    return values
+
+
 @pytest.mark.asyncio
 async def test_duplicate_checker_looks_up_exact_dedupe_by_org_key() -> None:
     lookup_calls: list[dict[str, object]] = []
@@ -384,7 +416,7 @@ async def test_import_source_archive_denies_paths_outside_import_root(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_source_import_run_resumes_from_persisted_checkpoint(
+async def test_source_import_drain_resumes_from_persisted_checkpoint(
     tmp_path: Path,
 ) -> None:
     mbox_path = _write_resume_mbox(tmp_path / "resume.mbox")
@@ -407,22 +439,23 @@ async def test_source_import_run_resumes_from_persisted_checkpoint(
             principal_id="user-1",
             policy_context=_policy_context(),
             batch_size=1,
-            remember=fake_remember,
         )
-        second = await source_imports.resume_source_import(
+        completed = await source_imports.drain_source_import(
+            {},
             first["import_id"],
             organization_id="org-1",
             principal_id="user-1",
             policy_context=_policy_context(),
+            batch_size=1,
             remember=fake_remember,
         )
 
-    assert first["status"] == "paused"
-    assert first["checkpoint"]["cursor"] == "1"
-    assert first["progress"]["imported_count"] == 1
-    assert second["status"] == "completed"
-    assert second["checkpoint"]["done"] is True
-    assert second["progress"]["imported_count"] == 2
+    assert first["status"] == "pending"
+    assert first["checkpoint"] is None
+    assert first["progress"]["imported_count"] == 0
+    assert completed["status"] == "completed"
+    assert completed["checkpoint"]["done"] is True
+    assert completed["progress"]["imported_count"] == 2
     assert len(writes) == 2
     assert writes[0]["source_id"] != writes[1]["source_id"]
 
@@ -455,11 +488,20 @@ async def test_source_import_run_broadcasts_status_changes(tmp_path: Path) -> No
             principal_id="user-1",
             policy_context=_policy_context(),
             batch_size=1,
+        )
+        completed = await source_imports.drain_source_import(
+            {},
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            batch_size=1,
             remember=fake_remember,
         )
 
-    assert first["status"] == "paused"
-    assert statuses == ["pending", "running", "paused"]
+    assert first["status"] == "pending"
+    assert completed["status"] == "completed"
+    assert statuses == ["pending", "running", "paused", "running", "completed"]
 
 
 def test_source_import_event_payload_is_json_ready(tmp_path: Path) -> None:
@@ -514,8 +556,17 @@ async def test_source_import_run_records_dedupe_without_duplicate_write(
             principal_id="user-1",
             policy_context=_policy_context(),
             batch_size=1,
+        )
+        completed = await source_imports.drain_source_import(
+            {},
+            first["import_id"],
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            batch_size=1,
             remember=fake_remember,
         )
+    assert completed["status"] == "completed"
     run = source_imports._SOURCE_IMPORT_RUNS[first["import_id"]]
     run.checkpoint = None
     run.status = source_imports.SourceImportStatus.PAUSED
@@ -528,11 +579,13 @@ async def test_source_import_run_records_dedupe_without_duplicate_write(
         ),
         patch("sibyl.jobs.source_imports.settings.source_import_dir", tmp_path),
     ):
-        second = await source_imports.resume_source_import(
+        second = await source_imports.drain_source_import(
+            {},
             first["import_id"],
             organization_id="org-1",
             principal_id="user-1",
             policy_context=_policy_context(),
+            batch_size=1,
             remember=fake_remember,
         )
 
@@ -562,7 +615,6 @@ async def test_cancel_source_import_blocks_resume(tmp_path: Path) -> None:
             principal_id="user-1",
             policy_context=_policy_context(),
             batch_size=1,
-            remember=fake_remember,
         )
 
     canceled = await source_imports.cancel_source_import(
@@ -580,6 +632,65 @@ async def test_cancel_source_import_blocks_resume(tmp_path: Path) -> None:
             policy_context=_policy_context(),
             remember=fake_remember,
         )
+
+
+@pytest.mark.asyncio
+async def test_resume_source_import_preserves_external_cancel_after_batch(
+    tmp_path: Path,
+) -> None:
+    mbox_path = _write_mbox(tmp_path / "cancel-during-batch.mbox")
+
+    with patch("sibyl.jobs.source_imports.settings.source_import_dir", tmp_path):
+        first = await source_imports.start_source_import(
+            source_uri=str(mbox_path),
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+            batch_size=1,
+        )
+
+    canceled = source_imports.SourceImportRun(
+        import_id=str(first["import_id"]),
+        organization_id="org-1",
+        principal_id="user-1",
+        source_uri=str(mbox_path),
+        adapter_name="mbox",
+        options={},
+        policy_context=_policy_context(),
+        batch_size=1,
+        promotion_preview_approved=False,
+        status=source_imports.SourceImportStatus.CANCELED,
+        completed_at=datetime.now(UTC),
+    )
+
+    async def load_canceled(import_id: str, *, organization_id: str):
+        assert import_id == first["import_id"]
+        assert organization_id == "org-1"
+        source_imports._SOURCE_IMPORT_RUNS[import_id] = canceled
+        return canceled
+
+    with (
+        patch(
+            "sibyl.jobs.source_imports.import_source_archive",
+            AsyncMock(return_value=_source_import_result_payload()),
+        ),
+        patch(
+            "sibyl.jobs.source_imports._load_persisted_run",
+            AsyncMock(side_effect=load_canceled),
+        ),
+    ):
+        result = await source_imports.resume_source_import(
+            str(first["import_id"]),
+            organization_id="org-1",
+            principal_id="user-1",
+            policy_context=_policy_context(),
+        )
+
+    assert result["status"] == "canceled"
+    assert result["progress"]["imported_count"] == 0
+    assert source_imports._SOURCE_IMPORT_RUNS[str(first["import_id"])].status == (
+        source_imports.SourceImportStatus.CANCELED
+    )
 
 
 @pytest.mark.asyncio
@@ -602,7 +713,6 @@ async def test_source_import_controls_are_principal_bound(tmp_path: Path) -> Non
             principal_id="user-1",
             policy_context=_policy_context(),
             batch_size=1,
-            remember=fake_remember,
         )
 
     with pytest.raises(PermissionError, match="source_import_forbidden"):
@@ -646,7 +756,6 @@ async def test_resume_source_import_rechecks_current_policy_context(tmp_path: Pa
             },
             batch_size=1,
             promotion_preview_approved=True,
-            remember=fake_remember,
         )
 
         stale_context = _policy_context(memory_space="project", scope_key="project-1")
@@ -664,3 +773,4 @@ async def test_resume_source_import_rechecks_current_policy_context(tmp_path: Pa
 
 def test_worker_settings_registers_source_import_job() -> None:
     assert source_imports.import_source_archive in WorkerSettings.functions
+    assert source_imports.drain_source_import in WorkerSettings.functions

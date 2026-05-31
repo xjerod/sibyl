@@ -633,7 +633,6 @@ async def start_source_import(
     options: dict[str, Any] | None = None,
     batch_size: int = 100,
     promotion_preview_approved: bool = False,
-    remember: RawMemoryRememberer | None = None,
 ) -> dict[str, Any]:
     run = SourceImportRun(
         import_id=f"source_import:{uuid4()}",
@@ -647,15 +646,44 @@ async def start_source_import(
         promotion_preview_approved=promotion_preview_approved,
     )
     await _persist_run(run)
-    return await resume_source_import(
-        run.import_id,
-        organization_id=organization_id,
-        principal_id=principal_id,
-        policy_context=policy_context,
-        batch_size=batch_size,
-        promotion_preview_approved=promotion_preview_approved,
-        remember=remember,
-    )
+    return run.status_payload()
+
+
+async def drain_source_import(
+    ctx: dict[str, Any],
+    import_id: str,
+    *,
+    organization_id: str,
+    principal_id: str,
+    policy_context: dict[str, Any],
+    batch_size: int | None = None,
+    promotion_preview_approved: bool | None = None,
+    remember: RawMemoryRememberer | None = None,
+) -> dict[str, Any]:
+    del ctx
+    while True:
+        status = await get_source_import_status(
+            import_id,
+            organization_id=organization_id,
+            principal_id=principal_id,
+        )
+        if status["status"] in {
+            SourceImportStatus.CANCELED.value,
+            SourceImportStatus.COMPLETED.value,
+        }:
+            return status
+
+        status = await resume_source_import(
+            import_id,
+            organization_id=organization_id,
+            principal_id=principal_id,
+            policy_context=policy_context,
+            batch_size=batch_size,
+            promotion_preview_approved=promotion_preview_approved,
+            remember=remember,
+        )
+        if status["status"] != SourceImportStatus.PAUSED.value:
+            return status
 
 
 async def resume_source_import(
@@ -718,6 +746,12 @@ async def resume_source_import(
         await _persist_run(run)
         raise
 
+    if run.status is SourceImportStatus.CANCELED:
+        return run.status_payload()
+    latest = await _load_persisted_run(import_id, organization_id=run.organization_id)
+    if latest is not None and latest.status is SourceImportStatus.CANCELED:
+        return latest.status_payload()
+
     run.adapter_version = str(result["adapter_version"])
     run.source_identity = str(result["source_identity"])
     run.source_version = str(result["source_version"])
@@ -775,6 +809,7 @@ __all__ = [
     "SourceImportStatus",
     "cancel_source_import",
     "clear_source_import_runs",
+    "drain_source_import",
     "get_source_import_status",
     "import_source_archive",
     "memory_policy_context_payload",

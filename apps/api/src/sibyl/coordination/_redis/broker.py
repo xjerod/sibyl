@@ -415,6 +415,37 @@ class RedisQueueBroker:
         )
         return result.job_id
 
+    async def enqueue_source_import_drain(
+        self,
+        import_id: str,
+        *,
+        organization_id: str,
+        principal_id: str,
+        policy_context: dict[str, Any],
+        batch_size: int | None = None,
+        promotion_preview_approved: bool | None = None,
+    ) -> str:
+        """Enqueue a resumable source import drain job."""
+        job_id = f"source_import_drain:{import_id}"
+        result = await self._enqueue_unique(
+            "drain_source_import",
+            import_id,
+            job_id=job_id,
+            clear_result=True,
+            organization_id=organization_id,
+            principal_id=principal_id,
+            policy_context=policy_context,
+            batch_size=batch_size,
+            promotion_preview_approved=promotion_preview_approved,
+        )
+
+        if not result.created:
+            log.info("Source import drain already running", job_id=job_id, import_id=import_id)
+            return result.job_id
+
+        log.info("Enqueued source import drain", job_id=result.job_id, import_id=import_id)
+        return result.job_id
+
     async def get_job_status(self, job_id: str) -> JobInfo:
         """Get the status of a job."""
         pool = await self.get_pool()

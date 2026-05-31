@@ -168,6 +168,17 @@ class QueueBroker(Protocol):
         remove_depends_on: list[str] | None = None,
     ) -> str: ...
 
+    async def enqueue_source_import_drain(
+        self,
+        import_id: str,
+        *,
+        organization_id: str,
+        principal_id: str,
+        policy_context: dict[str, Any],
+        batch_size: int | None = None,
+        promotion_preview_approved: bool | None = None,
+    ) -> str: ...
+
     async def get_job_status(self, job_id: str) -> JobInfo: ...
 
     async def list_jobs(self, *, function: str | None = None, limit: int = 50) -> list[JobInfo]: ...

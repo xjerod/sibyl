@@ -349,6 +349,71 @@ async def test_local_queue_broker_executes_local_jobs_and_reports_health() -> No
 
 
 @pytest.mark.asyncio
+async def test_local_queue_broker_executes_source_import_drain() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    async def drain_source_import(
+        ctx: dict[str, object],
+        import_id: str,
+        *,
+        organization_id: str,
+        principal_id: str,
+        policy_context: dict[str, object],
+        batch_size: int | None = None,
+        promotion_preview_approved: bool | None = None,
+    ) -> dict[str, object]:
+        calls.append(
+            (
+                import_id,
+                {
+                    "organization_id": organization_id,
+                    "principal_id": principal_id,
+                    "policy_context": policy_context,
+                    "batch_size": batch_size,
+                    "promotion_preview_approved": promotion_preview_approved,
+                    "ctx_has_start_time": "start_time" in ctx,
+                },
+            )
+        )
+        return {"import_id": import_id, "status": "completed"}
+
+    broker = LocalQueueBroker(
+        functions={"drain_source_import": drain_source_import},
+        max_concurrency=1,
+        result_ttl_seconds=60,
+    )
+
+    await broker.startup()
+    job_id = await broker.enqueue_source_import_drain(
+        "source_import:run-1",
+        organization_id="org-1",
+        principal_id="user-1",
+        policy_context={"actor_user_id": "user-1"},
+        batch_size=10,
+        promotion_preview_approved=False,
+    )
+    info = await _wait_for_job_status(broker, job_id, JobStatus.COMPLETE)
+
+    assert job_id == "source_import_drain:source_import:run-1"
+    assert info.result == {"import_id": "source_import:run-1", "status": "completed"}
+    assert calls == [
+        (
+            "source_import:run-1",
+            {
+                "organization_id": "org-1",
+                "principal_id": "user-1",
+                "policy_context": {"actor_user_id": "user-1"},
+                "batch_size": 10,
+                "promotion_preview_approved": False,
+                "ctx_has_start_time": True,
+            },
+        )
+    ]
+
+    await broker.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_local_queue_broker_force_reruns_completed_job() -> None:
     calls: list[str] = []
 

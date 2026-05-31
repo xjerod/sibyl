@@ -18,11 +18,11 @@ from sibyl.api.schemas import (
 from sibyl.auth.context import AuthContext
 from sibyl.auth.dependencies import get_auth_context, get_current_organization, require_org_role
 from sibyl.config import settings
+from sibyl.jobs import queue as job_queue
 from sibyl.jobs.source_imports import (
     cancel_source_import,
     get_source_import_status,
     memory_policy_context_payload,
-    resume_source_import,
     start_source_import,
 )
 from sibyl.persistence.auth_runtime import list_accessible_project_graph_ids
@@ -146,7 +146,7 @@ async def start_source_import_route(
     org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> SourceImportStatusResponse:
-    """Start a bounded source import and persist the first checkpoint."""
+    """Create a source import run and enqueue its background drain."""
     policy_context = await _source_import_policy_context(
         ctx=ctx,
         memory_scope=request.target_memory_scope,
@@ -166,6 +166,14 @@ async def start_source_import_route(
             policy_context=policy_context,
             adapter_name=request.adapter_name,
             options=options,
+            batch_size=request.batch_size,
+            promotion_preview_approved=request.promotion_preview_approved,
+        )
+        await job_queue.enqueue_source_import_drain(
+            str(payload["import_id"]),
+            organization_id=str(org.id),
+            principal_id=principal_id,
+            policy_context=policy_context,
             batch_size=request.batch_size,
             promotion_preview_approved=request.promotion_preview_approved,
         )
@@ -200,7 +208,7 @@ async def resume_source_import_route(
     org: AuthOrganization = Depends(get_current_organization),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> SourceImportStatusResponse:
-    """Resume a source import from its last persisted checkpoint."""
+    """Queue a source import drain from its last persisted checkpoint."""
     try:
         principal_id = _current_principal_id(ctx)
         status = await get_source_import_status(
@@ -208,13 +216,17 @@ async def resume_source_import_route(
             organization_id=str(org.id),
             principal_id=principal_id,
         )
+        if status["status"] == "canceled":
+            raise ValueError("source_import_canceled")
+        if status["status"] == "completed":
+            return _source_import_response(status)
         scope_key = status["target_scope_key"]
         policy_context = await _source_import_policy_context(
             ctx=ctx,
             memory_scope=str(status["target_memory_scope"] or "private"),
             scope_key=None if scope_key is None else str(scope_key),
         )
-        payload = await resume_source_import(
+        await job_queue.enqueue_source_import_drain(
             import_id,
             organization_id=str(org.id),
             principal_id=principal_id,
@@ -224,7 +236,7 @@ async def resume_source_import_route(
         )
     except (KeyError, PermissionError, ValueError) as exc:
         raise _source_import_http_error(exc) from exc
-    return _source_import_response(payload)
+    return _source_import_response(status)
 
 
 @router.post("/imports/{import_id:path}/cancel", response_model=SourceImportStatusResponse)
