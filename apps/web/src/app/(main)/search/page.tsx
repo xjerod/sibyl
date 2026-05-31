@@ -11,21 +11,23 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ mode?: string; q?: string }>;
 }
 
 export default async function SearchPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const query = params.q || '';
+  const mode = params.mode || 'all';
 
-  // Only fetch if there's a query in the URL
+  // Only fetch default unified results if there's a query in the URL.
   const [initialResults, stats] = await Promise.all([
-    query
+    query && mode === 'all'
       ? fetchSearchResults({
           query,
           limit: 50,
-          include_documents: false,
+          include_documents: true,
           include_graph: true,
+          include_raw_memory: true,
         }).catch(() => undefined)
       : undefined,
     fetchStats().catch(() => undefined),

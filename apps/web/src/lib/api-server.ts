@@ -5,6 +5,7 @@ import { serverOnly } from 'next-dynenv';
 import type {
   Entity,
   EntityListResponse,
+  MemoryScope,
   ProjectSummariesResponse,
   SearchResponse,
   StatsResponse,
@@ -195,10 +196,21 @@ export async function fetchSearchResults(params: {
   types?: string[];
   language?: string;
   category?: string;
+  source?: string;
+  source_id?: string;
+  source_name?: string;
   limit?: number;
   include_content?: boolean;
   include_documents?: boolean;
   include_graph?: boolean;
+  include_raw_memory?: boolean;
+  memory_scope?: MemoryScope;
+  scope_key?: string;
+  participants?: string[];
+  labels?: string[];
+  thread_id?: string;
+  occurred_after?: string;
+  occurred_before?: string;
 }): Promise<SearchResponse> {
   return serverFetch<SearchResponse>('/search', {
     method: 'POST',

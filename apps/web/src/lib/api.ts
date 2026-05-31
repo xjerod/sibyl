@@ -645,7 +645,7 @@ export interface SearchResult {
   score: number;
   source: string | null;
   url: string | null;
-  result_origin: 'graph' | 'document';
+  result_origin: 'graph' | 'document' | 'raw_memory';
   metadata: Record<string, unknown>;
 }
 
@@ -656,6 +656,7 @@ export interface SearchResponse {
   filters: Record<string, unknown>;
   graph_count?: number;
   document_count?: number;
+  raw_memory_count?: number;
   limit?: number;
   offset?: number;
   has_more?: boolean;
@@ -2235,6 +2236,9 @@ export const api = {
       category?: string;
       status?: string;
       project?: string;
+      source?: string;
+      source_id?: string;
+      source_name?: string;
       assignee?: string;
       since?: string;
       as_of?: string;
@@ -2242,6 +2246,14 @@ export const api = {
       include_content?: boolean;
       include_documents?: boolean;
       include_graph?: boolean;
+      include_raw_memory?: boolean;
+      memory_scope?: MemoryScope;
+      scope_key?: string;
+      participants?: string[];
+      labels?: string[];
+      thread_id?: string;
+      occurred_after?: string;
+      occurred_before?: string;
       use_enhanced?: boolean;
       boost_recent?: boolean;
     }) =>

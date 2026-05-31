@@ -10,12 +10,46 @@ interface SearchResult {
   content?: string | null;
   score: number;
   url?: string | null;
-  result_origin?: 'graph' | 'document';
+  result_origin?: 'graph' | 'document' | 'raw_memory';
   metadata?: Record<string, unknown>;
 }
 
 interface SearchResultCardProps {
   result: SearchResult;
+}
+
+function HighlightedText({ value }: { value: string }) {
+  const parts = value.split(/(<mark>|<\/mark>)/g);
+  let active = false;
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part === '<mark>') {
+          active = true;
+          return null;
+        }
+        if (part === '</mark>') {
+          active = false;
+          return null;
+        }
+        if (!part) {
+          return null;
+        }
+        if (active) {
+          return (
+            <mark
+              key={`${index}-${part.slice(0, 12)}`}
+              className="rounded bg-sc-cyan/15 px-0.5 text-sc-cyan"
+            >
+              {part}
+            </mark>
+          );
+        }
+        return <span key={`${index}-${part.slice(0, 12)}`}>{part}</span>;
+      })}
+    </>
+  );
 }
 
 export function SearchResultCard({ result }: SearchResultCardProps) {
@@ -30,9 +64,13 @@ export function SearchResultCard({ result }: SearchResultCardProps) {
   const externalUrl = result.url;
 
   const isDocument = result.result_origin === 'document' && sourceId && documentId;
+  const rawMemoryId =
+    result.result_origin === 'raw_memory' ? result.id.replace(/^raw_memory:/, '') : null;
   const href = isDocument
     ? `/sources/${sourceId}/documents/${documentId}`
-    : `/entities/${result.id}`;
+    : rawMemoryId
+      ? `/memory/captures?id=${encodeURIComponent(rawMemoryId)}`
+      : `/entities/${result.id}`;
 
   return (
     <Link
@@ -71,7 +109,7 @@ export function SearchResultCard({ result }: SearchResultCardProps) {
             {/* Content preview */}
             {result.content && (
               <p className="text-sc-fg-muted text-sm mt-1.5 line-clamp-2 leading-relaxed">
-                {result.content}
+                <HighlightedText value={result.content} />
               </p>
             )}
 

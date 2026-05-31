@@ -21,7 +21,7 @@ import { LoadingState } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilterChip } from '@/components/ui/toggle';
 import { ErrorState } from '@/components/ui/tooltip';
-import type { SearchResponse, SearchResult, StatsResponse } from '@/lib/api';
+import type { MemoryScope, SearchResponse, SearchResult, StatsResponse } from '@/lib/api';
 import { TASK_STATUS_CONFIG, TASK_STATUSES } from '@/lib/constants';
 import { useCodeExamples, useRAGHybridSearch, useSearch, useSources, useStats } from '@/lib/hooks';
 
@@ -30,9 +30,11 @@ import { useCodeExamples, useRAGHybridSearch, useSearch, useSources, useStats } 
 const ALL_SOURCES = '__all__';
 
 // Search modes
-type SearchMode = 'knowledge' | 'docs' | 'code';
+type SearchMode = 'all' | 'memory' | 'knowledge' | 'docs' | 'code';
 
 const SEARCH_MODES: { id: SearchMode; label: string; icon: string; description: string }[] = [
+  { id: 'all', label: 'All', icon: '✦', description: 'Knowledge, memory, docs' },
+  { id: 'memory', label: 'Memory', icon: '◌', description: 'Raw captures and imports' },
   {
     id: 'knowledge',
     label: 'Knowledge',
@@ -41,6 +43,16 @@ const SEARCH_MODES: { id: SearchMode; label: string; icon: string; description: 
   },
   { id: 'docs', label: 'Docs', icon: '▤', description: 'Crawled documentation' },
   { id: 'code', label: 'Code', icon: '⟨⟩', description: 'Code examples' },
+];
+
+const MEMORY_SCOPES: Array<{ value: MemoryScope; label: string }> = [
+  { value: 'private', label: 'Private' },
+  { value: 'delegated', label: 'Delegated' },
+  { value: 'project', label: 'Project' },
+  { value: 'team', label: 'Team' },
+  { value: 'organization', label: 'Organization' },
+  { value: 'shared', label: 'Shared' },
+  { value: 'public', label: 'Public' },
 ];
 
 // Curated searchable entity types for knowledge mode
@@ -67,6 +79,20 @@ const CODE_LANGUAGES = [
   'sql',
 ] as const;
 
+const FILTER_INPUT_CLASS =
+  'w-full rounded-lg border border-sc-fg-subtle/20 bg-sc-bg-highlight px-2.5 py-2 text-sm text-sc-fg-primary transition-colors duration-200 placeholder:text-sc-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base';
+
+function parseSearchMode(value: string | null): SearchMode {
+  return SEARCH_MODES.some(mode => mode.id === value) ? (value as SearchMode) : 'all';
+}
+
+function parseDelimited(value: string): string[] {
+  return value
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
 interface SearchContentProps {
   initialQuery: string;
   initialResults?: SearchResponse;
@@ -77,7 +103,7 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get('q') || '';
-  const urlMode = (searchParams.get('mode') as SearchMode) || 'knowledge';
+  const urlMode = parseSearchMode(searchParams.get('mode'));
 
   const [mode, setMode] = useState<SearchMode>(urlMode);
   const [query, setQuery] = useState(initialQuery || urlQuery);
@@ -94,7 +120,7 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
         else params.delete('q');
       }
       if (newParams.mode !== undefined) {
-        if (newParams.mode !== 'knowledge') params.set('mode', newParams.mode);
+        if (newParams.mode !== 'all') params.set('mode', newParams.mode);
         else params.delete('mode');
       }
       if (newParams.types !== undefined) {
@@ -122,11 +148,94 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [returnMode, setReturnMode] = useState<'chunks' | 'pages'>('chunks');
 
+  // Raw memory facets
+  const [memorySourceId, setMemorySourceId] = useState<string>('');
+  const [memoryScope, setMemoryScope] = useState<MemoryScope>('private');
+  const [scopeKey, setScopeKey] = useState<string>('');
+  const [participantsInput, setParticipantsInput] = useState<string>('');
+  const [labelsInput, setLabelsInput] = useState<string>('');
+  const [threadId, setThreadId] = useState<string>('');
+  const [occurredAfter, setOccurredAfter] = useState<string>('');
+  const [occurredBefore, setOccurredBefore] = useState<string>('');
+
   const { data: stats } = useStats(initialStats);
   const { data: sourcesData } = useSources();
 
   // Check if task type is selected to show status filter
   const showStatusFilter = selectedTypes.includes('task');
+  const participants = parseDelimited(participantsInput);
+  const labels = parseDelimited(labelsInput);
+  const rawFacetParams = {
+    source_id: memorySourceId.trim() || undefined,
+    memory_scope: memoryScope,
+    scope_key: scopeKey.trim() || undefined,
+    participants: participants.length > 0 ? participants : undefined,
+    labels: labels.length > 0 ? labels : undefined,
+    thread_id: threadId.trim() || undefined,
+    occurred_after: occurredAfter ? `${occurredAfter}T00:00:00Z` : undefined,
+    occurred_before: occurredBefore ? `${occurredBefore}T23:59:59Z` : undefined,
+  };
+  const hasMemoryFacets = Boolean(
+    memorySourceId.trim() ||
+      memoryScope !== 'private' ||
+      scopeKey.trim() ||
+      participantsInput.trim() ||
+      labelsInput.trim() ||
+      threadId.trim() ||
+      occurredAfter ||
+      occurredBefore
+  );
+
+  const clearMemoryFacets = () => {
+    setMemorySourceId('');
+    setMemoryScope('private');
+    setScopeKey('');
+    setParticipantsInput('');
+    setLabelsInput('');
+    setThreadId('');
+    setOccurredAfter('');
+    setOccurredBefore('');
+  };
+
+  // Unified search
+  const {
+    data: allResults,
+    isLoading: allLoading,
+    error: allError,
+  } = useSearch(
+    {
+      query: submittedQuery,
+      limit: 50,
+      include_documents: true,
+      include_graph: true,
+      include_raw_memory: true,
+      ...rawFacetParams,
+    },
+    {
+      enabled: mode === 'all' && submittedQuery.length > 0,
+      initialData: submittedQuery === initialQuery && mode === 'all' ? initialResults : undefined,
+    }
+  );
+
+  // Raw memory search
+  const {
+    data: memoryResults,
+    isLoading: memoryLoading,
+    error: memoryError,
+  } = useSearch(
+    {
+      query: submittedQuery,
+      types: ['raw_memory'],
+      limit: 50,
+      include_documents: false,
+      include_graph: false,
+      include_raw_memory: true,
+      ...rawFacetParams,
+    },
+    {
+      enabled: mode === 'memory' && submittedQuery.length > 0,
+    }
+  );
 
   // Knowledge search
   const {
@@ -142,11 +251,10 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
       limit: 50,
       include_documents: false, // Knowledge mode searches only the graph
       include_graph: true,
+      include_raw_memory: false,
     },
     {
       enabled: mode === 'knowledge' && submittedQuery.length > 0,
-      initialData:
-        submittedQuery === initialQuery && mode === 'knowledge' ? initialResults : undefined,
     }
   );
 
@@ -186,9 +294,28 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
   );
 
   // Get current mode's state
-  const isLoading =
-    mode === 'knowledge' ? knowledgeLoading : mode === 'docs' ? docsLoading : codeLoading;
-  const error = mode === 'knowledge' ? knowledgeError : mode === 'docs' ? docsError : codeError;
+  const isUnifiedMode = mode === 'all' || mode === 'memory' || mode === 'knowledge';
+  const unifiedResults =
+    mode === 'all' ? allResults : mode === 'memory' ? memoryResults : knowledgeResults;
+  const unifiedResultList = unifiedResults?.results;
+  const isLoading = isUnifiedMode
+    ? mode === 'all'
+      ? allLoading
+      : mode === 'memory'
+        ? memoryLoading
+        : knowledgeLoading
+    : mode === 'docs'
+      ? docsLoading
+      : codeLoading;
+  const error = isUnifiedMode
+    ? mode === 'all'
+      ? allError
+      : mode === 'memory'
+        ? memoryError
+        : knowledgeError
+    : mode === 'docs'
+      ? docsError
+      : codeError;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -225,29 +352,31 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
     setSelectedSource(value === ALL_SOURCES ? '' : value);
   };
 
-  // Knowledge results are now filtered server-side
-  const filteredKnowledgeResults = knowledgeResults?.results;
-
   // Get type counts from stats
   const getTypeCount = (type: string) => stats?.entity_counts[type] ?? 0;
 
   // Get sources list for dropdown
   const sources = sourcesData?.entities || [];
+  const unifiedCount = unifiedResults?.total ?? unifiedResultList?.length ?? 0;
+  const allBreakdown =
+    mode === 'all' && unifiedResults
+      ? [
+          `${unifiedResults.graph_count ?? 0} knowledge`,
+          `${unifiedResults.document_count ?? 0} docs`,
+          `${unifiedResults.raw_memory_count ?? 0} memory`,
+        ].join(' / ')
+      : null;
+  const pageMeta = submittedQuery
+    ? isUnifiedMode
+      ? allBreakdown || `${unifiedCount} results`
+      : mode === 'docs'
+        ? `${docsResults?.total ?? 0} results`
+        : `${codeResults?.total ?? 0} results`
+    : undefined;
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <PageHeader
-        description="Find knowledge, documentation, and code"
-        meta={
-          submittedQuery
-            ? mode === 'knowledge'
-              ? `${filteredKnowledgeResults?.length ?? 0} results`
-              : mode === 'docs'
-                ? `${docsResults?.total ?? 0} results`
-                : `${codeResults?.total ?? 0} results`
-            : undefined
-        }
-      />
+      <PageHeader description="Find memory, knowledge, documentation, and code" meta={pageMeta} />
 
       {/* Mode Tabs */}
       <Tabs value={mode} onValueChange={v => handleModeChange(v as SearchMode)} variant="pills">
@@ -272,11 +401,15 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
               onChange={e => setQuery(e.target.value)}
               aria-label="Search"
               placeholder={
-                mode === 'knowledge'
-                  ? 'Search patterns, procedures, rules, templates...'
-                  : mode === 'docs'
-                    ? 'Search documentation...'
-                    : 'Search code examples...'
+                mode === 'all'
+                  ? 'Search everything...'
+                  : mode === 'memory'
+                    ? 'Search raw memories...'
+                    : mode === 'knowledge'
+                      ? 'Search patterns, procedures, rules, templates...'
+                      : mode === 'docs'
+                        ? 'Search documentation...'
+                        : 'Search code examples...'
               }
               onSubmit={() => setSubmittedQuery(query)}
             />
@@ -288,6 +421,118 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
 
         {/* Mode-specific Filters */}
         <div className="bg-sc-bg-elevated border border-sc-fg-subtle/30 rounded-xl p-3 sm:p-4 space-y-3 sm:space-y-4 shadow-card">
+          {/* All/Memory Mode Filters */}
+          {(mode === 'all' || mode === 'memory') && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sc-fg-muted text-sm font-medium">Memory Facets</span>
+                {hasMemoryFacets && (
+                  <button
+                    type="button"
+                    onClick={clearMemoryFacets}
+                    className="text-xs text-sc-purple hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-base rounded"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-sc-fg-muted">Source ID</span>
+                  <input
+                    type="text"
+                    value={memorySourceId}
+                    onChange={e => setMemorySourceId(e.target.value)}
+                    className={FILTER_INPUT_CLASS}
+                    placeholder="source-mail-1"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-sc-fg-muted">People</span>
+                  <input
+                    type="text"
+                    value={participantsInput}
+                    onChange={e => setParticipantsInput(e.target.value)}
+                    className={FILTER_INPUT_CLASS}
+                    placeholder="bliss@example.com, nova"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-sc-fg-muted">Labels</span>
+                  <input
+                    type="text"
+                    value={labelsInput}
+                    onChange={e => setLabelsInput(e.target.value)}
+                    className={FILTER_INPUT_CLASS}
+                    placeholder="email, launch"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-sc-fg-muted">Thread</span>
+                  <input
+                    type="text"
+                    value={threadId}
+                    onChange={e => setThreadId(e.target.value)}
+                    className={FILTER_INPUT_CLASS}
+                    placeholder="thread-1"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="space-y-1.5">
+                  <span id="memory-scope-label" className="text-xs font-medium text-sc-fg-muted">
+                    Scope
+                  </span>
+                  <Select
+                    value={memoryScope}
+                    onValueChange={value => setMemoryScope(value as MemoryScope)}
+                  >
+                    <SelectTrigger aria-labelledby="memory-scope-label">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MEMORY_SCOPES.map(scope => (
+                        <SelectItem key={scope.value} value={scope.value}>
+                          {scope.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-sc-fg-muted">Scope Key</span>
+                  <input
+                    type="text"
+                    value={scopeKey}
+                    onChange={e => setScopeKey(e.target.value)}
+                    className={FILTER_INPUT_CLASS}
+                    placeholder="project_123"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-sc-fg-muted">Occurred After</span>
+                  <input
+                    type="date"
+                    value={occurredAfter}
+                    onChange={e => setOccurredAfter(e.target.value)}
+                    className={FILTER_INPUT_CLASS}
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-sc-fg-muted">Occurred Before</span>
+                  <input
+                    type="date"
+                    value={occurredBefore}
+                    onChange={e => setOccurredBefore(e.target.value)}
+                    className={FILTER_INPUT_CLASS}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
           {/* Knowledge Mode Filters */}
           {mode === 'knowledge' && (
             <>
@@ -295,7 +540,7 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="text-sc-fg-muted text-sm font-medium">Entity Type</span>
-                  {selectedTypes.length > 0 && (
+                  {mode === 'knowledge' && selectedTypes.length > 0 && (
                     <button
                       type="button"
                       onClick={() => {
@@ -573,13 +818,15 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
             <LoadingState message="Searching..." />
           ) : error ? (
             <ErrorState title="Search failed" message={error.message} />
-          ) : mode === 'knowledge' ? (
-            // Knowledge Results
-            filteredKnowledgeResults && filteredKnowledgeResults.length > 0 ? (
+          ) : isUnifiedMode ? (
+            unifiedResultList && unifiedResultList.length > 0 ? (
               <>
                 <div className="text-sc-fg-muted text-xs sm:text-sm">
-                  <span className="font-medium">{filteredKnowledgeResults.length}</span> results
+                  <span className="font-medium">{unifiedCount}</span> results
                   <span className="hidden xs:inline"> for "{submittedQuery}"</span>
+                  {allBreakdown && (
+                    <span className="text-sc-fg-subtle hidden sm:inline"> · {allBreakdown}</span>
+                  )}
                   {selectedTypes.length > 0 && (
                     <span className="text-sc-fg-subtle hidden sm:inline">
                       {' '}
@@ -588,7 +835,7 @@ export function SearchContent({ initialQuery, initialResults, initialStats }: Se
                   )}
                 </div>
                 <div className="space-y-2 sm:space-y-3">
-                  {filteredKnowledgeResults.map((result: SearchResult) => (
+                  {unifiedResultList.map((result: SearchResult) => (
                     <SearchResultCard key={result.id} result={result} />
                   ))}
                 </div>
