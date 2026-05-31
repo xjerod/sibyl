@@ -1,12 +1,8 @@
 """Health check and statistics functions for Sibyl MCP server."""
 
-import time
 from typing import Any
 
 from sibyl_core.models.entities import EntityType
-
-# Module-level state for uptime tracking
-_server_start_time: float | None = None
 
 
 async def get_graph_client():
@@ -40,15 +36,12 @@ async def get_health(*, organization_id: str | None = None) -> dict[str, Any]:
                         connectivity is checked.
     """
     from sibyl_core.config import settings
-
-    global _server_start_time
-    if _server_start_time is None:
-        _server_start_time = time.time()
+    from sibyl_core.observability import telemetry_registry
 
     health: dict[str, Any] = {
         "status": "unknown",
         "server_name": settings.server_name,
-        "uptime_seconds": int(time.time() - _server_start_time),
+        "uptime_seconds": int(telemetry_registry().uptime_seconds),
         "graph_connected": False,
         "entity_counts": {},
         "errors": [],
