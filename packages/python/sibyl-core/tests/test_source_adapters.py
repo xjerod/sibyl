@@ -19,6 +19,7 @@ from sibyl_core.models.sources import (
 )
 from sibyl_core.services.source_adapters import (
     SourceAdapterRegistry,
+    SourceRecordImportDecision,
     build_source_content_hash,
     build_source_dedupe_key,
     build_source_record_id,
@@ -165,6 +166,7 @@ def _record(manifest: SourceImportManifest, record_id: str = "message-1") -> Sou
 
 def test_dedupe_keys_and_record_ids_are_stable() -> None:
     manifest = _manifest()
+    next_manifest_version = _manifest(source_version="v2")
     content_hash = build_source_content_hash("Subject", "Body")
 
     first = build_source_dedupe_key(
@@ -177,8 +179,14 @@ def test_dedupe_keys_and_record_ids_are_stable() -> None:
         adapter_record_id="message-1",
         content_hash=content_hash,
     )
+    next_version = build_source_dedupe_key(
+        manifest=next_manifest_version,
+        adapter_record_id="message-1",
+        content_hash=content_hash,
+    )
 
     assert first == second
+    assert first.value == next_version.value
     assert first.value.startswith("source:")
     assert build_source_record_id(manifest=manifest, adapter_record_id="message-1") == (
         build_source_record_id(manifest=manifest, adapter_record_id="message-1")
@@ -454,6 +462,60 @@ async def test_import_source_batch_records_duplicate_skip_metadata() -> None:
     assert duplicate_skip.metadata["source_version"] == "v1"
     assert duplicate_skip.metadata["raw_memory_id"] == "raw-existing"
     assert duplicate_skip.metadata["source_id"] == record.source_id
+
+
+@pytest.mark.asyncio
+async def test_import_source_batch_invokes_supersession_handler_after_write() -> None:
+    manifest = _manifest()
+    record = _record(manifest)
+    adapter = FakeSourceAdapter([record])
+    supersession_calls: list[dict[str, object]] = []
+
+    async def fake_remember(**kwargs: object) -> RawMemory:
+        return RawMemory(
+            id="raw-new",
+            organization_id=str(kwargs["organization_id"]),
+            source_id=str(kwargs["source_id"]),
+            principal_id=str(kwargs["principal_id"]),
+            memory_scope=kwargs["memory_scope"],
+            scope_key=kwargs["scope_key"],
+            title=str(kwargs["title"]),
+            raw_content=str(kwargs["raw_content"]),
+            tags=list(kwargs["tags"]),
+            metadata=dict(kwargs["metadata"]),
+            provenance=dict(kwargs["provenance"]),
+            capture_surface=str(kwargs["capture_surface"]),
+            entity_type=str(kwargs["entity_type"]),
+            captured_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
+            created_at=datetime(2026, 5, 14, 12, 0, tzinfo=UTC),
+        )
+
+    async def duplicate_checker(**kwargs: object) -> SourceRecordImportDecision:
+        assert kwargs["record"] == record
+        return SourceRecordImportDecision(superseded_raw_memory_id="raw-old")
+
+    async def supersession_handler(**kwargs: object) -> bool:
+        supersession_calls.append(dict(kwargs))
+        return True
+
+    result = await import_source_batch(
+        adapter,
+        manifest,
+        organization_id="org-1",
+        principal_id="user-1",
+        remember=fake_remember,
+        duplicate_checker=duplicate_checker,
+        supersession_handler=supersession_handler,
+    )
+
+    assert result.imported_count == 1
+    assert result.dedupe_count == 0
+    assert result.superseded_count == 1
+    assert len(supersession_calls) == 1
+    memory = supersession_calls[0]["memory"]
+    assert isinstance(memory, RawMemory)
+    assert memory.id == "raw-new"
+    assert supersession_calls[0]["superseded_raw_memory_id"] == "raw-old"
 
 
 @pytest.mark.asyncio

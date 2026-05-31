@@ -20,11 +20,19 @@ from sibyl_core.services.source_adapters import (
     RawMemoryRememberer,
     SourceRawMemoryWrite,
     SourceRecordDuplicateChecker,
+    SourceRecordImportDecision,
+    SourceRecordSupersessionHandler,
     get_source_adapter,
     import_source_batch,
     plan_source_import,
 )
-from sibyl_core.services.surreal_content import get_raw_memory_by_source_id
+from sibyl_core.services.surreal_content import (
+    RawMemory,
+    get_raw_memory,
+    get_raw_memory_by_dedupe_key,
+    get_raw_memory_by_source_id,
+    save_raw_memory,
+)
 
 log = structlog.get_logger()
 
@@ -60,6 +68,7 @@ class SourceImportRun:
     imported_count: int = 0
     skipped_count: int = 0
     dedupe_count: int = 0
+    superseded_count: int = 0
     attachment_count: int = 0
     extraction_pending_count: int = 0
     raw_memory_ids: list[str] = field(default_factory=list)
@@ -94,6 +103,7 @@ class SourceImportRun:
                 "imported_count": self.imported_count,
                 "skipped_count": self.skipped_count,
                 "dedupe_count": self.dedupe_count,
+                "superseded_count": self.superseded_count,
                 "error_count": len(self.errors),
                 "attachment_count": self.attachment_count,
                 "extraction_pending_count": self.extraction_pending_count,
@@ -200,6 +210,7 @@ def _run_record(run: SourceImportRun) -> dict[str, object]:
             "imported_count": run.imported_count,
             "skipped_count": run.skipped_count,
             "dedupe_count": run.dedupe_count,
+            "superseded_count": run.superseded_count,
             "attachment_count": run.attachment_count,
             "extraction_pending_count": run.extraction_pending_count,
         },
@@ -261,6 +272,7 @@ def _run_from_record(record: dict[str, object]) -> SourceImportRun:
         imported_count=int(counters.get("imported_count") or 0),
         skipped_count=int(counters.get("skipped_count") or 0),
         dedupe_count=int(counters.get("dedupe_count") or 0),
+        superseded_count=int(counters.get("superseded_count") or 0),
         attachment_count=int(counters.get("attachment_count") or 0),
         extraction_pending_count=int(counters.get("extraction_pending_count") or 0),
         raw_memory_ids=_string_list_from_record(record.get("raw_memory_ids")),
@@ -401,27 +413,75 @@ def _authorize_source_import(
 def _default_duplicate_checker(
     *,
     organization_id: str,
+    record_dedupe_keys: dict[str, str],
     record_source_ids: dict[str, str],
 ) -> SourceRecordDuplicateChecker:
     async def check_duplicate(
         *,
         record: SourceRecord,
         payload: SourceRawMemoryWrite,
-    ) -> str | None:
+    ) -> SourceRecordImportDecision | None:
+        if record.dedupe_key in record_dedupe_keys:
+            return SourceRecordImportDecision(
+                duplicate_raw_memory_id=record_dedupe_keys[record.dedupe_key]
+            )
+        existing_duplicate = await get_raw_memory_by_dedupe_key(
+            organization_id=organization_id,
+            dedupe_key=record.dedupe_key,
+        )
+        if existing_duplicate is not None:
+            return SourceRecordImportDecision(duplicate_raw_memory_id=existing_duplicate.id)
+
         if record.source_id in record_source_ids:
-            return record_source_ids[record.source_id]
-        existing = await get_raw_memory_by_source_id(
+            return SourceRecordImportDecision(
+                superseded_raw_memory_id=record_source_ids[record.source_id]
+            )
+        existing_source = await get_raw_memory_by_source_id(
             organization_id=organization_id,
             source_id=payload.source_id,
-            principal_id=payload.principal_id,
-            memory_scope=payload.memory_scope,
-            scope_key=payload.scope_key,
         )
-        if existing is not None:
-            return existing.id
+        if existing_source is not None:
+            if str(existing_source.metadata.get("content_hash") or "") == record.content_hash:
+                return SourceRecordImportDecision(duplicate_raw_memory_id=existing_source.id)
+            return SourceRecordImportDecision(superseded_raw_memory_id=existing_source.id)
         return None
 
     return check_duplicate
+
+
+def _default_supersession_handler(*, organization_id: str) -> SourceRecordSupersessionHandler:
+    async def mark_superseded(
+        *,
+        record: SourceRecord,
+        payload: SourceRawMemoryWrite,
+        memory: RawMemory,
+        superseded_raw_memory_id: str,
+    ) -> bool:
+        if superseded_raw_memory_id == memory.id:
+            return False
+        superseded = await get_raw_memory(
+            organization_id=organization_id,
+            memory_id=superseded_raw_memory_id,
+        )
+        if superseded is None:
+            return False
+
+        superseded_metadata = dict(superseded.metadata)
+        superseded_metadata["superseded_by_raw_memory_id"] = memory.id
+        superseded_metadata["superseded_by_source_id"] = payload.source_id
+        superseded.review_state = "superseded"
+        superseded.metadata = superseded_metadata
+
+        memory_metadata = dict(memory.metadata)
+        memory_metadata["supersedes_raw_memory_id"] = superseded.id
+        memory_metadata["supersedes_source_id"] = record.source_id
+        memory.metadata = memory_metadata
+
+        await save_raw_memory(superseded)
+        await save_raw_memory(memory)
+        return True
+
+    return mark_superseded
 
 
 def _resolve_import_source_uri(source_uri: str) -> str:
@@ -449,6 +509,7 @@ async def import_source_archive(
     policy_context: dict[str, Any] | None = None,
     remember: RawMemoryRememberer | None = None,
     duplicate_checker: SourceRecordDuplicateChecker | None = None,
+    supersession_handler: SourceRecordSupersessionHandler | None = None,
 ) -> dict[str, Any]:
     """Import a bounded source archive batch into raw memory."""
     source_uri = _resolve_import_source_uri(source_uri)
@@ -475,6 +536,8 @@ async def import_source_archive(
         import_kwargs["remember"] = remember
     if duplicate_checker is not None:
         import_kwargs["duplicate_checker"] = duplicate_checker
+    if supersession_handler is not None:
+        import_kwargs["supersession_handler"] = supersession_handler
 
     result = await import_source_batch(
         adapter,
@@ -499,6 +562,7 @@ async def import_source_archive(
         "imported_count": result.imported_count,
         "skipped_count": result.skipped_count,
         "dedupe_count": result.dedupe_count,
+        "superseded_count": result.superseded_count,
         "attachment_count": result.attachment_count,
         "extraction_pending_count": result.extraction_pending_count,
         "raw_memory_ids": list(result.raw_memory_ids),
@@ -523,6 +587,7 @@ async def import_source_archive(
         imported_count=result.imported_count,
         skipped_count=result.skipped_count,
         dedupe_count=result.dedupe_count,
+        superseded_count=result.superseded_count,
     )
     return payload
 
@@ -619,8 +684,10 @@ async def resume_source_import(
     try:
         dedupe_checker = _default_duplicate_checker(
             organization_id=run.organization_id,
+            record_dedupe_keys=dict(zip(run.dedupe_keys, run.raw_memory_ids, strict=False)),
             record_source_ids=run.raw_memory_by_source_id,
         )
+        supersession_handler = _default_supersession_handler(organization_id=run.organization_id)
         result = await import_source_archive(
             {"policy_context": policy_context},
             run.source_uri,
@@ -637,6 +704,7 @@ async def resume_source_import(
             ),
             remember=remember,
             duplicate_checker=dedupe_checker,
+            supersession_handler=supersession_handler,
         )
     except Exception as exc:
         run.status = SourceImportStatus.FAILED
@@ -662,6 +730,7 @@ async def resume_source_import(
     run.imported_count += int(result["imported_count"])
     run.skipped_count += int(result["skipped_count"])
     run.dedupe_count += int(result["dedupe_count"])
+    run.superseded_count += int(result["superseded_count"])
     run.attachment_count += int(result["attachment_count"])
     run.extraction_pending_count += int(result["extraction_pending_count"])
     run.raw_memory_ids.extend(str(raw_id) for raw_id in result["raw_memory_ids"])

@@ -12,6 +12,7 @@ from sibyl_core.services.surreal_content import (
     MemoryScope,
     _replace_record,
     get_or_create_source,
+    get_raw_memory_by_dedupe_key,
     get_raw_memory_by_source_id,
     list_unlinked_document_chunks,
     load_search_scope,
@@ -1168,6 +1169,30 @@ class TestGetRawMemoryBySourceId:
         assert "scope_key = $scope_key" in query
         assert "scope_key IS NONE" not in query
         assert params["scope_key"] == "project-7"
+
+
+class TestGetRawMemoryByDedupeKey:
+    @pytest.mark.asyncio
+    async def test_lookup_filters_by_org_and_metadata_key(self) -> None:
+        fake_client = FakeClient([_query_result([])])
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                content_service,
+                "surreal_content_client",
+                lambda: _yield_client(fake_client),
+            )
+            await get_raw_memory_by_dedupe_key(
+                organization_id="org-1",
+                dedupe_key="source:abc",
+            )
+
+        query, params = fake_client.calls[0]
+        assert "organization_id = $organization_id" in query
+        assert "metadata.dedupe_key = $dedupe_key" in query
+        assert params == {"organization_id": "org-1", "dedupe_key": "source:abc"}
 
 
 @asynccontextmanager

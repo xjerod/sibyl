@@ -63,6 +63,7 @@ class SourceImportProgressResponse(BaseModel):
     imported_count: int = 0
     skipped_count: int = 0
     dedupe_count: int = 0
+    superseded_count: int = 0
     error_count: int = 0
     attachment_count: int = 0
     extraction_pending_count: int = 0

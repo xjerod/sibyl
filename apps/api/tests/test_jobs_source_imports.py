@@ -12,7 +12,11 @@ import pytest
 from sibyl.jobs import source_imports
 from sibyl.jobs.worker import WorkerSettings
 from sibyl_core.models.sources import SourceRecord
-from sibyl_core.services.source_adapters import SourceRawMemoryWrite, clear_source_adapters
+from sibyl_core.services.source_adapters import (
+    SourceRawMemoryWrite,
+    SourceRecordImportDecision,
+    clear_source_adapters,
+)
 from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 
 
@@ -20,7 +24,17 @@ from sibyl_core.services.surreal_content import MemoryScope, RawMemory
 def _clear_registry() -> Iterator[None]:
     clear_source_adapters()
     source_imports.clear_source_import_runs()
-    yield
+    with (
+        patch(
+            "sibyl.jobs.source_imports.get_raw_memory_by_dedupe_key",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        yield
     clear_source_adapters()
     source_imports.clear_source_import_runs()
 
@@ -211,7 +225,7 @@ def _raw_memory_write(
 
 
 @pytest.mark.asyncio
-async def test_duplicate_checker_scopes_db_lookup_to_principal_and_scope() -> None:
+async def test_duplicate_checker_looks_up_exact_dedupe_by_org_key() -> None:
     lookup_calls: list[dict[str, object]] = []
 
     async def capture_lookup(**kwargs: object) -> RawMemory | None:
@@ -220,10 +234,11 @@ async def test_duplicate_checker_scopes_db_lookup_to_principal_and_scope() -> No
 
     checker = source_imports._default_duplicate_checker(
         organization_id="org-1",
+        record_dedupe_keys={},
         record_source_ids={},
     )
     with patch(
-        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        "sibyl.jobs.source_imports.get_raw_memory_by_dedupe_key",
         AsyncMock(side_effect=capture_lookup),
     ):
         result = await checker(
@@ -237,27 +252,100 @@ async def test_duplicate_checker_scopes_db_lookup_to_principal_and_scope() -> No
     assert result is None
     assert len(lookup_calls) == 1
     assert lookup_calls[0]["organization_id"] == "org-1"
-    assert lookup_calls[0]["principal_id"] == "user-1"
-    assert lookup_calls[0]["memory_scope"] is MemoryScope.PROJECT
-    assert lookup_calls[0]["scope_key"] == "project-7"
+    assert lookup_calls[0]["dedupe_key"] == "dedupe-msg-1"
 
 
 @pytest.mark.asyncio
-async def test_duplicate_checker_prefers_in_run_source_ids_over_db() -> None:
+async def test_duplicate_checker_prefers_in_run_dedupe_keys_over_db() -> None:
     async def fail_lookup(**kwargs: object) -> RawMemory | None:
         raise AssertionError("db lookup should be skipped for in-run duplicates")
 
     checker = source_imports._default_duplicate_checker(
         organization_id="org-1",
-        record_source_ids={"msg-1": "raw-existing"},
+        record_dedupe_keys={"dedupe-msg-1": "raw-existing"},
+        record_source_ids={},
     )
     with patch(
-        "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+        "sibyl.jobs.source_imports.get_raw_memory_by_dedupe_key",
         AsyncMock(side_effect=fail_lookup),
     ):
         result = await checker(record=_source_record(), payload=_raw_memory_write())
 
-    assert result == "raw-existing"
+    assert isinstance(result, SourceRecordImportDecision)
+    assert result.duplicate_raw_memory_id == "raw-existing"
+    assert result.superseded_raw_memory_id is None
+
+
+@pytest.mark.asyncio
+async def test_duplicate_checker_marks_same_source_changed_content_for_supersession() -> None:
+    checker = source_imports._default_duplicate_checker(
+        organization_id="org-1",
+        record_dedupe_keys={},
+        record_source_ids={},
+    )
+    existing = RawMemory(
+        id="raw-old",
+        organization_id="org-1",
+        source_id="msg-1",
+        principal_id="user-1",
+        metadata={"content_hash": "hash-old"},
+    )
+
+    with (
+        patch(
+            "sibyl.jobs.source_imports.get_raw_memory_by_dedupe_key",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "sibyl.jobs.source_imports.get_raw_memory_by_source_id",
+            AsyncMock(return_value=existing),
+        ),
+    ):
+        result = await checker(record=_source_record(), payload=_raw_memory_write())
+
+    assert isinstance(result, SourceRecordImportDecision)
+    assert result.duplicate_raw_memory_id is None
+    assert result.superseded_raw_memory_id == "raw-old"
+
+
+@pytest.mark.asyncio
+async def test_supersession_handler_links_new_and_old_raw_memories() -> None:
+    saved: list[RawMemory] = []
+    old = RawMemory(
+        id="raw-old",
+        organization_id="org-1",
+        source_id="msg-1",
+        principal_id="user-1",
+        metadata={"content_hash": "hash-old"},
+    )
+    new = RawMemory(
+        id="raw-new",
+        organization_id="org-1",
+        source_id="msg-1",
+        principal_id="user-1",
+        metadata={"content_hash": "hash-new"},
+    )
+
+    async def capture_save(memory: RawMemory) -> RawMemory:
+        saved.append(memory)
+        return memory
+
+    handler = source_imports._default_supersession_handler(organization_id="org-1")
+    with (
+        patch("sibyl.jobs.source_imports.get_raw_memory", AsyncMock(return_value=old)),
+        patch("sibyl.jobs.source_imports.save_raw_memory", AsyncMock(side_effect=capture_save)),
+    ):
+        await handler(
+            record=_source_record(),
+            payload=_raw_memory_write(),
+            memory=new,
+            superseded_raw_memory_id="raw-old",
+        )
+
+    assert [memory.id for memory in saved] == ["raw-old", "raw-new"]
+    assert old.review_state == "superseded"
+    assert old.metadata["superseded_by_raw_memory_id"] == "raw-new"
+    assert new.metadata["supersedes_raw_memory_id"] == "raw-old"
 
 
 @pytest.mark.asyncio

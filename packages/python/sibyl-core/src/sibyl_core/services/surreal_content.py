@@ -171,6 +171,8 @@ def raw_memory_recallable(memory: RawMemory) -> bool:
         return False
     if lifecycle_state in _RECALL_EXCLUDED_LIFECYCLE_STATES:
         return False
+    if memory.metadata.get("superseded_by_raw_memory_id"):
+        return False
     if memory.metadata.get("superseded_by_source_id"):
         return False
     return not memory.metadata.get("duplicate_of_source_id")
@@ -916,6 +918,24 @@ async def get_raw_memory_by_source_id(
     return _raw_memory_from_record(record) if record is not None else None
 
 
+async def get_raw_memory_by_dedupe_key(
+    *,
+    organization_id: str,
+    dedupe_key: str,
+) -> RawMemory | None:
+    async with surreal_content_client() as client:
+        record = await _select_one(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE organization_id = $organization_id "
+            "AND metadata.dedupe_key = $dedupe_key "
+            "ORDER BY captured_at DESC LIMIT 1;",
+            organization_id=organization_id,
+            dedupe_key=dedupe_key,
+        )
+    return _raw_memory_from_record(record) if record is not None else None
+
+
 async def resolve_raw_memory_prefix(
     *,
     organization_id: str,
@@ -1511,6 +1531,7 @@ __all__ = [
     "build_surreal_content_client",
     "get_or_create_source",
     "get_raw_memory",
+    "get_raw_memory_by_dedupe_key",
     "get_raw_memory_by_source_id",
     "lexical_score",
     "lexical_score_from_tokens",

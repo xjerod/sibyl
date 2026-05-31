@@ -92,7 +92,19 @@ class SourceRecordDuplicateChecker(Protocol):
         *,
         record: SourceRecord,
         payload: SourceRawMemoryWrite,
-    ) -> str | None: ...
+    ) -> SourceRecordImportDecision | str | None: ...
+
+
+@runtime_checkable
+class SourceRecordSupersessionHandler(Protocol):
+    async def __call__(
+        self,
+        *,
+        record: SourceRecord,
+        payload: SourceRawMemoryWrite,
+        memory: RawMemory,
+        superseded_raw_memory_id: str,
+    ) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,10 +140,17 @@ class SourceRawMemoryWrite:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceRecordImportDecision:
+    duplicate_raw_memory_id: str | None = None
+    superseded_raw_memory_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SourceImportResult:
     imported_count: int
     skipped_count: int
     dedupe_count: int
+    superseded_count: int
     attachment_count: int
     extraction_pending_count: int
     raw_memory_ids: tuple[str, ...]
@@ -210,7 +229,6 @@ def build_source_dedupe_key(
         [
             manifest.adapter_name,
             manifest.source_identity,
-            manifest.source_version,
             adapter_record_id,
             content_hash,
         ]
@@ -385,6 +403,16 @@ def _skipped_record_for_manifest(
     return skipped.model_copy(update={"metadata": metadata})
 
 
+def _source_record_import_decision(
+    decision: SourceRecordImportDecision | str | None,
+) -> SourceRecordImportDecision:
+    if isinstance(decision, SourceRecordImportDecision):
+        return decision
+    if decision is None:
+        return SourceRecordImportDecision()
+    return SourceRecordImportDecision(duplicate_raw_memory_id=decision)
+
+
 async def import_source_batch(
     adapter: SourceAdapter,
     manifest: SourceImportManifest,
@@ -396,6 +424,7 @@ async def import_source_batch(
     promotion_preview_approved: bool = False,
     remember: RawMemoryRememberer = remember_raw_memory,
     duplicate_checker: SourceRecordDuplicateChecker | None = None,
+    supersession_handler: SourceRecordSupersessionHandler | None = None,
 ) -> SourceImportResult:
     plan = plan_source_import(adapter, manifest)
     raw_memory_ids: list[str] = []
@@ -403,6 +432,7 @@ async def import_source_batch(
     dedupe_keys: list[str] = []
     duplicate_dedupe_keys: list[str] = []
     skipped_records: list[SourceSkippedRecord] = []
+    superseded_count = 0
     attachment_count = 0
     extraction_pending_count = 0
     last_checkpoint = checkpoint
@@ -435,13 +465,15 @@ async def import_source_batch(
             raise ValueError(msg)
 
         for record, payload in batch_payloads:
-            existing_raw_memory_id = None
+            decision = SourceRecordImportDecision()
             if duplicate_checker is not None:
-                existing_raw_memory_id = await duplicate_checker(
-                    record=record,
-                    payload=payload,
+                decision = _source_record_import_decision(
+                    await duplicate_checker(
+                        record=record,
+                        payload=payload,
+                    )
                 )
-            if existing_raw_memory_id is not None:
+            if decision.duplicate_raw_memory_id is not None:
                 duplicate_dedupe_keys.append(record.dedupe_key)
                 skipped_records.append(
                     _skipped_record_for_manifest(
@@ -452,7 +484,7 @@ async def import_source_batch(
                             reason="duplicate_dedupe_key",
                             metadata={
                                 "dedupe_key": record.dedupe_key,
-                                "raw_memory_id": existing_raw_memory_id,
+                                "raw_memory_id": decision.duplicate_raw_memory_id,
                                 "source_id": record.source_id,
                             },
                         ),
@@ -481,11 +513,21 @@ async def import_source_batch(
             raw_memory_ids.append(memory.id)
             source_ids.append(record.source_id)
             dedupe_keys.append(record.dedupe_key)
+            if supersession_handler is not None and decision.superseded_raw_memory_id is not None:
+                superseded = await supersession_handler(
+                    record=record,
+                    payload=payload,
+                    memory=memory,
+                    superseded_raw_memory_id=decision.superseded_raw_memory_id,
+                )
+                if superseded:
+                    superseded_count += 1
 
     return SourceImportResult(
         imported_count=len(raw_memory_ids),
         skipped_count=len(skipped_records),
         dedupe_count=len(duplicate_dedupe_keys),
+        superseded_count=superseded_count,
         attachment_count=attachment_count,
         extraction_pending_count=extraction_pending_count,
         raw_memory_ids=tuple(raw_memory_ids),
@@ -507,6 +549,8 @@ __all__ = [
     "SourceImportResult",
     "SourceRawMemoryWrite",
     "SourceRecordDuplicateChecker",
+    "SourceRecordImportDecision",
+    "SourceRecordSupersessionHandler",
     "build_source_content_hash",
     "build_source_dedupe_key",
     "build_source_record_id",
