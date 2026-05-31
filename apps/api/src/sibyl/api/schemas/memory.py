@@ -77,6 +77,7 @@ class RawMemoryResponse(BaseModel):
     captured_at: datetime | None = Field(default=None, description="Capture timestamp")
     created_at: datetime | None = Field(default=None, description="Creation timestamp")
     score: float = Field(default=0.0, description="Recall score")
+    snippet: str | None = Field(default=None, description="Highlighted recall snippet")
     policy_reason: str | None = Field(default=None, description="Memory policy decision reason")
 
 

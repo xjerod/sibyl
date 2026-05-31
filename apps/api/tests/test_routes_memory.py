@@ -589,7 +589,14 @@ async def test_recall_raw_returns_scoped_memories() -> None:
     with (
         patch(
             "sibyl.api.routes.memory.recall_raw_memory",
-            AsyncMock(return_value=[_memory(organization_id=str(org.id))]),
+            AsyncMock(
+                return_value=[
+                    _memory(
+                        organization_id=str(org.id),
+                        snippet="Sibyl stores <mark>raw memory</mark> before reflection.",
+                    )
+                ]
+            ),
         ) as recall,
         patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
     ):
@@ -629,6 +636,7 @@ async def test_recall_raw_returns_scoped_memories() -> None:
     assert response.limit == 5
     assert response.policy_reason == "private_principal_bound"
     assert [memory.id for memory in response.memories] == ["memory-1"]
+    assert response.memories[0].snippet == "Sibyl stores <mark>raw memory</mark> before reflection."
     assert response.memories[0].policy_reason == "private_principal_bound"
 
 

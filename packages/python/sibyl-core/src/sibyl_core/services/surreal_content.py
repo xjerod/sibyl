@@ -39,6 +39,9 @@ _RAW_MEMORY_EMBEDDING_TEXT_TRUNCATION_MARKER = "\n...[truncated for raw memory e
 _RAW_MEMORY_EMBEDDING_TEXT_VERSION = "raw-capture-v1"
 _RAW_MEMORY_EMBEDDING_AUTO = object()
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
+_MARK_OPEN = "<mark>"
+_MARK_CLOSE = "</mark>"
+_SNIPPET_MAX_CHARS = 320
 type _RawMemoryProviderCacheKey = tuple[EmbeddingProviderName, str, int, str]
 _raw_memory_embedding_provider: EmbeddingProvider | None = None
 _raw_memory_embedding_fingerprint: _RawMemoryProviderCacheKey | None = None
@@ -273,6 +276,7 @@ class ContentChunk:
     embedding: list[float] | None = None
     has_entities: bool = False
     entity_ids: list[str] = field(default_factory=list)
+    snippet: str | None = None
 
 
 ContentSearchRow = tuple[ContentChunk, ContentDocument, str, str, float]
@@ -304,6 +308,7 @@ class RawMemory:
     purge_after: datetime | None = None
     created_at: datetime | None = None
     score: float = 0.0
+    snippet: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -490,6 +495,67 @@ def _coerce_optional_str(value: object | None) -> str | None:
         return None
     text = str(value)
     return text if text else None
+
+
+def _coerce_highlight_value(value: object | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list | tuple):
+        return " ".join(str(item) for item in value if item is not None)
+    return str(value)
+
+
+def _trim_search_snippet(text: str, *, max_chars: int = _SNIPPET_MAX_CHARS) -> str:
+    if len(text) <= max_chars:
+        return text
+
+    mark_index = text.find(_MARK_OPEN)
+    if mark_index < 0:
+        return text[:max_chars].rstrip() + "..."
+
+    window_start = max(mark_index - max_chars // 3, 0)
+    window_end = min(window_start + max_chars, len(text))
+    mark_close = text.find(_MARK_CLOSE, mark_index)
+    if mark_close >= 0:
+        window_end = max(window_end, min(mark_close + len(_MARK_CLOSE), len(text)))
+
+    snippet = text[window_start:window_end].strip()
+    if window_start > 0:
+        snippet = "..." + snippet.lstrip()
+    if window_end < len(text):
+        snippet = snippet.rstrip() + "..."
+    return snippet
+
+
+def _search_snippet(
+    value: object | None,
+    *,
+    fallback: object | None = None,
+    max_chars: int = _SNIPPET_MAX_CHARS,
+) -> str | None:
+    highlighted = _coerce_highlight_value(value)
+    text = highlighted or _coerce_highlight_value(fallback)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return None
+    return _trim_search_snippet(text, max_chars=max_chars)
+
+
+def _search_snippet_from_values(
+    values: Iterable[object | None],
+    *,
+    fallback: object | None = None,
+    max_chars: int = _SNIPPET_MAX_CHARS,
+) -> str | None:
+    first_text: object | None = None
+    for value in values:
+        text = _coerce_highlight_value(value)
+        if not text.strip():
+            continue
+        first_text = first_text or value
+        if _MARK_OPEN in text:
+            return _search_snippet(value, max_chars=max_chars)
+    return _search_snippet(first_text, fallback=fallback, max_chars=max_chars)
 
 
 def _coerce_int(value: object | None, *, default: int = 0) -> int:
@@ -778,6 +844,7 @@ def _chunk_from_record(record: Mapping[str, object]) -> ContentChunk:
         embedding=_coerce_float_list(record.get("embedding")),
         has_entities=_coerce_bool(record.get("has_entities")),
         entity_ids=_coerce_str_list(record.get("entity_ids")),
+        snippet=_search_snippet(record.get("snippet"), fallback=record.get("content")),
     )
 
 
@@ -812,6 +879,14 @@ def _raw_memory_from_record(record: Mapping[str, object]) -> RawMemory:
         purge_after=_coerce_datetime(record.get("purge_after")),
         created_at=_coerce_datetime(record.get("created_at")),
         score=_coerce_float(record.get("score")),
+        snippet=_search_snippet_from_values(
+            (
+                record.get("content_snippet"),
+                record.get("title_snippet"),
+                record.get("snippet"),
+            ),
+            fallback=record.get("raw_content") or record.get("title"),
+        ),
     )
 
 
@@ -1647,7 +1722,9 @@ async def _recall_raw_memory_fulltext(
     rows = await with_timeout(
         _select_many_raw(
             client,
-            "SELECT *, math::max([search::score(0), search::score(1)]) AS score "
+            "SELECT *, math::max([search::score(0), search::score(1)]) AS score, "
+            "search::highlight('<mark>', '</mark>', 0) AS title_snippet, "
+            "search::highlight('<mark>', '</mark>', 1) AS content_snippet "
             f"FROM raw_captures WHERE {where_clause} "
             "AND (title @0@ $search_query OR raw_content @1@ $search_query) "
             "ORDER BY score DESC, captured_at DESC LIMIT $limit;",
@@ -2611,7 +2688,8 @@ async def search_document_chunks(
                         "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
                         "chunk_type, content, context, heading_path, language, "
                         "has_entities, entity_ids, "
-                        "search::score(0) AS score "
+                        "search::score(0) AS score, "
+                        "search::highlight('<mark>', '</mark>', 0) AS snippet "
                         "FROM document_chunks WHERE organization_id = $organization_id "
                         "AND source_id INSIDE $source_ids"
                         f"{language_clause} "

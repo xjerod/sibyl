@@ -82,6 +82,7 @@ class TestDocumentSearch:
                 context="intro",
                 heading_path=["Intro"],
                 embedding=[1.0, 0.0],
+                snippet="alpha <mark>beta</mark>",
             ),
             ContentChunk(
                 id="chunk-2",
@@ -120,6 +121,8 @@ class TestDocumentSearch:
         assert results[0].metadata["document_id"] == "doc-1"
         assert results[0].source == "Docs"
         assert results[0].content.startswith("[Intro]")
+        assert "alpha <mark>beta</mark>" in results[0].content
+        assert results[0].metadata["snippet"] == "alpha <mark>beta</mark>"
         direct_search.assert_awaited_once()
         scope_loader.assert_not_awaited()
 

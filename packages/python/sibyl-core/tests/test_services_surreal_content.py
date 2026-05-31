@@ -17,6 +17,7 @@ from sibyl_core.models.reflection import ReflectionCandidate
 from sibyl_core.services.surreal_content import (
     MemoryScope,
     RawMemoryWrite,
+    _raw_memory_from_record,
     _replace_record,
     get_or_create_source,
     get_raw_memory_by_dedupe_key,
@@ -659,6 +660,7 @@ class TestSurrealContentHelpers:
                             "chunk_type": "code",
                             "content": "alpha lexical match",
                             "language": "python",
+                            "snippet": "alpha <mark>lexical</mark> match",
                             "score": 0.42,
                         }
                     ]
@@ -696,6 +698,7 @@ class TestSurrealContentHelpers:
 
         assert [row[0].id for row in vector_rows] == ["chunk-vector"]
         assert [row[0].id for row in lexical_rows] == ["chunk-lexical"]
+        assert lexical_rows[0][0].snippet == "alpha <mark>lexical</mark> match"
         assert vector_rows[0][1].id == "doc-1"
         assert vector_rows[0][2] == "Docs"
 
@@ -713,6 +716,7 @@ class TestSurrealContentHelpers:
         assert "source_id INSIDE $source_ids" in lexical_query
         assert "embedding <|25, 40|> $query_embedding" in vector_query
         assert "content @0@ $search_query" in lexical_query
+        assert "search::highlight('<mark>', '</mark>', 0) AS snippet" in lexical_query
         assert "SELECT uuid, organization_id, source_id, url, title, has_code" in document_query
         assert vector_params["organization_id"] == "org-1"
         assert lexical_params["organization_id"] == "org-1"
@@ -1664,6 +1668,22 @@ class TestSurrealContentHelpers:
         assert params["thread_id"] == "thread-1"
         assert [memory.id for memory in memories] == ["memory-1"]
 
+    def test_raw_memory_snippet_prefers_marked_title_over_plain_content(self) -> None:
+        memory = _raw_memory_from_record(
+            {
+                "uuid": "memory-title-hit",
+                "organization_id": "org-1",
+                "source_id": "source-mail-1",
+                "principal_id": "user-a",
+                "title": "Mailbox thread",
+                "raw_content": "The body did not match the lexical query.",
+                "content_snippet": "The body did not match the lexical query.",
+                "title_snippet": "<mark>Mailbox</mark> thread",
+            }
+        )
+
+        assert memory.snippet == "<mark>Mailbox</mark> thread"
+
     @pytest.mark.asyncio
     async def test_recall_raw_memory_fuses_fulltext_and_vector_results(self) -> None:
         fake_client = FakeClient(
@@ -1678,6 +1698,7 @@ class TestSurrealContentHelpers:
                             "memory_scope": "private",
                             "title": "Mailbox thread",
                             "raw_content": "SurrealDB appears in the exact text.",
+                            "content_snippet": "<mark>SurrealDB</mark> appears in the exact text.",
                             "score": 0.91,
                         }
                     ]
@@ -1725,8 +1746,12 @@ class TestSurrealContentHelpers:
             )
 
         assert [memory.id for memory in memories] == ["memory-vector", "memory-lexical"]
+        assert memories[1].snippet == "<mark>SurrealDB</mark> appears in the exact text."
         assert "search::rrf($lists, $limit, $k)" in fake_client.calls[2][0]
+        fulltext_query, _fulltext_params = fake_client.calls[0]
         vector_query, vector_params = fake_client.calls[1]
+        assert "search::highlight('<mark>', '</mark>', 0) AS title_snippet" in fulltext_query
+        assert "search::highlight('<mark>', '</mark>', 1) AS content_snippet" in fulltext_query
         assert "embedding <|8, 40|> $query_embedding" in vector_query
         assert vector_params["query_embedding"] == [1.0, 0.0]
         assert all(memory.score > 0 for memory in memories)

@@ -470,6 +470,7 @@ async def test_surreal_hybrid_search_uses_direct_vector_and_fulltext_queries(
                         "chunk_index": 1,
                         "chunk_type": "text",
                         "content": "literal auth",
+                        "snippet": "literal <mark>auth</mark>",
                         "score": 0.44,
                     }
                 ]
@@ -506,9 +507,11 @@ async def test_surreal_hybrid_search_uses_direct_vector_and_fulltext_queries(
     assert [row[0].id for row in rows] == [vector_chunk_id, lexical_chunk_id]
     assert rows[0][4] == 0.86
     assert rows[1][5] == 0.44
+    assert rows[1][0].snippet == "literal <mark>auth</mark>"
     vector_query, vector_params = fake_client.calls[1]
     lexical_query, lexical_params = fake_client.calls[2]
     assert "embedding <|25, 40|> $query_embedding" in vector_query
     assert "content @0@ $search_query" in lexical_query
+    assert "search::highlight('<mark>', '</mark>', 0) AS snippet" in lexical_query
     assert vector_params["source_ids"] == [str(source_id)]
     assert lexical_params["search_query"] == "auth"

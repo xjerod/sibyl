@@ -8,6 +8,40 @@ interface DocChunkResultProps {
   result: RAGChunkResult;
 }
 
+function HighlightedSnippet({ value }: { value: string }) {
+  const parts = value.split(/(<mark>|<\/mark>)/g);
+  let active = false;
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part === '<mark>') {
+          active = true;
+          return null;
+        }
+        if (part === '</mark>') {
+          active = false;
+          return null;
+        }
+        if (!part) {
+          return null;
+        }
+        if (active) {
+          return (
+            <mark
+              key={`${index}-${part.slice(0, 12)}`}
+              className="rounded bg-sc-cyan/15 px-0.5 text-sc-cyan"
+            >
+              {part}
+            </mark>
+          );
+        }
+        return <span key={`${index}-${part.slice(0, 12)}`}>{part}</span>;
+      })}
+    </>
+  );
+}
+
 /**
  * Display a documentation chunk search result.
  * Shows source, heading path, and snippet with similarity score.
@@ -15,6 +49,7 @@ interface DocChunkResultProps {
 export function DocChunkResult({ result }: DocChunkResultProps) {
   const scorePercent = Math.round(result.similarity * 100);
   const internalUrl = `/sources/${result.source_id}/documents/${result.document_id}`;
+  const preview = result.snippet || result.content;
 
   return (
     <Link
@@ -60,7 +95,9 @@ export function DocChunkResult({ result }: DocChunkResultProps) {
         <h3 className="text-base font-semibold text-sc-fg-primary line-clamp-1">{result.title}</h3>
 
         {/* Content Preview */}
-        <p className="text-sc-fg-muted text-sm line-clamp-3 leading-relaxed">{result.content}</p>
+        <p className="text-sc-fg-muted text-sm line-clamp-3 leading-relaxed">
+          {result.snippet ? <HighlightedSnippet value={preview} /> : preview}
+        </p>
 
         {/* Footer: URL with external link */}
         <div className="pt-1 flex items-center justify-between gap-2">

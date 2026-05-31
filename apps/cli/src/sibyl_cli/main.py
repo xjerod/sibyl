@@ -15,6 +15,7 @@ from typing import Annotated, Any, cast
 from uuid import UUID
 
 import typer
+from rich.markup import escape
 
 from sibyl_cli import config_store
 from sibyl_cli.archive import app as archive_app
@@ -203,6 +204,36 @@ def _format_search_preview(content: str, max_chars: int = SEARCH_PREVIEW_CHARS) 
     if cutoff < max_chars // 2:
         cutoff = max_chars
     return preview[:cutoff].rstrip() + "…"
+
+
+def _format_highlight_preview(
+    snippet: str | None,
+    fallback: str,
+    max_chars: int = SEARCH_PREVIEW_CHARS,
+) -> str:
+    raw = snippet or fallback
+    preview = _format_search_preview(raw, max_chars=max_chars)
+    if not snippet or ("<mark>" not in preview and "</mark>" not in preview):
+        return escape(preview)
+
+    parts = re.split(r"(<mark>|</mark>)", preview)
+    active = False
+    rendered: list[str] = []
+    for part in parts:
+        if part == "<mark>":
+            active = True
+            continue
+        if part == "</mark>":
+            active = False
+            continue
+        if not part:
+            continue
+        escaped = escape(part)
+        if active:
+            rendered.append(f"[bold {NEON_CYAN}]{escaped}[/]")
+        else:
+            rendered.append(escaped)
+    return "".join(rendered)
 
 
 def _derive_capture_title(content: str) -> str:
@@ -499,14 +530,18 @@ def _print_raw_memory_results(memories: list[object]) -> None:
         source_id = str(memory.get("source_id") or "")
         memory_id = str(memory.get("id") or "")
         content = str(memory.get("raw_content") or "")
+        snippet = str(memory.get("snippet") or "")
         score = memory.get("score")
         scope = str(memory.get("memory_scope") or "private")
         policy_reason = str(memory.get("policy_reason") or "")
 
         source_label = f" [dim]({source_id})[/dim]" if source_id else ""
         console.print(f"  [{NEON_CYAN}]{title}[/{NEON_CYAN}]{source_label}")
-        if content:
-            console.print(f"    {_format_search_preview(content)}", soft_wrap=True)
+        if content or snippet:
+            console.print(
+                f"    {_format_highlight_preview(snippet or None, content)}",
+                soft_wrap=True,
+            )
         score_label = f" score={score}" if score else ""
         policy_label = f" policy={policy_reason}" if policy_reason else ""
         console.print(f"    [dim]scope={scope}{score_label}{policy_label}[/dim]")
@@ -1405,7 +1440,18 @@ def search(
 
                     # Content preview
                     if content:
-                        console.print(f"    {_format_search_preview(content)}", soft_wrap=True)
+                        metadata_snippet = metadata.get("snippet")
+                        snippet = (
+                            metadata_snippet
+                            if isinstance(metadata_snippet, str)
+                            else content
+                            if "<mark>" in content
+                            else None
+                        )
+                        console.print(
+                            f"    {_format_highlight_preview(snippet, content)}",
+                            soft_wrap=True,
+                        )
 
                     # Show IDs for fetching
                     document_id = metadata.get("document_id")

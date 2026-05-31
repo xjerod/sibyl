@@ -26,7 +26,7 @@ DEFINE INDEX IF NOT EXISTS idx_crawl_sources_uuid ON crawl_sources FIELDS uuid U
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_org ON crawl_sources FIELDS organization_id;
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_org_url ON crawl_sources FIELDS organization_id, url UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_crawl_sources_status ON crawl_sources FIELDS crawl_status;
-DEFINE INDEX IF NOT EXISTS idx_crawl_sources_name_ft ON crawl_sources FIELDS name FULLTEXT ANALYZER title_analyzer BM25;
+DEFINE INDEX IF NOT EXISTS idx_crawl_sources_name_ft ON crawl_sources FIELDS name FULLTEXT ANALYZER title_analyzer BM25 HIGHLIGHTS;
 
 DEFINE TABLE IF NOT EXISTS crawled_documents SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON crawled_documents TYPE string;
@@ -59,8 +59,8 @@ DEFINE INDEX IF NOT EXISTS idx_crawled_documents_org_source ON crawled_documents
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_source ON crawled_documents FIELDS source_id;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_source_url ON crawled_documents FIELDS source_id, url UNIQUE;
 DEFINE INDEX IF NOT EXISTS idx_crawled_documents_crawled_at ON crawled_documents FIELDS crawled_at;
-DEFINE INDEX IF NOT EXISTS idx_crawled_documents_title_ft ON crawled_documents FIELDS title FULLTEXT ANALYZER title_analyzer BM25;
-DEFINE INDEX IF NOT EXISTS idx_crawled_documents_content_ft ON crawled_documents FIELDS content FULLTEXT ANALYZER content_analyzer BM25;
+DEFINE INDEX IF NOT EXISTS idx_crawled_documents_title_ft ON crawled_documents FIELDS title FULLTEXT ANALYZER title_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX IF NOT EXISTS idx_crawled_documents_content_ft ON crawled_documents FIELDS content FULLTEXT ANALYZER content_analyzer BM25 HIGHLIGHTS;
 
 DEFINE TABLE IF NOT EXISTS document_chunks SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS uuid ON document_chunks TYPE string;
@@ -93,7 +93,8 @@ DEFINE INDEX IF NOT EXISTS idx_document_chunks_org_document ON document_chunks
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks FIELDS document_id;
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_document_position ON document_chunks
     FIELDS document_id, chunk_index UNIQUE;
-DEFINE INDEX IF NOT EXISTS idx_document_chunks_content_ft ON document_chunks FIELDS content FULLTEXT ANALYZER content_analyzer BM25;
+DEFINE INDEX IF NOT EXISTS idx_document_chunks_content_ft ON document_chunks FIELDS content FULLTEXT ANALYZER content_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX IF NOT EXISTS idx_document_chunks_code_ft ON document_chunks FIELDS content FULLTEXT ANALYZER code_analyzer BM25 HIGHLIGHTS;
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_embedding ON document_chunks FIELDS embedding
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32 EFC 150 M 12;
 
@@ -133,8 +134,8 @@ DEFINE INDEX IF NOT EXISTS idx_raw_captures_review ON raw_captures FIELDS organi
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_purge_after ON raw_captures FIELDS purge_after;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_entity_id ON raw_captures FIELDS entity_id;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_org_dedupe ON raw_captures FIELDS organization_id, metadata.dedupe_key;
-DEFINE INDEX IF NOT EXISTS idx_raw_captures_title_ft ON raw_captures FIELDS title FULLTEXT ANALYZER title_analyzer BM25;
-DEFINE INDEX IF NOT EXISTS idx_raw_captures_content_ft ON raw_captures FIELDS raw_content FULLTEXT ANALYZER content_analyzer BM25;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_title_ft ON raw_captures FIELDS title FULLTEXT ANALYZER title_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX IF NOT EXISTS idx_raw_captures_content_ft ON raw_captures FIELDS raw_content FULLTEXT ANALYZER content_analyzer BM25 HIGHLIGHTS;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_embedding ON raw_captures FIELDS embedding
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32 EFC 150 M 12;
 DEFINE INDEX IF NOT EXISTS idx_raw_captures_captured_at ON raw_captures FIELDS captured_at;

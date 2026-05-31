@@ -91,6 +91,7 @@ class DocumentChunkRecord:
     is_complete: bool = True
     has_entities: bool = False
     entity_ids: list[str] = field(default_factory=list)
+    snippet: str | None = None
     created_at: datetime = field(default_factory=utcnow_naive)
     updated_at: datetime = field(default_factory=utcnow_naive)
 

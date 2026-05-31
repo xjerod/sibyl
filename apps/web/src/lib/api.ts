@@ -1622,6 +1622,7 @@ export interface RAGChunkResult {
   title: string;
   content: string;
   context: string | null;
+  snippet: string | null;
   similarity: number;
   chunk_type: 'text' | 'code' | 'heading' | 'list' | 'table';
   chunk_index: number;

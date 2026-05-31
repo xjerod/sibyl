@@ -37,6 +37,7 @@ class RAGChunkResult(BaseModel):
     title: str
     content: str
     context: str | None = None
+    snippet: str | None = None
     similarity: float
     chunk_type: str
     chunk_index: int

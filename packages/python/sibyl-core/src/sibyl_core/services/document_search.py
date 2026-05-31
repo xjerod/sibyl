@@ -217,10 +217,11 @@ def _build_document_result(
     include_content: bool,
     signal: CandidateSignal,
 ) -> SearchResult:
+    snippet = getattr(chunk, "snippet", None)
     if include_content:
-        content = chunk.content[:500] if chunk.content else ""
+        content = snippet or (chunk.content[:500] if chunk.content else "")
     else:
-        content = chunk.content[:200] if chunk.content else ""
+        content = snippet or (chunk.content[:200] if chunk.content else "")
 
     heading_context = " > ".join(chunk.heading_path) if chunk.heading_path else ""
     if heading_context:
@@ -252,6 +253,7 @@ def _build_document_result(
                 "heading_path": chunk.heading_path or [],
                 "language": chunk.language,
                 "has_code": doc.has_code,
+                "snippet": snippet,
                 "hint": "Use 'sibyl entity <id>' or fetch /api/entities/<id> for full content",
             },
         ),

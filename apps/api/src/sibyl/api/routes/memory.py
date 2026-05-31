@@ -463,6 +463,7 @@ def _raw_memory_response(
         captured_at=memory.captured_at,
         created_at=memory.created_at,
         score=memory.score,
+        snippet=memory.snippet,
         policy_reason=policy_reason,
     )
 

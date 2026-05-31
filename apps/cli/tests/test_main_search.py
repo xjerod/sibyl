@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
-from sibyl_cli.main import SEARCH_PREVIEW_CHARS, _format_search_preview, app
+from sibyl_cli.main import (
+    SEARCH_PREVIEW_CHARS,
+    _format_highlight_preview,
+    _format_search_preview,
+    app,
+)
 
 
 class _FakeClientContext:
@@ -30,6 +35,15 @@ def test_format_search_preview_keeps_more_context() -> None:
     assert preview.endswith("…")
 
 
+def test_format_highlight_preview_renders_mark_tags_as_rich_markup() -> None:
+    preview = _format_highlight_preview("alpha <mark>beta</mark> gamma", "ignored")
+
+    assert "<mark>" not in preview
+    assert "</mark>" not in preview
+    assert "[bold" in preview
+    assert "beta" in preview
+
+
 @patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
 @patch("sibyl_cli.main.get_client")
 def test_search_command_renders_longer_previews(
@@ -47,7 +61,10 @@ def test_search_command_renders_longer_previews(
                     + ("alpha " * 18)
                     + "MAGICLATE "
                     + ("omega " * 20),
-                    "metadata": {"heading_path": ["Docs", "Search"]},
+                    "metadata": {
+                        "heading_path": ["Docs", "Search"],
+                        "snippet": "alpha <mark>MAGICLATE</mark> omega",
+                    },
                 }
             ]
         }
@@ -186,6 +203,7 @@ def test_recall_command_can_render_raw_memories(
                     "policy_reason": "private_principal_bound",
                     "score": 1.0,
                     "raw_content": "Context packs should carry source ids.",
+                    "snippet": "Context packs should carry <mark>source ids</mark>.",
                 }
             ],
         }

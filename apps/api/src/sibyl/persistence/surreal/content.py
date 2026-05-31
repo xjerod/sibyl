@@ -440,6 +440,7 @@ def _chunk_from_record(record: Mapping[str, object]) -> DocumentChunk:
         is_complete=_coerce_bool(record.get("is_complete"), default=True),
         has_entities=_coerce_bool(record.get("has_entities")),
         entity_ids=_coerce_str_list(record.get("entity_ids")),
+        snippet=_coerce_optional_str(record.get("snippet")),
         created_at=_coerce_datetime(record.get("created_at")) or now,
         updated_at=_coerce_datetime(record.get("updated_at")) or now,
     )
@@ -2262,7 +2263,8 @@ async def hybrid_search_chunks(
             client,
             "SELECT uuid, organization_id, source_id, document_id, chunk_index, "
             "chunk_type, content, context, heading_path, language, has_entities, "
-            "entity_ids, search::score(0) AS score "
+            "entity_ids, search::score(0) AS score, "
+            "search::highlight('<mark>', '</mark>', 0) AS snippet "
             "FROM document_chunks WHERE organization_id = $organization_id "
             "AND source_id INSIDE $source_ids "
             "AND content @0@ $search_query "
@@ -2293,6 +2295,9 @@ async def hybrid_search_chunks(
         source = sources_by_id.get(str(document.source_id))
         if source is None:
             continue
+        lexical_snippet = _coerce_optional_str(lexical_by_id.get(chunk_id, {}).get("snippet"))
+        if lexical_snippet and chunk.snippet is None:
+            chunk.snippet = lexical_snippet
         similarity = _coerce_float(vector_by_id.get(chunk_id, {}).get("score"))
         lexical = _coerce_float(lexical_by_id.get(chunk_id, {}).get("score"))
         combined.append((chunk, document, source.name, source.id, similarity, lexical))

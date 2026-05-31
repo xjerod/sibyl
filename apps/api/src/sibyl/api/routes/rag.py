@@ -166,6 +166,7 @@ async def rag_search(
                     title=doc.title,
                     content=chunk.content,
                     context=chunk.context if request.include_context else None,
+                    snippet=chunk.snippet,
                     similarity=similarity,
                     chunk_type=chunk.chunk_type.value
                     if hasattr(chunk.chunk_type, "value")
@@ -505,6 +506,7 @@ async def hybrid_search(
                 title=doc.title,
                 content=chunk.content,
                 context=chunk.context if request.include_context else None,
+                snippet=chunk.snippet,
                 similarity=similarity,
                 chunk_type=chunk.chunk_type.value
                 if hasattr(chunk.chunk_type, "value")

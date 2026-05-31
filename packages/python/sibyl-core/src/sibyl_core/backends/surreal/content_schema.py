@@ -46,7 +46,7 @@ CONTENT_TABLES = (
     "backup_settings",
     "backups",
 )
-CONTENT_SCHEMA_CURRENT_VERSION = 10
+CONTENT_SCHEMA_CURRENT_VERSION = 11
 CONTENT_SCHEMA_NAME = "content"
 _SCHEMA_CHECK_BATCH_SIZE = 128
 _CONTENT_MEMORY_SCOPE_VALUES = tuple(scope.value for scope in MemoryScope)
@@ -216,6 +216,25 @@ ALTER TABLE IF EXISTS content_changefeed_cursors PERMISSIONS
     FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
 """
 
+CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS = f"""
+{CONTENT_ANALYZER_DEFINITIONS}
+
+DEFINE INDEX OVERWRITE idx_crawl_sources_name_ft
+    ON crawl_sources FIELDS name FULLTEXT ANALYZER title_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX OVERWRITE idx_crawled_documents_title_ft
+    ON crawled_documents FIELDS title FULLTEXT ANALYZER title_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX OVERWRITE idx_crawled_documents_content_ft
+    ON crawled_documents FIELDS content FULLTEXT ANALYZER content_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX OVERWRITE idx_document_chunks_content_ft
+    ON document_chunks FIELDS content FULLTEXT ANALYZER content_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX IF NOT EXISTS idx_document_chunks_code_ft
+    ON document_chunks FIELDS content FULLTEXT ANALYZER code_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX OVERWRITE idx_raw_captures_title_ft
+    ON raw_captures FIELDS title FULLTEXT ANALYZER title_analyzer BM25 HIGHLIGHTS;
+DEFINE INDEX OVERWRITE idx_raw_captures_content_ft
+    ON raw_captures FIELDS raw_content FULLTEXT ANALYZER content_analyzer BM25 HIGHLIGHTS;
+"""
+
 CONTENT_REVIEW_STATE_DEFERRED_MIGRATION_DEFINITIONS = f"""
 DEFINE FIELD OVERWRITE review_state ON raw_captures TYPE string DEFAULT 'pending'
     ASSERT $value IN {_surql_string_array(_CONTENT_REVIEW_STATE_VALUES)};
@@ -329,6 +348,18 @@ def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
             name="raw_capture_changefeed_cursor",
             statements=tuple(
                 split_statements(CONTENT_RAW_CAPTURE_CHANGEFEED_MIGRATION_DEFINITIONS)
+            ),
+        ),
+        SchemaMigration(
+            version=11,
+            name="highlight_snippets_and_code_analyzer",
+            statements=tuple(
+                split_statements(
+                    render_fulltext_compatible_sql(
+                        CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS,
+                        url=url,
+                    )
+                )
             ),
         ),
     )
@@ -626,6 +657,7 @@ __all__ = [
     "CONTENT_CHILD_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_DOCUMENT_URL_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS",
+    "CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS",
     "CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS",
     "CONTENT_PERMISSION_MIGRATION_DEFINITIONS",
     "CONTENT_RELATION_TABLES",

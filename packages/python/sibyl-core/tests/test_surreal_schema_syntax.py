@@ -20,6 +20,8 @@ from sibyl_core.backends.surreal.auth_schema import (
     bootstrap_auth_schema,
 )
 from sibyl_core.backends.surreal.content_schema import (
+    CONTENT_ANALYZER_DEFINITIONS,
+    CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS,
     CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS,
     CONTENT_PERMISSION_MIGRATION_DEFINITIONS,
     CONTENT_RAW_CAPTURE_CHANGEFEED_MIGRATION_DEFINITIONS,
@@ -368,7 +370,7 @@ def test_raw_capture_changefeed_cursor_is_versioned() -> None:
         statement for migration in migrations for statement in migration.statements
     )
 
-    assert CONTENT_SCHEMA_CURRENT_VERSION == 10
+    assert CONTENT_SCHEMA_CURRENT_VERSION >= 10
     assert "raw_capture_changefeed_cursor" in [migration.name for migration in migrations]
     assert "DEFINE TABLE IF NOT EXISTS raw_captures SCHEMAFULL CHANGEFEED 7d;" in (
         CONTENT_SCHEMA_DEFINITIONS
@@ -386,6 +388,28 @@ def test_raw_capture_changefeed_cursor_is_versioned() -> None:
         CONTENT_RAW_CAPTURE_CHANGEFEED_MIGRATION_DEFINITIONS.strip().splitlines()[0]
         in migration_sql
     )
+
+
+def test_content_highlight_snippets_and_code_analyzer_are_versioned() -> None:
+    migrations = _content_schema_migrations(url="memory://")
+    migration_sql = "\n".join(
+        statement for migration in migrations for statement in migration.statements
+    )
+    migration_names = [migration.name for migration in migrations]
+
+    assert CONTENT_SCHEMA_CURRENT_VERSION == 11
+    assert "DEFINE ANALYZER IF NOT EXISTS code_analyzer" in CONTENT_ANALYZER_DEFINITIONS
+    assert "idx_document_chunks_code_ft" in CONTENT_SCHEMA_DEFINITIONS
+    assert "HIGHLIGHTS" in CONTENT_SCHEMA_DEFINITIONS
+    assert "highlight_snippets_and_code_analyzer" in migration_names
+    assert "DEFINE INDEX OVERWRITE idx_document_chunks_content_ft" in (
+        CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS
+    )
+    assert "DEFINE INDEX IF NOT EXISTS idx_document_chunks_code_ft" in (
+        CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS
+    )
+    assert "SEARCH ANALYZER code_analyzer BM25 HIGHLIGHTS" in migration_sql
+    assert "FULLTEXT ANALYZER" not in migration_sql
 
 
 @pytest.mark.asyncio
@@ -506,6 +530,7 @@ def test_fulltext_indexes_render_with_embedded_search_syntax(url: str) -> None:
 
     assert "SEARCH ANALYZER" in rendered
     assert "FULLTEXT ANALYZER" not in rendered
+    assert "SEARCH ANALYZER title_analyzer BM25 HIGHLIGHTS" in rendered
 
 
 def test_fulltext_indexes_keep_remote_server_syntax() -> None:

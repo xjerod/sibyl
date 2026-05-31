@@ -92,6 +92,7 @@ def sample_chunk():
     chunk.context = "Document: Auth Guide | Section: Best Practices"
     chunk.heading_path = ["Authentication", "Best Practices"]
     chunk.language = None
+    chunk.snippet = "sample <mark>authentication</mark> snippet"
     chunk.embedding = [0.1] * 1536
     return chunk
 
@@ -166,6 +167,7 @@ class TestRAGSearchEndpoint:
             assert response.query == "authentication patterns"
             assert response.return_mode == "chunks"
             assert len(response.results) == 1
+            assert response.results[0].snippet == "sample <mark>authentication</mark> snippet"
 
     @pytest.mark.asyncio
     async def test_search_with_source_filter(
@@ -701,6 +703,7 @@ class TestSchemaValidation:
             chunk_index=0,
         )
         assert chunk_result.chunk_id == "chunk-1"
+        assert chunk_result.snippet is None
 
         # RAGPageResult
         page_result = RAGPageResult(
