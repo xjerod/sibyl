@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -190,6 +190,36 @@ def _has_graph_only_filters(
     return any((category, status, project, source, assignee, since))
 
 
+def _normalize_temporal_datetime(value: str | datetime | None) -> datetime | None:
+    parsed = parse_temporal_datetime(value)
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _matches_as_of(entity: Any, as_of: datetime | None) -> bool:
+    if as_of is None:
+        return True
+
+    created_at = _normalize_temporal_datetime(_get_field(entity, "created_at"))
+    if created_at is not None and created_at > as_of:
+        return False
+
+    for field in ("valid_at", "valid_from"):
+        valid_at = _normalize_temporal_datetime(_get_field(entity, field))
+        if valid_at is not None and valid_at > as_of:
+            return False
+
+    for field in ("invalid_at", "valid_to"):
+        invalid_at = _normalize_temporal_datetime(_get_field(entity, field))
+        if invalid_at is not None and invalid_at <= as_of:
+            return False
+
+    return True
+
+
 async def _list_graph_entities_for_filters(
     entity_manager: Any,
     *,
@@ -203,6 +233,7 @@ async def _list_graph_entities_for_filters(
     source: str | None,
     assignee: str | None,
     since_date: datetime | None,
+    as_of: datetime | None,
     accessible_projects: set[str] | None,
     principal_id: str | None,
     allowed_memory_scope_keys: set[str] | None,
@@ -223,6 +254,7 @@ async def _list_graph_entities_for_filters(
             source=source,
             assignee=assignee,
             since_date=since_date,
+            as_of=as_of,
             accessible_projects=accessible_projects,
         )
 
@@ -270,6 +302,7 @@ def _matches_graph_filters(
     source: str | None,
     assignee: str | None,
     since_date: datetime | None,
+    as_of: datetime | None = None,
     accessible_projects: set[str] | None,
 ) -> bool:
     if not _matches_memory_scope_policy(
@@ -330,7 +363,7 @@ def _matches_graph_filters(
             except (ValueError, TypeError):
                 pass
 
-    return True
+    return _matches_as_of(entity, as_of)
 
 
 def _matches_memory_scope_policy(
@@ -453,6 +486,7 @@ async def search(
     boost_recent: bool = True,
     temporal_decay_days: float | None = None,
     reference_time: str | datetime | None = None,
+    as_of: str | datetime | None = None,
     organization_id: str | None = None,
     principal_id: str | None = None,
     allowed_memory_scope_keys: set[str] | None = None,
@@ -497,6 +531,7 @@ async def search(
         use_enhanced: Use enhanced hybrid retrieval for graph (default True).
         boost_recent: Apply temporal boosting for graph results (default True).
         reference_time: Optional query as-of timestamp for temporal ranking.
+        as_of: Optional point-in-time filter for graph validity windows.
 
     Returns:
         SearchResponse with ranked results from both sources, including
@@ -550,6 +585,9 @@ async def search(
     resolved_reference_time = parse_temporal_datetime(reference_time)
     if reference_time:
         filters["reference_time"] = str(reference_time)
+    resolved_as_of = _normalize_temporal_datetime(as_of)
+    if as_of:
+        filters["as_of"] = str(as_of)
 
     # Determine if we should search documents based on types filter
     search_documents = include_documents
@@ -668,6 +706,7 @@ async def search(
                     source=source,
                     assignee=assignee,
                     since_date=since_date,
+                    as_of=resolved_as_of,
                     accessible_projects=accessible_projects,
                 )
 
@@ -779,6 +818,7 @@ async def search(
                     source=source,
                     assignee=assignee,
                     since_date=since_date,
+                    as_of=resolved_as_of,
                     accessible_projects=accessible_projects,
                     principal_id=principal_id,
                     allowed_memory_scope_keys=allowed_memory_scope_keys,

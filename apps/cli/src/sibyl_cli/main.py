@@ -1367,6 +1367,7 @@ def search(
     all_projects: bool = typer.Option(False, "--all", "-a", help="Search all projects"),
     graph_only: bool = typer.Option(False, "--graph-only", help="Search graph memory only"),
     docs_only: bool = typer.Option(False, "--docs-only", help="Search crawled docs only"),
+    as_of: str | None = typer.Option(None, "--as-of", help="Filter graph memory as of a timestamp"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
     """Search the knowledge graph."""
@@ -1392,6 +1393,9 @@ def search(
         try:
             async with get_client() as client:
                 types = [entity_type] if entity_type else None
+                search_kwargs: dict[str, Any] = {}
+                if as_of:
+                    search_kwargs["as_of"] = as_of
                 data = await client.search(
                     query,
                     types=types,
@@ -1399,6 +1403,7 @@ def search(
                     project=effective_project,
                     include_documents=include_documents,
                     include_graph=include_graph,
+                    **search_kwargs,
                 )
 
                 if json_output:
@@ -2214,6 +2219,11 @@ def recall_context(
         "--occurred-before",
         help="Filter raw imports before an ISO timestamp",
     ),
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Filter raw memory by validity timestamp",
+    ),
 ) -> None:
     """Recall a compact working context pack for an agent."""
     effective_project = project or (None if all_projects else resolve_project_from_cwd())
@@ -2237,6 +2247,8 @@ def recall_context(
                         recall_kwargs["occurred_after"] = occurred_after
                     if occurred_before:
                         recall_kwargs["occurred_before"] = occurred_before
+                    if as_of:
+                        recall_kwargs["as_of"] = as_of
                     data = await client.recall_raw_memory(
                         query=goal,
                         memory_scope=memory_scope,

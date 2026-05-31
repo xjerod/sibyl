@@ -2237,6 +2237,7 @@ export const api = {
       project?: string;
       assignee?: string;
       since?: string;
+      as_of?: string;
       limit?: number;
       include_content?: boolean;
       include_documents?: boolean;

@@ -646,6 +646,7 @@ async def test_recall_raw_forwards_import_metadata_filters() -> None:
     http_request = _http_request()
     occurred_after = datetime(2014, 1, 1, tzinfo=UTC)
     occurred_before = datetime(2014, 12, 31, 23, 59, 59, tzinfo=UTC)
+    as_of = datetime(2014, 7, 1, tzinfo=UTC)
     with (
         patch("sibyl.api.routes.memory.recall_raw_memory", AsyncMock(return_value=[])) as recall,
         patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
@@ -658,6 +659,7 @@ async def test_recall_raw_forwards_import_metadata_filters() -> None:
                 thread_id="thread-1",
                 occurred_after=occurred_after,
                 occurred_before=occurred_before,
+                as_of=as_of,
                 limit=5,
             ),
             http_request=http_request,
@@ -679,11 +681,13 @@ async def test_recall_raw_forwards_import_metadata_filters() -> None:
         thread_id="thread-1",
         occurred_after=occurred_after,
         occurred_before=occurred_before,
+        as_of=as_of,
     )
     audit_details = audit.await_args.kwargs["details"]
     assert audit_details["participants"] == ["nova@example.com"]
     assert audit_details["labels"] == ["email"]
     assert audit_details["thread_id"] == "thread-1"
+    assert audit_details["as_of"] == as_of.isoformat()
 
 
 @pytest.mark.asyncio

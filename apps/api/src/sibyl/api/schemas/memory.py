@@ -56,6 +56,10 @@ class RawMemoryRecallRequest(BaseModel):
         default=None,
         description="Latest source occurrence timestamp",
     )
+    as_of: datetime | None = Field(
+        default=None,
+        description="Point-in-time validity timestamp for recalled memories",
+    )
     limit: int = Field(default=10, ge=1, le=50, description="Maximum memories to return")
 
 

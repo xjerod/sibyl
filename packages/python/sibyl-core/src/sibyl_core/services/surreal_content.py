@@ -42,6 +42,7 @@ _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
 _MARK_OPEN = "<mark>"
 _MARK_CLOSE = "</mark>"
 _SNIPPET_MAX_CHARS = 320
+_EMBEDDED_SURREAL_SCHEMES = ("memory://", "surrealkv://", "rocksdb://", "file://")
 type _RawMemoryProviderCacheKey = tuple[EmbeddingProviderName, str, int, str]
 _raw_memory_embedding_provider: EmbeddingProvider | None = None
 _raw_memory_embedding_fingerprint: _RawMemoryProviderCacheKey | None = None
@@ -341,6 +342,8 @@ class _RawMemoryRecallFilters:
     thread_id: str | None = None
     occurred_after: str | None = None
     occurred_before: str | None = None
+    as_of: datetime | None = None
+    as_of_text: str | None = None
 
 
 _RECALL_EXCLUDED_REVIEW_STATES = frozenset(
@@ -386,8 +389,55 @@ def _raw_memory_capture_surface(memory: RawMemory) -> str:
     return str(value or "").strip().lower()
 
 
-def _recallable_memories(memories: list[RawMemory], *, limit: int) -> list[RawMemory]:
-    return [memory for memory in memories if raw_memory_recallable(memory)][:limit]
+def _normalize_raw_temporal_datetime(value: object | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _raw_memory_matches_as_of(memory: RawMemory, as_of: datetime | None) -> bool:
+    if as_of is None:
+        return True
+    for value in (memory.created_at, memory.captured_at):
+        observed_at = _normalize_raw_temporal_datetime(value)
+        if observed_at is not None and observed_at > as_of:
+            return False
+    for key in ("valid_at", "valid_from"):
+        valid_at = _normalize_raw_temporal_datetime(memory.metadata.get(key))
+        if valid_at is not None and valid_at > as_of:
+            return False
+    for key in ("invalid_at", "valid_to"):
+        invalid_at = _normalize_raw_temporal_datetime(memory.metadata.get(key))
+        if invalid_at is not None and invalid_at <= as_of:
+            return False
+    return True
+
+
+def _recallable_memories(
+    memories: list[RawMemory],
+    *,
+    limit: int,
+    as_of: datetime | None = None,
+) -> list[RawMemory]:
+    return [
+        memory
+        for memory in memories
+        if raw_memory_recallable(memory) and _raw_memory_matches_as_of(memory, as_of)
+    ][:limit]
 
 
 def build_surreal_content_client() -> SurrealContentClient:
@@ -1631,6 +1681,18 @@ def _memory_scope_where(
     return " AND ".join(clauses), params
 
 
+def _surreal_type_is_string(field: str) -> str:
+    if settings.resolved_surreal_url.startswith(_EMBEDDED_SURREAL_SCHEMES):
+        return f"type::is::string({field})"
+    return f"type::is_string({field})"
+
+
+def _surreal_type_is_datetime(field: str) -> str:
+    if settings.resolved_surreal_url.startswith(_EMBEDDED_SURREAL_SCHEMES):
+        return f"type::is::datetime({field})"
+    return f"type::is_datetime({field})"
+
+
 def _raw_memory_recall_where(
     *,
     organization_id: str,
@@ -1669,6 +1731,43 @@ def _raw_memory_recall_where(
     if filters.occurred_before:
         clauses.append("metadata.occurred_at <= $occurred_before")
         params["occurred_before"] = filters.occurred_before
+    if filters.as_of:
+        created_at_is_string = _surreal_type_is_string("created_at")
+        created_at_is_datetime = _surreal_type_is_datetime("created_at")
+        captured_at_is_string = _surreal_type_is_string("captured_at")
+        captured_at_is_datetime = _surreal_type_is_datetime("captured_at")
+        valid_at_is_string = _surreal_type_is_string("metadata.valid_at")
+        valid_at_is_datetime = _surreal_type_is_datetime("metadata.valid_at")
+        valid_from_is_string = _surreal_type_is_string("metadata.valid_from")
+        valid_from_is_datetime = _surreal_type_is_datetime("metadata.valid_from")
+        invalid_at_is_string = _surreal_type_is_string("metadata.invalid_at")
+        invalid_at_is_datetime = _surreal_type_is_datetime("metadata.invalid_at")
+        valid_to_is_string = _surreal_type_is_string("metadata.valid_to")
+        valid_to_is_datetime = _surreal_type_is_datetime("metadata.valid_to")
+        clauses.extend(
+            [
+                "(created_at = NONE "
+                f"OR ({created_at_is_datetime} AND created_at <= $as_of) "
+                f"OR ({created_at_is_string} AND created_at <= $as_of_text))",
+                "(captured_at = NONE "
+                f"OR ({captured_at_is_datetime} AND captured_at <= $as_of) "
+                f"OR ({captured_at_is_string} AND captured_at <= $as_of_text))",
+                "(metadata.valid_at = NONE "
+                f"OR ({valid_at_is_datetime} AND metadata.valid_at <= $as_of) "
+                f"OR ({valid_at_is_string} AND metadata.valid_at <= $as_of_text))",
+                "(metadata.valid_from = NONE "
+                f"OR ({valid_from_is_datetime} AND metadata.valid_from <= $as_of) "
+                f"OR ({valid_from_is_string} AND metadata.valid_from <= $as_of_text))",
+                "(metadata.invalid_at = NONE "
+                f"OR ({invalid_at_is_datetime} AND metadata.invalid_at > $as_of) "
+                f"OR ({invalid_at_is_string} AND metadata.invalid_at > $as_of_text))",
+                "(metadata.valid_to = NONE "
+                f"OR ({valid_to_is_datetime} AND metadata.valid_to > $as_of) "
+                f"OR ({valid_to_is_string} AND metadata.valid_to > $as_of_text))",
+            ]
+        )
+        params["as_of"] = filters.as_of
+        params["as_of_text"] = filters.as_of_text or filters.as_of.isoformat()
     return " AND ".join(clauses), params
 
 
@@ -1704,7 +1803,11 @@ async def _recall_raw_memory_lexical(
     for row in rows:
         memory = _raw_memory_from_record(row)
         memory.score = lexical_score(query, memory.title, memory.raw_content)
-        if memory.score > 0 and raw_memory_recallable(memory):
+        if (
+            memory.score > 0
+            and raw_memory_recallable(memory)
+            and _raw_memory_matches_as_of(memory, (filters or _RawMemoryRecallFilters()).as_of)
+        ):
             scored.append(memory)
     return sorted(scored, key=lambda memory: (-memory.score, memory.captured_at or datetime.min))[
         :limit
@@ -1717,6 +1820,7 @@ async def _recall_raw_memory_fulltext(
     where_clause: str,
     params: Mapping[str, object],
     query: str,
+    as_of: datetime | None,
     limit: int,
 ) -> list[RawMemory]:
     rows = await with_timeout(
@@ -1735,7 +1839,11 @@ async def _recall_raw_memory_fulltext(
         timeout_seconds=_DIRECT_SEARCH_QUERY_TIMEOUT_SECONDS,
         operation_name="surreal_raw_memory_fulltext_recall",
     )
-    return _recallable_memories([_raw_memory_from_record(row) for row in rows], limit=limit)
+    return _recallable_memories(
+        [_raw_memory_from_record(row) for row in rows],
+        limit=limit,
+        as_of=as_of,
+    )
 
 
 async def _recall_raw_memory_vector(
@@ -1744,6 +1852,7 @@ async def _recall_raw_memory_vector(
     where_clause: str,
     params: Mapping[str, object],
     query_embedding: list[float],
+    as_of: datetime | None,
     limit: int,
 ) -> list[RawMemory]:
     candidate_limit = max(limit * _LIFECYCLE_FILTER_OVERFETCH_FACTOR, limit)
@@ -1762,7 +1871,11 @@ async def _recall_raw_memory_vector(
         timeout_seconds=_DIRECT_SEARCH_QUERY_TIMEOUT_SECONDS,
         operation_name="surreal_raw_memory_vector_recall",
     )
-    return _recallable_memories([_raw_memory_from_record(row) for row in rows], limit=limit)
+    return _recallable_memories(
+        [_raw_memory_from_record(row) for row in rows],
+        limit=limit,
+        as_of=as_of,
+    )
 
 
 async def _raw_memory_query_embedding(query: str) -> list[float] | None:
@@ -1868,13 +1981,17 @@ def _raw_recall_filters(
     thread_id: str | None,
     occurred_after: datetime | str | None,
     occurred_before: datetime | str | None,
+    as_of: datetime | str | None,
 ) -> _RawMemoryRecallFilters:
+    as_of_datetime = _as_of_filter_value(as_of)
     return _RawMemoryRecallFilters(
         participants=tuple(_normalized_filter_values(participants)),
         labels=tuple(_normalized_filter_values(labels)),
         thread_id=_coerce_optional_str(thread_id),
         occurred_after=_datetime_filter_value(occurred_after),
         occurred_before=_datetime_filter_value(occurred_before),
+        as_of=as_of_datetime,
+        as_of_text=as_of_datetime.isoformat() if as_of_datetime else None,
     )
 
 
@@ -1891,6 +2008,13 @@ def _datetime_filter_value(value: datetime | str | None) -> str | None:
         return value.isoformat()
     text = str(value).strip()
     return text or None
+
+
+def _as_of_filter_value(value: datetime | str | None) -> datetime | None:
+    if value is None:
+        return None
+    parsed = _normalize_raw_temporal_datetime(value)
+    return parsed
 
 
 async def remember_raw_memory(
@@ -2222,6 +2346,7 @@ async def recall_raw_memory(
     thread_id: str | None = None,
     occurred_after: datetime | str | None = None,
     occurred_before: datetime | str | None = None,
+    as_of: datetime | str | None = None,
     limit: int = 10,
 ) -> list[RawMemory]:
     normalized_query = query.strip()
@@ -2235,6 +2360,7 @@ async def recall_raw_memory(
         thread_id=thread_id,
         occurred_after=occurred_after,
         occurred_before=occurred_before,
+        as_of=as_of,
     )
     where_clause, params = _raw_memory_recall_where(
         organization_id=organization_id,
@@ -2255,6 +2381,7 @@ async def recall_raw_memory(
                 where_clause=where_clause,
                 params=params,
                 query=normalized_query,
+                as_of=filters.as_of,
                 limit=limit,
             )
         except (RuntimeError, TimeoutError):
@@ -2266,6 +2393,7 @@ async def recall_raw_memory(
                     where_clause=where_clause,
                     params=params,
                     query_embedding=query_embedding,
+                    as_of=filters.as_of,
                     limit=limit,
                 )
             except (RuntimeError, TimeoutError):

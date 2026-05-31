@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
 from surrealdb import AsyncSurreal
@@ -1625,8 +1626,11 @@ class TestSurrealContentHelpers:
                                 "participants": ["nova@example.com", "bliss@example.com"],
                                 "labels": ["mailbox", "email"],
                                 "occurred_at": "2014-06-01T00:00:00+00:00",
+                                "valid_from": "2014-03-01T00:00:00+00:00",
                                 "source_record_metadata": {"thread_id": "thread-1"},
                             },
+                            "captured_at": datetime(2014, 6, 1, tzinfo=UTC),
+                            "created_at": datetime(2014, 6, 1, tzinfo=UTC),
                             "score": 0.87,
                         }
                     ]
@@ -1655,6 +1659,7 @@ class TestSurrealContentHelpers:
                 thread_id="thread-1",
                 occurred_after="2014-01-01T00:00:00+00:00",
                 occurred_before="2014-12-31T23:59:59+00:00",
+                as_of="2014-07-01T00:00:00+00:00",
             )
 
         query, params = fake_client.calls[0]
@@ -1663,10 +1668,94 @@ class TestSurrealContentHelpers:
         assert "metadata.source_record_metadata.thread_id = $thread_id" in query
         assert "metadata.occurred_at >= $occurred_after" in query
         assert "metadata.occurred_at <= $occurred_before" in query
+        assert "datetime(created_at) AND created_at <= $as_of" in query
+        assert "datetime(captured_at) AND captured_at <= $as_of" in query
+        assert "datetime(metadata.valid_from)" in query
+        assert "datetime(metadata.invalid_at)" in query
+        assert "created_at <= $as_of_text" in query
+        assert "captured_at <= $as_of_text" in query
+        assert "metadata.valid_from <= $as_of_text" in query
+        assert "metadata.invalid_at > $as_of_text" in query
+        assert "type::is" in query
         assert params["participants"] == ["nova@example.com"]
         assert params["labels"] == ["email"]
         assert params["thread_id"] == "thread-1"
+        assert params["as_of"] == datetime(2014, 7, 1, tzinfo=UTC)
+        assert params["as_of_text"] == "2014-07-01T00:00:00+00:00"
         assert [memory.id for memory in memories] == ["memory-1"]
+
+    @pytest.mark.asyncio
+    async def test_recall_raw_memory_as_of_post_filter_hides_future_records(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "future-memory",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Future thread",
+                            "raw_content": "SurrealDB future note.",
+                            "captured_at": datetime(2025, 5, 1, tzinfo=UTC),
+                            "created_at": datetime(2025, 5, 1, tzinfo=UTC),
+                            "score": 0.95,
+                        },
+                        {
+                            "uuid": "valid-memory",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Valid thread",
+                            "raw_content": "SurrealDB valid note.",
+                            "metadata": {
+                                "valid_from": "2025-01-01T00:00:00+00:00",
+                                "valid_to": "2025-04-01T00:00:00+00:00",
+                            },
+                            "captured_at": datetime(2025, 1, 1, tzinfo=UTC),
+                            "created_at": datetime(2025, 1, 1, tzinfo=UTC),
+                            "score": 0.9,
+                        },
+                        {
+                            "uuid": "invalid-memory",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Invalid thread",
+                            "raw_content": "SurrealDB invalid note.",
+                            "metadata": {"invalid_at": "2025-02-01T00:00:00+00:00"},
+                            "captured_at": datetime(2025, 1, 1, tzinfo=UTC),
+                            "created_at": datetime(2025, 1, 1, tzinfo=UTC),
+                            "score": 0.88,
+                        },
+                    ]
+                )
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        async def no_embedding(_query: str):
+            return None
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            monkeypatch.setattr(content_service, "_raw_memory_query_embedding", no_embedding)
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="surrealdb",
+                as_of=datetime(2025, 3, 1, tzinfo=UTC),
+            )
+
+        assert [memory.id for memory in memories] == ["valid-memory"]
 
     def test_raw_memory_snippet_prefers_marked_title_over_plain_content(self) -> None:
         memory = _raw_memory_from_record(

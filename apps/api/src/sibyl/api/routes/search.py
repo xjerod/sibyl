@@ -100,6 +100,7 @@ async def search(
             assignee=request.assignee,
             since=request.since,
             reference_time=request.reference_time,
+            as_of=request.as_of,
             limit=request.limit,
             offset=request.offset,
             include_content=request.include_content,

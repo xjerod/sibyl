@@ -439,6 +439,8 @@ def _raw_recall_audit_details(
         details["occurred_after"] = request.occurred_after.isoformat()
     if request.occurred_before:
         details["occurred_before"] = request.occurred_before.isoformat()
+    if request.as_of:
+        details["as_of"] = request.as_of.isoformat()
     return details
 
 
@@ -1700,6 +1702,8 @@ async def recall_raw(
                 recall_kwargs["occurred_after"] = request.occurred_after
             if request.occurred_before:
                 recall_kwargs["occurred_before"] = request.occurred_before
+            if request.as_of:
+                recall_kwargs["as_of"] = request.as_of
             memories = await recall_raw_memory(
                 organization_id=str(org.id),
                 principal_id=principal_id,

@@ -1160,6 +1160,7 @@ class SibylClient:
         include_content: bool = True,
         include_documents: bool = True,
         include_graph: bool = True,
+        as_of: str | None = None,
     ) -> dict[str, Any]:
         """Semantic search across the knowledge graph."""
         data: dict[str, Any] = {
@@ -1178,6 +1179,8 @@ class SibylClient:
             data["category"] = category
         if project:
             data["project"] = project
+        if as_of:
+            data["as_of"] = as_of
 
         return await self._request("POST", "/search", json=data)
 
@@ -1232,6 +1235,7 @@ class SibylClient:
         thread_id: str | None = None,
         occurred_after: str | None = None,
         occurred_before: str | None = None,
+        as_of: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
         """Recall verbatim raw memories."""
@@ -1257,6 +1261,8 @@ class SibylClient:
             data["occurred_after"] = occurred_after
         if occurred_before:
             data["occurred_before"] = occurred_before
+        if as_of:
+            data["as_of"] = as_of
         return await self._request("POST", "/memory/raw/recall", json=data)
 
     async def memory_audit(

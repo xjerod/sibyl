@@ -136,6 +136,31 @@ def test_search_command_can_search_docs_only(
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_search_command_forwards_as_of(
+    mock_get_client: MagicMock, mock_resolve_project_from_cwd: MagicMock
+) -> None:
+    mock_client = MagicMock()
+    mock_client.search = AsyncMock(return_value={"results": []})
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["search", "temporal", "--as-of", "2025-03-15"])
+
+    assert result.exit_code == 0
+    mock_client.search.assert_called_once_with(
+        "temporal",
+        types=None,
+        limit=10,
+        project="project_123",
+        include_documents=True,
+        include_graph=True,
+        as_of="2025-03-15",
+    )
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
 def test_search_command_rejects_conflicting_store_flags() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["search", "surreal", "--graph-only", "--docs-only"])
@@ -256,6 +281,8 @@ def test_recall_command_forwards_raw_metadata_filters(
             "2014-01-01T00:00:00+00:00",
             "--occurred-before",
             "2014-12-31T23:59:59+00:00",
+            "--as-of",
+            "2014-07-01T00:00:00+00:00",
         ],
     )
 
@@ -273,6 +300,7 @@ def test_recall_command_forwards_raw_metadata_filters(
         thread_id="thread-1",
         occurred_after="2014-01-01T00:00:00+00:00",
         occurred_before="2014-12-31T23:59:59+00:00",
+        as_of="2014-07-01T00:00:00+00:00",
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
 

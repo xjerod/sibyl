@@ -983,6 +983,61 @@ class TestSearchTool:
             accessible_projects={"project_hidden", "project_visible"},
         )
 
+    def test_search_graph_filters_respect_as_of_validity_window(self) -> None:
+        """Point-in-time graph recall hides future and invalidated facts."""
+        from sibyl_core.tools.search import _matches_graph_filters
+
+        entity = MockEntity(
+            id="temporal_claim",
+            entity_type=EntityType.CLAIM,
+            name="Temporal claim",
+            created_at=datetime(2025, 1, 1, tzinfo=UTC),
+            metadata={
+                "valid_from": "2025-02-01T00:00:00+00:00",
+                "valid_to": "2025-04-01T00:00:00+00:00",
+            },
+        )
+        common_filters = {
+            "language": None,
+            "category": None,
+            "status": None,
+            "project": None,
+            "principal_id": None,
+            "allowed_memory_scope_keys": None,
+            "source": None,
+            "assignee": None,
+            "since_date": None,
+            "accessible_projects": None,
+        }
+
+        assert not _matches_graph_filters(
+            entity,
+            as_of=datetime(2025, 1, 15, tzinfo=UTC),
+            **common_filters,
+        )
+        assert _matches_graph_filters(
+            entity,
+            as_of=datetime(2025, 3, 1, tzinfo=UTC),
+            **common_filters,
+        )
+        assert not _matches_graph_filters(
+            entity,
+            as_of=datetime(2025, 4, 1, tzinfo=UTC),
+            **common_filters,
+        )
+
+        future_entity = MockEntity(
+            id="future_claim",
+            entity_type=EntityType.CLAIM,
+            name="Future claim",
+            created_at=datetime(2025, 5, 1, tzinfo=UTC),
+        )
+        assert not _matches_graph_filters(
+            future_entity,
+            as_of=datetime(2025, 4, 1, tzinfo=UTC),
+            **common_filters,
+        )
+
     @pytest.mark.asyncio
     async def test_search_passes_reference_time_to_hybrid_config(self) -> None:
         """Search forwards as-of time into enhanced graph ranking."""
@@ -1013,6 +1068,50 @@ class TestSearchTool:
         config = hybrid_search.await_args.kwargs["config"]
         assert response.filters["reference_time"] == "2026/01/20 00:00"
         assert config.reference_time == datetime(2026, 1, 20, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_search_filters_enhanced_graph_results_as_of(self) -> None:
+        """Search applies point-in-time validity after enhanced graph retrieval."""
+        from sibyl_core.retrieval.hybrid import HybridResult
+
+        search_module = import_module("sibyl_core.tools.search")
+        current = MockEntity(
+            id="current_claim",
+            entity_type=EntityType.CLAIM,
+            name="Current claim",
+            created_at=datetime(2025, 1, 1, tzinfo=UTC),
+            metadata={"valid_from": "2025-01-01T00:00:00+00:00"},
+        )
+        invalid = MockEntity(
+            id="invalid_claim",
+            entity_type=EntityType.CLAIM,
+            name="Invalid claim",
+            created_at=datetime(2025, 1, 1, tzinfo=UTC),
+            metadata={"invalid_at": "2025-02-01T00:00:00+00:00"},
+        )
+        hybrid_search = AsyncMock(
+            return_value=HybridResult(
+                results=[(current, 0.9), (invalid, 0.8)],
+                metadata={"entity_manager_search_completed": True},
+            )
+        )
+
+        with (
+            patch(
+                "sibyl_core.tools.search.get_graph_runtime",
+                AsyncMock(return_value=make_graph_runtime(entity_manager=AsyncMock())),
+            ),
+            patch("sibyl_core.tools.search.hybrid_search", hybrid_search),
+        ):
+            response = await search_module.search(
+                query="temporal claim",
+                organization_id="org_123",
+                include_documents=False,
+                as_of="2025-03-01T00:00:00+00:00",
+            )
+
+        assert response.filters["as_of"] == "2025-03-01T00:00:00+00:00"
+        assert [result.id for result in response.results] == ["current_claim"]
 
     @pytest.mark.asyncio
     async def test_search_filters_projected_memory_scope_from_enhanced_results(self) -> None:
