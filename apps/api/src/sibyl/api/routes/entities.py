@@ -190,7 +190,10 @@ async def _archive_raw_capture(
 
 
 def _raw_capture_review_state(capture: RawCaptureRecord) -> str:
-    return capture.review_state
+    metadata_state = str((capture.metadata or {}).get("review_state") or "").strip()
+    if metadata_state and (not capture.review_state or capture.review_state == "pending"):
+        return metadata_state
+    return capture.review_state or "pending"
 
 
 def _serialize_raw_capture_summary(capture: RawCaptureRecord) -> RawCaptureSummary:
