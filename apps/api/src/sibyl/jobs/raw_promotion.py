@@ -37,7 +37,7 @@ from sibyl_core.services.surreal_content import (
     backfill_content_lineage,
     get_raw_memory_by_source_id,
     list_raw_memories_for_promotion,
-    raw_memory_recallable,
+    raw_memory_currently_recallable,
     save_raw_memory,
 )
 
@@ -302,7 +302,7 @@ def _promotion_skip_status(memory: RawMemory, *, force: bool) -> str | None:
         return "skipped_superseded"
     if not force and memory.metadata.get("raw_promotion_state") == "promoted" and memory.entity_id:
         return "skipped_existing"
-    if not raw_memory_recallable(memory):
+    if not raw_memory_currently_recallable(memory):
         return "skipped_review"
     return None
 

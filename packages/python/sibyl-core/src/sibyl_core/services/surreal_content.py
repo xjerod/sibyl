@@ -435,6 +435,10 @@ def raw_memory_recallable(memory: RawMemory) -> bool:
     return not memory.metadata.get("duplicate_of_source_id")
 
 
+def raw_memory_currently_recallable(memory: RawMemory) -> bool:
+    return raw_memory_recallable(memory) and _raw_memory_matches_as_of(memory, datetime.now(UTC))
+
+
 def _raw_memory_capture_surface(memory: RawMemory) -> str:
     metadata_surface = memory.metadata.get("capture_surface")
     value = memory.capture_surface if memory.capture_surface is not None else metadata_surface
@@ -2467,7 +2471,9 @@ async def list_raw_memories_for_promotion(
         )
     memories = [_raw_memory_from_record(row) for row in rows]
     return [
-        memory for memory in memories if memory.deleted_at is None and raw_memory_recallable(memory)
+        memory
+        for memory in memories
+        if memory.deleted_at is None and raw_memory_currently_recallable(memory)
     ][:limit]
 
 
@@ -2612,7 +2618,7 @@ async def list_raw_memories_for_scope(
     memories = [_raw_memory_from_record(row) for row in rows]
     if include_lifecycle_hidden:
         return memories[:limit]
-    return _recallable_memories(memories, limit=limit)
+    return _recallable_memories(memories, limit=limit, as_of=datetime.now(UTC))
 
 
 async def list_reflection_candidate_reviews(
@@ -2677,7 +2683,7 @@ async def list_reflection_dream_source_memories(
     return [
         memory
         for memory in memories
-        if raw_memory_recallable(memory)
+        if raw_memory_currently_recallable(memory)
         and _raw_memory_capture_surface(memory) not in {"reflection_candidate", "reflection_source"}
         and not memory.metadata.get("reflection_dream_processed_at")
     ][:limit]
@@ -2927,6 +2933,7 @@ async def search_document_chunks(
         sources_by_id = {source.id: source for source in sources}
 
         vector_rows: list[SurrealRecord] = []
+        vector_errors: list[str] = []
         if query_embedding is not None:
             vector_params: dict[str, object] = {
                 "organization_id": organization_id,
@@ -2957,7 +2964,7 @@ async def search_document_chunks(
                     operation_name="surreal_document_vector_search",
                 )
             except (RuntimeError, TimeoutError) as exc:
-                errors.append(str(exc))
+                vector_errors.append(str(exc))
 
         lexical_rows: list[SurrealRecord] = []
         if lexical_query_text:
@@ -2996,6 +3003,8 @@ async def search_document_chunks(
         )
         documents_by_id = {document.id: document for document in documents}
 
+    if vector_errors:
+        raise RuntimeError("; ".join([*vector_errors, *errors]))
     if errors and not vector_rows and not lexical_rows:
         raise RuntimeError("; ".join(errors))
 
@@ -3089,6 +3098,7 @@ __all__ = [
     "list_unlinked_document_chunks",
     "load_search_scope",
     "materialize_content_lineage",
+    "raw_memory_currently_recallable",
     "raw_memory_embedding_text",
     "raw_memory_recallable",
     "recall_raw_memory",

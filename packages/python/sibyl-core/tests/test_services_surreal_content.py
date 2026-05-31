@@ -24,6 +24,7 @@ from sibyl_core.services.surreal_content import (
     get_raw_memory_by_dedupe_key,
     get_raw_memory_by_source_id,
     list_raw_memories_for_promotion,
+    list_raw_memories_for_scope,
     list_unlinked_document_chunks,
     load_search_scope,
     materialize_content_lineage,
@@ -1100,7 +1101,7 @@ class TestSurrealContentHelpers:
         assert len(fake_client.calls) == 3
 
     @pytest.mark.asyncio
-    async def test_search_document_chunks_keeps_lexical_results_after_vector_timeout(
+    async def test_search_document_chunks_reports_vector_timeout_with_lexical_results(
         self,
     ) -> None:
         fake_client = FakeClient(
@@ -1158,18 +1159,16 @@ class TestSurrealContentHelpers:
             monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
             monkeypatch.setattr(content_service, "_select_many_raw", slow_then_lexical)
             monkeypatch.setattr(content_service, "_DIRECT_SEARCH_QUERY_TIMEOUT_SECONDS", 0.01)
-            vector_rows, lexical_rows = await search_document_chunks(
-                organization_id="org-1",
-                query_text="auth",
-                query_embedding=[1.0, 0.0],
-                source_id="src-1",
-                limit=5,
-            )
+            with pytest.raises(RuntimeError, match="surreal_document_vector_search timed out"):
+                await search_document_chunks(
+                    organization_id="org-1",
+                    query_text="auth",
+                    query_embedding=[1.0, 0.0],
+                    source_id="src-1",
+                    limit=5,
+                )
 
-        assert vector_rows == []
-        assert len(lexical_rows) == 1
-        assert lexical_rows[0][0].id == "chunk-1"
-        assert lexical_rows[0][4] == 0.44
+        assert raw_call_count == 2
 
     @pytest.mark.asyncio
     async def test_remember_raw_memory_persists_source_scope_and_provenance(self) -> None:
@@ -1243,6 +1242,17 @@ class TestSurrealContentHelpers:
                 "raw_content": "skip this",
                 "metadata": {"superseded_by_raw_memory_id": "memory-1"},
             },
+            {
+                "uuid": "memory-3",
+                "organization_id": "org-1",
+                "source_id": "source-email-3",
+                "principal_id": "user-bliss",
+                "memory_scope": "private",
+                "review_state": "pending",
+                "title": "Invalidated note",
+                "raw_content": "skip this too",
+                "metadata": {"invalid_at": "2020-01-01T00:00:00+00:00"},
+            },
         ]
         fake_client = FakeClient([_query_result(rows)])
 
@@ -1264,6 +1274,51 @@ class TestSurrealContentHelpers:
         assert "metadata.raw_promotion_lineage_missing_count = NONE" in query
         assert "metadata.source_record_metadata.parent_uuid != NONE" in query
         assert params["organization_id"] == "org-1"
+
+    @pytest.mark.asyncio
+    async def test_list_raw_memories_for_scope_filters_currently_invalidated(self) -> None:
+        rows = [
+            {
+                "uuid": "memory-1",
+                "organization_id": "org-1",
+                "source_id": "source-email-1",
+                "principal_id": "user-bliss",
+                "memory_scope": "private",
+                "review_state": "pending",
+                "title": "Current note",
+                "raw_content": "keep this",
+                "metadata": {},
+            },
+            {
+                "uuid": "memory-2",
+                "organization_id": "org-1",
+                "source_id": "source-email-2",
+                "principal_id": "user-bliss",
+                "memory_scope": "private",
+                "review_state": "pending",
+                "title": "Invalidated note",
+                "raw_content": "skip this",
+                "metadata": {"valid_to": "2020-01-01T00:00:00+00:00"},
+            },
+        ]
+        fake_client = FakeClient([_query_result(rows)])
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            memories = await list_raw_memories_for_scope(
+                organization_id="org-1",
+                principal_id="user-bliss",
+                memory_scope=MemoryScope.PRIVATE,
+                limit=10,
+            )
+
+        assert [memory.id for memory in memories] == ["memory-1"]
 
     @pytest.mark.asyncio
     async def test_remember_raw_memory_writes_embedding_when_provider_supplied(self) -> None:

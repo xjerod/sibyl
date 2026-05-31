@@ -606,3 +606,28 @@ async def test_promote_raw_captures_skips_deleted_and_superseded(
     assert result["skipped_deleted_count"] == 1
     assert result["skipped_superseded_count"] == 1
     assert saved_statuses == ["skipped_deleted", "skipped_superseded"]
+
+
+@pytest.mark.asyncio
+async def test_promote_raw_captures_skips_currently_invalidated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalidated = _raw_memory(
+        metadata={"invalid_at": "2020-01-01T00:00:00+00:00"},
+    )
+
+    async def fail_save_memory(_memory: RawMemory) -> RawMemory:
+        raise AssertionError("invalidated captures should not be rewritten")
+
+    monkeypatch.setattr(
+        raw_promotion,
+        "list_raw_memories_for_promotion",
+        _list_memories([invalidated]),
+    )
+    monkeypatch.setattr(raw_promotion, "EmbeddingService", _fake_embedder)
+    monkeypatch.setattr(raw_promotion, "save_raw_memory", fail_save_memory)
+
+    result = await raw_promotion.promote_raw_captures({}, invalidated.organization_id)
+
+    assert result["promoted_count"] == 0
+    assert result["skipped_review_count"] == 1
