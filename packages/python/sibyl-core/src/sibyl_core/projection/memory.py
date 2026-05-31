@@ -14,6 +14,7 @@ import structlog
 from sibyl_core.errors import EntityNotFoundError
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.models.memory_extraction import ExtractedMemoryEntity
+from sibyl_core.retrieval.dedup import DedupConfig, EntityDeduplicator
 from sibyl_core.retrieval.fact_frames import FactFrame, extract_evidence_fact_frames
 from sibyl_core.tools.helpers import _generate_id
 
@@ -175,6 +176,12 @@ class MemoryProjectionBatchResult:
     relationships: int = 0
     skipped: int = 0
     errors: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectedEntityWriteResult:
+    created_ids: list[str]
+    id_map: dict[str, str]
 
 
 def extract_projected_memory_entities(
@@ -440,12 +447,12 @@ async def _persist_projection_batch(
         return MemoryProjectionBatchResult(sources=0, skipped=skipped)
 
     errors: list[str] = []
-    created_ids: list[str]
+    entity_writes: _ProjectedEntityWriteResult
     try:
         entities_to_create = await _missing_projected_entities(
             entity_manager, list(projected_by_id.values())
         )
-        created_ids = await _create_projected_entities(
+        entity_writes = await _create_projected_entities(
             entity_manager,
             entities_to_create,
             generate_embeddings=generate_embeddings,
@@ -466,7 +473,11 @@ async def _persist_projection_batch(
     relationship_count = 0
     if relationships:
         try:
-            created, failed = await relationship_manager.create_bulk(relationships)
+            resolved_relationships = _relationships_with_resolved_entity_ids(
+                relationships,
+                entity_writes.id_map,
+            )
+            created, failed = await relationship_manager.create_bulk(resolved_relationships)
             relationship_count = created
             if failed:
                 errors.append(f"{failed} projection relationships failed")
@@ -481,7 +492,7 @@ async def _persist_projection_batch(
     return MemoryProjectionBatchResult(
         sources=sources_count,
         extracted=extracted_count,
-        projected_entities=len(created_ids),
+        projected_entities=len(entity_writes.created_ids),
         relationships=relationship_count,
         skipped=skipped,
         errors=tuple(errors),
@@ -493,36 +504,127 @@ async def _create_projected_entities(
     entities: Sequence[Entity],
     *,
     generate_embeddings: bool,
-) -> list[str]:
+) -> _ProjectedEntityWriteResult:
+    id_map = {entity.id: entity.id for entity in entities}
     if not entities:
-        return []
+        return _ProjectedEntityWriteResult(created_ids=[], id_map=id_map)
+
+    prepared_entities, prepared_for_write = await _prepare_projected_entities(
+        entity_manager,
+        entities,
+        generate_embeddings=generate_embeddings,
+    )
+    generate_on_create = generate_embeddings and not prepared_for_write
+    resolved = await _resolve_projected_entities(entity_manager, prepared_entities)
+    unresolved_entities: list[Entity] = []
+    for entity in prepared_entities:
+        resolved_id = resolved.get(entity.id)
+        if resolved_id:
+            id_map[entity.id] = resolved_id
+        else:
+            unresolved_entities.append(entity)
+    if not unresolved_entities:
+        return _ProjectedEntityWriteResult(created_ids=[], id_map=id_map)
 
     create_direct_bulk = getattr(entity_manager, "create_direct_bulk", None)
     if callable(create_direct_bulk):
-        return list(
+        created_ids = list(
             await create_direct_bulk(
-                list(entities),
-                generate_embeddings=generate_embeddings,
+                unresolved_entities,
+                generate_embeddings=generate_on_create,
             )
         )
+        return _ProjectedEntityWriteResult(created_ids=created_ids, id_map=id_map)
 
     bulk_create_direct = getattr(entity_manager, "bulk_create_direct", None)
     if callable(bulk_create_direct):
-        created, failed = await bulk_create_direct(list(entities))
+        created, failed = await bulk_create_direct(unresolved_entities)
         if failed:
             raise RuntimeError(f"{failed} projected entities failed to persist")
-        if created != len(entities):
-            raise RuntimeError(f"projected entity count mismatch: {created}/{len(entities)}")
-        return [entity.id for entity in entities]
+        if created != len(unresolved_entities):
+            raise RuntimeError(
+                f"projected entity count mismatch: {created}/{len(unresolved_entities)}"
+            )
+        return _ProjectedEntityWriteResult(
+            created_ids=[entity.id for entity in unresolved_entities],
+            id_map=id_map,
+        )
 
     create_direct = getattr(entity_manager, "create_direct", None)
     if callable(create_direct):
-        return [
-            await create_direct(entity, generate_embedding=generate_embeddings)
-            for entity in entities
+        created_ids = [
+            await create_direct(entity, generate_embedding=generate_on_create)
+            for entity in unresolved_entities
         ]
+        return _ProjectedEntityWriteResult(created_ids=created_ids, id_map=id_map)
 
-    return [await entity_manager.create(entity) for entity in entities]
+    created_ids = [await entity_manager.create(entity) for entity in unresolved_entities]
+    return _ProjectedEntityWriteResult(created_ids=created_ids, id_map=id_map)
+
+
+async def _prepare_projected_entities(
+    entity_manager: Any,
+    entities: Sequence[Entity],
+    *,
+    generate_embeddings: bool,
+) -> tuple[list[Entity], bool]:
+    prepare_entities = getattr(entity_manager, "prepare_entities_for_write", None)
+    if callable(prepare_entities):
+        return (
+            list(
+                await prepare_entities(
+                    list(entities),
+                    generate_embeddings=generate_embeddings,
+                )
+            ),
+            True,
+        )
+    return list(entities), False
+
+
+async def _resolve_projected_entities(
+    entity_manager: Any,
+    entities: Sequence[Entity],
+) -> dict[str, str]:
+    if not any(entity.embedding for entity in entities):
+        return {}
+    client = getattr(entity_manager, "_client", None)
+    if client is None:
+        return {}
+    deduplicator = EntityDeduplicator(
+        client=client,
+        entity_manager=entity_manager,
+        config=DedupConfig(similarity_threshold=0.95, same_type_only=True),
+    )
+    matches = await deduplicator.resolve_existing_entities(entities)
+    return {entity_id: pair.entity2_id for entity_id, pair in matches.items()}
+
+
+def _relationships_with_resolved_entity_ids(
+    relationships: Sequence[Relationship],
+    id_map: Mapping[str, str],
+) -> list[Relationship]:
+    remapped: dict[str, Relationship] = {}
+    for relationship in relationships:
+        source_id = id_map.get(relationship.source_id, relationship.source_id)
+        target_id = id_map.get(relationship.target_id, relationship.target_id)
+        if source_id == relationship.source_id and target_id == relationship.target_id:
+            replacement = relationship
+        else:
+            replacement = relationship.model_copy(
+                update={
+                    "id": _generate_id(
+                        "rel",
+                        source_id,
+                        relationship.relationship_type.value,
+                        target_id,
+                    ),
+                    "source_id": source_id,
+                    "target_id": target_id,
+                }
+            )
+        remapped[replacement.id] = replacement
+    return list(remapped.values())
 
 
 def _add_projection_candidates(

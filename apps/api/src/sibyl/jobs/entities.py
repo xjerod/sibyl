@@ -481,7 +481,7 @@ async def create_entity(  # noqa: PLR0915
             source=entity,
             group_id=group_id,
             created_source_id=created_id,
-            generate_embeddings=False,
+            generate_embeddings=True,
         )
         if projection_result.errors:
             log.warning(
@@ -595,7 +595,7 @@ async def project_memory_batch(
         sources=sources,
         group_id=group_id,
         created_source_ids=created_source_ids,
-        generate_embeddings=False,
+        generate_embeddings=True,
     )
 
     result = {

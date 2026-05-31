@@ -2,15 +2,13 @@
 
 Detects and merges duplicate entities based on semantic similarity
 of their embeddings. Redirects relationships during merge.
-
-Performance: Uses numpy vectorized operations for O(n²) similarity computation
-in optimized C code, making it ~100x faster than pure Python loops.
 """
 
 from __future__ import annotations
 
 import inspect
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 from uuid import uuid4
@@ -18,6 +16,8 @@ from uuid import uuid4
 import numpy as np
 import structlog
 
+from sibyl_core.config import settings
+from sibyl_core.models.entities import Entity
 from sibyl_core.services.graph import normalize_records
 
 log = structlog.get_logger()
@@ -157,6 +157,17 @@ def _dedup_candidate_from_row(row: dict[str, object]) -> tuple[str, str, str, fl
     return entity_id, str(row.get("name") or ""), entity_type, float(score)
 
 
+def _dedup_candidate_with_seed_from_row(
+    row: dict[str, object],
+) -> tuple[str, str, str, str, float] | None:
+    seed_id = str(row.get("seed_id") or "")
+    candidate = _dedup_candidate_from_row(row)
+    if not seed_id or candidate is None:
+        return None
+    entity_id, name, entity_type, score = candidate
+    return seed_id, entity_id, name, entity_type, score
+
+
 @dataclass
 class EntityDeduplicator:
     """Detects and merges duplicate entities.
@@ -245,12 +256,14 @@ class EntityDeduplicator:
         execute_query = getattr(self.client, "execute_query", None)
         if not callable(execute_query) or not inspect.iscoroutinefunction(execute_query):
             return None
+        execute_query_raw = getattr(self.client, "execute_query_raw", None)
+        if not callable(execute_query_raw) or not inspect.iscoroutinefunction(execute_query_raw):
+            execute_query_raw = None
 
         group_id = self._require_group_id()
         allowed_types = [entity_type.lower() for entity_type in entity_types or []]
         type_clause = "AND entity_type IN $entity_types" if allowed_types else ""
         page_size = max(self.config.batch_size, 100)
-        candidate_limit = max(2, min(self.config.batch_size, 100))
         pairs: list[DuplicatePair] = []
         seen_pairs: set[tuple[str, str]] = set()
         entity_count = 0
@@ -282,20 +295,19 @@ class EntityDeduplicator:
                     break
 
                 offset += len(seed_rows)
-                seeds = [_dedup_seed_from_row(row) for row in seed_rows]
-                for seed in [item for item in seeds if item is not None]:
-                    entity_count += 1
-                    pairs.extend(
-                        await self._find_hnsw_candidates_for_seed(
-                            seed,
-                            group_id=group_id,
-                            entity_types=allowed_types,
-                            threshold=threshold,
-                            candidate_limit=candidate_limit,
-                            seen_pairs=seen_pairs,
-                            execute_query=execute_query,
-                        )
+                seeds = [seed for row in seed_rows if (seed := _dedup_seed_from_row(row))]
+                entity_count += len(seeds)
+                pairs.extend(
+                    await self._find_hnsw_candidates_for_seeds(
+                        seeds,
+                        group_id=group_id,
+                        entity_types=allowed_types,
+                        threshold=threshold,
+                        seen_pairs=seen_pairs,
+                        execute_query=execute_query,
+                        execute_query_raw=execute_query_raw,
                     )
+                )
 
                 if len(seed_rows) < page_size:
                     break
@@ -307,6 +319,160 @@ class EntityDeduplicator:
             return None
 
         return pairs, entity_count
+
+    async def resolve_existing_entities(
+        self,
+        entities: Sequence[Entity],
+        *,
+        threshold: float | None = None,
+    ) -> dict[str, DuplicatePair]:
+        execute_query = getattr(self.client, "execute_query", None)
+        if not callable(execute_query) or not inspect.iscoroutinefunction(execute_query):
+            return {}
+        execute_query_raw = getattr(self.client, "execute_query_raw", None)
+        if not callable(execute_query_raw) or not inspect.iscoroutinefunction(execute_query_raw):
+            execute_query_raw = None
+
+        seeds: list[tuple[str, str, str, list[float]]] = []
+        for entity in entities:
+            embedding = _float_list(entity.embedding)
+            if entity.id and embedding:
+                seeds.append((entity.id, entity.name, entity.entity_type.value, embedding))
+        if not seeds:
+            return {}
+
+        try:
+            pairs = await self._find_hnsw_candidates_for_seeds(
+                seeds,
+                group_id=self._require_group_id(),
+                entity_types=[],
+                threshold=threshold or self.config.similarity_threshold,
+                seen_pairs=set(),
+                execute_query=execute_query,
+                execute_query_raw=execute_query_raw,
+            )
+        except Exception as exc:
+            log.warning(
+                "resolve_existing_entities_hnsw_failed",
+                error_type=type(exc).__name__,
+            )
+            return {}
+
+        best_by_entity_id: dict[str, DuplicatePair] = {}
+        for pair in sorted(pairs, key=lambda item: item.similarity, reverse=True):
+            best_by_entity_id.setdefault(pair.entity1_id, pair)
+        return best_by_entity_id
+
+    async def _find_hnsw_candidates_for_seeds(
+        self,
+        seeds: Sequence[tuple[str, str, str, list[float]]],
+        *,
+        group_id: str,
+        entity_types: list[str],
+        threshold: float,
+        seen_pairs: set[tuple[str, str]],
+        execute_query: Any,
+        execute_query_raw: Any | None = None,
+    ) -> list[DuplicatePair]:
+        if not seeds:
+            return []
+
+        candidate_limit = max(2, min(self.config.batch_size, 100))
+        if execute_query_raw is None and len(seeds) > 1:
+            pairs: list[DuplicatePair] = []
+            for seed in seeds:
+                pairs.extend(
+                    await self._find_hnsw_candidates_for_seed(
+                        seed,
+                        group_id=group_id,
+                        entity_types=entity_types,
+                        threshold=threshold,
+                        candidate_limit=candidate_limit,
+                        seen_pairs=seen_pairs,
+                        execute_query=execute_query,
+                    )
+                )
+            return pairs
+
+        knn_effort = max(1, int(settings.graph_knn_ef))
+        statements: list[str] = []
+        params: dict[str, Any] = {
+            "group_id": group_id,
+            "threshold": threshold,
+            "entity_types": entity_types,
+        }
+        for index, (seed_id, _seed_name, seed_type, seed_embedding) in enumerate(seeds):
+            seed_id_param = f"seed_id_{index}"
+            seed_type_param = f"seed_type_{index}"
+            seed_embedding_param = f"seed_embedding_{index}"
+            limit_param = f"limit_{index}"
+            clauses = [
+                "group_id = $group_id",
+                f"uuid != ${seed_id_param}",
+                "name_embedding != NONE",
+            ]
+            if self.config.same_type_only:
+                clauses.append(f"entity_type = ${seed_type_param}")
+            elif entity_types:
+                clauses.append("entity_type IN $entity_types")
+
+            params[seed_id_param] = seed_id
+            params[seed_type_param] = seed_type
+            params[seed_embedding_param] = seed_embedding
+            params[limit_param] = candidate_limit
+            statements.append(
+                f"""
+                SELECT seed_id, uuid, name, entity_type, score, created_at
+                FROM (
+                    SELECT ${seed_id_param} AS seed_id,
+                           uuid, name, entity_type, created_at,
+                           (1 - vector::distance::knn()) AS score
+                    FROM entity
+                    WHERE """
+                + " AND ".join(clauses)
+                + f"""
+                      AND name_embedding <|{candidate_limit}, {knn_effort}|> ${seed_embedding_param}
+                )
+                WHERE score >= $threshold
+                ORDER BY score DESC, created_at DESC, uuid DESC
+                LIMIT ${limit_param};
+                """
+            )
+
+        rows = normalize_records(
+            await (execute_query_raw or execute_query)(
+                "\n".join(statements),
+                **params,
+                _query_label="dedup.candidates.batch",
+            )
+        )
+        seeds_by_id = {
+            seed_id: (seed_name, seed_type) for seed_id, seed_name, seed_type, _ in seeds
+        }
+
+        pairs: list[DuplicatePair] = []
+        for row in rows:
+            candidate = _dedup_candidate_with_seed_from_row(row)
+            if candidate is None:
+                continue
+            seed_id, candidate_id, candidate_name, candidate_type, similarity = candidate
+            seed = seeds_by_id.get(seed_id)
+            if seed is None:
+                continue
+            seed_name, seed_type = seed
+            pair = self._candidate_pair(
+                seed_id=seed_id,
+                seed_name=seed_name,
+                seed_type=seed_type,
+                candidate_id=candidate_id,
+                candidate_name=candidate_name,
+                candidate_type=candidate_type,
+                similarity=similarity,
+                seen_pairs=seen_pairs,
+            )
+            if pair is not None:
+                pairs.append(pair)
+        return pairs
 
     async def _find_hnsw_candidates_for_seed(
         self,
@@ -339,18 +505,19 @@ class EntityDeduplicator:
         elif entity_types:
             clauses.append("entity_type IN $entity_types")
 
+        knn_effort = max(1, int(settings.graph_knn_ef))
         rows = normalize_records(
             await execute_query(
                 """
-                SELECT uuid, name, entity_type, score
+                SELECT uuid, name, entity_type, score, created_at
                 FROM (
-                    SELECT uuid, name, entity_type,
+                    SELECT uuid, name, entity_type, created_at,
                            (1 - vector::distance::knn()) AS score
                     FROM entity
                     WHERE """
                 + " AND ".join(clauses)
                 + f"""
-                      AND name_embedding <|{candidate_limit}, 40|> $seed_embedding
+                      AND name_embedding <|{candidate_limit}, {knn_effort}|> $seed_embedding
                 )
                 WHERE score >= $threshold
                 ORDER BY score DESC, created_at DESC, uuid DESC
@@ -367,36 +534,59 @@ class EntityDeduplicator:
             if candidate is None:
                 continue
             candidate_id, candidate_name, candidate_type, similarity = candidate
-            first_id, second_id = sorted((seed_id, candidate_id))
-            pair_key = (first_id, second_id)
-            if pair_key in seen_pairs:
-                continue
-            seen_pairs.add(pair_key)
-
-            if self.config.same_type_only and seed_type != candidate_type:
-                continue
-            if self.config.min_name_overlap > 0:
-                name_sim = jaccard_similarity(seed_name, candidate_name)
-                if name_sim < self.config.min_name_overlap:
-                    continue
-
-            pairs.append(
-                DuplicatePair(
-                    entity1_id=seed_id,
-                    entity2_id=candidate_id,
-                    similarity=similarity,
-                    entity1_name=seed_name,
-                    entity2_name=candidate_name,
-                    entity_type=seed_type,
-                    suggested_keep=self._suggest_keep(
-                        seed_id,
-                        candidate_id,
-                        seed_name,
-                        candidate_name,
-                    ),
-                )
+            pair = self._candidate_pair(
+                seed_id=seed_id,
+                seed_name=seed_name,
+                seed_type=seed_type,
+                candidate_id=candidate_id,
+                candidate_name=candidate_name,
+                candidate_type=candidate_type,
+                similarity=similarity,
+                seen_pairs=seen_pairs,
             )
+            if pair is not None:
+                pairs.append(pair)
         return pairs
+
+    def _candidate_pair(
+        self,
+        *,
+        seed_id: str,
+        seed_name: str,
+        seed_type: str,
+        candidate_id: str,
+        candidate_name: str,
+        candidate_type: str,
+        similarity: float,
+        seen_pairs: set[tuple[str, str]],
+    ) -> DuplicatePair | None:
+        first_id, second_id = sorted((seed_id, candidate_id))
+        pair_key = (first_id, second_id)
+        if pair_key in seen_pairs:
+            return None
+        seen_pairs.add(pair_key)
+
+        if self.config.same_type_only and seed_type != candidate_type:
+            return None
+        if self.config.min_name_overlap > 0:
+            name_sim = jaccard_similarity(seed_name, candidate_name)
+            if name_sim < self.config.min_name_overlap:
+                return None
+
+        return DuplicatePair(
+            entity1_id=seed_id,
+            entity2_id=candidate_id,
+            similarity=similarity,
+            entity1_name=seed_name,
+            entity2_name=candidate_name,
+            entity_type=seed_type,
+            suggested_keep=self._suggest_keep(
+                seed_id,
+                candidate_id,
+                seed_name,
+                candidate_name,
+            ),
+        )
 
     def suggest_merges(self) -> list[DuplicatePair]:
         """Return the current list of suggested merges.

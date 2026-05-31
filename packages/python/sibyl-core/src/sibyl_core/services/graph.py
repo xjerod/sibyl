@@ -220,15 +220,13 @@ class EntityManager:
         embedding_batch_size: int = 64,
         write_batch_size: int = 128,
     ) -> list[str]:
-        prepared_entities = list(entities)
+        prepared_entities = await self.prepare_entities_for_write(
+            entities,
+            generate_embeddings=generate_embeddings,
+            embedding_batch_size=embedding_batch_size,
+        )
         if not prepared_entities:
             return []
-        if generate_embeddings:
-            prepared_entities = await _entities_with_native_embeddings(
-                prepared_entities,
-                self._embedding_provider,
-                batch_size=embedding_batch_size,
-            )
 
         created_ids: list[str] = []
         batch_size = max(int(write_batch_size), 1)
@@ -237,6 +235,22 @@ class EntityManager:
             await _replace_entities_bulk(self._client, batch, group_id=self._group_id)
             created_ids.extend(entity.id for entity in batch)
         return created_ids
+
+    async def prepare_entities_for_write(
+        self,
+        entities: Sequence[Entity],
+        *,
+        generate_embeddings: bool = False,
+        embedding_batch_size: int = 64,
+    ) -> list[Entity]:
+        prepared_entities = list(entities)
+        if generate_embeddings:
+            prepared_entities = await _entities_with_native_embeddings(
+                prepared_entities,
+                self._embedding_provider,
+                batch_size=embedding_batch_size,
+            )
+        return prepared_entities
 
     async def create(self, entity: Entity) -> str:
         return await self.create_direct(entity, generate_embedding=True)

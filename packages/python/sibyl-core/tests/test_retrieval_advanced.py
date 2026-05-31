@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 import sibyl_core.retrieval.hybrid as hybrid_module
+from sibyl_core.backends.surreal.schema import EMBEDDING_DIM
 from sibyl_core.models.entities import Entity, EntityType, Relationship, RelationshipType
 from sibyl_core.retrieval.dedup import (
     DedupConfig,
@@ -47,7 +48,7 @@ from sibyl_core.retrieval.query_ranking import (
     rank_by_query_coverage,
     should_accept_query_coverage_refinement,
 )
-from sibyl_core.services.graph import SurrealGraphClient
+from sibyl_core.services.graph import EntityManager, SurrealGraphClient, prepare_graph_schema
 
 # =============================================================================
 # Test Fixtures and Mock Infrastructure
@@ -1077,6 +1078,66 @@ class MockGraphClientForDedup:
 
 
 @dataclass
+class HnswDedupClient:
+    raw_calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    async def execute_query(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        raise AssertionError("batched HNSW candidate lookup should use raw queries")
+
+    async def execute_query_raw(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        self.raw_calls.append((query, params))
+        return [
+            {
+                "status": "OK",
+                "result": [
+                    {
+                        "seed_id": params["seed_id_0"],
+                        "uuid": "existing_alpha",
+                        "name": "Alpha",
+                        "entity_type": "topic",
+                        "score": 0.99,
+                    }
+                ],
+            },
+            {
+                "status": "OK",
+                "result": [
+                    {
+                        "seed_id": params["seed_id_1"],
+                        "uuid": "existing_beta",
+                        "name": "Beta",
+                        "entity_type": "topic",
+                        "score": 0.97,
+                    }
+                ],
+            },
+        ]
+
+
+@dataclass
+class HnswFallbackDedupClient:
+    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    async def execute_query(self, query: str, **params: Any) -> list[dict[str, Any]]:
+        self.calls.append((query, params))
+        seed_id = params["seed_id"]
+        suffix = str(seed_id).removeprefix("incoming_")
+        return [
+            {
+                "status": "OK",
+                "result": [
+                    {
+                        "uuid": f"existing_{suffix}",
+                        "name": str(suffix).title(),
+                        "entity_type": "topic",
+                        "score": 0.99,
+                    }
+                ],
+            },
+        ]
+
+
+@dataclass
 class MockEntityManagerForDedup:
     """Mock EntityManager for deduplication merge tests."""
 
@@ -1577,6 +1638,133 @@ class TestEntityDeduplicatorFindDuplicates:
         assert pairs[0].entity1_id == "id1"
         assert client.query_history == []
         assert client.read_org_calls == []
+
+    @pytest.mark.asyncio
+    async def test_resolve_existing_entities_batches_hnsw_candidates(self) -> None:
+        client = HnswDedupClient()
+        manager = MockEntityManagerForDedup()
+        config = DedupConfig(
+            similarity_threshold=0.95,
+            batch_size=8,
+            same_type_only=True,
+            min_name_overlap=0.0,
+        )
+        dedup = EntityDeduplicator(client=client, entity_manager=manager, config=config)  # type: ignore[arg-type]
+
+        matches = await dedup.resolve_existing_entities(
+            [
+                Entity(
+                    id="incoming_alpha",
+                    name="Alpha",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.0],
+                ),
+                Entity(
+                    id="incoming_beta",
+                    name="Beta",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[0.0, 1.0],
+                ),
+            ]
+        )
+
+        assert set(matches) == {"incoming_alpha", "incoming_beta"}
+        assert matches["incoming_alpha"].entity2_id == "existing_alpha"
+        assert matches["incoming_beta"].entity2_id == "existing_beta"
+        assert len(client.raw_calls) == 1
+        query, params = client.raw_calls[0]
+        assert query.count("name_embedding <|") == 2
+        assert params["seed_embedding_0"] == [1.0, 0.0]
+        assert params["seed_embedding_1"] == [0.0, 1.0]
+
+    @pytest.mark.asyncio
+    async def test_resolve_existing_entities_falls_back_without_raw_queries(self) -> None:
+        client = HnswFallbackDedupClient()
+        manager = MockEntityManagerForDedup()
+        dedup = EntityDeduplicator(client=client, entity_manager=manager)  # type: ignore[arg-type]
+
+        matches = await dedup.resolve_existing_entities(
+            [
+                Entity(
+                    id="incoming_alpha",
+                    name="Alpha",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[1.0, 0.0],
+                ),
+                Entity(
+                    id="incoming_beta",
+                    name="Beta",
+                    entity_type=EntityType.TOPIC,
+                    embedding=[0.0, 1.0],
+                ),
+            ]
+        )
+
+        assert set(matches) == {"incoming_alpha", "incoming_beta"}
+        assert matches["incoming_alpha"].entity2_id == "existing_alpha"
+        assert matches["incoming_beta"].entity2_id == "existing_beta"
+        assert len(client.calls) == 2
+        assert all(query.count("name_embedding <|") == 1 for query, _ in client.calls)
+
+    @pytest.mark.asyncio
+    async def test_resolve_existing_entities_executes_surreal_hnsw_batch_query(
+        self,
+    ) -> None:
+        client = make_graph_client("org-dedup-hnsw-batch-resolution")
+        try:
+            await prepare_graph_schema(client)
+            manager = EntityManager(client, group_id=client.group_id)
+            alpha_embedding = [1.0, *([0.0] * (EMBEDDING_DIM - 1))]
+            beta_embedding = [0.0, 1.0, *([0.0] * (EMBEDDING_DIM - 2))]
+            await manager.create_direct(
+                Entity(
+                    id="existing_alpha_live",
+                    name="Alpha",
+                    entity_type=EntityType.TOPIC,
+                    embedding=alpha_embedding,
+                ),
+                generate_embedding=False,
+            )
+            await manager.create_direct(
+                Entity(
+                    id="existing_beta_live",
+                    name="Beta",
+                    entity_type=EntityType.TOPIC,
+                    embedding=beta_embedding,
+                ),
+                generate_embedding=False,
+            )
+            dedup = EntityDeduplicator(
+                client=client,
+                entity_manager=manager,
+                config=DedupConfig(
+                    similarity_threshold=0.95,
+                    same_type_only=True,
+                    min_name_overlap=0.0,
+                ),
+            )
+
+            matches = await dedup.resolve_existing_entities(
+                [
+                    Entity(
+                        id="incoming_alpha_live",
+                        name="Alpha",
+                        entity_type=EntityType.TOPIC,
+                        embedding=alpha_embedding,
+                    ),
+                    Entity(
+                        id="incoming_beta_live",
+                        name="Beta",
+                        entity_type=EntityType.TOPIC,
+                        embedding=beta_embedding,
+                    ),
+                ]
+            )
+
+            assert matches["incoming_alpha_live"].entity2_id == "existing_alpha_live"
+            assert matches["incoming_beta_live"].entity2_id == "existing_beta_live"
+        finally:
+            await client.close()
 
 
 class TestEntityDeduplicatorMerge:

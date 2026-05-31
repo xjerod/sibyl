@@ -16,6 +16,28 @@ from sibyl_core.projection import (
 )
 
 
+class HnswResolutionClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
+        self.calls.append((query, params))
+        return [
+            {
+                "status": "OK",
+                "result": [
+                    {
+                        "seed_id": params["seed_id_0"],
+                        "uuid": "topic_existing_samsung",
+                        "name": "Samsung Television",
+                        "entity_type": "topic",
+                        "score": 0.98,
+                    }
+                ],
+            }
+        ]
+
+
 def _session(
     content: str,
     *,
@@ -296,6 +318,58 @@ async def test_project_extracted_memory_entities_materializes_llm_mentions() -> 
     assert (
         relationships[0].metadata["fact"].endswith("SurrealDB: SurrealDB 3.0 RRF helped retrieval.")
     )
+
+
+@pytest.mark.asyncio
+async def test_project_extracted_memory_entities_resolves_hnsw_duplicate_target() -> None:
+    source = _session("I bought a Samsung TV for the den.")
+    client = HnswResolutionClient()
+
+    async def prepare_entities(
+        entities: list[Entity],
+        *,
+        generate_embeddings: bool,
+    ) -> list[Entity]:
+        assert generate_embeddings is True
+        return [entity.model_copy(update={"embedding": [1.0, 0.0]}) for entity in entities]
+
+    entity_manager = SimpleNamespace(
+        _client=client,
+        _group_id="org-123",
+        prepare_entities_for_write=prepare_entities,
+        create_direct_bulk=AsyncMock(return_value=[]),
+    )
+    relationship_manager = SimpleNamespace(create_bulk=AsyncMock(return_value=(1, 0)))
+
+    result = await project_extracted_memory_entities(
+        entity_manager=entity_manager,
+        relationship_manager=relationship_manager,
+        sources=[source],
+        group_id="org-123",
+        extractions_by_source_id={
+            source.id: [
+                ExtractedMemoryEntity(
+                    name="Samsung TV",
+                    entity_type="topic",
+                    summary="A television in the den",
+                    evidence="I bought a Samsung TV for the den.",
+                    confidence=0.92,
+                )
+            ]
+        },
+        generate_embeddings=True,
+    )
+
+    assert result.projected_entities == 0
+    assert result.relationships == 1
+    entity_manager.create_direct_bulk.assert_not_awaited()
+    assert client.calls
+    query, params = client.calls[0]
+    assert query.count("name_embedding <|") == 1
+    assert params["seed_embedding_0"] == [1.0, 0.0]
+
+    relationships = relationship_manager.create_bulk.await_args.args[0]
+    assert relationships[0].target_id == "topic_existing_samsung"
 
 
 @pytest.mark.asyncio

@@ -365,7 +365,7 @@ async def _project_extracted_entities(
             group_id=group_id,
             created_source_ids=[source.source_id for source in source_payloads],
             max_entities=max_entities_per_source,
-            generate_embeddings=False,
+            generate_embeddings=True,
         )
         return {
             "projected_entities": projection.projected_entities,

@@ -564,7 +564,7 @@ async def add(
                 source=entity,
                 group_id=org_id,
                 created_source_id=created_id,
-                generate_embeddings=False,
+                generate_embeddings=True,
             )
             if projection_result.errors:
                 log.warning(
@@ -639,7 +639,7 @@ async def add(
                 source=entity,
                 group_id=org_id,
                 created_source_id=created_id,
-                generate_embeddings=False,
+                generate_embeddings=True,
             )
             if projection_result.errors:
                 log.warning(
