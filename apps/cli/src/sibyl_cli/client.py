@@ -1322,6 +1322,37 @@ class SibylClient:
         }
         return await self._request("POST", "/ingestion/imports", json=data)
 
+    async def start_document_import(
+        self,
+        *,
+        kind: str,
+        source_uri: str | None = None,
+        text: str | None = None,
+        title: str | None = None,
+        collection: str | None = None,
+        target_scope_key: str,
+        batch_size: int = 100,
+        promotion_preview_approved: bool = False,
+        allow_private_network: bool = False,
+    ) -> dict[str, Any]:
+        """Create a document import run through the ingestion surface."""
+        data: dict[str, Any] = {
+            "kind": kind,
+            "source_uri": source_uri,
+            "text": text,
+            "title": title,
+            "collection": collection,
+            "target_scope_key": target_scope_key,
+            "batch_size": batch_size,
+            "promotion_preview_approved": promotion_preview_approved,
+            "allow_private_network": allow_private_network,
+        }
+        return await self._request("POST", "/ingestion/documents", json=data)
+
+    async def list_document_collections(self) -> dict[str, Any]:
+        """List accessible document import collections."""
+        return await self._request("GET", "/ingestion/collections")
+
     async def ingestion_source_import_status(self, import_id: str) -> dict[str, Any]:
         """Inspect a source import receipt from the ingestion surface."""
         encoded_import_id = quote(import_id, safe="")
