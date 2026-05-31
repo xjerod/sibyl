@@ -15,8 +15,8 @@ from sibyl_core.backends.surreal.schema_version import (
     get_schema_version,
 )
 from sibyl_core.config import core_config
+from sibyl_core.models.memory_scope import MemoryScope
 from sibyl_core.models.sources import CrawlStatus, SourceType
-from sibyl_core.services.surreal_content import MemoryScope
 
 # Document chunks use the OpenAI embedder dimension (text-embedding-3-small = 1536),
 # which differs from the graph node embedder dimension. Keep them as separate

@@ -32,6 +32,7 @@ from sibyl_core.models.memory_extraction import (
     MemoryEntityExtractionResult,
     MemoryExtractionEntityType,
 )
+from sibyl_core.models.memory_scope import MemoryScope
 from sibyl_core.models.projects import (
     SHARED_PROJECT_DESCRIPTION,
     SHARED_PROJECT_NAME,
@@ -148,6 +149,7 @@ __all__ = [
     "ListResponse",
     "MemoryEntityExtractionResult",
     "MemoryExtractionEntityType",
+    "MemoryScope",
     "Milestone",
     "MutationResponse",
     "Note",

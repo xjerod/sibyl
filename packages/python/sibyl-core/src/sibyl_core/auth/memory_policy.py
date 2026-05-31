@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from sibyl_core.auth.context import MemoryPolicyContext
-from sibyl_core.services.surreal_content import MemoryScope
+from sibyl_core.models.memory_scope import MemoryScope
 
 
 class MemoryPolicyAction(StrEnum):

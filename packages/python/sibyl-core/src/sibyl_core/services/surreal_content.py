@@ -9,7 +9,6 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Protocol, cast
 from uuid import uuid4
 
@@ -23,6 +22,7 @@ from sibyl_core.embeddings.providers import (
     EmbeddingProviderName,
     create_embedding_provider,
 )
+from sibyl_core.models.memory_scope import MemoryScope
 from sibyl_core.models.reflection import (
     MemoryLifecycle,
     MemoryLifecycleState,
@@ -88,16 +88,6 @@ type SurrealRecord = dict[str, object]
 
 class RawExecuteQuery(Protocol):
     async def __call__(self, query: str, **params: object) -> object: ...
-
-
-class MemoryScope(StrEnum):
-    PRIVATE = "private"
-    DELEGATED = "delegated"
-    PROJECT = "project"
-    TEAM = "team"
-    ORGANIZATION = "organization"
-    SHARED = "shared"
-    PUBLIC = "public"
 
 
 _SCOPES_REQUIRING_SCOPE_KEY = {

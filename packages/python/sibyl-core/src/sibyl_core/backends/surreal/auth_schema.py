@@ -13,7 +13,7 @@ from sibyl_core.backends.surreal.schema_version import (
     ensure_schema_version_table,
     get_schema_version,
 )
-from sibyl_core.services.surreal_content import MemoryScope
+from sibyl_core.models.memory_scope import MemoryScope
 
 if TYPE_CHECKING:
     from sibyl_core.backends.surreal.auth_client import SurrealAuthClient
