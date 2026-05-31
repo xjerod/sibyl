@@ -1912,6 +1912,7 @@ async def _recall_raw_memory_lexical(
     agent_id: str | None,
     project_id: str | None,
     filters: _RawMemoryRecallFilters | None = None,
+    as_of: datetime | None = None,
     limit: int,
 ) -> list[RawMemory]:
     where_clause, params = _raw_memory_recall_where(
@@ -1936,7 +1937,7 @@ async def _recall_raw_memory_lexical(
         if (
             memory.score > 0
             and raw_memory_recallable(memory)
-            and _raw_memory_matches_as_of(memory, (filters or _RawMemoryRecallFilters()).as_of)
+            and _raw_memory_matches_as_of(memory, as_of)
         ):
             scored.append(memory)
     return sorted(scored, key=lambda memory: (-memory.score, memory.captured_at or datetime.min))[
@@ -2523,6 +2524,7 @@ async def recall_raw_memory(
         filters=filters,
     )
     query_embedding = await _raw_memory_query_embedding(normalized_query)
+    effective_as_of = filters.as_of or datetime.now(UTC)
     async with surreal_content_client() as client:
         fulltext_memories: list[RawMemory] = []
         vector_memories: list[RawMemory] = []
@@ -2532,7 +2534,7 @@ async def recall_raw_memory(
                 where_clause=where_clause,
                 params=params,
                 query=normalized_query,
-                as_of=filters.as_of,
+                as_of=effective_as_of,
                 limit=limit,
             )
         except (RuntimeError, TimeoutError):
@@ -2544,7 +2546,7 @@ async def recall_raw_memory(
                     where_clause=where_clause,
                     params=params,
                     query_embedding=query_embedding,
-                    as_of=filters.as_of,
+                    as_of=effective_as_of,
                     limit=limit,
                 )
             except (RuntimeError, TimeoutError) as exc:
@@ -2566,6 +2568,7 @@ async def recall_raw_memory(
             agent_id=agent_id,
             project_id=project_id,
             filters=filters,
+            as_of=effective_as_of,
             limit=limit,
         )
 

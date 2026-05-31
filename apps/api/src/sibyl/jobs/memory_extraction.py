@@ -5,11 +5,17 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import structlog
 
 from sibyl.config import settings
 from sibyl.jobs.queue import get_queue
+from sibyl.persistence.content_runtime import (
+    get_content_read_session,
+    list_document_chunks,
+    save_document_chunks,
+)
 from sibyl_core.ai.errors import LLMError
 from sibyl_core.ai.llm.budget import llm_budget_context
 from sibyl_core.ai.memory_extraction import (
@@ -248,7 +254,14 @@ async def extract_memory_entities(
         extracted_by_source_id=extracted_by_source_id,
         max_entities_per_source=max_entities_per_source,
     )
-    projection_errors = list(projection["errors"])
+    chunk_links = await _link_projected_entities_to_document_chunks(
+        source_payloads,
+        projected_entity_ids_by_source_id=projection["projected_entity_ids_by_source_id"],
+    )
+    projection_errors = [
+        *list(projection["errors"]),
+        *list(chunk_links["errors"]),
+    ]
     has_errors = bool(errors or projection_errors)
     status = "ok" if not has_errors else "partial" if extractions else "error"
     duration_ms = elapsed_ms(started_at)
@@ -268,6 +281,7 @@ async def extract_memory_entities(
         "extracted_entities": extracted_entities,
         "projected_entities": projection["projected_entities"],
         "relationships": projection["relationships"],
+        "linked_chunks": chunk_links["linked_chunks"],
         "estimated_input_tokens": estimated_input_tokens,
         "errors": errors,
         "projection_errors": projection_errors,
@@ -334,6 +348,54 @@ def _batch_source_payloads(
     return batches
 
 
+def _payload_document_id(payload: _SourcePayload) -> str | None:
+    metadata = payload.source.get("metadata")
+    if isinstance(metadata, dict):
+        value = metadata.get("document_id")
+        if value:
+            return str(value)
+    value = payload.source.get("document_id")
+    return str(value) if value else None
+
+
+async def _link_projected_entities_to_document_chunks(
+    source_payloads: list[_SourcePayload],
+    *,
+    projected_entity_ids_by_source_id: object,
+) -> dict[str, object]:
+    if not isinstance(projected_entity_ids_by_source_id, dict):
+        return {"linked_chunks": 0, "errors": []}
+
+    linked_chunks = 0
+    errors: list[str] = []
+    async with get_content_read_session() as session:
+        for payload in source_payloads:
+            raw_entity_ids = projected_entity_ids_by_source_id.get(payload.source_id)
+            entity_ids = [str(entity_id) for entity_id in raw_entity_ids or () if entity_id]
+            document_id = _payload_document_id(payload)
+            if not entity_ids or not document_id:
+                continue
+            try:
+                document_uuid = UUID(document_id)
+            except ValueError:
+                errors.append(f"{payload.source_id}:invalid_document_id")
+                continue
+
+            chunks = await list_document_chunks(session, document_id=document_uuid)
+            dirty_chunks = []
+            for chunk in chunks:
+                next_entity_ids = list(dict.fromkeys([*chunk.entity_ids, *entity_ids]))
+                if next_entity_ids == chunk.entity_ids and chunk.has_entities:
+                    continue
+                chunk.entity_ids = next_entity_ids
+                chunk.has_entities = bool(next_entity_ids)
+                dirty_chunks.append(chunk)
+            if dirty_chunks:
+                saved_chunks = await save_document_chunks(session, chunks=dirty_chunks)
+                linked_chunks += len(saved_chunks)
+    return {"linked_chunks": linked_chunks, "errors": errors}
+
+
 def _limited_entities(
     result: SourceMemoryExtraction,
     max_entities: int,
@@ -370,6 +432,7 @@ async def _project_extracted_entities(
         return {
             "projected_entities": projection.projected_entities,
             "relationships": projection.relationships,
+            "projected_entity_ids_by_source_id": projection.projected_entity_ids_by_source_id,
             "errors": list(projection.errors),
         }
     except Exception as exc:
@@ -383,6 +446,7 @@ async def _project_extracted_entities(
         return {
             "projected_entities": 0,
             "relationships": 0,
+            "projected_entity_ids_by_source_id": {},
             "errors": [str(exc)],
         }
 

@@ -2005,6 +2005,47 @@ def _raw_memory_write_allowed(
     return decision.allowed
 
 
+def _promoted_entity_owner_id(entity: Any, metadata: Mapping[str, object]) -> str | None:
+    owner = getattr(entity, "created_by", None)
+    if owner:
+        return str(owner)
+    for key in ("principal_id", "created_by_user_id"):
+        value = _metadata_str(metadata, key)
+        if value:
+            return value
+    return None
+
+
+def _promoted_entity_write_allowed(
+    *,
+    entity: Any,
+    principal_id: str | None,
+    accessible_projects: Iterable[str] | None,
+) -> bool:
+    raw_metadata = getattr(entity, "metadata", {})
+    metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
+    target_scope = _resolve_memory_scope(
+        _metadata_str(metadata, "memory_scope"),
+        _metadata_str(metadata, "project_id"),
+    )
+    if target_scope is MemoryScope.PRIVATE:
+        owner_id = _promoted_entity_owner_id(entity, metadata)
+        if not owner_id or owner_id != principal_id:
+            return False
+    target_scope_key = _resolve_scope_key(
+        target_scope,
+        _metadata_str(metadata, "scope_key"),
+        _metadata_str(metadata, "project_id"),
+    )
+    decision = authorize_memory_write(
+        principal_id=principal_id,
+        memory_scope=target_scope,
+        scope_key=target_scope_key,
+        accessible_projects=accessible_projects,
+    )
+    return decision.allowed
+
+
 def _temporal_invalidation_metadata(
     metadata: Mapping[str, object],
     *,
@@ -2057,6 +2098,8 @@ async def _invalidate_promoted_entity_targets(
     *,
     runtime: Any,
     entity_ids: Sequence[str],
+    principal_id: str | None,
+    accessible_projects: Iterable[str] | None,
     invalid_at: datetime,
     reason: str,
     replacement_entity_id: str,
@@ -2068,6 +2111,12 @@ async def _invalidate_promoted_entity_targets(
             continue
         target = await runtime.entity_manager.get(entity_id)
         if target is None:
+            continue
+        if not _promoted_entity_write_allowed(
+            entity=target,
+            principal_id=principal_id,
+            accessible_projects=accessible_projects,
+        ):
             continue
         metadata = _temporal_invalidation_metadata(
             target.metadata,
@@ -2133,6 +2182,8 @@ async def _apply_candidate_temporal_invalidations(
                 await _invalidate_promoted_entity_targets(
                     runtime=runtime,
                     entity_ids=[promoted_entity_id],
+                    principal_id=principal_id,
+                    accessible_projects=accessible_projects,
                     invalid_at=invalid_at,
                     reason=target.reason,
                     replacement_entity_id=replacement_entity_id,
@@ -2144,6 +2195,8 @@ async def _apply_candidate_temporal_invalidations(
         await _invalidate_promoted_entity_targets(
             runtime=runtime,
             entity_ids=authorized_entity_ids,
+            principal_id=principal_id,
+            accessible_projects=accessible_projects,
             invalid_at=invalid_at,
             reason="supersession",
             replacement_entity_id=replacement_entity_id,
@@ -2176,23 +2229,11 @@ async def _authorized_superseded_entity_ids(
             continue
         if target_entity is None:
             continue
-        metadata = target_entity.metadata if isinstance(target_entity.metadata, Mapping) else {}
-        target_scope = _resolve_memory_scope(
-            _metadata_str(metadata, "memory_scope"),
-            _metadata_str(metadata, "project_id"),
-        )
-        target_scope_key = _resolve_scope_key(
-            target_scope,
-            _metadata_str(metadata, "scope_key"),
-            _metadata_str(metadata, "project_id"),
-        )
-        decision = authorize_memory_write(
+        if _promoted_entity_write_allowed(
+            entity=target_entity,
             principal_id=principal_id,
-            memory_scope=target_scope,
-            scope_key=target_scope_key,
             accessible_projects=accessible_projects,
-        )
-        if decision.allowed:
+        ):
             authorized_ids.append(entity_id)
     return authorized_ids
 

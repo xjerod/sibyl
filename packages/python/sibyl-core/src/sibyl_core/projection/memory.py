@@ -175,6 +175,7 @@ class MemoryProjectionBatchResult:
     projected_entities: int = 0
     relationships: int = 0
     skipped: int = 0
+    projected_entity_ids_by_source_id: dict[str, tuple[str, ...]] = field(default_factory=dict)
     errors: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -317,6 +318,7 @@ async def project_memory_entities(
     now = datetime.now(UTC)
     source_ids = list(created_source_ids or [])
     projected_by_id: dict[str, Entity] = {}
+    projected_entity_ids_by_source_id: dict[str, tuple[str, ...]] = {}
     relationships: list[Relationship] = []
     extracted_count = 0
     skipped = 0
@@ -344,24 +346,27 @@ async def project_memory_entities(
             skipped += 1
             continue
         extracted_count += len(extracted) + len(extracted_facts)
-        _add_projection_candidates(
-            group_id=group_id,
-            now=now,
-            source=projected_source,
-            source_id=source_id,
-            candidates=extracted,
-            projected_by_id=projected_by_id,
-            relationships=relationships,
+        projected_ids = (
+            *_add_projection_candidates(
+                group_id=group_id,
+                now=now,
+                source=projected_source,
+                source_id=source_id,
+                candidates=extracted,
+                projected_by_id=projected_by_id,
+                relationships=relationships,
+            ),
+            *_add_fact_candidates(
+                group_id=group_id,
+                now=now,
+                source=projected_source,
+                source_id=source_id,
+                facts=extracted_facts,
+                projected_by_id=projected_by_id,
+                relationships=relationships,
+            ),
         )
-        _add_fact_candidates(
-            group_id=group_id,
-            now=now,
-            source=projected_source,
-            source_id=source_id,
-            facts=extracted_facts,
-            projected_by_id=projected_by_id,
-            relationships=relationships,
-        )
+        projected_entity_ids_by_source_id[source_id] = tuple(dict.fromkeys(projected_ids))
 
     return await _persist_projection_batch(
         entity_manager=entity_manager,
@@ -370,6 +375,7 @@ async def project_memory_entities(
         extracted_count=extracted_count,
         skipped=skipped,
         projected_by_id=projected_by_id,
+        projected_entity_ids_by_source_id=projected_entity_ids_by_source_id,
         relationships=relationships,
         generate_embeddings=generate_embeddings,
     )
@@ -390,6 +396,7 @@ async def project_extracted_memory_entities(
     now = datetime.now(UTC)
     source_ids = list(created_source_ids or [])
     projected_by_id: dict[str, Entity] = {}
+    projected_entity_ids_by_source_id: dict[str, tuple[str, ...]] = {}
     relationships: list[Relationship] = []
     extracted_count = 0
     skipped = 0
@@ -410,7 +417,7 @@ async def project_extracted_memory_entities(
             skipped += 1
             continue
         extracted_count += len(extracted)
-        _add_projection_candidates(
+        projected_ids = _add_projection_candidates(
             group_id=group_id,
             now=now,
             source=projected_source,
@@ -419,6 +426,7 @@ async def project_extracted_memory_entities(
             projected_by_id=projected_by_id,
             relationships=relationships,
         )
+        projected_entity_ids_by_source_id[source_id] = tuple(dict.fromkeys(projected_ids))
 
     return await _persist_projection_batch(
         entity_manager=entity_manager,
@@ -427,6 +435,7 @@ async def project_extracted_memory_entities(
         extracted_count=extracted_count,
         skipped=skipped,
         projected_by_id=projected_by_id,
+        projected_entity_ids_by_source_id=projected_entity_ids_by_source_id,
         relationships=relationships,
         generate_embeddings=generate_embeddings,
     )
@@ -440,6 +449,7 @@ async def _persist_projection_batch(
     extracted_count: int,
     skipped: int,
     projected_by_id: dict[str, Entity],
+    projected_entity_ids_by_source_id: Mapping[str, Sequence[str]],
     relationships: list[Relationship],
     generate_embeddings: bool,
 ) -> MemoryProjectionBatchResult:
@@ -470,6 +480,14 @@ async def _persist_projection_batch(
             errors=(str(exc),),
         )
 
+    resolved_entity_ids_by_source_id = {
+        source_id: tuple(
+            dict.fromkeys(
+                entity_writes.id_map.get(entity_id, entity_id) for entity_id in entity_ids
+            )
+        )
+        for source_id, entity_ids in projected_entity_ids_by_source_id.items()
+    }
     relationship_count = 0
     if relationships:
         try:
@@ -495,6 +513,7 @@ async def _persist_projection_batch(
         projected_entities=len(entity_writes.created_ids),
         relationships=relationship_count,
         skipped=skipped,
+        projected_entity_ids_by_source_id=resolved_entity_ids_by_source_id,
         errors=tuple(errors),
     )
 
@@ -636,7 +655,8 @@ def _add_projection_candidates(
     candidates: Sequence[ProjectedMemoryEntity],
     projected_by_id: dict[str, Entity],
     relationships: list[Relationship],
-) -> None:
+) -> list[str]:
+    projected_ids: list[str] = []
     for candidate in candidates:
         entity = _projected_entity(
             candidate,
@@ -645,6 +665,7 @@ def _add_projection_candidates(
             source=source,
         )
         projected_by_id.setdefault(entity.id, entity)
+        projected_ids.append(entity.id)
         relationships.append(
             _projection_relationship(
                 source=source,
@@ -654,6 +675,7 @@ def _add_projection_candidates(
                 now=now,
             )
         )
+    return projected_ids
 
 
 def _add_fact_candidates(
@@ -665,7 +687,8 @@ def _add_fact_candidates(
     facts: Sequence[ProjectedMemoryFact],
     projected_by_id: dict[str, Entity],
     relationships: list[Relationship],
-) -> None:
+) -> list[str]:
+    projected_ids: list[str] = []
     for fact in facts:
         entity = _projected_fact_entity(
             fact,
@@ -674,6 +697,7 @@ def _add_fact_candidates(
             source=source,
         )
         projected_by_id.setdefault(entity.id, entity)
+        projected_ids.append(entity.id)
         relationships.append(
             _fact_projection_relationship(
                 source=source,
@@ -683,6 +707,7 @@ def _add_fact_candidates(
                 now=now,
             )
         )
+    return projected_ids
 
 
 def _projected_from_extracted_entities(

@@ -63,6 +63,14 @@ class _StaticEmbeddingProvider:
         return [list(self._embedding) for _text in texts]
 
 
+class _StaticChunkEmbedder:
+    def __init__(self, embedding: list[float]) -> None:
+        self._embedding = embedding
+
+    async def embed_chunks(self, chunks):
+        return [list(self._embedding) for _chunk in chunks]
+
+
 async def _drop_surreal_namespace(namespace: str) -> None:
     from surrealdb import AsyncSurreal
 
@@ -82,6 +90,9 @@ async def _assert_live_raw_ingestion_path(
     *,
     namespace: str,
 ) -> None:
+    organization_id = str(uuid4())
+    principal_id = "user-live"
+    source_id = "source-live"
     content_client = SurrealContentClient(
         url=_live_surreal_url(),
         username=_surreal_username(),
@@ -92,6 +103,13 @@ async def _assert_live_raw_ingestion_path(
     try:
         await bootstrap_content_schema(content_client, reset=True)
 
+        from sibyl.jobs import memory_extraction, raw_promotion
+        from sibyl.persistence.surreal import content as app_content_service
+        from sibyl_core.models.memory_extraction import (
+            ExtractedMemoryEntity,
+            MemoryBatchEntityExtractionResult,
+            SourceMemoryExtraction,
+        )
         from sibyl_core.services import surreal_content as content_service
 
         @asynccontextmanager
@@ -113,14 +131,74 @@ async def _assert_live_raw_ingestion_path(
         async def raw_query_embedding(_query: str) -> list[float]:
             return list(embedding)
 
+        class FakeEntityManager:
+            async def create_direct(self, entity, **_kwargs):
+                return entity.id
+
+            async def create_direct_bulk(self, entities, **_kwargs):
+                return [entity.id for entity in entities]
+
+            async def get(self, _entity_id: str):
+                return None
+
+        class FakeRelationshipManager:
+            async def create_bulk(self, relationships):
+                return (len(relationships), 0)
+
+        class FakeExtractionProvider:
+            async def extract_many(self, _prompts, *, max_concurrent: int):
+                assert max_concurrent >= 1
+                return [
+                    MemoryBatchEntityExtractionResult(
+                        sources=[
+                            SourceMemoryExtraction(
+                                source_id=memories[0].id,
+                                entities=[
+                                    ExtractedMemoryEntity(
+                                        name="Sapphire Memory",
+                                        entity_type="topic",
+                                        summary="A live raw ingestion probe entity.",
+                                        confidence=0.9,
+                                        evidence="alpha imported capture",
+                                    )
+                                ],
+                            )
+                        ]
+                    )
+                ]
+
+        async def fake_graph_runtime(*_args, **_kwargs):
+            return type(
+                "LiveGraphRuntime",
+                (),
+                {
+                    "entity_manager": FakeEntityManager(),
+                    "relationship_manager": FakeRelationshipManager(),
+                },
+            )()
+
         monkeypatch.setattr(content_service, "surreal_content_client", live_content_session)
         monkeypatch.setattr(content_service, "_raw_memory_query_embedding", raw_query_embedding)
+        monkeypatch.setattr(app_content_service, "surreal_content_client", live_content_session)
+        monkeypatch.setattr(
+            raw_promotion,
+            "EmbeddingService",
+            lambda: _StaticChunkEmbedder(embedding),
+        )
+        monkeypatch.setattr(raw_promotion, "get_entity_graph_runtime", fake_graph_runtime)
+        monkeypatch.setattr(raw_promotion.settings, "auto_extract_entities", False)
+        monkeypatch.setattr(memory_extraction, "get_surreal_graph_runtime", fake_graph_runtime)
+        monkeypatch.setattr(
+            memory_extraction,
+            "memory_batch_entity_extractor",
+            lambda **_kwargs: FakeExtractionProvider(),
+        )
         memories = await remember_raw_memories(
             [
                 RawMemoryWrite(
-                    organization_id="org-live",
-                    principal_id="user-live",
-                    source_id="source-live",
+                    organization_id=organization_id,
+                    principal_id=principal_id,
+                    source_id=source_id,
                     raw_content="alpha imported capture without the query marker",
                     title="Live raw memory vector probe",
                     memory_scope=MemoryScope.PRIVATE,
@@ -131,8 +209,8 @@ async def _assert_live_raw_ingestion_path(
             embedding_provider=_StaticEmbeddingProvider(embedding),
         )
         recalled = await recall_raw_memory(
-            organization_id="org-live",
-            principal_id="user-live",
+            organization_id=organization_id,
+            principal_id=principal_id,
             query="semantic-only",
             limit=1,
         )
@@ -142,51 +220,73 @@ async def _assert_live_raw_ingestion_path(
             """
             CREATE source_imports CONTENT {
                 uuid: 'import-live',
-                organization_id: 'org-live',
-                principal_id: 'user-live',
+                organization_id: $organization_id,
+                principal_id: $principal_id,
                 adapter_name: 'live',
                 raw_memory_ids: [$raw_memory_id],
                 status: 'completed',
                 created_at: time::now(),
                 updated_at: time::now()
             };
-            CREATE crawled_documents CONTENT {
-                uuid: 'doc-live',
-                organization_id: 'org-live',
-                source_id: 'source-live',
-                url: 'raw-memory://doc-live',
-                title: 'Live document',
-                raw_content: 'document body',
-                content: 'document body',
-                content_hash: 'live-hash',
-                created_at: time::now(),
-                updated_at: time::now()
-            };
-            CREATE document_chunks CONTENT {
-                uuid: 'chunk-live',
-                organization_id: 'org-live',
-                source_id: 'source-live',
-                document_id: 'doc-live',
-                chunk_index: 0,
-                content: 'document body',
-                embedding: $embedding,
-                entity_ids: ['entity-live'],
-                has_entities: true,
-                created_at: time::now(),
-                updated_at: time::now()
-            };
             """,
+            organization_id=organization_id,
+            principal_id=principal_id,
             raw_memory_id=memories[0].id,
-            embedding=embedding,
         )
-        lineage = await materialize_content_lineage(
+
+        promotion = await raw_promotion.promote_raw_captures(
+            {},
+            organization_id,
+            raw_memory_ids=[memories[0].id],
+            limit=1,
+        )
+        assert promotion["promoted_count"] == 1
+        assert promotion["content_lineage"]["derived_from"] == 1
+        assert promotion["content_lineage"]["chunk_of"] == 1
+
+        extraction = await memory_extraction.extract_memory_entities(
+            {},
+            [
+                {
+                    "id": memories[0].id,
+                    "entity_type": "document",
+                    "name": "Live raw memory vector probe",
+                    "content": memories[0].raw_content,
+                    "organization_id": organization_id,
+                    "principal_id": principal_id,
+                    "metadata": {
+                        "document_id": memories[0].id,
+                        "memory_scope": MemoryScope.PRIVATE.value,
+                        "principal_id": principal_id,
+                    },
+                }
+            ],
+            organization_id,
+            created_source_ids=[memories[0].id],
+            max_entities_per_source=4,
+            max_source_chars=2_000,
+            max_concurrent=1,
+            max_tokens=512,
+        )
+        assert extraction["linked_chunks"] == 1
+
+        followup_lineage = await materialize_content_lineage(
             content_client,
-            organization_id="org-live",
+            organization_id=organization_id,
             limit=10,
         )
-        assert lineage.derived_from == 1
-        assert lineage.chunk_of == 1
-        assert lineage.extracted_into == 1
+        assert followup_lineage.extracted_into == 1
+
+        derived_from = normalize_records(
+            await content_client.execute_query("SELECT * FROM derived_from;")
+        )
+        chunk_of = normalize_records(await content_client.execute_query("SELECT * FROM chunk_of;"))
+        extracted_into = normalize_records(
+            await content_client.execute_query("SELECT * FROM extracted_into;")
+        )
+        assert len(derived_from) == 1
+        assert len(chunk_of) == 1
+        assert len(extracted_into) == 1
     finally:
         await content_client.close()
 

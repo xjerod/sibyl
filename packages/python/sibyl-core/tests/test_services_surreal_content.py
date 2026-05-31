@@ -1780,6 +1780,62 @@ class TestSurrealContentHelpers:
 
         assert [memory.id for memory in memories] == ["valid-memory"]
 
+    @pytest.mark.asyncio
+    async def test_recall_raw_memory_default_hides_currently_invalidated_records(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "invalid-memory",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Invalid thread",
+                            "raw_content": "SurrealDB invalid note.",
+                            "metadata": {"invalid_at": "2001-01-01T00:00:00+00:00"},
+                            "captured_at": datetime(2000, 1, 1, tzinfo=UTC),
+                            "created_at": datetime(2000, 1, 1, tzinfo=UTC),
+                            "score": 0.95,
+                        },
+                        {
+                            "uuid": "current-memory",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Current thread",
+                            "raw_content": "SurrealDB current note.",
+                            "captured_at": datetime(2000, 1, 1, tzinfo=UTC),
+                            "created_at": datetime(2000, 1, 1, tzinfo=UTC),
+                            "score": 0.9,
+                        },
+                    ]
+                )
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        async def no_embedding(_query: str):
+            return None
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            monkeypatch.setattr(content_service, "_raw_memory_query_embedding", no_embedding)
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="surrealdb",
+            )
+
+        assert [memory.id for memory in memories] == ["current-memory"]
+
     def test_raw_memory_snippet_prefers_marked_title_over_plain_content(self) -> None:
         memory = _raw_memory_from_record(
             {
