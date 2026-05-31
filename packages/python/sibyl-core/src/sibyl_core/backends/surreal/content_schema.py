@@ -35,6 +35,7 @@ CONTENT_RELATION_TABLES = (
 )
 CONTENT_TABLES = (
     *CONTENT_RELATION_TABLES,
+    "entity",
     "crawl_sources",
     "crawled_documents",
     "document_chunks",
@@ -47,7 +48,7 @@ CONTENT_TABLES = (
     "backup_settings",
     "backups",
 )
-CONTENT_SCHEMA_CURRENT_VERSION = 12
+CONTENT_SCHEMA_CURRENT_VERSION = 13
 CONTENT_SCHEMA_NAME = "content"
 _SCHEMA_CHECK_BATCH_SIZE = 128
 _CONTENT_MEMORY_SCOPE_VALUES = tuple(scope.value for scope in MemoryScope)
@@ -195,6 +196,8 @@ ALTER TABLE IF EXISTS supersedes PERMISSIONS
     FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
 ALTER TABLE IF EXISTS extracted_into PERMISSIONS
     FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+ALTER TABLE IF EXISTS entity PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
 """
 
 CONTENT_RAW_CAPTURE_CHANGEFEED_MIGRATION_DEFINITIONS = """
@@ -322,6 +325,18 @@ ALTER TABLE IF EXISTS extracted_into PERMISSIONS
     FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
 """
 
+CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS = """
+DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS uuid ON entity TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON entity TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON entity TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_content_entity_uuid ON entity FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_content_entity_org_uuid ON entity FIELDS organization_id, uuid UNIQUE;
+ALTER TABLE IF EXISTS entity PERMISSIONS
+    FOR select, create, update, delete WHERE organization_id = $token.org OR organization_id = $auth.organization_id;
+"""
+
 
 def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
     compatible_schema = render_fulltext_compatible_sql(
@@ -401,6 +416,11 @@ def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
             statements=tuple(
                 split_statements(CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS)
             ),
+        ),
+        SchemaMigration(
+            version=13,
+            name="content_entity_anchors",
+            statements=tuple(split_statements(CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS)),
         ),
     )
 
@@ -735,6 +755,7 @@ __all__ = [
     "CONTENT_ANALYZER_DEFINITIONS",
     "CONTENT_CHILD_SCOPE_MIGRATION_DEFINITIONS",
     "CONTENT_DOCUMENT_URL_SCOPE_MIGRATION_DEFINITIONS",
+    "CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS",
     "CONTENT_ENUM_ASSERTION_MIGRATION_DEFINITIONS",
     "CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS",
     "CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS",

@@ -243,6 +243,10 @@ FOR $edge_record IN $edges {
     )[0];
     IF $chunk_id != NONE {
         LET $entity_id = type::record($edge_record.entity_ref);
+        UPSERT $entity_id SET
+            uuid = $edge_record.entity_id,
+            organization_id = $edge_record.organization_id,
+            updated_at = time::now();
         LET $edge = type::record($edge_record.edge_ref);
         LET $existing_edge = (SELECT VALUE id FROM extracted_into WHERE id = $edge LIMIT 1)[0];
         IF $existing_edge = NONE {
@@ -264,6 +268,23 @@ FOR $edge_record IN $edges {
                 document_id = $edge_record.document_id,
                 source_id = $edge_record.source_id;
         };
+    };
+};
+"""
+_EXTRACTED_INTO_ENTITY_ANCHOR_QUERY = """
+FOR $edge_record IN $edges {
+    LET $chunk_id = (
+        SELECT VALUE id FROM document_chunks
+        WHERE organization_id = $edge_record.organization_id
+            AND uuid = $edge_record.chunk_id
+        LIMIT 1
+    )[0];
+    IF $chunk_id != NONE {
+        LET $entity_id = type::record($edge_record.entity_ref);
+        UPSERT $entity_id SET
+            uuid = $edge_record.entity_id,
+            organization_id = $edge_record.organization_id,
+            updated_at = time::now();
     };
 };
 """
@@ -1443,6 +1464,13 @@ async def _materialize_extracted_into_lineage(
                         "created_at": _utcnow(),
                     }
                 )
+        if edges:
+            await _write_lineage_edges(
+                client,
+                _EXTRACTED_INTO_ENTITY_ANCHOR_QUERY,
+                edges=edges,
+                organization_id=organization_id,
+            )
         pending = await _pending_lineage_edges(client, "extracted_into", edges)
         batch = pending[:remaining]
         if batch:

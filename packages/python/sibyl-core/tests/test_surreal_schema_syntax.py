@@ -21,6 +21,7 @@ from sibyl_core.backends.surreal.auth_schema import (
 )
 from sibyl_core.backends.surreal.content_schema import (
     CONTENT_ANALYZER_DEFINITIONS,
+    CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS,
     CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS,
     CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS,
     CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS,
@@ -375,6 +376,20 @@ def test_content_lineage_relation_tables_are_versioned() -> None:
     )
 
 
+def test_content_entity_anchors_are_versioned() -> None:
+    migrations = _content_schema_migrations(url="memory://")
+    migration_sql = "\n".join(
+        statement for migration in migrations for statement in migration.statements
+    )
+
+    assert CONTENT_SCHEMA_CURRENT_VERSION == 13
+    assert "entity" in CONTENT_TABLES
+    assert "content_entity_anchors" in [migration.name for migration in migrations]
+    assert "DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL" in CONTENT_SCHEMA_DEFINITIONS
+    assert "idx_content_entity_org_uuid" in CONTENT_SCHEMA_DEFINITIONS
+    assert CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS.strip().splitlines()[0] in migration_sql
+
+
 def test_raw_capture_changefeed_cursor_is_versioned() -> None:
     migrations = _content_schema_migrations(url="memory://")
     migration_sql = "\n".join(
@@ -408,7 +423,7 @@ def test_content_highlight_snippets_and_code_analyzer_are_versioned() -> None:
     )
     migration_names = [migration.name for migration in migrations]
 
-    assert CONTENT_SCHEMA_CURRENT_VERSION == 12
+    assert CONTENT_SCHEMA_CURRENT_VERSION >= 12
     assert "DEFINE ANALYZER IF NOT EXISTS code_analyzer" in CONTENT_ANALYZER_DEFINITIONS
     assert "idx_document_chunks_code_ft" in CONTENT_SCHEMA_DEFINITIONS
     assert "HIGHLIGHTS" in CONTENT_SCHEMA_DEFINITIONS

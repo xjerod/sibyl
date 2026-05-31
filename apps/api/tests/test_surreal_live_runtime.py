@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -14,6 +16,8 @@ from sibyl_core.models.entities import Entity, EntityType
 from sibyl_core.services.graph import (
     EntityManager,
     SurrealGraphClient,
+    close_graph_clients,
+    get_surreal_graph_runtime,
     normalize_records,
     prepare_graph_schema,
 )
@@ -85,6 +89,58 @@ async def _drop_surreal_namespace(namespace: str) -> None:
         await client.close()
 
 
+def _graph_namespace_for_group(group_id: str) -> str:
+    return f"org_{group_id.replace('-', '').lower()}"
+
+
+async def _assert_live_extracted_into_endpoints(
+    content_client: SurrealContentClient,
+    *,
+    organization_id: str,
+    live_graph_runtime: Callable[..., Awaitable[Any]],
+) -> None:
+    derived_from = normalize_records(
+        await content_client.execute_query("SELECT * FROM derived_from;")
+    )
+    chunk_of = normalize_records(await content_client.execute_query("SELECT * FROM chunk_of;"))
+    extracted_into = normalize_records(
+        await content_client.execute_query("SELECT * FROM extracted_into;")
+    )
+    entity_anchors = normalize_records(
+        await content_client.execute_query(
+            """
+            SELECT id AS record_id, uuid, organization_id
+            FROM entity
+            WHERE organization_id = $organization_id;
+            """,
+            organization_id=organization_id,
+        )
+    )
+    chunks = normalize_records(
+        await content_client.execute_query(
+            """
+            SELECT id AS record_id, uuid
+            FROM document_chunks
+            WHERE organization_id = $organization_id;
+            """,
+            organization_id=organization_id,
+        )
+    )
+    assert len(derived_from) == 1
+    assert len(chunk_of) == 1
+    assert len(extracted_into) == 1
+    assert len(entity_anchors) == 1
+    assert len(chunks) == 1
+    projected_entity_id = str(extracted_into[0]["entity_id"])
+    graph_runtime = await live_graph_runtime(organization_id)
+    projected_entity = await graph_runtime.entity_manager.get(projected_entity_id)
+    assert projected_entity.id == projected_entity_id
+    assert projected_entity.organization_id == organization_id
+    assert entity_anchors[0]["uuid"] == projected_entity_id
+    assert str(extracted_into[0]["in"]) == str(entity_anchors[0]["record_id"])
+    assert str(extracted_into[0]["out"]) == str(chunks[0]["record_id"])
+
+
 async def _assert_live_raw_ingestion_path(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -131,20 +187,6 @@ async def _assert_live_raw_ingestion_path(
         async def raw_query_embedding(_query: str) -> list[float]:
             return list(embedding)
 
-        class FakeEntityManager:
-            async def create_direct(self, entity, **_kwargs):
-                return entity.id
-
-            async def create_direct_bulk(self, entities, **_kwargs):
-                return [entity.id for entity in entities]
-
-            async def get(self, _entity_id: str):
-                return None
-
-        class FakeRelationshipManager:
-            async def create_bulk(self, relationships):
-                return (len(relationships), 0)
-
         class FakeExtractionProvider:
             async def extract_many(self, _prompts, *, max_concurrent: int):
                 assert max_concurrent >= 1
@@ -167,15 +209,8 @@ async def _assert_live_raw_ingestion_path(
                     )
                 ]
 
-        async def fake_graph_runtime(*_args, **_kwargs):
-            return type(
-                "LiveGraphRuntime",
-                (),
-                {
-                    "entity_manager": FakeEntityManager(),
-                    "relationship_manager": FakeRelationshipManager(),
-                },
-            )()
+        async def live_graph_runtime(group_id: str, **_kwargs):
+            return await get_surreal_graph_runtime(group_id, embedding_provider=None)
 
         monkeypatch.setattr(content_service, "surreal_content_client", live_content_session)
         monkeypatch.setattr(content_service, "_raw_memory_query_embedding", raw_query_embedding)
@@ -185,9 +220,9 @@ async def _assert_live_raw_ingestion_path(
             "EmbeddingService",
             lambda: _StaticChunkEmbedder(embedding),
         )
-        monkeypatch.setattr(raw_promotion, "get_entity_graph_runtime", fake_graph_runtime)
+        monkeypatch.setattr(raw_promotion, "get_entity_graph_runtime", live_graph_runtime)
         monkeypatch.setattr(raw_promotion.settings, "auto_extract_entities", False)
-        monkeypatch.setattr(memory_extraction, "get_surreal_graph_runtime", fake_graph_runtime)
+        monkeypatch.setattr(memory_extraction, "get_surreal_graph_runtime", live_graph_runtime)
         monkeypatch.setattr(
             memory_extraction,
             "memory_batch_entity_extractor",
@@ -277,17 +312,16 @@ async def _assert_live_raw_ingestion_path(
         )
         assert followup_lineage.extracted_into == 1
 
-        derived_from = normalize_records(
-            await content_client.execute_query("SELECT * FROM derived_from;")
+        await _assert_live_extracted_into_endpoints(
+            content_client,
+            organization_id=organization_id,
+            live_graph_runtime=live_graph_runtime,
         )
-        chunk_of = normalize_records(await content_client.execute_query("SELECT * FROM chunk_of;"))
-        extracted_into = normalize_records(
-            await content_client.execute_query("SELECT * FROM extracted_into;")
-        )
-        assert len(derived_from) == 1
-        assert len(chunk_of) == 1
-        assert len(extracted_into) == 1
     finally:
+        with suppress(Exception):
+            await close_graph_clients()
+        with suppress(Exception):
+            await _drop_surreal_namespace(_graph_namespace_for_group(organization_id))
         await content_client.close()
 
 

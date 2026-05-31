@@ -98,6 +98,15 @@ DEFINE INDEX IF NOT EXISTS idx_document_chunks_code_ft ON document_chunks FIELDS
 DEFINE INDEX IF NOT EXISTS idx_document_chunks_embedding ON document_chunks FIELDS embedding
     HNSW DIMENSION {EMBEDDING_DIM} DIST COSINE TYPE F32 EFC 150 M 12;
 
+DEFINE TABLE IF NOT EXISTS entity SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS uuid ON entity TYPE string;
+DEFINE FIELD IF NOT EXISTS organization_id ON entity TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON entity TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_content_entity_uuid ON entity FIELDS uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_content_entity_org_uuid ON entity FIELDS organization_id, uuid UNIQUE;
+
 DEFINE TABLE IF NOT EXISTS raw_captures SCHEMAFULL CHANGEFEED 7d;
 DEFINE FIELD IF NOT EXISTS uuid ON raw_captures TYPE string;
 DEFINE FIELD IF NOT EXISTS organization_id ON raw_captures TYPE string;

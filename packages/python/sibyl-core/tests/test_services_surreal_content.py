@@ -11,6 +11,7 @@ import pytest
 from surrealdb import AsyncSurreal
 
 from sibyl_core.backends.surreal.content_schema import (
+    CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS,
     CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS,
 )
 from sibyl_core.embeddings.providers import EmbeddingMetadata
@@ -172,6 +173,7 @@ class TestSurrealContentHelpers:
                 DEFINE FIELD created_at ON document_chunks TYPE datetime DEFAULT time::now();
                 """
             )
+            await db.query(CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS)
             await db.query(CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS)
             await db.query(
                 """
@@ -279,6 +281,9 @@ class TestSurrealContentHelpers:
             extracted_into = await db.query(
                 "SELECT entity_id, chunk_id FROM extracted_into ORDER BY entity_id, chunk_id;"
             )
+            entity_anchors = await db.query(
+                "SELECT uuid, organization_id FROM entity ORDER BY uuid;"
+            )
         finally:
             await db.close()
 
@@ -309,6 +314,11 @@ class TestSurrealContentHelpers:
             {"entity_id": "entity-a", "chunk_id": "chunk-1"},
             {"entity_id": "entity-b", "chunk_id": "chunk-1"},
             {"entity_id": "entity-c", "chunk_id": "chunk-3"},
+        ]
+        assert entity_anchors == [
+            {"organization_id": "org-1", "uuid": "entity-a"},
+            {"organization_id": "org-1", "uuid": "entity-b"},
+            {"organization_id": "org-1", "uuid": "entity-c"},
         ]
 
     @pytest.mark.asyncio
@@ -347,6 +357,7 @@ class TestSurrealContentHelpers:
                 DEFINE FIELD created_at ON document_chunks TYPE datetime DEFAULT time::now();
                 """
             )
+            await db.query(CONTENT_ENTITY_ANCHOR_MIGRATION_DEFINITIONS)
             await db.query(CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS)
             await db.query(
                 """
@@ -422,6 +433,7 @@ class TestSurrealContentHelpers:
                 "SELECT raw_memory_id, superseded_raw_memory_id FROM supersedes;"
             )
             extracted_into = await db.query("SELECT entity_id, chunk_id FROM extracted_into;")
+            entity_anchors = await db.query("SELECT uuid, organization_id FROM entity;")
         finally:
             await db.close()
 
@@ -435,6 +447,7 @@ class TestSurrealContentHelpers:
             {"raw_memory_id": "raw-new-valid", "superseded_raw_memory_id": "raw-old-valid"}
         ]
         assert extracted_into == [{"entity_id": "entity-valid", "chunk_id": "chunk-valid"}]
+        assert entity_anchors == [{"organization_id": "org-1", "uuid": "entity-valid"}]
 
     @pytest.mark.asyncio
     async def test_surreal_content_client_creates_per_context_client(self) -> None:
