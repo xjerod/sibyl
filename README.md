@@ -70,8 +70,8 @@ into verified documents.
 | 🎯 **Semantic Search**           | Find knowledge by meaning. "Authentication patterns" surfaces OAuth notes even when "OAuth" isn't in the text          |
 | 🦋 **Task Workflow**             | Plan with epics and tasks, then track execution across sessions and teammates in one place                             |
 | 🧪 **Source-Grounded Synthesis** | Draft verified documents from your own memory with citation, freshness, and gap checks                                 |
-| 🌊 **Source Ingestion**          | Crawl documentation sites and import sources (mailboxes, archives) into the same graph                                 |
-| 💎 **Scoped Multi-Tenancy**      | Isolated graphs per organization with role-based access. Personal, project, and team scopes stay separate by design    |
+| 🌊 **Source Ingestion**          | Crawl documentation sites and import sources (mailboxes, archives) into scoped raw content and graph memory            |
+| 💎 **Scoped Multi-Tenancy**      | Namespace-isolated graphs, org-scoped content/auth records, and policy gates for personal, project, and team scopes    |
 
 <table>
   <tr>
@@ -395,21 +395,21 @@ See [`docs/guide/why-surreal.md`](docs/guide/why-surreal.md) for the rationale a
 Sibyl reaches the LongMemEval-S retrieval ceiling on the live API path with no LLM extraction and no
 LLM reranking.
 
-| Metric           | Value                                      |
-| ---------------- | ------------------------------------------ |
-| `hit@5`          | **100.00%** (500/500)                      |
-| `recall@5`       | **96.96%** (strict multi-answer)           |
-| `recall@10`      | **98.90%**                                 |
-| `ndcg@5`         | 94.63%                                     |
-| Questions        | 500/500                                    |
-| LLM extraction   | disabled                                   |
-| LLM reranking    | none                                       |
-| Embeddings       | OpenAI `text-embedding-3-small`, 1024 dims |
-| Tenant isolation | physical SurrealDB namespace per question  |
+| Metric           | Value                                         |
+| ---------------- | --------------------------------------------- |
+| `hit@5`          | **100.00%** (500/500)                         |
+| `recall@5`       | **96.96%** (strict multi-answer)              |
+| `recall@10`      | **98.90%**                                    |
+| `ndcg@5`         | 94.63%                                        |
+| Questions        | 500/500                                       |
+| LLM extraction   | disabled                                      |
+| LLM reranking    | none                                          |
+| Embeddings       | OpenAI `text-embedding-3-small`, 1024 dims    |
+| Tenant isolation | graph namespace + scoped content per question |
 
 The result is measured against the production `/api/search` surface in an ephemeral CI stack, not an
-offline notebook replay. Per-question physical tenant isolation, full artifact and diagnostics
-published.
+offline notebook replay. Each question gets an isolated graph namespace with scoped content rows,
+and the full artifact and diagnostics are published.
 
 `hit@5 = 100%` and strict `recall@5 = 96.96%` measure different things and we report both: hit asks
 "did _any_ correct session land in the top 5", strict recall asks "did _every_ correct session land

@@ -28,25 +28,31 @@ unifies graph traversal, vector KNN, full-text search, and document storage.
 
 ## The Isolation Model
 
-Every organization gets its own SurrealDB namespace (`org_<uuid_hex>`). This is the native isolation
-primitive — not a `WHERE org_id = ?` filter applied late, but a separate database namespace that the
-query engine cannot route across.
+Every organization gets its own SurrealDB graph namespace (`org_<uuid_hex>`). That is the native
+graph isolation primitive: a query-time routing decision, not a late `WHERE org_id = ?` filter.
+Source-preserving content and auth live in shared SurrealDB namespaces and are scoped by
+`organization_id`, table permissions, and API policy checks.
 
 ```
 SurrealDB
-├── ns: org_a1b2c3d4...   ← tenant A: entities, relationships, raw memory
-├── ns: org_e5f67890...   ← tenant B: entities, relationships, raw memory
-└── ns: org_aabbccdd...   ← tenant C: ...
+├── ns: org_a1b2c3d4...   ← tenant A graph: entities, relationships
+├── ns: org_e5f67890...   ← tenant B graph: entities, relationships
+├── ns: org_aabbccdd...   ← tenant C graph: entities, relationships
+├── ns: sibyl_content     ← shared content scoped by organization_id
+└── ns: sibyl_auth        ← shared auth scoped by organization_id
 ```
 
 Practical consequences:
 
-- **A misplaced filter cannot leak data across orgs.** The namespace boundary is a query-time
-  routing decision, not a runtime predicate.
-- **`GRAPH.DELETE org_<id>` is a clean deletion path.** GDPR right-to-be-forgotten is a single
-  namespace drop, not a sweep across hundreds of tables.
+- **A misplaced graph filter cannot leak graph data across orgs.** The graph namespace boundary is a
+  query-time routing decision, not a runtime predicate.
+- **Content and auth isolation still depends on scoped shared tables.** Those paths must keep their
+  organization predicates, table permissions, and API checks intact.
+- **Tenant deletion has two layers.** The graph namespace can be dropped directly, while content and
+  auth cleanup must delete the organization's rows from shared namespaces.
 - **Per-question LongMemEval haystacks fit naturally.** The eval harness signs up a throwaway user
-  per question; their personal org becomes a throwaway namespace; teardown is automatic.
+  per question; their personal graph org becomes a throwaway namespace, with content rows scoped to
+  the same organization.
 - **One driver instance per org.** The SurrealDB Python driver serializes websocket queries through
   a per-client `asyncio.Lock`. Sharing a single driver across orgs would serialize unrelated work;
   `driver.clone(group_id)` is the supported isolation primitive.

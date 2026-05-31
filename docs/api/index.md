@@ -108,19 +108,21 @@ curl -X POST https://api.example.com/mcp \
 
 ## Multi-Tenancy
 
-Sibyl is multi-tenant by design. Each organization gets a dedicated SurrealDB namespace
-(`org_<uuid_hex>`) that holds its graph, content, and auth records. Forgetting org context routes
-queries to the wrong namespace, so every authenticated request resolves an organization first.
+Sibyl is multi-tenant by design, with separate isolation models for graph memory and shared runtime
+tables. Each organization gets a dedicated graph namespace (`org_<uuid_hex>`). Content and auth
+records live in shared SurrealDB namespaces and are scoped by `organization_id`, table permissions,
+and the API policy layer.
 
-- Isolated SurrealDB namespace per organization
-- Scoped content, auth, and graph records
+- Isolated SurrealDB graph namespace per organization
+- Org-scoped content and auth records in shared namespaces
 - Scoped API and MCP access
 
 **Organization Context:**
 
 - JWT tokens include `org` claim with organization ID
 - API keys are scoped to specific organizations
-- All queries automatically filter by organization
+- Graph queries route to the resolved organization namespace
+- Content and auth queries carry explicit organization predicates
 
 ## Rate Limiting
 

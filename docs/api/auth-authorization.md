@@ -17,8 +17,8 @@ Organization (org-level roles)
 - **Organization Roles**: `owner`, `admin`, `member`, `viewer` - inherited across all projects
 - **Project Roles**: `project_owner`, `project_maintainer`, `project_contributor`,
   `project_viewer` - scoped to specific projects
-- **Org Isolation**: each organization has its own SurrealDB namespace, so cross-org data access is
-  impossible at the storage layer
+- **Org Isolation**: graph memory is namespace-isolated per organization; content and auth resources
+  are org-scoped in shared namespaces with table permissions and policy checks
 
 ## Role Hierarchy
 
@@ -159,20 +159,28 @@ When authorization fails, a structured error is returned:
 
 ## Organization Isolation
 
-Sibyl's default runtime is SurrealDB-native. Organization isolation is enforced by the storage layer
-through a namespace per organization.
+Sibyl's default runtime is SurrealDB-native. Graph memory is physically isolated with a namespace
+per organization. Content and auth records use shared namespaces, scoped by `organization_id`, table
+permissions, and API policy checks.
 
 ### Namespace-Per-Org
 
-Each organization gets its own SurrealDB namespace, named `org_<uuid_hex>`. Graph, content, and auth
-records for an organization live entirely within that namespace.
+Each organization gets its own SurrealDB graph namespace, named `org_<uuid_hex>`.
 
-- Every authenticated request resolves an organization first, then operates inside that
+- Every authenticated request resolves an organization first. Graph operations route into that
   organization's namespace.
-- A query issued in one namespace cannot see another organization's data. Cross-org leakage is not
-  possible at the storage layer.
+- A graph query issued in one namespace cannot see another organization's graph data. Cross-org
+  graph leakage is not possible at the storage layer.
 - The SurrealDB driver is cloned per organization (`driver.clone(group_id)`) so a single client
   instance is never shared across namespaces.
+
+### Shared Runtime Namespaces
+
+Content tables such as `raw_captures`, `document_chunks`, and import state live in the shared
+`sibyl_content/content` namespace. Auth tables live in `sibyl_auth/auth`. These records are isolated
+with explicit `organization_id` predicates, SurrealDB table permissions, and API authorization
+checks. That is not the same as graph namespace isolation, so user-facing claims should describe
+content and auth as org-scoped rather than physically namespace-isolated.
 
 ### Application Scope
 
@@ -185,8 +193,9 @@ from sibyl_core.graph import EntityManager
 manager = EntityManager(client, group_id=str(org.id))
 ```
 
-Forgetting the organization scope routes a query to the wrong namespace or fails outright, rather
-than silently crossing tenants.
+Forgetting the organization scope routes a graph query to the wrong namespace or fails outright.
+Content and auth queries must include the resolved organization predicate so shared tables do not
+cross tenants.
 
 ### PostgreSQL and Migration
 
@@ -306,9 +315,13 @@ All team members inherit this role for the project.
 
 1. **Authentication** - JWT or API key validates identity
 2. **Authorization** - Role checks validate permissions
-3. **Namespace isolation** - SurrealDB enforces per-org data isolation at the storage layer
+3. **Graph namespace isolation** - SurrealDB enforces per-org graph isolation at the storage layer
+4. **Shared-table scoping** - content and auth queries carry organization predicates, table
+   permissions, and API policy checks
 
-Even if application code has a bug, the namespace boundary prevents cross-org data access.
+Even if application code has a bug, the graph namespace boundary prevents cross-org graph access.
+Shared content and auth paths must preserve scoped predicates and table permissions to maintain the
+same tenant boundary.
 
 ### Audit Logging
 
