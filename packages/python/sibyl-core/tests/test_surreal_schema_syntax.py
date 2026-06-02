@@ -669,6 +669,17 @@ def test_entity_updated_at_datetime_migration_is_versioned() -> None:
     assert "DEFINE FIELD IF NOT EXISTS parent_task_id ON entity TYPE option<string>" in (
         ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
     )
+    migration_statements = split_statements(ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS)
+    assert any(
+        statement.startswith("UPDATE (\n")
+        and "SELECT VALUE id" in statement
+        and "SET updated_at = type::datetime(updated_at)" in statement
+        for statement in migration_statements
+    )
+    assert not any(
+        statement.startswith("UPDATE entity SET updated_at = type::datetime")
+        for statement in migration_statements
+    )
     assert "type::datetime(updated_at)" in ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
     assert "string::is::datetime(updated_at)" in ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
     assert "!type::is::datetime(updated_at)" in ENTITY_UPDATED_AT_DATETIME_MIGRATION_DEFINITIONS
