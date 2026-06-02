@@ -49,6 +49,7 @@ from sibyl_cli.docker import app as docker_app
 from sibyl_cli.doctor import doctor as doctor_cmd
 from sibyl_cli.document import docs_app
 from sibyl_cli.entity import app as entity_app
+from sibyl_cli.entity import print_entity_details
 from sibyl_cli.epic import app as epic_app
 from sibyl_cli.explore import app as explore_app
 from sibyl_cli.host import serve as serve_cmd
@@ -61,6 +62,11 @@ from sibyl_cli.local import app as local_app
 from sibyl_cli.local import start as up_cmd
 from sibyl_cli.local import stop as down_cmd
 from sibyl_cli.logs import app as logs_app
+from sibyl_cli.memory_display import (
+    inspect_raw_memory_source,
+    is_raw_memory_reference,
+    print_memory_source_inspect,
+)
 from sibyl_cli.org import app as org_app
 from sibyl_cli.pending import app as pending_writes_app
 from sibyl_cli.project import app as project_app
@@ -846,42 +852,6 @@ def _print_memory_audit_events(events: list[object]) -> None:
     console.print(table)
 
 
-def _print_memory_source_inspect(data: dict[str, object]) -> None:
-    console.print("\n[bold]Memory source[/bold]\n")
-    scope = str(data.get("memory_scope") or "")
-    if scope_key := data.get("scope_key"):
-        scope = f"{scope}:{scope_key}" if scope else str(scope_key)
-    policy = _format_policy_state(data.get("policy_allowed"))
-    if reason := data.get("policy_reason"):
-        policy = f"{policy} ({reason})"
-    content_state = "redacted" if data.get("content_redacted") else "visible"
-
-    table = create_table(None, "Field", "Value", expand=False)
-    table.add_row("ID", str(data.get("id") or ""))
-    table.add_row("Source", str(data.get("source_id") or ""))
-    table.add_row("Title", str(data.get("title") or ""))
-    table.add_row("Scope", scope)
-    table.add_row("Project", str(data.get("project_id") or ""))
-    table.add_row("Review", str(data.get("review_state") or ""))
-    promotion = data.get("promotion_state")
-    if isinstance(promotion, dict):
-        promotion_payload = cast("dict[str, object]", promotion)
-        table.add_row("Promotion", str(promotion_payload.get("state") or ""))
-    table.add_row("Corrections", _inspect_correction_count(data.get("correction_history")))
-    table.add_row("Entity type", str(data.get("entity_type") or ""))
-    table.add_row("Policy", policy)
-    table.add_row("Content", content_state)
-    table.add_row("Derived", _audit_id_summary(data.get("derived_ids")))
-    table.add_row("Audits", str(data.get("audit_event_count") or 0))
-    table.add_row("Actions", _inspect_action_summary(data.get("available_actions")))
-    console.print(table)
-
-    raw_content = data.get("raw_content")
-    if isinstance(raw_content, str) and raw_content:
-        console.print()
-        console.print(_format_search_preview(raw_content), soft_wrap=True)
-
-
 def _preview_state(value: object) -> str:
     return "allowed" if value is True else "denied"
 
@@ -912,25 +882,6 @@ def _preview_count(value: object) -> str:
     if isinstance(value, int) and not isinstance(value, bool):
         return str(value)
     return "0"
-
-
-def _inspect_correction_count(value: object) -> str:
-    if isinstance(value, list):
-        return str(len(value))
-    return "0"
-
-
-def _inspect_action_summary(value: object) -> str:
-    if not isinstance(value, list):
-        return "-"
-    names: list[str] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        payload = cast("dict[str, object]", item)
-        if payload.get("available") is True:
-            names.append(str(payload.get("action")))
-    return ", ".join(names) if names else "-"
 
 
 def _preview_audit_id(data: dict[str, object]) -> str:
@@ -1256,6 +1207,58 @@ def main_callback(
 # ============================================================================
 
 
+async def _load_show_reference(client: Any, reference: str) -> tuple[str, dict[str, object]]:
+    if is_raw_memory_reference(reference):
+        return "raw_memory", await inspect_raw_memory_source(client, reference)
+
+    entity_error: SibylClientError | None = None
+    try:
+        resolved_id = await resolve_id_prefix(client, reference)
+        entity = await client.get_entity(resolved_id)
+        return "entity", cast("dict[str, object]", entity)
+    except SibylClientError as e:
+        if e.status_code != 404:
+            raise
+        entity_error = e
+
+    try:
+        return "raw_memory", await inspect_raw_memory_source(client, reference)
+    except SibylClientError as e:
+        if e.status_code == 404:
+            detail = f"No entity or raw memory matches: {reference}"
+            raise SibylClientError(detail, status_code=404, detail=detail) from entity_error
+        raise
+
+
+@app.command("show")
+def show_reference(
+    reference: Annotated[str, typer.Argument(help="Entity or raw memory ID")],
+    json_out: Annotated[
+        bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
+    ] = False,
+) -> None:
+    """Show an entity or raw memory by ID."""
+
+    @run_async
+    async def _show() -> None:
+        try:
+            async with get_client() as client:
+                kind, data = await _load_show_reference(client, reference)
+
+            if json_out:
+                print_json(data)
+                return
+
+            if kind == "raw_memory":
+                print_memory_source_inspect(data, full_content=True)
+            else:
+                print_entity_details(data)
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    _show()
+
+
 @app.command()
 def health(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
@@ -1493,7 +1496,7 @@ def search(
 
                 hints = []
                 if has_entities:
-                    hints.append(f"[{NEON_CYAN}]sibyl entity show <id>[/{NEON_CYAN}]")
+                    hints.append(f"[{NEON_CYAN}]sibyl show <id>[/{NEON_CYAN}]")
                 if has_docs:
                     hints.append(f"[{NEON_CYAN}]sibyl crawl documents show <doc>[/{NEON_CYAN}]")
 
@@ -2358,12 +2361,11 @@ def memory_inspect(
     async def run_memory_inspect() -> None:
         try:
             async with get_client() as client:
-                resolved_source_id = await resolve_raw_memory_id_prefix(client, source_id)
-                data = await client.memory_inspect(resolved_source_id)
+                data = await inspect_raw_memory_source(client, source_id)
             if json_output:
                 print_json(data)
                 return
-            _print_memory_source_inspect(cast("dict[str, object]", data))
+            print_memory_source_inspect(data)
         except SibylClientError as e:
             _handle_client_error(e)
 

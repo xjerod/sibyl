@@ -247,7 +247,7 @@ sibyl search "authentication patterns"
 # Knowledge & graph
 sibyl add "Redis pooling" "Pool size must be >= concurrent requests"
 sibyl explore related ent_xyz         # Find connected entities
-sibyl entity show <id>                # Full content by ID
+sibyl show <id>                       # Full content by ID
 
 # Task workflow
 sibyl task list --status todo,doing

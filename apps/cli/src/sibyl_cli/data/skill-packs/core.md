@@ -23,8 +23,8 @@ These rules exist because real agent sessions consistently fail without them.
    guessing a filesystem path.
 
 3. **Always complete the retrieval pattern.** Search returns truncated previews. When you need
-   details, follow up with `sibyl entity show <id>` using the ID from the search result. Working
-   from truncated summaries leads to incomplete understanding.
+   details, follow up with `sibyl show <id>` using the ID from the search result. Working from
+   truncated summaries leads to incomplete understanding.
 
 4. **Capture learnings proactively.** When you solve something non-obvious, run `sibyl add` or use
    `--learnings` on task completion. Do not ask permission first—the whole point is building
@@ -45,8 +45,8 @@ Sibyl is the agent's durable brain. Use it as a loop, not a lookup box:
 
 1. **Recall before acting.** Run `sibyl recall "<goal>" --intent <mode>` to get compact working
    memory: active work, decisions, plans, constraints, related graph context, and recent lessons.
-2. **Act with context in hand.** Use recalled IDs for follow-up retrieval with
-   `sibyl entity show <id>` when a preview is not enough.
+2. **Act with context in hand.** Use recalled IDs for follow-up retrieval with `sibyl show <id>`
+   when a preview is not enough.
 3. **Remember while learning.** Run `sibyl remember "Title" "What matters" --kind <type>` whenever
    future agents should not rediscover a decision, plan, idea, claim, artifact, session, procedure,
    or error pattern. In a linked repo, `remember` automatically scopes the memory to that project.
@@ -63,7 +63,7 @@ Prefer these verbs:
 - `reflect`: convert raw session notes into decisions, plans, ideas, claims, artifacts, procedures,
   and session checkpoints.
 - `search`: discover candidates when you do not yet know the goal shape.
-- `entity show`: retrieve full source memory from an ID.
+- `show`: retrieve full source memory from a graph entity or raw memory ID.
 
 ---
 
@@ -85,7 +85,7 @@ sibyl task list --status todo   # Only shows tasks for linked project
 sibyl search "authentication patterns"
 
 # 5. Get full content from a search result
-sibyl entity show "episode:abc123-uuid-here"
+sibyl show "episode:abc123-uuid-here"
 
 # 6. Add a learning
 sibyl add "Redis insight" "Connection pool must be >= concurrent requests"
@@ -101,8 +101,8 @@ sibyl task complete task_a1b2c3d4e5f6 --learnings "OAuth tokens expire..."
 
 - **Link your project first** — then task commands just work without `--project`
 - **Table output is default** — use `--json` only for scripting
-- **Entity show is full fidelity** — use `sibyl entity show <id>` for complete content; don't use
-  `--json` only to escape search-preview truncation
+- **Show is full fidelity** — use `sibyl show <id>` for complete content; don't use `--json` only
+  to escape search-preview truncation
 - Use `--all` flag to bypass context and see all projects
 
 ---
@@ -112,14 +112,14 @@ sibyl task complete task_a1b2c3d4e5f6 --learnings "OAuth tokens expire..."
 ```
 1. SEARCH           -> sibyl search "topic"
 2. RECALL           -> sibyl recall "goal" --intent build
-3. RETRIEVE         -> sibyl entity show <id>  (get full content by ID from search)
+3. RETRIEVE         -> sibyl show <id>  (get full content by ID from search)
 4. CHECK TASKS      -> sibyl task list --status doing
 5. WORK & REMEMBER  -> sibyl remember "Title" "Decision, plan, idea, or learning..."
 6. REFLECT          -> sibyl reflect "Raw session notes..." --title "Session" --persist
 7. COMPLETE         -> sibyl task complete --learnings "..."
 ```
 
-**Key insight:** Search shows IDs. Use `sibyl entity show <id>` to fetch full content.
+**Key insight:** Search shows IDs. Use `sibyl show <id>` to fetch full content.
 
 ---
 
@@ -187,7 +187,7 @@ sibyl search "redis connection pooling"
 # Output shows full IDs like: guide:abe924cb-8cee-4cb5-...
 
 # 2. Fetch full content by ID (copy from search output)
-sibyl entity show "guide:abe924cb-8cee-4cb5-9dd1-818201c1c946"
+sibyl show "guide:abe924cb-8cee-4cb5-9dd1-818201c1c946"
 ```
 
 **When to use:** Before implementing anything. Find existing patterns, past solutions, gotchas.
@@ -435,7 +435,7 @@ sibyl entity list --type pattern
 sibyl entity list --type episode
 
 # Show entity details (use ID from search)
-sibyl entity show epsd_a1b2c3d4e5f6
+sibyl show epsd_a1b2c3d4e5f6
 
 # Create an entity (for capturing learnings)
 sibyl entity create --type episode --name "Redis insight" --content "Discovered that..."
@@ -610,7 +610,7 @@ sibyl search "related topic" --type episode
 sibyl search "common mistakes" --type episode
 
 # Get full content from any result (use ID from search output)
-sibyl entity show <id>
+sibyl show <id>
 ```
 
 ### Capture a Learning
@@ -767,7 +767,7 @@ sibyl context                      # Verify the link worked
 Search results may reference entities by graph UUID. Use the exact ID from search output:
 
 ```bash
-sibyl entity show "episode:abc123-full-uuid-here"
+sibyl show "episode:abc123-full-uuid-here"
 ```
 
 ### "Failed to start task" with no details
