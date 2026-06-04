@@ -9,6 +9,7 @@ import structlog
 
 from sibyl_core.auth.memory_policy import memory_scope_policy_key
 from sibyl_core.embeddings.providers import configured_embedding_provider
+from sibyl_core.memory_pipeline.retrieval import CandidateSourceFailure
 from sibyl_core.models.entities import EntityType
 from sibyl_core.retrieval import HybridConfig, hybrid_search, temporal_boost
 from sibyl_core.retrieval.candidates import (
@@ -453,6 +454,25 @@ def _rank_fuse_search_results(
     return [result for result, _score in rrf_merge(ranked_sources, dedup_key=lambda r: r.id)]
 
 
+def _record_source_failure(
+    failures: list[CandidateSourceFailure],
+    *,
+    source: str,
+    error: Exception,
+) -> None:
+    failures.append(CandidateSourceFailure(source=source, error_type=type(error).__name__))
+
+
+def _add_source_failure_filters(
+    filters: dict[str, Any],
+    failures: Sequence[CandidateSourceFailure],
+) -> None:
+    filters["search_source_degraded"] = bool(failures)
+    filters["search_source_failure_count"] = len(failures)
+    if failures:
+        filters["search_source_failures"] = [failure.as_metadata() for failure in failures]
+
+
 async def _search_documents(
     query: str,
     organization_id: str,
@@ -462,19 +482,15 @@ async def _search_documents(
     limit: int = 10,
     include_content: bool = True,
 ) -> list[SearchResult]:
-    try:
-        return await document_search_service.search_documents(
-            query=query,
-            organization_id=organization_id,
-            source_id=source_id,
-            source_name=source_name,
-            language=language,
-            limit=limit,
-            include_content=include_content,
-        )
-    except Exception as e:
-        log.warning("document_search_failed", error_type=type(e).__name__)
-        return []
+    return await document_search_service.search_documents(
+        query=query,
+        organization_id=organization_id,
+        source_id=source_id,
+        source_name=source_name,
+        language=language,
+        limit=limit,
+        include_content=include_content,
+    )
 
 
 def _raw_memory_search_result(
@@ -539,30 +555,25 @@ async def _search_raw_memories(
     as_of: datetime | str | None,
     limit: int,
 ) -> list[SearchResult]:
-    try:
-        memories = await recall_raw_memory(
-            organization_id=organization_id,
-            principal_id=principal_id,
-            query=query,
-            memory_scope=memory_scope,
-            scope_key=scope_key,
-            project_id=project_id,
-            source_ids=[source_id] if source_id else None,
-            participants=participants,
-            labels=labels,
-            thread_id=thread_id,
-            occurred_after=occurred_after,
-            occurred_before=occurred_before,
-            as_of=as_of,
-            limit=limit,
-        )
-        return [
-            _raw_memory_search_result(memory, organization_id=organization_id)
-            for memory in memories
-        ]
-    except Exception as e:
-        log.warning("raw_memory_search_failed", error_type=type(e).__name__)
-        return []
+    memories = await recall_raw_memory(
+        organization_id=organization_id,
+        principal_id=principal_id,
+        query=query,
+        memory_scope=memory_scope,
+        scope_key=scope_key,
+        project_id=project_id,
+        source_ids=[source_id] if source_id else None,
+        participants=participants,
+        labels=labels,
+        thread_id=thread_id,
+        occurred_after=occurred_after,
+        occurred_before=occurred_before,
+        as_of=as_of,
+        limit=limit,
+    )
+    return [
+        _raw_memory_search_result(memory, organization_id=organization_id) for memory in memories
+    ]
 
 
 async def search(
@@ -673,6 +684,7 @@ async def search(
     )
 
     filters = {}
+    source_failures: list[CandidateSourceFailure] = []
     if types:
         filters["types"] = types
     if language:
@@ -958,6 +970,7 @@ async def search(
                         )
                 except Exception as e:
                     log.warning("fallback_graph_search_failed", error_type=type(e).__name__)
+                    _record_source_failure(source_failures, source="graph", error=e)
                     graph_search_failed = True
                     raw_results = []
 
@@ -1031,6 +1044,7 @@ async def search(
                     )
                 except Exception as e:
                     log.warning("untyped_graph_search_failed", error_type=type(e).__name__)
+                    _record_source_failure(source_failures, source="graph", error=e)
                     fallback_results = []
                 typed_results = [
                     (entity, score)
@@ -1074,6 +1088,7 @@ async def search(
 
         except Exception as e:
             log.warning("graph_search_failed", error_type=type(e).__name__)
+            _record_source_failure(source_failures, source="graph", error=e)
 
     # =========================================================================
     # DOCUMENT SEARCH - Search crawled documentation
@@ -1090,6 +1105,7 @@ async def search(
             log.debug("document_search_complete", results=len(doc_results))
         except Exception as e:
             log.warning("document_search_failed", error_type=type(e).__name__)
+            _record_source_failure(source_failures, source="document", error=e)
 
     if raw_memory_search_task is not None:
         try:
@@ -1097,6 +1113,7 @@ async def search(
             log.debug("raw_memory_search_complete", results=len(raw_memory_results))
         except Exception as e:
             log.warning("raw_memory_search_failed", error_type=type(e).__name__)
+            _record_source_failure(source_failures, source="raw_memory", error=e)
 
     # =========================================================================
     # MERGE AND RANK RESULTS
@@ -1125,6 +1142,7 @@ async def search(
     total_count = len(all_results)
     paginated_results = all_results[offset : offset + limit]
     has_more = offset + len(paginated_results) < total_count
+    _add_source_failure_filters(filters, source_failures)
 
     return SearchResponse(
         results=paginated_results,

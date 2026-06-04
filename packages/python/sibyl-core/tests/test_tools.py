@@ -1609,6 +1609,55 @@ class TestSearchTool:
 
         assert response.total == 0
         assert response.document_count == 0
+        assert response.filters["search_source_degraded"] is True
+        assert response.filters["search_source_failure_count"] == 1
+        assert response.filters["search_source_failures"] == [
+            {"source": "document", "error_type": "TimeoutError"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_search_raw_memory_failure_reports_degraded_source(self) -> None:
+        search_module = import_module("sibyl_core.tools.search")
+        recall = AsyncMock(side_effect=RuntimeError("raw recall down"))
+
+        with patch("sibyl_core.tools.search.recall_raw_memory", recall):
+            response = await search_module.search(
+                query="raw memory",
+                types=["raw_memory"],
+                organization_id="org_123",
+                principal_id="user-123",
+                include_graph=False,
+                include_documents=False,
+            )
+
+        assert response.total == 0
+        assert response.filters["search_source_degraded"] is True
+        assert response.filters["search_source_failure_count"] == 1
+        assert response.filters["search_source_failures"] == [
+            {"source": "raw_memory", "error_type": "RuntimeError"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_search_graph_failure_reports_degraded_source(self) -> None:
+        search_module = import_module("sibyl_core.tools.search")
+
+        with patch(
+            "sibyl_core.tools.search.get_graph_runtime",
+            AsyncMock(side_effect=RuntimeError("graph unavailable")),
+        ):
+            response = await search_module.search(
+                query="graph memory",
+                organization_id="org_123",
+                include_graph=True,
+                include_documents=False,
+            )
+
+        assert response.total == 0
+        assert response.filters["search_source_degraded"] is True
+        assert response.filters["search_source_failure_count"] == 1
+        assert response.filters["search_source_failures"] == [
+            {"source": "graph", "error_type": "RuntimeError"}
+        ]
 
     @pytest.mark.asyncio
     async def test_search_with_graph_cancels_slow_document_join(self) -> None:
