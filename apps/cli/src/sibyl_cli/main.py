@@ -9,6 +9,7 @@ Server commands (serve, dev, db, generate, etc.) are in sibyl-server.
 import asyncio
 import re
 import sys
+from collections.abc import Mapping
 from importlib.metadata import version as pkg_version
 from os import environ
 from typing import Annotated, Any, cast
@@ -70,6 +71,7 @@ from sibyl_cli.state import set_context_override
 from sibyl_cli.task import app as task_app
 from sibyl_cli.task import list_tasks
 from sibyl_cli.update import app as update_app
+from sibyl_core.memory_pipeline.capture import MemoryCaptureRequest, MemoryCaptureService
 from sibyl_core.models.context import ContextIntent
 from sibyl_core.models.entities import EntityType
 
@@ -418,50 +420,67 @@ async def _write_memory_capture(
     raw_scope_key = scope_key
     if memory_scope == "project" and raw_scope_key is None:
         raw_scope_key = resolved_project
-    raw_memory = await client.remember_raw_memory(
+
+    request = MemoryCaptureRequest(
         title=title,
-        raw_content=content,
-        source_id=source_id,
-        memory_scope=memory_scope,
-        scope_key=raw_scope_key,
-        diary=False,
-        agent_id=None,
-        project_id=None,
+        content=content,
+        entity_type=kind,
+        domain=domain,
         tags=tags,
+        related_to=resolved_links,
+        languages=languages,
         metadata=metadata,
         provenance={
             "remember_kind": kind,
             "related_to": resolved_links or [],
         },
+        source_id=source_id,
+        memory_scope=memory_scope,
+        scope_key=raw_scope_key,
         capture_surface=surface,
-    )
-    raw_memory_id = raw_memory.get("id")
-    raw_source_id = raw_memory.get("source_id")
-    raw_policy_reason = raw_memory.get("policy_reason")
-    graph_metadata = dict(metadata)
-    if raw_memory_id:
-        graph_metadata["raw_memory_id"] = raw_memory_id
-    if raw_source_id:
-        graph_metadata["raw_source_id"] = raw_source_id
-    if raw_policy_reason:
-        graph_metadata["raw_policy_reason"] = raw_policy_reason
-
-    data = await client.create_entity(
-        name=title,
-        content=content,
-        entity_type=kind,
-        category=domain,
-        languages=languages,
-        tags=tags,
-        related_to=resolved_links,
-        metadata=graph_metadata,
-        sync=wait_searchable,
+        wait_searchable=wait_searchable,
         skip_conflicts=skip_conflicts,
     )
-    data["raw_memory_id"] = raw_memory_id
-    data["raw_source_id"] = raw_source_id
-    data["raw_policy_reason"] = raw_policy_reason
-    return data
+
+    async def remember_raw_memory(capture: MemoryCaptureRequest) -> dict[str, Any]:
+        return await client.remember_raw_memory(
+            title=capture.title,
+            raw_content=capture.content,
+            source_id=capture.source_id,
+            memory_scope=capture.memory_scope,
+            scope_key=capture.scope_key,
+            diary=capture.diary,
+            agent_id=capture.agent_id,
+            project_id=capture.project_id,
+            tags=list(capture.tags) if capture.tags is not None else None,
+            metadata=dict(capture.metadata),
+            provenance=dict(capture.provenance),
+            capture_surface=capture.capture_surface,
+        )
+
+    async def create_graph_entity(
+        capture: MemoryCaptureRequest,
+        graph_metadata: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        return await client.create_entity(
+            name=capture.title,
+            content=capture.content,
+            entity_type=capture.entity_type,
+            category=capture.domain,
+            languages=list(capture.languages) if capture.languages is not None else None,
+            tags=list(capture.tags) if capture.tags is not None else None,
+            related_to=list(capture.related_to) if capture.related_to is not None else None,
+            metadata=dict(graph_metadata),
+            sync=capture.wait_searchable,
+            skip_conflicts=capture.skip_conflicts,
+        )
+
+    service = MemoryCaptureService(
+        remember_raw_memory=remember_raw_memory,
+        create_graph_entity=create_graph_entity,
+    )
+    result = await service.capture(request)
+    return result.to_payload()
 
 
 def _print_memory_capture_result(
