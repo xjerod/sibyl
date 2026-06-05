@@ -21,7 +21,7 @@ from sibyl_core.auth.memory_policy import (
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.config import core_config
 from sibyl_core.embeddings.providers import EmbeddingMetadata, EmbeddingProvider
-from sibyl_core.memory_pipeline.retrieval import CandidateSourceResult
+from sibyl_core.memory_pipeline.retrieval import CandidateSourceFailure, CandidateSourceResult
 from sibyl_core.models.context import ContextFacet
 from sibyl_core.retrieval.candidates import (
     CandidateKind,
@@ -385,12 +385,14 @@ async def context_search(
         for signal, candidates in source_lists
     ]
     fusion_backend = fusion_backend_from_env()
+    fusion_failures: list[CandidateSourceFailure] = []
     fused = await _fuse_candidates_for_plan(
         client=client,
         source_lists=filtered_lists,
         plan=search_plan,
         limit=limit,
         fusion_backend=fusion_backend,
+        fusion_failures=fusion_failures,
     )
     if search_plan.query.strip():
         fused = _apply_query_coverage_to_fused(
@@ -415,7 +417,11 @@ async def context_search(
             "types": list(types) if types else None,
             "project": search_plan.project,
             "retrieval_mode": "native",
-            "fusion_backend": fusion_backend.value,
+            **_fusion_receipt_metadata(
+                requested_backend=fusion_backend,
+                fused=fused,
+                failures=fusion_failures,
+            ),
             **candidate_source_metadata,
             **vector_fetch.as_metadata(),
         },
@@ -557,6 +563,28 @@ def _candidate_source_metadata(
     }
     if failures:
         metadata["candidate_source_failures"] = failures
+    return metadata
+
+
+def _fusion_receipt_metadata(
+    *,
+    requested_backend: FusionBackend,
+    fused: Sequence[tuple[RetrievalCandidate, float, Mapping[str, Any]]],
+    failures: Sequence[CandidateSourceFailure],
+) -> dict[str, object]:
+    actual_backend = requested_backend.value
+    if fused:
+        actual_backend = str(fused[0][2].get("fusion_backend") or actual_backend)
+    degraded = bool(failures) or actual_backend != requested_backend.value
+    metadata: dict[str, object] = {
+        "fusion_backend": actual_backend,
+        "fusion_backend_requested": requested_backend.value,
+        "fusion_backend_actual": actual_backend,
+        "fusion_degraded": degraded,
+        "fusion_failure_count": len(failures),
+    }
+    if failures:
+        metadata["fusion_failures"] = [failure.as_metadata() for failure in failures]
     return metadata
 
 
@@ -1948,10 +1976,26 @@ async def _fuse_candidates_for_plan(
     plan: RetrievalPlan,
     limit: int,
     fusion_backend: FusionBackend | None = None,
+    fusion_failures: list[CandidateSourceFailure] | None = None,
 ) -> list[tuple[RetrievalCandidate, float, dict[str, Any]]]:
     backend = fusion_backend or DEFAULT_FUSION_BACKEND
     if backend is FusionBackend.SURREAL_RRF:
-        scores = await _surreal_rrf_scores(client, source_lists, plan=plan, limit=limit)
+        scores: dict[str, float] = {}
+        try:
+            scores = await _surreal_rrf_scores(client, source_lists, plan=plan, limit=limit)
+        except Exception as exc:
+            log.warning(
+                "surreal_rrf_failed",
+                organization_id=plan.organization_id,
+                error_type=type(exc).__name__,
+            )
+            if fusion_failures is not None:
+                fusion_failures.append(
+                    CandidateSourceFailure(
+                        source=backend.value,
+                        error_type=type(exc).__name__,
+                    )
+                )
         if scores:
             return _rank_fused_candidates(
                 source_lists,
@@ -1999,22 +2043,14 @@ async def _surreal_rrf_scores(
     unique_candidate_count = len(
         {candidate.id for _signal, candidates in source_lists for candidate in candidates}
     )
-    try:
-        rows = normalize_records(
-            await client.execute_query(
-                "RETURN search::rrf($lists, $limit, $k);",
-                lists=rrf_inputs,
-                limit=max(int(limit), unique_candidate_count, 1),
-                k=plan.weights.rrf_k,
-            )
+    rows = normalize_records(
+        await client.execute_query(
+            "RETURN search::rrf($lists, $limit, $k);",
+            lists=rrf_inputs,
+            limit=max(int(limit), unique_candidate_count, 1),
+            k=plan.weights.rrf_k,
         )
-    except Exception as exc:
-        log.warning(
-            "surreal_rrf_failed",
-            organization_id=plan.organization_id,
-            error_type=type(exc).__name__,
-        )
-        return {}
+    )
 
     scores: dict[str, float] = {}
     for row in rows:

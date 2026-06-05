@@ -755,6 +755,13 @@ class _FailingRrfClient:
         raise RuntimeError("search::rrf unavailable")
 
 
+class _RrfOnlyFailingClient:
+    async def execute_query(self, query: str, **_params: object) -> list[dict[str, object]]:
+        if "search::rrf" in query:
+            raise RuntimeError("search::rrf unavailable")
+        return []
+
+
 @pytest.mark.asyncio
 async def test_surreal_rrf_backend_uses_database_fusion_scores() -> None:
     plan = build_context_retrieval_plan(
@@ -828,6 +835,7 @@ async def test_surreal_rrf_backend_falls_back_to_python_rrf_on_error() -> None:
         source=None,
         metadata={},
     )
+    failures: list[search_module.CandidateSourceFailure] = []
 
     ranked = await search_module._fuse_candidates_for_plan(
         client=_FailingRrfClient(),
@@ -835,10 +843,14 @@ async def test_surreal_rrf_backend_falls_back_to_python_rrf_on_error() -> None:
         plan=plan,
         limit=1,
         fusion_backend=FusionBackend.SURREAL_RRF,
+        fusion_failures=failures,
     )
 
     assert ranked[0][0].id == "candidate"
     assert ranked[0][2]["fusion_backend"] == "python_rrf"
+    assert [failure.as_metadata() for failure in failures] == [
+        {"source": "surreal_rrf", "error_type": "RuntimeError"}
+    ]
 
 
 @pytest.mark.asyncio
@@ -1067,6 +1079,67 @@ async def test_context_search_reports_graph_expansion_failure(
     assert response.filters["candidate_source_failure_count"] == 1
     assert response.filters["candidate_source_failures"] == [
         {"source": "graph_expansion", "error_type": "RuntimeError"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_context_search_reports_surreal_rrf_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = build_context_retrieval_plan(
+        query="active task followup",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+        limit=12,
+    )
+    candidate = RetrievalCandidate(
+        id="task-direct",
+        type="task",
+        name="Direct Task",
+        content="direct task context",
+        score=1.0,
+        source=None,
+        metadata={},
+        project_id="project_123",
+    )
+
+    class Runtime:
+        client = _RrfOnlyFailingClient()
+
+    async def fake_runtime(_organization_id: str, **_kwargs: object) -> Runtime:
+        return Runtime()
+
+    async def fake_node_fulltext(**_kwargs: object) -> list[RetrievalCandidate]:
+        return [candidate]
+
+    async def fake_graph_expansion(**_kwargs: object) -> list[RetrievalCandidate]:
+        return []
+
+    monkeypatch.setenv("SIBYL_FUSION_BACKEND", "surreal_rrf")
+    monkeypatch.setattr(search_module, "get_surreal_graph_runtime", fake_runtime)
+    monkeypatch.setattr(search_module, "_node_fulltext_candidates", fake_node_fulltext)
+    monkeypatch.setattr(search_module, "_graph_expansion_candidates", fake_graph_expansion)
+
+    response = await search_module.context_search(
+        plan=plan,
+        types=["task"],
+        facet=ContextFacet.ACTIVE_WORK,
+        limit=3,
+        raw_memory_recall_fn=lambda **_kwargs: [],
+    )
+
+    assert [result.id for result in response.results] == ["task-direct"]
+    assert response.filters["fusion_backend"] == "python_rrf"
+    assert response.filters["fusion_backend_requested"] == "surreal_rrf"
+    assert response.filters["fusion_backend_actual"] == "python_rrf"
+    assert response.filters["fusion_degraded"] is True
+    assert response.filters["fusion_failure_count"] == 1
+    assert response.filters["fusion_failures"] == [
+        {"source": "surreal_rrf", "error_type": "RuntimeError"}
     ]
 
 
