@@ -48,7 +48,7 @@ CONTENT_TABLES = (
     "backup_settings",
     "backups",
 )
-CONTENT_SCHEMA_CURRENT_VERSION = 14
+CONTENT_SCHEMA_CURRENT_VERSION = 15
 CONTENT_SCHEMA_NAME = "content"
 _SCHEMA_CHECK_BATCH_SIZE = 128
 _CONTENT_MEMORY_SCOPE_VALUES = tuple(scope.value for scope in MemoryScope)
@@ -348,6 +348,17 @@ UPDATE backup_settings SET include_database_dump = false, include_graph = true;
 UPDATE backups SET include_database_dump = false, include_graph = true;
 """
 
+CONTENT_LOOKUP_INDEX_MIGRATION_DEFINITIONS = """
+DEFINE INDEX IF NOT EXISTS idx_crawl_sources_org_uuid
+    ON crawl_sources FIELDS organization_id, uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_crawl_sources_org_status_created
+    ON crawl_sources FIELDS organization_id, crawl_status, created_at, uuid;
+DEFINE INDEX IF NOT EXISTS idx_crawled_documents_org_uuid
+    ON crawled_documents FIELDS organization_id, uuid UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_document_chunks_org_uuid
+    ON document_chunks FIELDS organization_id, uuid UNIQUE;
+"""
+
 
 def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
     compatible_schema = render_fulltext_compatible_sql(
@@ -437,6 +448,11 @@ def _content_schema_migrations(*, url: str) -> tuple[SchemaMigration, ...]:
             version=14,
             name="content_backup_full_org_archives",
             statements=tuple(split_statements(CONTENT_BACKUP_LEGACY_INCLUDE_CLEANUP_DEFINITIONS)),
+        ),
+        SchemaMigration(
+            version=15,
+            name="content_lookup_indexes",
+            statements=tuple(split_statements(CONTENT_LOOKUP_INDEX_MIGRATION_DEFINITIONS)),
         ),
     )
 
@@ -777,6 +793,7 @@ __all__ = [
     "CONTENT_EXTRACTED_INTO_RELATION_MIGRATION_DEFINITIONS",
     "CONTENT_HIGHLIGHT_SNIPPET_MIGRATION_DEFINITIONS",
     "CONTENT_LINEAGE_RELATION_MIGRATION_DEFINITIONS",
+    "CONTENT_LOOKUP_INDEX_MIGRATION_DEFINITIONS",
     "CONTENT_PERMISSION_MIGRATION_DEFINITIONS",
     "CONTENT_RELATION_TABLES",
     "CONTENT_REVIEW_STATE_DEFERRED_MIGRATION_DEFINITIONS",
