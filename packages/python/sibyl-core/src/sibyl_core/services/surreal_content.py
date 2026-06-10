@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
@@ -51,6 +52,15 @@ log = structlog.get_logger()
 type _RawMemoryProviderCacheKey = tuple[EmbeddingProviderName, str, int, str]
 _raw_memory_embedding_provider: EmbeddingProvider | None = None
 _raw_memory_embedding_fingerprint: _RawMemoryProviderCacheKey | None = None
+
+
+@dataclass(slots=True)
+class _SharedContentClientState:
+    client: SurrealContentClient | None = None
+
+
+_shared_content_client_state = _SharedContentClientState()
+_shared_content_client_lock = asyncio.Lock()
 _UPSERT_RECORD = {
     "crawl_sources": (
         "UPSERT crawl_sources CONTENT $record "
@@ -527,13 +537,27 @@ def build_surreal_content_client() -> SurrealContentClient:
     )
 
 
+async def get_shared_surreal_content_client() -> SurrealContentClient:
+    if _shared_content_client_state.client is not None:
+        return _shared_content_client_state.client
+
+    async with _shared_content_client_lock:
+        if _shared_content_client_state.client is None:
+            _shared_content_client_state.client = build_surreal_content_client()
+        return _shared_content_client_state.client
+
+
+async def close_shared_surreal_content_client() -> None:
+    async with _shared_content_client_lock:
+        client = _shared_content_client_state.client
+        _shared_content_client_state.client = None
+        if client is not None:
+            await client.close()
+
+
 @asynccontextmanager
 async def surreal_content_client() -> AsyncIterator[SurrealContentClient]:
-    client = build_surreal_content_client()
-    try:
-        yield client
-    finally:
-        await client.close()
+    yield await get_shared_surreal_content_client()
 
 
 def _normalize_record(record: object) -> SurrealRecord | None:
@@ -3237,10 +3261,12 @@ __all__ = [
     "RawMemoryWrite",
     "backfill_content_lineage",
     "build_surreal_content_client",
+    "close_shared_surreal_content_client",
     "get_or_create_source",
     "get_raw_memory",
     "get_raw_memory_by_dedupe_key",
     "get_raw_memory_by_source_id",
+    "get_shared_surreal_content_client",
     "lexical_score",
     "lexical_score_from_tokens",
     "list_raw_memories_by_source_id",
