@@ -35,6 +35,7 @@ from sibyl_core.services.surreal_content import (
     remember_raw_memories,
     remember_raw_memory,
     remember_reflection_candidate_review,
+    save_raw_memory,
     search_document_chunks,
 )
 
@@ -1424,6 +1425,144 @@ class TestSurrealContentHelpers:
         assert saved_record["embedding"] == embedding
         assert saved_record["metadata"]["embedding_metadata"] == embedding_metadata
         assert memory.embedding == embedding
+
+    @pytest.mark.asyncio
+    async def test_save_raw_memory_reembeds_changed_content(self) -> None:
+        old_embedding = [0.1, 0.2, 0.3]
+        new_embedding = [0.7, 0.8, 0.9]
+        existing_memory = {
+            "uuid": "memory-1",
+            "organization_id": "org-1",
+            "source_id": "source-email-1",
+            "principal_id": "user-bliss",
+            "memory_scope": "private",
+            "review_state": "pending",
+            "title": "Architecture note",
+            "raw_content": "Old Surreal write path.",
+            "embedding": old_embedding,
+            "metadata": {"embedding_metadata": {"dimensions": 3}},
+        }
+        persisted_memory = {
+            **existing_memory,
+            "raw_content": "Updated Surreal write path.",
+            "embedding": new_embedding,
+            "metadata": {
+                "embedding_metadata": {
+                    "provider": "deterministic",
+                    "model": "raw-test-v1",
+                    "dimensions": 3,
+                    "cache_namespace": "raw-test",
+                    "tokenizer_estimate_method": "unit-test",
+                    "text_version": "raw-capture-v1",
+                    "normalize": True,
+                    "input_kind_sensitive": True,
+                }
+            },
+        }
+        fake_client = FakeClient(
+            [_query_result([existing_memory]), _query_result([persisted_memory])]
+        )
+        provider = FakeEmbeddingProvider(new_embedding)
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        memory = _raw_memory_from_record(existing_memory)
+        memory.raw_content = "Updated Surreal write path."
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            saved = await save_raw_memory(memory, embedding_provider=provider)
+
+        saved_record = fake_client.calls[1][1]["record"]
+        assert provider.texts == ["Title: Architecture note\n\nUpdated Surreal write path."]
+        assert saved_record["embedding"] == new_embedding
+        assert saved_record["metadata"]["embedding_metadata"]["model"] == "raw-test-v1"
+        assert saved.embedding == new_embedding
+
+    @pytest.mark.asyncio
+    async def test_save_raw_memory_clears_hidden_lifecycle_embeddings(self) -> None:
+        existing_memory = {
+            "uuid": "memory-1",
+            "organization_id": "org-1",
+            "source_id": "source-email-1",
+            "principal_id": "user-bliss",
+            "memory_scope": "private",
+            "review_state": "pending",
+            "title": "Architecture note",
+            "raw_content": "Surreal write path.",
+            "embedding": [0.1, 0.2, 0.3],
+            "metadata": {"embedding_metadata": {"dimensions": 3}},
+        }
+        persisted_memory = {
+            **existing_memory,
+            "review_state": "superseded",
+            "embedding": None,
+            "metadata": {},
+        }
+        fake_client = FakeClient(
+            [_query_result([existing_memory]), _query_result([persisted_memory])]
+        )
+        provider = FakeEmbeddingProvider([0.7, 0.8, 0.9])
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        memory = _raw_memory_from_record(existing_memory)
+        memory.review_state = "superseded"
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            saved = await save_raw_memory(memory, embedding_provider=provider)
+
+        saved_record = fake_client.calls[1][1]["record"]
+        assert provider.texts == []
+        assert saved_record["embedding"] is None
+        assert "embedding_metadata" not in saved_record["metadata"]
+        assert saved.embedding is None
+
+    @pytest.mark.asyncio
+    async def test_save_raw_memory_reembeds_restored_memory(self) -> None:
+        embedding = [0.7, 0.8, 0.9]
+        hidden_memory = {
+            "uuid": "memory-1",
+            "organization_id": "org-1",
+            "source_id": "source-email-1",
+            "principal_id": "user-bliss",
+            "memory_scope": "private",
+            "review_state": "superseded",
+            "title": "Architecture note",
+            "raw_content": "Surreal write path.",
+            "embedding": None,
+            "metadata": {},
+        }
+        persisted_memory = {**hidden_memory, "review_state": "pending", "embedding": embedding}
+        fake_client = FakeClient(
+            [_query_result([hidden_memory]), _query_result([persisted_memory])]
+        )
+        provider = FakeEmbeddingProvider(embedding)
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        from sibyl_core.services import surreal_content as content_service
+
+        memory = _raw_memory_from_record(hidden_memory)
+        memory.review_state = "pending"
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            saved = await save_raw_memory(memory, embedding_provider=provider)
+
+        saved_record = fake_client.calls[1][1]["record"]
+        assert provider.texts == ["Title: Architecture note\n\nSurreal write path."]
+        assert saved_record["embedding"] == embedding
+        assert saved_record["metadata"]["embedding_metadata"]["model"] == "raw-test-v1"
+        assert saved.embedding == embedding
 
     @pytest.mark.asyncio
     async def test_remember_raw_memory_auto_uses_configured_embedding_provider(self) -> None:

@@ -1727,6 +1727,65 @@ async def _raw_memories_with_embeddings(
     return list(memories)
 
 
+def _raw_memory_embedding_surface(memory: RawMemory) -> str:
+    return raw_memory_embedding_text(title=memory.title, raw_content=memory.raw_content)
+
+
+def _raw_memory_without_embedding(memory: RawMemory) -> RawMemory:
+    metadata = dict(memory.metadata)
+    metadata.pop("embedding_metadata", None)
+    return replace(memory, embedding=None, metadata=metadata)
+
+
+def _raw_memory_with_existing_embedding(memory: RawMemory, existing: RawMemory) -> RawMemory:
+    if memory.embedding is not None or existing.embedding is None:
+        return memory
+    metadata = dict(memory.metadata)
+    existing_metadata = existing.metadata.get("embedding_metadata")
+    if "embedding_metadata" not in metadata and existing_metadata is not None:
+        metadata["embedding_metadata"] = existing_metadata
+    return replace(memory, embedding=list(existing.embedding), metadata=metadata)
+
+
+def _raw_memory_has_replacement_embedding(memory: RawMemory, existing: RawMemory | None) -> bool:
+    if memory.embedding is None:
+        return False
+    if existing is None or existing.embedding is None:
+        return True
+    return memory.embedding != existing.embedding
+
+
+async def _raw_memory_with_save_embedding(
+    memory: RawMemory,
+    embedding_provider: EmbeddingProvider | None | object,
+) -> RawMemory:
+    provider = (
+        _configured_raw_memory_embedding_provider()
+        if embedding_provider is _RAW_MEMORY_EMBEDDING_AUTO
+        else cast("EmbeddingProvider | None", embedding_provider)
+    )
+    return await _raw_memory_with_embedding(_raw_memory_without_embedding(memory), provider)
+
+
+async def _raw_memory_prepared_for_save(
+    memory: RawMemory,
+    *,
+    existing: RawMemory | None,
+    embedding_provider: EmbeddingProvider | None | object,
+) -> RawMemory:
+    if not raw_memory_recallable(memory):
+        return _raw_memory_without_embedding(memory)
+    if _raw_memory_has_replacement_embedding(memory, existing):
+        return memory
+    if existing is None:
+        return await _raw_memory_with_save_embedding(memory, embedding_provider)
+
+    text_changed = _raw_memory_embedding_surface(memory) != _raw_memory_embedding_surface(existing)
+    if not text_changed and raw_memory_recallable(existing):
+        return _raw_memory_with_existing_embedding(memory, existing)
+    return await _raw_memory_with_save_embedding(memory, embedding_provider)
+
+
 def _value_batches(
     values: Iterable[str], *, batch_size: int = _DEFAULT_BATCH_SIZE
 ) -> list[list[str]]:
@@ -2540,8 +2599,24 @@ async def list_raw_memories_for_promotion(
     ][:limit]
 
 
-async def save_raw_memory(memory: RawMemory) -> RawMemory:
+async def save_raw_memory(
+    memory: RawMemory,
+    *,
+    embedding_provider: EmbeddingProvider | None | object = _RAW_MEMORY_EMBEDDING_AUTO,
+) -> RawMemory:
     async with surreal_content_client() as client:
+        existing_record = await _select_one(
+            client,
+            "SELECT * FROM raw_captures "
+            "WHERE organization_id = $organization_id AND uuid = $uuid LIMIT 1;",
+            organization_id=memory.organization_id,
+            uuid=memory.id,
+        )
+        memory = await _raw_memory_prepared_for_save(
+            memory,
+            existing=_raw_memory_from_record(existing_record) if existing_record else None,
+            embedding_provider=embedding_provider,
+        )
         record = await _replace_record(
             client,
             "raw_captures",
