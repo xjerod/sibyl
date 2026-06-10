@@ -22,7 +22,7 @@
     {
       "id": "golden:silver-delta",
       "title": "Silver Delta replay verification",
-      "content": "Silver Delta covers replay verification and migration acceptance. It is the successor checkpoint for storage migration acceptance work.",
+      "content": "Silver Delta covers replay verification and migration acceptance. It is the successor checkpoint after storage adapter extraction.",
       "expected_scope": "project",
       "tags": ["context-pack", "migration", "acceptance"],
       "metadata": {
