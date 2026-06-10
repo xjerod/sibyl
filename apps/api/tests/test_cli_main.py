@@ -14,6 +14,19 @@ runner = CliRunner()
 cli_main = import_module("sibyl.cli.main")
 
 
+def _clear_embedded_runtime_env(monkeypatch) -> None:
+    for key in (
+        "SIBYL_STORE",
+        "SIBYL_AUTH_STORE",
+        "SIBYL_COORDINATION_BACKEND",
+        "SIBYL_ALLOW_EMBEDDED_SINGLE_WRITER",
+        "SIBYL_SURREAL_URL",
+    ):
+        if key not in os.environ:
+            monkeypatch.setenv(key, "")
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_top_level_version_uses_package_metadata(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "pkg_version", lambda package_name: "9.9.9")
 
@@ -78,14 +91,7 @@ def test_serve_with_reload_enables_dev_diagnostics(monkeypatch) -> None:
 
 
 def test_configure_embedded_environment(monkeypatch, tmp_path) -> None:
-    for key in (
-        "SIBYL_STORE",
-        "SIBYL_AUTH_STORE",
-        "SIBYL_COORDINATION_BACKEND",
-        "SIBYL_ALLOW_EMBEDDED_SINGLE_WRITER",
-        "SIBYL_SURREAL_URL",
-    ):
-        monkeypatch.delenv(key, raising=False)
+    _clear_embedded_runtime_env(monkeypatch)
 
     data_dir = cli_main._configure_embedded_environment(tmp_path / "surreal")
 
@@ -98,7 +104,7 @@ def test_configure_embedded_environment(monkeypatch, tmp_path) -> None:
 
 
 def test_configure_embedded_environment_refreshes_global_settings(monkeypatch, tmp_path) -> None:
-    monkeypatch.delenv("SIBYL_SURREAL_URL", raising=False)
+    _clear_embedded_runtime_env(monkeypatch)
     monkeypatch.setattr("sibyl.config.settings.surreal_url", "")
 
     data_dir = cli_main._configure_embedded_environment(tmp_path / "surreal")

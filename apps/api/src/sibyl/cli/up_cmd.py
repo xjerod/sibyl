@@ -27,7 +27,6 @@ from sibyl.cli.common import (
     success,
     warn,
 )
-from sibyl.runtime_shape import resolve_coordination_backend
 
 
 # Find project root (where docker-compose.yml lives)
@@ -81,9 +80,7 @@ def _default_local_surreal_url(env: dict[str, str]) -> str:
 
 
 def _resolve_coordination_backend(env: dict[str, str]) -> str:
-    return resolve_coordination_backend(
-        coordination_backend=env.get("SIBYL_COORDINATION_BACKEND", "auto"),
-    )
+    return "redis" if env.get("SIBYL_COORDINATION_BACKEND") == "redis" else "local"
 
 
 def _apply_surreal_dev_defaults(env: dict[str, str]) -> None:

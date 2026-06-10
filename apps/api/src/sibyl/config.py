@@ -12,8 +12,6 @@ import structlog
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from sibyl.runtime_shape import resolve_coordination_backend
-
 _log = structlog.get_logger()
 
 # Persisted auto-generated JWT key (same pattern as settings.key in crypto.py)
@@ -723,9 +721,7 @@ class Settings(BaseSettings):
     @property
     def resolved_coordination_backend(self) -> Literal["local", "redis"]:
         """Resolve the active coordination backend for this runtime."""
-        return resolve_coordination_backend(
-            coordination_backend=self.coordination_backend,
-        )
+        return "redis" if self.coordination_backend == "redis" else "local"
 
 
 # Global settings instance

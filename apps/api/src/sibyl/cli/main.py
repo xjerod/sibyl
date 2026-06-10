@@ -34,7 +34,6 @@ from sibyl.cli.export import app as export_app
 from sibyl.cli.generate import app as generate_app
 from sibyl.cli.migrate import app as migrate_app
 from sibyl.cli.up_cmd import down, status as up_status, up
-from sibyl.runtime_shape import resolve_object_coordination_backend
 
 # Main app
 app = typer.Typer(
@@ -344,7 +343,7 @@ def _check_coordination_services(settings: Any) -> bool:
 
     all_good = True
 
-    if resolve_object_coordination_backend(settings) == "redis":
+    if _resolved_coordination_backend(settings) == "redis":
         redis_host = settings.redis_host or "127.0.0.1"
         redis_port = settings.redis_port or 6381
         if _tcp_service_running(redis_host, redis_port):
@@ -355,6 +354,13 @@ def _check_coordination_services(settings: Any) -> bool:
             all_good = False
 
     return all_good
+
+
+def _resolved_coordination_backend(settings: Any) -> str:
+    backend = getattr(settings, "resolved_coordination_backend", None)
+    if backend in {"local", "redis"}:
+        return backend
+    return "redis" if getattr(settings, "coordination_backend", None) == "redis" else "local"
 
 
 def _check_runtime_services(settings: Any) -> bool:
