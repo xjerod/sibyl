@@ -476,7 +476,12 @@ class LocalQueueBroker:
             return False
 
         if record.status == JobStatus.QUEUED:
-            self._jobs.pop(job_id, None)
+            record.status = JobStatus.CANCELLED
+            record.finish_time = datetime.now(UTC)
+            record.result = None
+            record.error = "cancelled"
+            record.expires_at = record.finish_time + self._result_ttl
+            self._record_recent_job(job_id)
             return True
 
         if record.status == JobStatus.IN_PROGRESS and record.running_task is not None:
@@ -646,9 +651,18 @@ class LocalQueueBroker:
         try:
             result = await function(self._ctx, *record.args, **record.kwargs)
         except asyncio.CancelledError:
-            self._jobs.pop(record.job_id, None)
+            record.status = JobStatus.CANCELLED
+            record.finish_time = datetime.now(UTC)
+            record.result = None
+            record.error = "cancelled"
+            record.expires_at = record.finish_time + self._result_ttl
+            telemetry_registry().record_job_finished(
+                function=record.function,
+                status="cancelled",
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+            )
             log.info("Local job cancelled", job_id=record.job_id, function=record.function)
-            raise
+            return
         except Exception as e:
             record.status = JobStatus.COMPLETE
             record.finish_time = datetime.now(UTC)

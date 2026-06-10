@@ -578,11 +578,17 @@ async def test_local_queue_broker_cancels_queued_jobs_and_best_effort_running_jo
 
     assert await broker.cancel_job(queued_job_id) is True
     queued_info = await broker.get_job_status(queued_job_id)
-    assert queued_info.status == JobStatus.NOT_FOUND
+    assert queued_info.status == JobStatus.CANCELLED
+    assert queued_info.error == "cancelled"
 
     assert await broker.cancel_job(running_job_id) is False
-    running_info = await _wait_for_job_status(broker, running_job_id, JobStatus.NOT_FOUND)
-    assert running_info.status == JobStatus.NOT_FOUND
+    running_info = await _wait_for_job_status(broker, running_job_id, JobStatus.CANCELLED)
+    assert running_info.error == "cancelled"
+
+    release.set()
+    next_job_id = await broker.enqueue_sync("source_after_cancel")
+    next_info = await _wait_for_job_status(broker, next_job_id, JobStatus.COMPLETE)
+    assert next_info.result == {"source_id": "source_after_cancel", "ok": True}
 
     await broker.shutdown()
 

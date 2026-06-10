@@ -26,6 +26,7 @@ class JobStatus(StrEnum):
     COMPLETE = "complete"
     NOT_FOUND = "not_found"
     DEFERRED = "deferred"
+    CANCELLED = "cancelled"
 
 
 @dataclass
