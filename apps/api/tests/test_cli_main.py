@@ -223,3 +223,16 @@ def test_setup_runtime_services_checks_surreal_stack_for_mixed_legacy_mode(
     assert cli_main._check_runtime_services(runtime_settings) is True
     check_surreal.assert_called_once_with(runtime_settings)
     check_coordination.assert_not_called()
+
+
+def test_setup_does_not_create_project_dotenv(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".env.example").write_text("SIBYL_JWT_SECRET=example\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_main, "_check_openai_api_key_configured", lambda settings: True)
+    monkeypatch.setattr(cli_main, "_check_docker_available", lambda: True)
+    monkeypatch.setattr(cli_main, "_check_runtime_services", lambda settings: True)
+
+    result = runner.invoke(app, ["setup"])
+
+    assert result.exit_code == 0
+    assert not (tmp_path / ".env").exists()

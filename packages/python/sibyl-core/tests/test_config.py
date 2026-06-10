@@ -7,6 +7,17 @@ import pytest
 from sibyl_core.config import CoreConfig
 
 
+def test_core_config_ignores_project_dotenv(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SIBYL_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("SIBYL_OPENAI_API_KEY=dotenv-openai-key\n")
+
+    config = CoreConfig()
+
+    assert config.openai_api_key.get_secret_value() != "dotenv-openai-key"
+
+
 class TestCoreConfigEmbeddedStoreGuard:
     """CoreConfig must refuse embedded stores in production like apps/api does."""
 

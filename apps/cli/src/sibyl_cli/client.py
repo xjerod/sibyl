@@ -228,7 +228,11 @@ def _is_refresh_revoked(message: str | None) -> bool:
     if not message:
         return False
     normalized = message.lower()
-    return "session not found" in normalized or "revoked" in normalized
+    return (
+        "session not found" in normalized
+        or "revoked" in normalized
+        or "invalid refresh token" in normalized
+    )
 
 
 # Read-like POSTs (search, recall, context-pack assembly) carry no durable

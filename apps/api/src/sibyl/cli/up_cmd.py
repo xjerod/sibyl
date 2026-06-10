@@ -49,7 +49,7 @@ def _find_project_root() -> Path | None:
 
 def _run_docker_compose(args: list[str], project_root: Path) -> subprocess.CompletedProcess[str]:
     """Run docker compose command."""
-    cmd = ["docker", "compose", *args]
+    cmd = ["docker", "compose", "--env-file", os.devnull, *args]
     return subprocess.run(cmd, check=False, cwd=project_root, capture_output=True, text=True)  # noqa: S603
 
 
@@ -132,14 +132,6 @@ def _load_runtime_env(project_root: Path) -> dict[str, str]:
         python_paths.append(existing_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(python_paths)
 
-    env_file = project_root / ".env"
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                env[key.strip()] = value.strip().strip('"').strip("'")
-
     _apply_surreal_dev_defaults(env)
     return env
 
@@ -217,12 +209,6 @@ def up(
         # Wait for services to be healthy
         with console.status(f"[{NEON_CYAN}]Waiting for services...[/{NEON_CYAN}]"):
             time.sleep(3)  # Give services a moment to initialize
-
-    # Check for .env
-    env_file = project_root / ".env"
-    if not env_file.exists():
-        warn(".env file not found. Using defaults.")
-        info("Copy .env.example to .env and configure your API keys.")
 
     # Start API server
     if detach:

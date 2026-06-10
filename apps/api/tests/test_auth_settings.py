@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from sibyl import config as config_module
 from sibyl.config import Settings
 
 
@@ -31,6 +32,19 @@ def test_settings_auth_fallbacks(monkeypatch) -> None:
     assert s.jwt_secret.get_secret_value() == "test-jwt-secret-key-for-api-tests"
     assert s.github_client_id.get_secret_value() == "cid"
     assert s.github_client_secret.get_secret_value() == "csecret"
+
+
+def test_settings_ignores_project_dotenv_for_jwt_secret(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SIBYL_JWT_SECRET", raising=False)
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.setattr(config_module, "_JWT_KEY_FILE", tmp_path / "jwt.key")
+    (tmp_path / ".env").write_text("SIBYL_JWT_SECRET=dotenv-secret\n")
+
+    s = Settings()
+
+    assert s.jwt_secret.get_secret_value() != "dotenv-secret"
+    assert (tmp_path / "jwt.key").exists()
 
 
 def test_settings_server_url_default() -> None:
