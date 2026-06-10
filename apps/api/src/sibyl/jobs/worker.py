@@ -110,8 +110,10 @@ async def startup(ctx: dict[str, Any]) -> None:
     await load_api_keys_from_db()
 
     from sibyl.ai.llm.service import install_db_config_source
+    from sibyl.core_runtime_ports import install_core_runtime_ports
 
     install_db_config_source()
+    install_core_runtime_ports()
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:  # noqa: ARG001

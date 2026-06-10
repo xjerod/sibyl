@@ -27,6 +27,7 @@ class RuntimeServices:
         await bootstrap_surreal_runtime_schemas()
         await load_runtime_settings_from_db()
         install_llm_db_config_source()
+        install_core_runtime_ports()
 
         from sibyl.services.surreal_connectivity import initialize_shared_surreal_connectivity
 
@@ -199,3 +200,9 @@ def install_llm_db_config_source() -> None:
     from sibyl.ai.llm.service import install_db_config_source
 
     install_db_config_source()
+
+
+def install_core_runtime_ports() -> None:
+    from sibyl.core_runtime_ports import install_core_runtime_ports as install_ports
+
+    install_ports()

@@ -37,7 +37,16 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
         "bootstrap_surreal_runtime_schemas",
         bootstrap_surreal_runtime,
     )
-    monkeypatch.setattr(runtime_services_module, "install_llm_db_config_source", MagicMock())
+    monkeypatch.setattr(
+        runtime_services_module,
+        "install_llm_db_config_source",
+        MagicMock(side_effect=lambda: startup_events.append("llm")),
+    )
+    monkeypatch.setattr(
+        runtime_services_module,
+        "install_core_runtime_ports",
+        MagicMock(side_effect=lambda: startup_events.append("core_ports")),
+    )
     monkeypatch.setattr("sibyl.api.pubsub.init_pubsub", init_pubsub)
     monkeypatch.setattr("sibyl.api.pubsub.shutdown_pubsub", shutdown_pubsub)
     monkeypatch.setattr("sibyl.locks.init_locks", init_locks)
@@ -53,7 +62,7 @@ async def test_fully_surreal_mode_skips_legacy_postgres_bootstrap(
     async with app.router.lifespan_context(app):
         pass
 
-    assert startup_events == ["surreal"]
+    assert startup_events == ["surreal", "llm", "core_ports"]
     init_pubsub.assert_awaited_once()
     init_locks.assert_awaited_once()
     shutdown_pubsub.assert_awaited_once()

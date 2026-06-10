@@ -25,6 +25,7 @@ from sibyl_core.models.tasks import (
     TaskStatus,
 )
 from sibyl_core.projection import project_memory_entity
+from sibyl_core.runtime_ports import get_queue_port
 from sibyl_core.services.graph import get_surreal_graph_runtime
 from sibyl_core.tools.helpers import (
     MAX_CONTENT_LENGTH,
@@ -603,9 +604,7 @@ async def add(
 
         # Async mode (default): queue arq job, return immediately
         try:
-            from sibyl.jobs.queue import enqueue_create_entity
-
-            await enqueue_create_entity(
+            await get_queue_port().enqueue_create_entity(
                 entity_id=entity_id,
                 entity_data=entity.model_dump(mode="json"),
                 entity_type=entity_type,
