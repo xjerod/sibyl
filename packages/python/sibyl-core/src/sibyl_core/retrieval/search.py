@@ -53,6 +53,30 @@ EDGE_FULLTEXT_MIN_MATCH_LIMIT = 32
 _ACTIVE_TASK_STATUSES = {"doing", "in_progress", "review"}
 _RAW_MEMORY_CONTEXT_TYPES = {"raw_memory", "session", "episode", "note"}
 _EDGE_CONTEXT_TYPES = {"claim", "relationship"}
+_GRAPH_EXPANSION_RELATIONSHIP_WEIGHTS = {
+    "DECIDES": 1.0,
+    "REQUIRES": 0.98,
+    "DEPENDS_ON": 0.98,
+    "BLOCKS": 0.96,
+    "SUPERSEDES": 0.95,
+    "SUPPORTS": 0.94,
+    "VALIDATED_BY": 0.94,
+    "USES_PROCEDURE": 0.92,
+    "IMPLEMENTED": 0.9,
+    "REFERENCES": 0.86,
+    "ENCOUNTERED": 0.86,
+    "TOUCHES": 0.82,
+    "PRODUCES": 0.82,
+    "ABOUT": 0.78,
+    "BELONGS_TO": 0.72,
+    "CONTAINS": 0.72,
+    "DERIVED_FROM": 0.7,
+    "DOCUMENTED_IN": 0.66,
+    "RELATED_TO": 0.64,
+    "MENTIONS": 0.58,
+}
+_GRAPH_EXPANSION_DEPTH_DECAY = 0.72
+_GRAPH_EXPANSION_FETCH_HEADROOM = 4
 log = structlog.get_logger()
 
 
@@ -164,6 +188,14 @@ class SearchFilter:
     project_ids: tuple[str, ...] = ()
     edge_uuids: tuple[str, ...] = ()
     edge_types: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _GraphExpansionHop:
+    uuid: str
+    depth: int
+    relationship: str
+    score: float
 
 
 def coerce_fusion_backend(
@@ -1218,7 +1250,7 @@ async def _graph_expansion_candidates(
         _candidate_from_node_record(
             row,
             signal=RetrievalSignal.GRAPH_EXPANSION,
-            score=1.0,
+            score=_record_score(row),
         )
         for row in rows
     ]
@@ -1313,7 +1345,7 @@ async def _node_bfs_records(
     if (not origin_uuids and not episode_origin_uuids) or max_depth < 1:
         return []
 
-    discovered: list[str] = []
+    discovered: list[_GraphExpansionHop] = []
     seen_discovered: set[str] = set()
     visited_entities = set(origin_uuids)
     entity_frontier = _dedupe_strings(origin_uuids)
@@ -1324,35 +1356,42 @@ async def _node_bfs_records(
         remaining = max(int(limit) - len(discovered), 0)
         if remaining <= 0:
             break
+        fetch_limit = _graph_expansion_fetch_limit(remaining)
+        next_hops: list[_GraphExpansionHop] = []
         if depth == 1:
-            next_entities.extend(
-                await _mentioned_entity_uuids(
+            next_hops.extend(
+                await _mentioned_entity_hops(
                     client=client,
                     episode_uuids=episode_frontier,
                     group_id=group_id,
-                    limit=remaining,
+                    depth=depth,
+                    limit=fetch_limit,
                 )
             )
-            remaining = max(int(limit) - len(discovered) - len(next_entities), 0)
-        if remaining > 0:
-            next_entities.extend(
-                await _relation_target_uuids(
-                    client=client,
-                    source_uuids=entity_frontier,
-                    group_id=group_id,
-                    limit=remaining,
-                )
+        next_hops.extend(
+            await _relation_target_hops(
+                client=client,
+                source_uuids=entity_frontier,
+                group_id=group_id,
+                depth=depth,
+                limit=fetch_limit,
             )
+        )
+        next_entities.extend(hop.uuid for hop in next_hops)
 
-        for uuid in _dedupe_strings(next_entities):
-            if uuid in seen_discovered:
+        for hop in sorted(
+            _dedupe_expansion_hops(next_hops),
+            key=lambda value: value.score,
+            reverse=True,
+        ):
+            if hop.uuid in seen_discovered:
                 continue
-            seen_discovered.add(uuid)
-            discovered.append(uuid)
+            seen_discovered.add(hop.uuid)
+            discovered.append(hop)
             if len(discovered) >= limit:
-                return await _hydrate_entity_records(
+                return await _hydrate_graph_expansion_records(
                     client=client,
-                    uuids=discovered,
+                    hops=discovered,
                     search_filter=search_filter,
                     group_id=group_id,
                     limit=limit,
@@ -1365,22 +1404,23 @@ async def _node_bfs_records(
         if not entity_frontier:
             break
 
-    return await _hydrate_entity_records(
+    return await _hydrate_graph_expansion_records(
         client=client,
-        uuids=discovered,
+        hops=discovered,
         search_filter=search_filter,
         group_id=group_id,
         limit=limit,
     )
 
 
-async def _mentioned_entity_uuids(
+async def _mentioned_entity_hops(
     *,
     client: Any,
     episode_uuids: Sequence[str],
     group_id: str,
+    depth: int,
     limit: int,
-) -> list[str]:
+) -> list[_GraphExpansionHop]:
     if not episode_uuids:
         return []
     rows = await _execute_query_records(
@@ -1397,22 +1437,31 @@ async def _mentioned_entity_uuids(
         group_id=group_id,
         limit=max(int(limit), 1),
     )
-    return _dedupe_strings(_record_uuids(rows))
+    return [
+        _GraphExpansionHop(
+            uuid=uuid,
+            depth=depth,
+            relationship="MENTIONS",
+            score=_graph_expansion_path_score("MENTIONS", depth=depth),
+        )
+        for uuid in _dedupe_strings(_record_uuids(rows))
+    ]
 
 
-async def _relation_target_uuids(
+async def _relation_target_hops(
     *,
     client: Any,
     source_uuids: Sequence[str],
     group_id: str,
+    depth: int,
     limit: int,
-) -> list[str]:
+) -> list[_GraphExpansionHop]:
     if not source_uuids:
         return []
     rows = await _execute_query_records(
         client,
         """
-        SELECT target_id AS uuid
+        SELECT target_id AS uuid, name AS relationship
         FROM relates_to
         WHERE source_id IN $source_uuids
           AND group_id = $group_id
@@ -1423,7 +1472,54 @@ async def _relation_target_uuids(
         group_id=group_id,
         limit=max(int(limit), 1),
     )
-    return _dedupe_strings(_record_uuids(rows))
+    hops: list[_GraphExpansionHop] = []
+    for row in rows:
+        uuid = _string_value(row.get("uuid"))
+        if not uuid:
+            continue
+        relationship = _string_value(row.get("relationship")) or "RELATED_TO"
+        hops.append(
+            _GraphExpansionHop(
+                uuid=uuid,
+                depth=depth,
+                relationship=relationship,
+                score=_graph_expansion_path_score(relationship, depth=depth),
+            )
+        )
+    return _dedupe_expansion_hops(hops)
+
+
+async def _hydrate_graph_expansion_records(
+    *,
+    client: Any,
+    hops: Sequence[_GraphExpansionHop],
+    search_filter: SearchFilter,
+    group_id: str,
+    limit: int,
+) -> list[dict[str, object]]:
+    uuids = [hop.uuid for hop in hops]
+    rows = await _hydrate_entity_records(
+        client=client,
+        uuids=uuids,
+        search_filter=search_filter,
+        group_id=group_id,
+        limit=limit,
+    )
+    hops_by_uuid = {hop.uuid: hop for hop in hops}
+    records: list[dict[str, object]] = []
+    for row in rows:
+        uuid = _string_value(row.get("uuid"))
+        hop = hops_by_uuid.get(uuid or "")
+        if hop is None:
+            continue
+        record = dict(row)
+        record["score"] = hop.score
+        record["graph_expansion_depth"] = hop.depth
+        record["graph_expansion_relationship"] = hop.relationship
+        record["graph_expansion_score"] = hop.score
+        records.append(record)
+    records.sort(key=_record_score, reverse=True)
+    return records
 
 
 async def _hydrate_entity_records(
@@ -1457,6 +1553,27 @@ def _record_uuids(rows: Sequence[Mapping[str, object]]) -> list[str]:
 
 def _dedupe_strings(values: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(str(value) for value in values if str(value)))
+
+
+def _dedupe_expansion_hops(
+    hops: Iterable[_GraphExpansionHop],
+) -> list[_GraphExpansionHop]:
+    deduped: dict[str, _GraphExpansionHop] = {}
+    for hop in hops:
+        if hop.uuid not in deduped or hop.score > deduped[hop.uuid].score:
+            deduped[hop.uuid] = hop
+    return list(deduped.values())
+
+
+def _graph_expansion_path_score(relationship: str, *, depth: int) -> float:
+    normalized = relationship.upper()
+    base = _GRAPH_EXPANSION_RELATIONSHIP_WEIGHTS.get(normalized, 0.64)
+    depth_multiplier = _GRAPH_EXPANSION_DEPTH_DECAY ** max(depth - 1, 0)
+    return max(min(base * depth_multiplier, 1.0), 0.1)
+
+
+def _graph_expansion_fetch_limit(limit: int) -> int:
+    return max(int(limit) * _GRAPH_EXPANSION_FETCH_HEADROOM, 1)
 
 
 def _candidate_from_node_record(
@@ -1656,6 +1773,9 @@ def _selected_record_metadata(row: Mapping[str, object]) -> dict[str, object]:
         "invalid_at",
         "created_by",
         "modified_by",
+        "graph_expansion_depth",
+        "graph_expansion_relationship",
+        "graph_expansion_score",
     ):
         value = row.get(key)
         if value is not None:

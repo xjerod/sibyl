@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -1053,6 +1054,96 @@ class _GraphExpansionClient:
         return []
 
 
+class _WeightedGraphExpansionClient:
+    async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
+        if "FROM mentions" in query:
+            return []
+        if "FROM relates_to" in query:
+            rows = [
+                {"uuid": "generic-node", "relationship": "RELATED_TO"},
+                {"uuid": "decision-node", "relationship": "DECIDES"},
+            ]
+            return rows[: int(params.get("limit", len(rows)))]
+        if "FROM entity" in query:
+            return [
+                {
+                    "uuid": "generic-node",
+                    "name": "Generic Context",
+                    "entity_type": "task",
+                    "content": "generic nearby context",
+                    "project_id": "project_123",
+                    "attributes": {},
+                    "created_at": None,
+                },
+                {
+                    "uuid": "decision-node",
+                    "name": "Decision Context",
+                    "entity_type": "decision",
+                    "content": "high-signal decision context",
+                    "project_id": "project_123",
+                    "attributes": {},
+                    "created_at": None,
+                },
+            ]
+        return []
+
+
+class _OverlappingGraphExpansionClient:
+    async def execute_query(self, query: str, **_params: object) -> list[dict[str, object]]:
+        if "FROM mentions" in query:
+            return [{"uuid": "shared-node"}]
+        if "FROM relates_to" in query:
+            return [{"uuid": "shared-node", "relationship": "DECIDES"}]
+        if "FROM entity" in query:
+            return [
+                {
+                    "uuid": "shared-node",
+                    "name": "Shared Context",
+                    "entity_type": "decision",
+                    "content": "same node reached through two graph paths",
+                    "project_id": "project_123",
+                    "attributes": {},
+                    "created_at": None,
+                }
+            ]
+        return []
+
+
+class _DepthGraphExpansionClient:
+    async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
+        if "FROM mentions" in query:
+            return []
+        if "FROM relates_to" in query:
+            source_uuids = params.get("source_uuids")
+            if source_uuids == ["task-seed"]:
+                return [{"uuid": "intermediate-node", "relationship": "RELATED_TO"}]
+            if source_uuids == ["intermediate-node"]:
+                return [{"uuid": "decision-node", "relationship": "DECIDES"}]
+            return []
+        if "FROM entity" in query:
+            return [
+                {
+                    "uuid": "intermediate-node",
+                    "name": "Intermediate Context",
+                    "entity_type": "task",
+                    "content": "first-hop generic context",
+                    "project_id": "project_123",
+                    "attributes": {},
+                    "created_at": None,
+                },
+                {
+                    "uuid": "decision-node",
+                    "name": "Decision Context",
+                    "entity_type": "decision",
+                    "content": "second-hop decision context",
+                    "project_id": "project_123",
+                    "attributes": {},
+                    "created_at": None,
+                },
+            ]
+        return []
+
+
 @pytest.mark.asyncio
 async def test_context_search_pushes_facet_types_into_graph_queries(
     monkeypatch: pytest.MonkeyPatch,
@@ -1335,7 +1426,7 @@ async def test_graph_expansion_skips_mentions_for_entity_seeds_and_limits_edges(
         (query, params) for query, params in client.calls if "FROM relates_to" in query
     ]
     assert relation_calls
-    assert relation_calls[0][1]["limit"] == 2
+    assert relation_calls[0][1]["limit"] == search_module._graph_expansion_fetch_limit(2)
     assert "LIMIT $limit" in relation_calls[0][0]
 
 
@@ -1376,11 +1467,183 @@ async def test_graph_expansion_uses_mentions_for_episode_seeds_with_limit() -> N
     )
 
     assert [candidate.id for candidate in candidates] == ["mentioned-node"]
+    assert candidates[0].score == pytest.approx(0.58)
+    assert candidates[0].metadata["graph_expansion_relationship"] == "MENTIONS"
+    assert candidates[0].metadata["graph_expansion_depth"] == 1
     mention_calls = [(query, params) for query, params in client.calls if "FROM mentions" in query]
     assert mention_calls
     assert mention_calls[0][1]["episode_uuids"] == ["episode-seed"]
-    assert mention_calls[0][1]["limit"] == 2
+    assert mention_calls[0][1]["limit"] == search_module._graph_expansion_fetch_limit(2)
     assert "LIMIT $limit" in mention_calls[0][0]
+
+
+@pytest.mark.asyncio
+async def test_graph_expansion_ranks_typed_edges_above_generic_edges() -> None:
+    plan = build_context_retrieval_plan(
+        query="active task followup",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK],
+        facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+        limit=12,
+    )
+
+    candidates = await search_module._graph_expansion_candidates(
+        client=_WeightedGraphExpansionClient(),
+        plan=plan,
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
+        seed_candidates=[
+            RetrievalCandidate(
+                id="task-seed",
+                type="task",
+                name="Seed Task",
+                content="seed",
+                score=1.0,
+                source=None,
+                metadata={},
+                project_id="project_123",
+            )
+        ],
+        limit=2,
+    )
+
+    assert [candidate.id for candidate in candidates] == [
+        "decision-node",
+        "generic-node",
+    ]
+    assert candidates[0].score > candidates[1].score
+    assert candidates[0].metadata["graph_expansion_relationship"] == "DECIDES"
+    assert candidates[0].metadata["graph_expansion_depth"] == 1
+    assert candidates[1].metadata["graph_expansion_relationship"] == "RELATED_TO"
+
+    limited_candidates = await search_module._graph_expansion_candidates(
+        client=_WeightedGraphExpansionClient(),
+        plan=plan,
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
+        seed_candidates=[
+            RetrievalCandidate(
+                id="task-seed",
+                type="task",
+                name="Seed Task",
+                content="seed",
+                score=1.0,
+                source=None,
+                metadata={},
+                project_id="project_123",
+            )
+        ],
+        limit=1,
+    )
+
+    assert [candidate.id for candidate in limited_candidates] == ["decision-node"]
+
+
+@pytest.mark.asyncio
+async def test_graph_expansion_keeps_strongest_same_depth_path() -> None:
+    plan = build_context_retrieval_plan(
+        query="active task followup",
+        organization_id="org-123",
+        facets=[ContextFacet.ACTIVE_WORK, ContextFacet.RECENT_MEMORY],
+        facet_types={
+            ContextFacet.ACTIVE_WORK: ["task"],
+            ContextFacet.RECENT_MEMORY: ["episode"],
+        },
+        principal_id="user-123",
+        project="project_123",
+        accessible_projects={"project_123"},
+        limit=12,
+    )
+
+    candidates = await search_module._graph_expansion_candidates(
+        client=_OverlappingGraphExpansionClient(),
+        plan=plan,
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
+        seed_candidates=[
+            RetrievalCandidate(
+                id="episode-seed",
+                type="episode",
+                name="Seed Episode",
+                content="seed",
+                score=1.0,
+                source=None,
+                metadata={},
+                project_id="project_123",
+            ),
+            RetrievalCandidate(
+                id="task-seed",
+                type="task",
+                name="Seed Task",
+                content="seed",
+                score=1.0,
+                source=None,
+                metadata={},
+                project_id="project_123",
+            ),
+        ],
+        limit=2,
+    )
+
+    assert [candidate.id for candidate in candidates] == ["shared-node"]
+    assert candidates[0].score == pytest.approx(1.0)
+    assert candidates[0].metadata["graph_expansion_relationship"] == "DECIDES"
+
+
+@pytest.mark.asyncio
+async def test_graph_expansion_applies_depth_decay() -> None:
+    plan = replace(
+        build_context_retrieval_plan(
+            query="active task followup",
+            organization_id="org-123",
+            facets=[ContextFacet.ACTIVE_WORK],
+            facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+            principal_id="user-123",
+            project="project_123",
+            accessible_projects={"project_123"},
+            limit=12,
+        ),
+        graph_expansion_depth=2,
+    )
+
+    candidates = await search_module._graph_expansion_candidates(
+        client=_DepthGraphExpansionClient(),
+        plan=plan,
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
+        seed_candidates=[
+            RetrievalCandidate(
+                id="task-seed",
+                type="task",
+                name="Seed Task",
+                content="seed",
+                score=1.0,
+                source=None,
+                metadata={},
+                project_id="project_123",
+            )
+        ],
+        limit=2,
+    )
+
+    assert [candidate.id for candidate in candidates] == [
+        "decision-node",
+        "intermediate-node",
+    ]
+    assert candidates[0].score == pytest.approx(0.72)
+    assert candidates[0].metadata["graph_expansion_relationship"] == "DECIDES"
+    assert candidates[0].metadata["graph_expansion_depth"] == 2
+    assert candidates[1].score == pytest.approx(0.64)
+
+
+def test_graph_expansion_path_score_uses_fallback_and_floor() -> None:
+    assert search_module._graph_expansion_path_score(
+        "UNKNOWN_RELATIONSHIP",
+        depth=1,
+    ) == pytest.approx(0.64)
+    assert search_module._graph_expansion_path_score(
+        "MENTIONS",
+        depth=99,
+    ) == pytest.approx(0.1)
 
 
 @pytest.mark.asyncio
