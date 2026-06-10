@@ -168,14 +168,14 @@ GRAPHITI_OPS_IMPORT_PREFIX = "sibyl_core.graph.surreal.compat.ops"
 
 
 def _embedded_no_graphiti_scripts() -> tuple[str, ...]:
-    test_path = REPO_ROOT / "packages/python/sibyl-core/tests/test_no_graphiti_default_loop.py"
+    test_path = REPO_ROOT / "packages/python/sibyl-core/tests/test_default_memory_loop.py"
     tree = ast.parse(test_path.read_text(encoding="utf-8"), filename=str(test_path))
     return tuple(
         node.value
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
-        and "Graphiti import forbidden" in node.value
+        and ("async def main" in node.value or "create_api_app" in node.value)
     )
 
 
@@ -410,7 +410,7 @@ def test_graphiti_exit_inventory_tracks_no_graphiti_smoke_plan() -> None:
 
     assert "## No-Graphiti Smoke Plan" in inventory
     assert "moon run core:no-graphiti-smoke" in inventory
-    assert "tests/test_no_graphiti_default_loop.py" in inventory
+    assert "tests/test_default_memory_loop.py" in inventory
     assert f"blocks `{_GRAPHITI_MODULE}` imports" in inventory
     for loop_name in ("remember", "recall", "context", "wake", "reflect"):
         assert f"- `{loop_name}`:" in inventory
@@ -569,7 +569,7 @@ def test_no_graphiti_smoke_covers_default_entrypoints() -> None:
         "sibyl.main",
         "sibyl.server",
         "sibyl.jobs.worker",
-        "sibyl_core.retrieval.native",
+        "sibyl_core.retrieval.search",
         "sibyl_cli.main",
     ):
         assert expected in imports

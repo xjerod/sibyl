@@ -1,4 +1,4 @@
-"""Graphiti-free SurrealDB graph helpers for native memory paths."""
+"""SurrealDB graph helpers for native memory paths."""
 
 from __future__ import annotations
 
