@@ -1649,6 +1649,7 @@ async def create_entity(
         # Sync for projects, async for everything else
         sync=is_sync,
         skip_conflicts=entity.skip_conflicts,
+        generate_embeddings=not entity.defer_embeddings,
     )
 
     if not result.success or not result.id:
@@ -1678,6 +1679,10 @@ async def create_entity(
             metadata=raw_capture_metadata,
         )
 
+    result_background_jobs = getattr(result, "background_jobs", {})
+    if not isinstance(result_background_jobs, dict):
+        result_background_jobs = {}
+
     # For async creation, return immediately with pending response.
     # Entity creation continues in the native background job path.
     if not is_sync:
@@ -1694,6 +1699,7 @@ async def create_entity(
             source_file=None,
             created_at=None,
             updated_at=None,
+            background_jobs=result_background_jobs,
         )
         # Broadcast pending creation event
         await broadcast_event(
@@ -1727,6 +1733,7 @@ async def create_entity(
         source_file=None,
         created_at=response_timestamp,
         updated_at=response_timestamp,
+        background_jobs=result_background_jobs,
     )
 
     # Broadcast creation event (scoped to org)

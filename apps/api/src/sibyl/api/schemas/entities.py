@@ -32,6 +32,10 @@ class EntityCreate(EntityBase):
         default=None,
         description="Entity IDs to explicitly connect with RELATED_TO edges",
     )
+    defer_embeddings: bool = Field(
+        default=False,
+        description="Persist lexical graph records first and queue embedding backfill",
+    )
 
 
 class EntityBulkCreateRequest(BaseModel):
@@ -82,6 +86,7 @@ class EntityResponse(EntityBase):
     related: list[RelatedEntitySummary] | None = Field(
         default=None, description="Related entities (when requested via related_limit)"
     )
+    background_jobs: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"from_attributes": True}
 

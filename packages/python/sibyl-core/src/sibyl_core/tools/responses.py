@@ -100,6 +100,7 @@ class AddResponse:
     message: str
     timestamp: datetime
     conflicts: list[ConflictWarning] = field(default_factory=list)
+    background_jobs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

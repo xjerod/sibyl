@@ -107,6 +107,54 @@ async def test_create_project_routes_through_runtime_project_record() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_entity_can_defer_embeddings_to_background_backfill() -> None:
+    org = _org()
+    ctx = _ctx()
+    entity = EntityCreate(
+        name="Lexical first",
+        content="Persist immediately and backfill vectors after the write.",
+        entity_type=EntityType.SESSION,
+        defer_embeddings=True,
+    )
+    add_result = SimpleNamespace(
+        success=True,
+        id="session_new",
+        message="queued",
+        background_jobs={
+            "embedding_backfill": {
+                "status": "deferred",
+                "queued_by": "create_entity:session_new",
+                "queued_entities": 1,
+                "queued_relationships": 0,
+            }
+        },
+    )
+    runtime = SimpleNamespace(entity_manager=SimpleNamespace(get=AsyncMock()))
+
+    with (
+        patch("sibyl_core.tools.core.add", AsyncMock(return_value=add_result)) as add,
+        patch(
+            "sibyl.api.routes.entities.get_entity_graph_runtime",
+            AsyncMock(return_value=runtime),
+        ),
+        patch("sibyl.api.routes.entities.broadcast_event", AsyncMock()),
+    ):
+        response = await create_entity(
+            request=_request(),
+            entity=entity,
+            org=org,
+            ctx=ctx,
+            content_session=None,
+            sync=False,
+        )
+
+    assert response.id == "session_new"
+    assert response.background_jobs["embedding_backfill"]["status"] == "deferred"
+    add.assert_awaited_once()
+    assert add.await_args.kwargs["generate_embeddings"] is False
+
+
+@pytest.mark.asyncio
 async def test_create_entities_bulk_uses_runtime_bulk_create() -> None:
     org = _org()
     ctx = _ctx()

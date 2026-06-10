@@ -406,6 +406,7 @@ async def create_entity(  # noqa: PLR0915
         )
 
         relationship_manager = runtime.relationship_manager
+        relationships_for_embedding_backfill: list[Relationship] = []
 
         # Link to existing duplicate if dedup matched (entity still created for ID stability)
         if deduplicated and dedup_target_id:
@@ -423,6 +424,7 @@ async def create_entity(  # noqa: PLR0915
                     generate_embeddings=generate_embeddings,
                     log_event="dedup_on_write_link_failed",
                 )
+                relationships_for_embedding_backfill.append(dedup_rel)
                 log.info("dedup_on_write_linked", source=created_id, target=dedup_target_id)
             except Exception as e:
                 log.warning("dedup_on_write_link_failed", error=str(e))
@@ -464,6 +466,7 @@ async def create_entity(  # noqa: PLR0915
             generate_embeddings=generate_embeddings,
             log_event="create_entity_relationship_failed",
         )
+        relationships_for_embedding_backfill.extend(relationships_to_persist)
 
         # Auto-link: discover related entities via similarity search
         auto_links_created = 0
@@ -502,6 +505,7 @@ async def create_entity(  # noqa: PLR0915
                     generate_embeddings=generate_embeddings,
                     log_event="create_entity_auto_link_failed",
                 )
+                relationships_for_embedding_backfill.extend(auto_relationships)
 
                 log.info(
                     "create_entity_auto_link_complete",
@@ -539,6 +543,47 @@ async def create_entity(  # noqa: PLR0915
                 projection_state=projection_result.projection_state,
                 errors=len(projection_result.errors),
             )
+
+        embedding_backfill_job_id: str | None = None
+        if not generate_embeddings:
+            try:
+                from sibyl.jobs.queue import enqueue_entity_embedding_backfill
+
+                projection_entities = tuple(
+                    getattr(projection_result, "created_projected_entities", ())
+                )
+                projection_relationships = tuple(
+                    getattr(projection_result, "created_projection_relationships", ())
+                )
+                relationships_to_backfill = (
+                    *relationships_for_embedding_backfill,
+                    *projection_relationships,
+                )
+                embedding_backfill_job_id = await enqueue_entity_embedding_backfill(
+                    [
+                        backfill_entity.model_dump(mode="json")
+                        for backfill_entity in (entity, *projection_entities)
+                    ],
+                    group_id,
+                    relationships=[
+                        relationship.model_dump(mode="json")
+                        for relationship in relationships_to_backfill
+                    ]
+                    or None,
+                )
+                log.info(
+                    "create_entity_embedding_backfill_enqueued",
+                    entity_id=created_id,
+                    job_id=embedding_backfill_job_id,
+                    entities=1 + len(projection_entities),
+                    relationships=len(relationships_to_backfill),
+                )
+            except Exception as exc:
+                log.warning(
+                    "create_entity_embedding_backfill_enqueue_failed",
+                    entity_id=created_id,
+                    error=str(exc),
+                )
 
         try:
             from sibyl.jobs.memory_extraction import enqueue_memory_extraction_batches
@@ -586,6 +631,7 @@ async def create_entity(  # noqa: PLR0915
             "projected_entities": projection_result.projected_entities,
             "projection_relationships": projection_result.relationships,
             "projection_state": projection_result.projection_state,
+            "embedding_backfill_job_id": embedding_backfill_job_id,
             "pending_ops_processed": len(pending_results),
             "deduplicated": deduplicated,
         }

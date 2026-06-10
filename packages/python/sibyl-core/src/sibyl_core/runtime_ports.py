@@ -24,6 +24,14 @@ class QueuePort(Protocol):
         generate_embeddings: bool = True,
     ) -> str: ...
 
+    async def enqueue_entity_embedding_backfill(
+        self,
+        *,
+        entities_data: Sequence[Mapping[str, Any]],
+        group_id: str,
+        relationships: Sequence[Mapping[str, Any]] | None,
+    ) -> str: ...
+
     async def enqueue_update_task(
         self,
         entity_id: str,

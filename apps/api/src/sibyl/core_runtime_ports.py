@@ -50,6 +50,21 @@ class ApiQueuePort:
             generate_embeddings=generate_embeddings,
         )
 
+    async def enqueue_entity_embedding_backfill(
+        self,
+        *,
+        entities_data: Sequence[Mapping[str, Any]],
+        group_id: str,
+        relationships: Sequence[Mapping[str, Any]] | None,
+    ) -> str:
+        from sibyl.jobs.queue import enqueue_entity_embedding_backfill
+
+        return await enqueue_entity_embedding_backfill(
+            [dict(entity_data) for entity_data in entities_data],
+            group_id,
+            relationships=[dict(relationship) for relationship in relationships or ()] or None,
+        )
+
     async def enqueue_update_task(
         self,
         entity_id: str,

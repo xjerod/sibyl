@@ -17,6 +17,7 @@ from sibyl.jobs.entities import (
 from sibyl_core.auth import MemoryPolicyContext, OrganizationRole
 from sibyl_core.models.entities import (
     Entity,
+    EntityType,
     Episode,
     Pattern,
     Procedure,
@@ -66,6 +67,22 @@ class TestCreateEntityJob:
             projected_entities=0,
             relationships=0,
             projection_state="complete",
+            created_projected_entities=(
+                Entity(
+                    id="topic-samsung-tv",
+                    entity_type=EntityType.TOPIC,
+                    name="Samsung TV",
+                    content="Projected topic",
+                ),
+            ),
+            created_projection_relationships=(
+                Relationship(
+                    id="rel-pattern-123-mentions-topic",
+                    source_id="pattern-123",
+                    target_id="topic-samsung-tv",
+                    relationship_type=RelationshipType.MENTIONS,
+                ),
+            ),
         )
         extraction_enqueue = SimpleNamespace(
             status="skipped",
@@ -92,6 +109,10 @@ class TestCreateEntityJob:
                 "sibyl.jobs.memory_extraction.enqueue_memory_extraction_batches",
                 AsyncMock(return_value=extraction_enqueue),
             ),
+            patch(
+                "sibyl.jobs.queue.enqueue_entity_embedding_backfill",
+                AsyncMock(return_value="embed-pattern-123"),
+            ) as enqueue_backfill,
         ):
             result = await create_entity(
                 {},
@@ -118,6 +139,19 @@ class TestCreateEntityJob:
         )
         relationship_manager.create.assert_not_awaited()
         assert project_memory.await_args.kwargs["generate_embeddings"] is False
+        assert result["embedding_backfill_job_id"] == "embed-pattern-123"
+        enqueue_backfill.assert_awaited_once()
+        entities_payload, group_id = enqueue_backfill.await_args.args
+        assert group_id == "org-1"
+        assert entities_payload[0]["id"] == "pattern-123"
+        assert entities_payload[1]["id"] == "topic-samsung-tv"
+        assert {
+            relationship["id"]
+            for relationship in enqueue_backfill.await_args.kwargs["relationships"]
+        } == {
+            "rel-1",
+            "rel-pattern-123-mentions-topic",
+        }
 
 
 class TestBackfillEntityEmbeddingsJob:
