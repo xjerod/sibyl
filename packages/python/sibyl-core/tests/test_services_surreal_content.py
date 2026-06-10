@@ -2169,6 +2169,13 @@ class TestSurrealContentHelpers:
         assert "search::rrf($lists, $limit, $k)" in fake_client.calls[2][0]
         fulltext_query, _fulltext_params = fake_client.calls[0]
         vector_query, vector_params = fake_client.calls[1]
+        assert "SELECT * FROM raw_captures" not in fulltext_query
+        assert "SELECT *, math::max" not in fulltext_query
+        assert "id AS record_id, uuid" in fulltext_query
+        assert "embedding," not in fulltext_query
+        assert "SELECT *, (1 - vector::distance::knn()) AS score" not in vector_query
+        assert "id AS record_id, uuid" in vector_query
+        assert "embedding," not in vector_query
         assert "search::highlight('<mark>', '</mark>', 0) AS title_snippet" in fulltext_query
         assert "search::highlight('<mark>', '</mark>', 1) AS content_snippet" in fulltext_query
         assert "embedding <|8, 40|> $query_embedding" in vector_query

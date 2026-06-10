@@ -117,6 +117,14 @@ _RELATED_ENTITY_PROJECTION_FIELDS = (
     ("modified_by", "modified_by"),
     ("source_file", "source_file"),
 )
+_ENTITY_SEARCH_PROJECTION_FIELDS = (
+    *_RELATED_ENTITY_PROJECTION_FIELDS,
+    ("content", "content"),
+)
+_ENTITY_SEARCH_FIELDS = ",\n                       ".join(
+    f"{field_name} AS {alias}" if field_name != alias else field_name
+    for field_name, alias in _ENTITY_SEARCH_PROJECTION_FIELDS
+)
 _ENTITY_BULK_UPSERT_QUERY = """
 INSERT INTO entity $rows ON DUPLICATE KEY UPDATE
     uuid = $input.uuid,
@@ -400,8 +408,9 @@ class EntityManager:
         type_clause = "AND entity_type IN $entity_types" if type_values else ""
         rows = normalize_records(
             await self._client.execute_query(
-                """
-                SELECT *,
+                "SELECT "
+                + _ENTITY_SEARCH_FIELDS
+                + """,
                        math::max([
                            search::score(0),
                            search::score(1),
@@ -462,10 +471,11 @@ class EntityManager:
             )
             rows = normalize_records(
                 await self._client.execute_query(
-                    """
-                    SELECT *
-                    FROM (
-                        SELECT *,
+                    "SELECT *"
+                    " FROM ("
+                    "SELECT "
+                    + _ENTITY_SEARCH_FIELDS
+                    + """,
                                (1 - vector::distance::knn()) AS score
                         FROM entity
                         WHERE group_id = $group_id
@@ -509,8 +519,9 @@ class EntityManager:
         candidate_limit = min(max(int(limit) * 8, 50), 500)
         rows = normalize_records(
             await self._client.execute_query(
-                """
-                SELECT *
+                "SELECT "
+                + _ENTITY_SEARCH_FIELDS
+                + """
                 FROM entity
                 WHERE group_id = $group_id
                 """
@@ -546,8 +557,9 @@ class EntityManager:
         type_clause = "AND entity_type IN $entity_types" if type_values else ""
         rows = normalize_records(
             await self._client.execute_query(
-                """
-                SELECT *
+                "SELECT "
+                + _ENTITY_SEARCH_FIELDS
+                + """
                 FROM entity
                 WHERE group_id = $group_id
                   AND name = $name_query

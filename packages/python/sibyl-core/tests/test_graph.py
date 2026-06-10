@@ -855,6 +855,27 @@ async def test_native_entity_manager_search_uses_configured_knn_effort(
 
 
 @pytest.mark.asyncio
+async def test_native_entity_manager_search_projections_omit_embeddings() -> None:
+    client = _EmbeddingWriteClient()
+    manager = EntityManager(cast(SurrealGraphClient, client), group_id=client.group_id)
+
+    await manager.search(query="projection check", limit=1)
+
+    fulltext_query = next(
+        query
+        for query, params in client.calls
+        if params.get("_query_label") == "entity.search.fulltext"
+    )
+    fallback_query = client.calls[-1][0]
+    assert "SELECT *" not in fulltext_query
+    assert "SELECT *" not in fallback_query
+    assert "id AS record_id" in fulltext_query
+    assert "id AS record_id" in fallback_query
+    assert "name_embedding" not in fulltext_query
+    assert "name_embedding" not in fallback_query
+
+
+@pytest.mark.asyncio
 async def test_native_entity_manager_search_overlaps_fulltext_and_vector_branches() -> None:
     fulltext_started = asyncio.Event()
     embedding_started = asyncio.Event()
@@ -881,6 +902,14 @@ async def test_native_entity_manager_search_overlaps_fulltext_and_vector_branche
         "entity.search.fulltext",
         "entity.search.vector",
     }
+    vector_query = next(
+        query
+        for query, params in client.calls
+        if params.get("_query_label") == "entity.search.vector"
+    )
+    assert "SELECT *, (1 - vector::distance::knn()) AS score" not in vector_query
+    assert "id AS record_id" in vector_query
+    assert "name_embedding," not in vector_query
 
 
 @pytest.mark.asyncio

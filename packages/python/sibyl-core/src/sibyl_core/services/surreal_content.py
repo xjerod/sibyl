@@ -101,6 +101,33 @@ INSERT INTO raw_captures $rows ON DUPLICATE KEY UPDATE
     purge_after = $input.purge_after,
     created_at = $input.created_at;
 """
+_RAW_MEMORY_RECALL_FIELDS = ", ".join(
+    (
+        "id AS record_id",
+        "uuid",
+        "organization_id",
+        "source_id",
+        "principal_id",
+        "memory_scope",
+        "scope_key",
+        "agent_id",
+        "project_id",
+        "review_state",
+        "entity_id",
+        "entity_type",
+        "title",
+        "raw_content",
+        "tags",
+        "metadata",
+        "provenance",
+        "capture_surface",
+        "created_by_user_id",
+        "captured_at",
+        "deleted_at",
+        "purge_after",
+        "created_at",
+    )
+)
 _DERIVED_FROM_LINEAGE_CANDIDATE_QUERY = """
     SELECT id, uuid, organization_id, raw_memory_ids, created_at
     FROM source_imports
@@ -2042,7 +2069,8 @@ async def _recall_raw_memory_lexical(
     )
     rows = await _select_many(
         client,
-        f"SELECT * FROM raw_captures WHERE {where_clause} ORDER BY captured_at DESC LIMIT $limit;",
+        f"SELECT {_RAW_MEMORY_RECALL_FIELDS} FROM raw_captures "
+        f"WHERE {where_clause} ORDER BY captured_at DESC LIMIT $limit;",
         **params,
         limit=max(limit * 4, limit),
     )
@@ -2073,7 +2101,8 @@ async def _recall_raw_memory_fulltext(
     rows = await with_timeout(
         _select_many_raw(
             client,
-            "SELECT *, math::max([search::score(0), search::score(1)]) AS score, "
+            f"SELECT {_RAW_MEMORY_RECALL_FIELDS}, "
+            "math::max([search::score(0), search::score(1)]) AS score, "
             "search::highlight('<mark>', '</mark>', 0) AS title_snippet, "
             "search::highlight('<mark>', '</mark>', 1) AS content_snippet "
             f"FROM raw_captures WHERE {where_clause} "
@@ -2107,7 +2136,8 @@ async def _recall_raw_memory_vector(
         _select_many_raw(
             client,
             "SELECT * FROM ("
-            "SELECT *, (1 - vector::distance::knn()) AS score "
+            f"SELECT {_RAW_MEMORY_RECALL_FIELDS}, "
+            "(1 - vector::distance::knn()) AS score "
             f"FROM raw_captures WHERE {where_clause} "
             f"AND embedding <|{candidate_limit}, 40|> $query_embedding"
             ") ORDER BY score DESC, captured_at DESC LIMIT $candidate_limit;",
