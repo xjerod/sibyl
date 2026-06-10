@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from typing import Protocol, cast
 from uuid import uuid4
 
+import structlog
+
 from sibyl_core.backends.surreal import SurrealContentClient
 from sibyl_core.backends.surreal.fulltext import build_fulltext_query
 from sibyl_core.config import settings
@@ -44,6 +46,7 @@ _MARK_OPEN = "<mark>"
 _MARK_CLOSE = "</mark>"
 _SNIPPET_MAX_CHARS = 320
 _EMBEDDED_SURREAL_SCHEMES = ("memory://", "surrealkv://", "rocksdb://", "file://")
+log = structlog.get_logger()
 type _RawMemoryProviderCacheKey = tuple[EmbeddingProviderName, str, int, str]
 _raw_memory_embedding_provider: EmbeddingProvider | None = None
 _raw_memory_embedding_fingerprint: _RawMemoryProviderCacheKey | None = None
@@ -2010,14 +2013,24 @@ async def _recall_raw_memory_vector(
 
 
 async def _raw_memory_query_embedding(query: str) -> list[float] | None:
-    provider = _configured_raw_memory_embedding_provider()
-    if provider is None:
-        return None
+    provider: EmbeddingProvider | None = None
     try:
+        provider = _configured_raw_memory_embedding_provider()
+        if provider is None:
+            return None
         embeddings = await provider.embed_texts([query], input_kind="query")
         return _embedding_vector_from_batch(embeddings, provider.metadata.dimensions)
     except Exception as exc:
-        raise RuntimeError("raw memory query embedding failed") from exc
+        metadata = provider.metadata if provider is not None else None
+        log.warning(
+            "raw_memory_query_embedding_failed",
+            provider=metadata.provider if metadata is not None else None,
+            model=metadata.model if metadata is not None else None,
+            dimensions=metadata.dimensions if metadata is not None else None,
+            query_length=len(query),
+            error_type=type(exc).__name__,
+        )
+        return None
 
 
 def _python_raw_memory_rrf_scores(
@@ -2544,7 +2557,14 @@ async def recall_raw_memory(
                 as_of=effective_as_of,
                 limit=limit,
             )
-        except (RuntimeError, TimeoutError):
+        except Exception as exc:
+            log.warning(
+                "raw_memory_fulltext_recall_failed",
+                organization_id=organization_id,
+                memory_scope=normalized_scope.value,
+                has_scope_key=scope_key is not None,
+                error_type=type(exc).__name__,
+            )
             fulltext_memories = []
         if query_embedding is not None:
             try:
@@ -2556,8 +2576,15 @@ async def recall_raw_memory(
                     as_of=effective_as_of,
                     limit=limit,
                 )
-            except (RuntimeError, TimeoutError) as exc:
-                raise RuntimeError("raw memory vector recall failed") from exc
+            except Exception as exc:
+                log.warning(
+                    "raw_memory_vector_recall_failed",
+                    organization_id=organization_id,
+                    memory_scope=normalized_scope.value,
+                    has_scope_key=scope_key is not None,
+                    error_type=type(exc).__name__,
+                )
+                vector_memories = []
         memories = await _fuse_raw_memory_results(
             client,
             [fulltext_memories, vector_memories],

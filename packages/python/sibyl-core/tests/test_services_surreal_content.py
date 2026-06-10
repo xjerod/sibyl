@@ -85,10 +85,21 @@ class FakeClient:
         merged = dict(params or {})
         merged.update(kwargs)
         self.calls.append((query, merged))
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
     async def close(self) -> None:
         self.closed += 1
+
+
+class FakeLog:
+    def __init__(self) -> None:
+        self.warnings: list[tuple[str, dict[str, object]]] = []
+
+    def warning(self, event: str, **kwargs: object) -> None:
+        self.warnings.append((event, kwargs))
 
 
 class FakeEmbeddingProvider:
@@ -1998,7 +2009,7 @@ class TestSurrealContentHelpers:
         assert all(memory.score > 0 for memory in memories)
 
     @pytest.mark.asyncio
-    async def test_recall_raw_memory_raises_when_vector_recall_fails(self) -> None:
+    async def test_recall_raw_memory_falls_back_when_vector_recall_fails(self) -> None:
         fake_client = FakeClient(
             [
                 _query_result(
@@ -2026,25 +2037,96 @@ class TestSurrealContentHelpers:
         async def query_embedding(_query: str):
             return [1.0, 0.0]
 
+        fake_log = FakeLog()
+
         from sibyl_core.services import surreal_content as content_service
 
         with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "log", fake_log)
             monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
             monkeypatch.setattr(content_service, "_raw_memory_query_embedding", query_embedding)
-            with pytest.raises(RuntimeError, match="raw memory vector recall failed"):
-                await recall_raw_memory(
-                    organization_id="org-1",
-                    principal_id="user-a",
-                    query="surrealdb graph",
-                    limit=2,
-                )
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="surrealdb graph",
+                limit=2,
+            )
 
         assert len(fake_client.calls) == 2
+        assert [memory.id for memory in memories] == ["memory-lexical"]
+        assert fake_log.warnings == [
+            (
+                "raw_memory_vector_recall_failed",
+                {
+                    "organization_id": "org-1",
+                    "memory_scope": "private",
+                    "has_scope_key": False,
+                    "error_type": "RuntimeError",
+                },
+            )
+        ]
         vector_query, _vector_params = fake_client.calls[1]
         assert "embedding <|8, 40|> $query_embedding" in vector_query
 
     @pytest.mark.asyncio
-    async def test_recall_raw_memory_raises_when_query_embedding_fails(self) -> None:
+    async def test_recall_raw_memory_falls_back_when_vector_driver_raises(self) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "memory-lexical",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Mailbox thread",
+                            "raw_content": "SurrealDB appears in the exact text.",
+                            "score": 0.91,
+                        }
+                    ]
+                ),
+                OSError("connection dropped"),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        async def query_embedding(_query: str):
+            return [1.0, 0.0]
+
+        fake_log = FakeLog()
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "log", fake_log)
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            monkeypatch.setattr(content_service, "_raw_memory_query_embedding", query_embedding)
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="surrealdb graph",
+                limit=2,
+            )
+
+        assert [memory.id for memory in memories] == ["memory-lexical"]
+        assert fake_log.warnings == [
+            (
+                "raw_memory_vector_recall_failed",
+                {
+                    "organization_id": "org-1",
+                    "memory_scope": "private",
+                    "has_scope_key": False,
+                    "error_type": "OSError",
+                },
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_recall_raw_memory_falls_back_when_query_embedding_fails(self) -> None:
         class FailingEmbeddingProvider:
             metadata = EmbeddingMetadata(
                 provider="deterministic",
@@ -2057,21 +2139,128 @@ class TestSurrealContentHelpers:
             async def embed_texts(self, texts, *, input_kind: str = "document"):
                 raise RuntimeError("embedding provider unavailable")
 
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "memory-lexical",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Mailbox thread",
+                            "raw_content": "SurrealDB appears in the exact text.",
+                            "score": 0.91,
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        fake_log = FakeLog()
+
         from sibyl_core.services import surreal_content as content_service
 
         with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "log", fake_log)
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
             monkeypatch.setattr(
                 content_service,
                 "_configured_raw_memory_embedding_provider",
                 FailingEmbeddingProvider,
             )
-            with pytest.raises(RuntimeError, match="raw memory query embedding failed"):
-                await recall_raw_memory(
-                    organization_id="org-1",
-                    principal_id="user-a",
-                    query="surrealdb graph",
-                    limit=2,
-                )
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="surrealdb graph",
+                limit=2,
+            )
+
+        assert [memory.id for memory in memories] == ["memory-lexical"]
+        assert len(fake_client.calls) == 1
+        assert fake_log.warnings == [
+            (
+                "raw_memory_query_embedding_failed",
+                {
+                    "provider": "deterministic",
+                    "model": "failing-query-provider",
+                    "dimensions": 2,
+                    "query_length": len("surrealdb graph"),
+                    "error_type": "RuntimeError",
+                },
+            )
+        ]
+        fulltext_query, _fulltext_params = fake_client.calls[0]
+        assert "title @0@ $search_query OR raw_content @1@ $search_query" in fulltext_query
+
+    @pytest.mark.asyncio
+    async def test_recall_raw_memory_falls_back_when_embedding_provider_setup_fails(
+        self,
+    ) -> None:
+        fake_client = FakeClient(
+            [
+                _query_result(
+                    [
+                        {
+                            "uuid": "memory-lexical",
+                            "organization_id": "org-1",
+                            "source_id": "source-mail-1",
+                            "principal_id": "user-a",
+                            "memory_scope": "private",
+                            "title": "Mailbox thread",
+                            "raw_content": "SurrealDB appears in the exact text.",
+                            "score": 0.91,
+                        }
+                    ]
+                ),
+            ]
+        )
+
+        @asynccontextmanager
+        async def fake_session():
+            yield fake_client
+
+        def failing_provider():
+            raise ValueError("unsupported raw memory embedding provider")
+
+        fake_log = FakeLog()
+
+        from sibyl_core.services import surreal_content as content_service
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(content_service, "log", fake_log)
+            monkeypatch.setattr(content_service, "surreal_content_client", fake_session)
+            monkeypatch.setattr(
+                content_service,
+                "_configured_raw_memory_embedding_provider",
+                failing_provider,
+            )
+            memories = await recall_raw_memory(
+                organization_id="org-1",
+                principal_id="user-a",
+                query="surrealdb graph",
+                limit=2,
+            )
+
+        assert [memory.id for memory in memories] == ["memory-lexical"]
+        assert len(fake_client.calls) == 1
+        assert fake_log.warnings == [
+            (
+                "raw_memory_query_embedding_failed",
+                {
+                    "provider": None,
+                    "model": None,
+                    "dimensions": None,
+                    "query_length": len("surrealdb graph"),
+                    "error_type": "ValueError",
+                },
+            )
+        ]
 
     @pytest.mark.asyncio
     async def test_recall_raw_memory_filters_agent_diaries_explicitly(self) -> None:
