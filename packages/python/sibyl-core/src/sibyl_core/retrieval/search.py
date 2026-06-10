@@ -803,23 +803,37 @@ async def _recall_raw_candidates(
     candidates: list[RetrievalCandidate] = []
     failures: list[CandidateSourceFailure] = []
     seen_ids: set[str] = set()
-    for scope in plan.scopes:
-        if scope.memory_scope not in {
-            MemoryScope.PRIVATE,
-            MemoryScope.PROJECT,
-            MemoryScope.DELEGATED,
-        }:
+    raw_recall_scopes = {MemoryScope.PRIVATE, MemoryScope.PROJECT, MemoryScope.DELEGATED}
+    raw_scopes = [scope for scope in plan.scopes if scope.memory_scope in raw_recall_scopes]
+    recalled_by_scope = await asyncio.gather(
+        *(
+            recall_fn(
+                organization_id=plan.organization_id,
+                principal_id=scope.principal_id,
+                query=plan.query,
+                memory_scope=scope.memory_scope.value,
+                scope_key=scope.scope_key,
+                agent_id=scope.agent_id,
+                project_id=scope.project_id,
+                limit=limit,
+            )
+            for scope in raw_scopes
+        ),
+        return_exceptions=True,
+    )
+    for scope, recalled in zip(raw_scopes, recalled_by_scope, strict=True):
+        if isinstance(recalled, asyncio.CancelledError):
+            raise recalled
+        if isinstance(recalled, BaseException):
+            log.warning(
+                "raw_recall_scope_failed",
+                error_type=type(recalled).__name__,
+                memory_scope=scope.memory_scope.value,
+                project_id=scope.project_id,
+                scope_key=scope.scope_key,
+            )
+            failures.append(CandidateSourceFailure("raw_scope_recall", type(recalled).__name__))
             continue
-        recalled = await recall_fn(
-            organization_id=plan.organization_id,
-            principal_id=scope.principal_id,
-            query=plan.query,
-            memory_scope=scope.memory_scope.value,
-            scope_key=scope.scope_key,
-            agent_id=scope.agent_id,
-            project_id=scope.project_id,
-            limit=limit,
-        )
         if isinstance(recalled, RawMemoryRecallResult):
             memories = list(recalled.memories)
             failures.extend(recalled.failures)

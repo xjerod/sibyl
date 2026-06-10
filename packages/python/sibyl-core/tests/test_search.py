@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -2123,6 +2124,151 @@ async def test_raw_candidates_sort_by_relevance_across_scopes() -> None:
         "raw_memory:private-1",
         "raw_memory:private-2",
     ]
+
+
+@pytest.mark.asyncio
+async def test_raw_candidates_recall_accessible_project_scopes_concurrently() -> None:
+    plan = build_context_retrieval_plan(
+        query="parallel project recall",
+        organization_id="org-123",
+        facets=[ContextFacet.RECENT_MEMORY],
+        facet_types={ContextFacet.RECENT_MEMORY: ["raw_memory"]},
+        principal_id="user-123",
+        project=None,
+        accessible_projects={"project_123", "project_456"},
+        limit=8,
+    )
+    started: list[str | None] = []
+    gate = asyncio.Event()
+
+    async def fake_recall(**kwargs: object) -> list[RawMemory]:
+        scope_key = kwargs.get("scope_key")
+        assert scope_key is None or isinstance(scope_key, str)
+        started.append(scope_key)
+        if len(started) == 3:
+            gate.set()
+        await gate.wait()
+        memory_scope = MemoryScope.PROJECT if scope_key else MemoryScope.PRIVATE
+        return [
+            RawMemory(
+                id=f"memory-{scope_key or 'private'}",
+                organization_id="org-123",
+                source_id=f"source-{scope_key or 'private'}",
+                principal_id="user-123",
+                memory_scope=memory_scope,
+                scope_key=scope_key,
+                title=f"Memory {scope_key or 'private'}",
+                raw_content="parallel recall",
+                score=0.5,
+            )
+        ]
+
+    raw_fetch = await asyncio.wait_for(
+        search_module._recall_raw_candidates(
+            plan=plan,
+            facet=ContextFacet.RECENT_MEMORY,
+            requested_types={"raw_memory"},
+            limit=2,
+            recall_fn=fake_recall,
+        ),
+        timeout=1,
+    )
+
+    assert set(started) == {None, "project_123", "project_456"}
+    assert {candidate.id for candidate in raw_fetch.candidates} == {
+        "raw_memory:memory-private",
+        "raw_memory:memory-project_123",
+        "raw_memory:memory-project_456",
+    }
+
+
+@pytest.mark.asyncio
+async def test_raw_candidates_degrade_failed_scope_without_dropping_successes() -> None:
+    plan = build_context_retrieval_plan(
+        query="partial project recall",
+        organization_id="org-123",
+        facets=[ContextFacet.RECENT_MEMORY],
+        facet_types={ContextFacet.RECENT_MEMORY: ["raw_memory"]},
+        principal_id="user-123",
+        project=None,
+        accessible_projects={"project_123", "project_456"},
+        limit=8,
+    )
+
+    async def fake_recall(**kwargs: object) -> list[RawMemory]:
+        scope_key = kwargs.get("scope_key")
+        if scope_key == "project_456":
+            raise RuntimeError("project recall unavailable")
+        assert scope_key is None or isinstance(scope_key, str)
+        return [
+            RawMemory(
+                id=f"memory-{scope_key or 'private'}",
+                organization_id="org-123",
+                source_id=f"source-{scope_key or 'private'}",
+                principal_id="user-123",
+                memory_scope=MemoryScope.PROJECT if scope_key else MemoryScope.PRIVATE,
+                scope_key=scope_key,
+                title=f"Memory {scope_key or 'private'}",
+                raw_content="partial recall",
+                score=0.5,
+            )
+        ]
+
+    raw_fetch = await search_module._recall_raw_candidates(
+        plan=plan,
+        facet=ContextFacet.RECENT_MEMORY,
+        requested_types={"raw_memory"},
+        limit=2,
+        recall_fn=fake_recall,
+    )
+
+    assert {candidate.id for candidate in raw_fetch.candidates} == {
+        "raw_memory:memory-private",
+        "raw_memory:memory-project_123",
+    }
+    assert raw_fetch.metadata["raw_recall_degraded"] is True
+    assert raw_fetch.metadata["raw_recall_failure_count"] == 1
+    assert raw_fetch.metadata["raw_recall_failures"] == [
+        {"source": "raw_scope_recall", "error_type": "RuntimeError"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_raw_candidates_propagate_cancelled_scope() -> None:
+    plan = build_context_retrieval_plan(
+        query="cancelled project recall",
+        organization_id="org-123",
+        facets=[ContextFacet.RECENT_MEMORY],
+        facet_types={ContextFacet.RECENT_MEMORY: ["raw_memory"]},
+        principal_id="user-123",
+        project=None,
+        accessible_projects={"project_123"},
+        limit=8,
+    )
+
+    async def fake_recall(**kwargs: object) -> list[RawMemory]:
+        if kwargs.get("scope_key") == "project_123":
+            raise asyncio.CancelledError
+        return [
+            RawMemory(
+                id="memory-private",
+                organization_id="org-123",
+                source_id="source-private",
+                principal_id="user-123",
+                title="Memory private",
+                raw_content="cancelled recall",
+                score=0.5,
+            )
+        ]
+
+    with pytest.raises(asyncio.CancelledError):
+        await search_module._recall_raw_candidates(
+            plan=plan,
+            facet=ContextFacet.RECENT_MEMORY,
+            requested_types={"raw_memory"},
+            limit=2,
+            recall_fn=fake_recall,
+        )
 
 
 @pytest.mark.asyncio
