@@ -9,13 +9,23 @@ Run on a schedule via arq cron or triggered manually via the API.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 
+from sibyl_core.models.entities import EntityType
+
 log = structlog.get_logger()
+
+_PRIORITY_DECAY_ENTITY_TYPES = (
+    EntityType.EPISODE,
+    EntityType.CLAIM,
+    EntityType.IDEA,
+    EntityType.PLAN,
+    EntityType.NOTE,
+)
 
 
 class PriorityDecayCandidate:
@@ -136,6 +146,7 @@ async def priority_decay(
     max_archives_per_run: int = 100,
     decay_threshold: float = 0.35,
     recency_half_life_days: int = 180,
+    entity_types: Sequence[EntityType] | None = None,
 ) -> dict[str, Any]:
     """Archive low-importance entities that haven't been accessed recently.
 
@@ -144,8 +155,9 @@ async def priority_decay(
     a threshold are archived (excluded from default search but still
     retrievable with include_archived=True).
 
-    Only targets episodic entities — patterns, rules, tasks, and projects
-    are preserved regardless of age.
+    Only targets derived memory entities by default. Sources, documents,
+    sessions, patterns, rules, tasks, projects, procedures, and preferences are
+    preserved unless explicitly passed through ``entity_types``.
 
     Args:
         ctx: arq context
@@ -156,8 +168,6 @@ async def priority_decay(
     Returns:
         Dict with archival statistics
     """
-    from sibyl_core.models.entities import EntityType
-
     log.info(
         "priority_decay_started",
         group_id=group_id,
@@ -170,46 +180,52 @@ async def priority_decay(
 
         cutoff = datetime.now(UTC) - timedelta(days=min_age_days)
         page_size = max(200, min(max_archives_per_run * 2, 1000))
-        offset = 0
         threshold = max(0.0, min(float(decay_threshold), 1.0))
         half_life_days = max(int(recency_half_life_days), 1)
         candidates: list[PriorityDecayCandidate] = []
+        target_entity_types = (
+            _PRIORITY_DECAY_ENTITY_TYPES if entity_types is None else tuple(entity_types)
+        )
 
-        while len(candidates) < max_archives_per_run:
-            batch = await entity_manager.list_by_type(
-                EntityType.EPISODE,
-                limit=page_size,
-                offset=offset,
-                include_archived=False,
-            )
-            if not batch:
-                break
-
-            offset += len(batch)
-            for entity in batch:
-                if (
-                    _is_archived(entity)
-                    or _is_pinned_for_retention(entity)
-                    or entity.created_at >= cutoff
-                ):
-                    continue
-                score = _priority_decay_score(
-                    entity,
-                    now=datetime.now(UTC),
-                    recency_half_life_days=half_life_days,
+        for entity_type in target_entity_types:
+            type_candidates: list[PriorityDecayCandidate] = []
+            offset = 0
+            while len(type_candidates) < max_archives_per_run:
+                batch = await entity_manager.list_by_type(
+                    entity_type,
+                    limit=page_size,
+                    offset=offset,
+                    include_archived=False,
                 )
-                if score >= threshold:
-                    continue
-                candidates.append(
-                    PriorityDecayCandidate(
-                        entity_id=entity.id,
-                        created_at=entity.created_at,
-                        score=score,
-                        reason=_priority_decay_reason(entity),
-                    )
-                )
-                if len(candidates) >= max_archives_per_run:
+                if not batch:
                     break
+
+                offset += len(batch)
+                for entity in batch:
+                    if (
+                        _is_archived(entity)
+                        or _is_pinned_for_retention(entity)
+                        or entity.created_at >= cutoff
+                    ):
+                        continue
+                    score = _priority_decay_score(
+                        entity,
+                        now=datetime.now(UTC),
+                        recency_half_life_days=half_life_days,
+                    )
+                    if score >= threshold:
+                        continue
+                    type_candidates.append(
+                        PriorityDecayCandidate(
+                            entity_id=entity.id,
+                            created_at=entity.created_at,
+                            score=score,
+                            reason=_priority_decay_reason(entity),
+                        )
+                    )
+                    if len(type_candidates) >= max_archives_per_run:
+                        break
+            candidates.extend(type_candidates)
 
         candidates.sort(key=lambda candidate: (candidate.score, candidate.created_at))
         candidates = candidates[:max_archives_per_run]
