@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import socket
-import ssl
-import zlib
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
 from hashlib import sha256
 from html.parser import HTMLParser
-from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
-from urllib.parse import urljoin, urlparse, urlunsplit
+from urllib.parse import urljoin, urlparse
 from uuid import UUID
 
 from sibyl.crawler.local import LocalFileCrawler
@@ -29,6 +22,12 @@ from sibyl_core.models.sources import (
     SourceRecordBatch,
     SourceTransformBehavior,
     SourceType,
+)
+from sibyl_core.network import (
+    SAFE_FETCH_MAX_BYTES,
+    decode_safe_fetch_body,
+    normalize_safe_url,
+    safe_fetch,
 )
 from sibyl_core.services.source_adapters import (
     build_source_content_hash,
@@ -54,20 +53,9 @@ DOCUMENT_METADATA_SCHEMA = {
 _DOCUMENT_ORGANIZATION_ID = UUID("00000000-0000-0000-0000-000000000000")
 _MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdx", ".template"}
 _LOCAL_CRAWLER_SUFFIXES = {".md", ".template"}
-_DOCUMENT_URL_MAX_BYTES = 2 * 1024 * 1024
-_DOCUMENT_URL_MAX_REDIRECTS = 5
-_DOCUMENT_URL_TIMEOUT_SECONDS = 15.0
-_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+_DOCUMENT_URL_MAX_BYTES = SAFE_FETCH_MAX_BYTES
 
 type DocumentFetcher = Callable[[str], Awaitable[CrawledDocumentRecord]]
-
-
-@dataclass(frozen=True, slots=True)
-class _FetchedDocumentPage:
-    url: str
-    status_code: int
-    headers: Mapping[str, str]
-    body: bytes
 
 
 class DocumentFileAdapter:
@@ -488,9 +476,12 @@ async def _fetch_url_document(
     *,
     allow_private_network: bool = False,
 ) -> CrawledDocumentRecord:
-    page = await _safe_fetch_document_url(
+    page = await safe_fetch(
         url,
         allow_private_network=allow_private_network,
+        max_bytes=_DOCUMENT_URL_MAX_BYTES,
+        user_agent="Sibyl document importer",
+        accept="text/html,text/markdown,text/plain;q=0.9,*/*;q=0.1",
     )
     raw_content = _decode_document_body(page.body, page.headers)
     content, title, headings, links = _document_content_from_response(
@@ -522,225 +513,8 @@ async def _fetch_url_document(
     )
 
 
-async def _safe_fetch_document_url(
-    url: str,
-    *,
-    allow_private_network: bool,
-) -> _FetchedDocumentPage:
-    current_url = _normalize_document_url(url, allow_private_network=allow_private_network)
-    for redirect_count in range(_DOCUMENT_URL_MAX_REDIRECTS + 1):
-        page = await _fetch_document_url_once(
-            current_url,
-            allow_private_network=allow_private_network,
-        )
-        if page.status_code not in _REDIRECT_STATUSES:
-            return page
-
-        location = page.headers.get("location")
-        if not location:
-            return page
-        if redirect_count >= _DOCUMENT_URL_MAX_REDIRECTS:
-            raise ValueError("Document URL redirected too many times")
-        current_url = _normalize_document_url(
-            urljoin(page.url, location),
-            allow_private_network=allow_private_network,
-        )
-
-    raise ValueError("Document URL redirected too many times")
-
-
-async def _fetch_document_url_once(
-    url: str,
-    *,
-    allow_private_network: bool,
-) -> _FetchedDocumentPage:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError(f"Document URL must be http(s): {url}")
-    host = parsed.hostname.lower()
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    connect_host = host
-    if not allow_private_network:
-        connect_host = _public_document_connect_host(host)
-    return await _http1_fetch_document_url(
-        url=url,
-        parsed=parsed,
-        connect_host=connect_host,
-        host=host,
-        port=port,
-    )
-
-
-async def _http1_fetch_document_url(
-    *,
-    url: str,
-    parsed,
-    connect_host: str,
-    host: str,
-    port: int,
-) -> _FetchedDocumentPage:
-    ssl_context = ssl.create_default_context() if parsed.scheme == "https" else None
-    reader: asyncio.StreamReader
-    writer: asyncio.StreamWriter
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection(
-            connect_host,
-            port,
-            ssl=ssl_context,
-            server_hostname=host if ssl_context is not None else None,
-        ),
-        timeout=_DOCUMENT_URL_TIMEOUT_SECONDS,
-    )
-    try:
-        target = parsed.path or "/"
-        if parsed.query:
-            target = f"{target}?{parsed.query}"
-        request = "\r\n".join(
-            [
-                f"GET {target} HTTP/1.1",
-                f"Host: {_document_host_header(host, port, parsed.scheme)}",
-                "User-Agent: Sibyl document importer",
-                "Accept: text/html,text/markdown,text/plain;q=0.9,*/*;q=0.1",
-                "Accept-Encoding: identity",
-                "Connection: close",
-                "",
-                "",
-            ]
-        )
-        writer.write(request.encode("ascii"))
-        await asyncio.wait_for(writer.drain(), timeout=_DOCUMENT_URL_TIMEOUT_SECONDS)
-        raw_headers = await asyncio.wait_for(
-            reader.readuntil(b"\r\n\r\n"),
-            timeout=_DOCUMENT_URL_TIMEOUT_SECONDS,
-        )
-        status_code, headers = _parse_document_response_headers(raw_headers)
-        body = await _read_document_response_body(reader, headers)
-        return _FetchedDocumentPage(
-            url=url,
-            status_code=status_code,
-            headers=headers,
-            body=body,
-        )
-    finally:
-        writer.close()
-        with contextlib.suppress(Exception):
-            await writer.wait_closed()
-
-
-def _document_host_header(host: str, port: int, scheme: str) -> str:
-    bracketed_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
-    if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
-        return bracketed_host
-    return f"{bracketed_host}:{port}"
-
-
-def _parse_document_response_headers(raw_headers: bytes) -> tuple[int, dict[str, str]]:
-    header_text = raw_headers.decode("iso-8859-1")
-    lines = header_text.split("\r\n")
-    status_parts = lines[0].split(maxsplit=2)
-    if len(status_parts) < 2 or not status_parts[1].isdigit():
-        raise ValueError("Document URL returned an invalid HTTP response")
-    headers: dict[str, str] = {}
-    for line in lines[1:]:
-        if not line or ":" not in line:
-            continue
-        name, value = line.split(":", 1)
-        headers[name.strip().lower()] = value.strip()
-    return int(status_parts[1]), headers
-
-
-async def _read_document_response_body(
-    reader: asyncio.StreamReader,
-    headers: Mapping[str, str],
-) -> bytes:
-    transfer_encoding = headers.get("transfer-encoding", "").lower()
-    if "chunked" in transfer_encoding:
-        return await _read_chunked_document_body(reader)
-
-    content_length = headers.get("content-length")
-    if content_length and content_length.isdigit():
-        expected_size = int(content_length)
-        if expected_size > _DOCUMENT_URL_MAX_BYTES:
-            raise ValueError("Document URL response is too large")
-        return await asyncio.wait_for(
-            reader.readexactly(expected_size),
-            timeout=_DOCUMENT_URL_TIMEOUT_SECONDS,
-        )
-
-    chunks: list[bytes] = []
-    total_size = 0
-    while chunk := await asyncio.wait_for(
-        reader.read(65536),
-        timeout=_DOCUMENT_URL_TIMEOUT_SECONDS,
-    ):
-        total_size += len(chunk)
-        if total_size > _DOCUMENT_URL_MAX_BYTES:
-            raise ValueError("Document URL response is too large")
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
-async def _read_chunked_document_body(reader: asyncio.StreamReader) -> bytes:
-    chunks: list[bytes] = []
-    total_size = 0
-    while True:
-        size_line = await asyncio.wait_for(
-            reader.readline(),
-            timeout=_DOCUMENT_URL_TIMEOUT_SECONDS,
-        )
-        size_text = size_line.split(b";", 1)[0].strip()
-        try:
-            chunk_size = int(size_text, 16)
-        except ValueError as exc:
-            raise ValueError("Document URL returned an invalid chunked response") from exc
-        if chunk_size == 0:
-            await asyncio.wait_for(reader.readline(), timeout=_DOCUMENT_URL_TIMEOUT_SECONDS)
-            break
-        total_size += chunk_size
-        if total_size > _DOCUMENT_URL_MAX_BYTES:
-            raise ValueError("Document URL response is too large")
-        chunks.append(
-            await asyncio.wait_for(
-                reader.readexactly(chunk_size),
-                timeout=_DOCUMENT_URL_TIMEOUT_SECONDS,
-            )
-        )
-        await asyncio.wait_for(reader.readexactly(2), timeout=_DOCUMENT_URL_TIMEOUT_SECONDS)
-    return b"".join(chunks)
-
-
 def _decode_document_body(body: bytes, headers: Mapping[str, str]) -> str:
-    encoding = headers.get("content-encoding", "").lower()
-    if encoding == "gzip":
-        body = _bounded_inflate_document_body(body, wbits=16 + zlib.MAX_WBITS)
-    elif encoding == "deflate":
-        body = _bounded_inflate_document_body(body, wbits=zlib.MAX_WBITS)
-    elif encoding and encoding != "identity":
-        raise ValueError(f"Unsupported document URL content encoding: {encoding}")
-
-    charset = "utf-8"
-    content_type = headers.get("content-type", "")
-    for part in content_type.split(";"):
-        key, _, value = part.strip().partition("=")
-        if key.lower() == "charset" and value:
-            charset = value.strip('"')
-            break
-    return body.decode(charset, errors="replace")
-
-
-def _bounded_inflate_document_body(body: bytes, *, wbits: int) -> bytes:
-    decompressor = zlib.decompressobj(wbits)
-    inflated = decompressor.decompress(body, _DOCUMENT_URL_MAX_BYTES + 1)
-    if (
-        len(inflated) > _DOCUMENT_URL_MAX_BYTES
-        or decompressor.unconsumed_tail
-        or not decompressor.eof
-    ):
-        raise ValueError("Document URL response is too large")
-    inflated += decompressor.flush()
-    if len(inflated) > _DOCUMENT_URL_MAX_BYTES:
-        raise ValueError("Document URL response is too large")
-    return inflated
+    return decode_safe_fetch_body(body, headers, max_bytes=_DOCUMENT_URL_MAX_BYTES)
 
 
 def _document_content_from_response(
@@ -953,109 +727,7 @@ def _source_path_metadata(url: str) -> str | None:
 
 
 def _normalize_document_url(source_uri: str, *, allow_private_network: bool = False) -> str:
-    parsed = urlparse(source_uri.strip())
-    scheme = parsed.scheme.lower()
-    if scheme not in {"http", "https"} or not parsed.netloc:
-        msg = f"Document URL must be http(s): {source_uri}"
-        raise ValueError(msg)
-    host = parsed.hostname
-    if not host:
-        msg = f"Document URL must include a host: {source_uri}"
-        raise ValueError(msg)
-    host = host.lower()
-    try:
-        port = parsed.port
-    except ValueError as exc:
-        msg = f"Document URL port is invalid: {source_uri}"
-        raise ValueError(msg) from exc
-    if not allow_private_network:
-        _reject_private_document_host(host)
-    netloc_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
-    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
-        netloc_host = f"{netloc_host}:{port}"
-    path = parsed.path or ""
-    if path != "/":
-        path = path.rstrip("/")
-    return urlunsplit((scheme, netloc_host, path, parsed.query, ""))
-
-
-def _reject_private_document_host(host: str) -> None:
-    normalized_host = host.strip("[]").strip().lower().rstrip(".")
-    if (
-        normalized_host == "localhost"
-        or normalized_host.endswith(".localhost")
-        or normalized_host.endswith(".local")
-    ):
-        msg = f"Document URL host is private: {host}"
-        raise ValueError(msg)
-    if _is_private_document_address(normalized_host):
-        msg = f"Document URL host is private: {host}"
-        raise ValueError(msg)
-    for resolved_host in _resolve_document_host_addresses(normalized_host):
-        if _is_private_document_address(resolved_host):
-            msg = f"Document URL host is private: {host}"
-            raise ValueError(msg)
-
-
-def _public_document_connect_host(host: str) -> str:
-    normalized_host = host.strip("[]").strip().lower().rstrip(".")
-    if (
-        normalized_host == "localhost"
-        or normalized_host.endswith(".localhost")
-        or normalized_host.endswith(".local")
-    ):
-        msg = f"Document URL host is private: {host}"
-        raise ValueError(msg)
-    if _is_private_document_address(normalized_host):
-        msg = f"Document URL host is private: {host}"
-        raise ValueError(msg)
-    addresses = _resolve_document_host_addresses(normalized_host)
-    if not addresses:
-        msg = f"Document URL host could not be resolved: {host}"
-        raise ValueError(msg)
-    for resolved_host in addresses:
-        if _is_private_document_address(resolved_host):
-            msg = f"Document URL host is private: {host}"
-            raise ValueError(msg)
-    return addresses[0]
-
-
-def _is_private_document_address(value: str) -> bool:
-    address = _coerce_document_ip_address(value)
-    if address is None:
-        return False
-    return not address.is_global or address.is_multicast
-
-
-def _coerce_document_ip_address(value: str) -> IPv4Address | IPv6Address | None:
-    try:
-        return ip_address(value)
-    except ValueError:
-        pass
-
-    try:
-        if value.isdigit():
-            return IPv4Address(int(value, 10))
-        if value.startswith("0x"):
-            return IPv4Address(int(value, 16))
-        if len(value) > 1 and value.startswith("0") and all(char in "01234567" for char in value):
-            return IPv4Address(int(value, 8))
-    except ValueError:
-        return None
-    return None
-
-
-def _resolve_document_host_addresses(host: str) -> list[str]:
-    try:
-        results = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return []
-    addresses: list[str] = []
-    for result in results:
-        sockaddr = result[4]
-        if isinstance(sockaddr, tuple) and sockaddr:
-            addresses.append(str(sockaddr[0]))
-    return list(dict.fromkeys(addresses))
+    return normalize_safe_url(source_uri, allow_private_network=allow_private_network)
 
 
 def _bool_option(value: object) -> bool:

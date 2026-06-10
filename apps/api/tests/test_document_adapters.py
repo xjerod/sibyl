@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gzip
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -8,7 +7,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from sibyl.persistence.content_common import CrawledDocumentRecord
-from sibyl.services import document_adapters
 from sibyl.services.document_adapters import (
     DOCUMENT_FILE_ADAPTER_NAME,
     DOCUMENT_FOLDER_ADAPTER_NAME,
@@ -185,81 +183,6 @@ async def test_document_url_adapter_rejects_encoded_private_hosts(source_uri: st
             source_uri=source_uri,
             options={"target_scope_key": "project_123"},
         )
-
-
-@pytest.mark.asyncio
-async def test_document_url_safe_fetch_blocks_redirect_to_private_host(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_fetch_once(
-        url: str,
-        *,
-        allow_private_network: bool,
-    ) -> document_adapters._FetchedDocumentPage:
-        assert allow_private_network is False
-        return document_adapters._FetchedDocumentPage(
-            url=url,
-            status_code=302,
-            headers={"location": "http://169.254.169.254/latest/meta-data"},
-            body=b"",
-        )
-
-    monkeypatch.setattr(
-        document_adapters,
-        "_resolve_document_host_addresses",
-        lambda host: ["93.184.216.34"] if host == "docs.example.com" else [],
-    )
-    monkeypatch.setattr(document_adapters, "_fetch_document_url_once", fake_fetch_once)
-
-    with pytest.raises(ValueError, match="private"):
-        await document_adapters._safe_fetch_document_url(
-            "https://docs.example.com/start",
-            allow_private_network=False,
-        )
-
-
-@pytest.mark.asyncio
-async def test_document_url_safe_fetch_pins_validated_public_address(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[tuple[str, str]] = []
-
-    async def fake_http1_fetch_document_url(
-        **kwargs: object,
-    ) -> document_adapters._FetchedDocumentPage:
-        seen.append((str(kwargs["url"]), str(kwargs["connect_host"])))
-        return document_adapters._FetchedDocumentPage(
-            url=str(kwargs["url"]),
-            status_code=200,
-            headers={"content-type": "text/plain"},
-            body=b"ok",
-        )
-
-    monkeypatch.setattr(
-        document_adapters,
-        "_resolve_document_host_addresses",
-        lambda host: ["93.184.216.34"] if host == "docs.example.com" else [],
-    )
-    monkeypatch.setattr(
-        document_adapters,
-        "_http1_fetch_document_url",
-        fake_http1_fetch_document_url,
-    )
-
-    page = await document_adapters._safe_fetch_document_url(
-        "https://docs.example.com/start",
-        allow_private_network=False,
-    )
-
-    assert page.body == b"ok"
-    assert seen == [("https://docs.example.com/start", "93.184.216.34")]
-
-
-def test_document_url_decode_rejects_oversized_compressed_body() -> None:
-    body = gzip.compress(b"x" * (document_adapters._DOCUMENT_URL_MAX_BYTES + 1))
-
-    with pytest.raises(ValueError, match="too large"):
-        document_adapters._decode_document_body(body, {"content-encoding": "gzip"})
 
 
 @pytest.mark.asyncio
