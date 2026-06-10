@@ -179,6 +179,20 @@ class HybridResult:
         return len(self.results)
 
 
+def _initial_reranking_receipt(config: HybridConfig) -> dict[str, Any]:
+    receipt: dict[str, Any] = {
+        "enabled": config.apply_reranking,
+        "applied": False,
+        "reranked_count": 0,
+    }
+    if config.apply_reranking:
+        receipt["requested_model"] = config.rerank_model
+        receipt["top_k"] = config.rerank_top_k
+    else:
+        receipt["reranking_skipped"] = "disabled"
+    return receipt
+
+
 @dataclass
 class _VectorSearchAttempt:
     results: list[tuple[Any, float]]
@@ -422,6 +436,7 @@ async def hybrid_search(
     """
     if config is None:
         config = HybridConfig()
+    reranking_receipt = _initial_reranking_receipt(config)
 
     resolved_group_id = _resolve_group_id(entity_manager, group_id)
 
@@ -497,6 +512,8 @@ async def hybrid_search(
         list_names.append("graph")
 
     if not result_lists:
+        if config.apply_reranking:
+            reranking_receipt["reranking_skipped"] = "no_results"
         return HybridResult(
             results=[],
             metadata={
@@ -508,6 +525,8 @@ async def hybrid_search(
                 "vector_count": len(vector_results),
                 "link_count": len(link_results),
                 "graph_count": len(graph_results),
+                "reranking_applied": False,
+                "reranking": reranking_receipt,
             },
         )
 
@@ -549,6 +568,10 @@ async def hybrid_search(
             rerank_result = await rerank_results(query, merged, rerank_config)
             merged = rerank_result.results
             reranking_applied = rerank_result.reranked_count > 0
+            reranking_receipt.update(rerank_result.metadata)
+            reranking_receipt["applied"] = reranking_applied
+            reranking_receipt["reranked_count"] = rerank_result.reranked_count
+            reranking_receipt["model"] = rerank_result.model_name
             log.debug(
                 "reranking_complete",
                 reranked_count=rerank_result.reranked_count,
@@ -556,6 +579,7 @@ async def hybrid_search(
             )
         except Exception as e:
             log.warning("reranking_failed_continuing", error=str(e))
+            reranking_receipt["reranking_failed"] = type(e).__name__
 
     # Phase 5: Apply lightweight lexical boosting
     keyword_boost_applied = False
@@ -603,6 +627,7 @@ async def hybrid_search(
         "graph_count": len(graph_results),
         "merged_count": len(merged),
         "reranking_applied": reranking_applied,
+        "reranking": reranking_receipt,
         "keyword_boost_applied": keyword_boost_applied,
         "query_coverage_rerank_applied": query_coverage_rerank_applied,
         "query_coverage_refinement_applied": query_coverage_refinement_applied,

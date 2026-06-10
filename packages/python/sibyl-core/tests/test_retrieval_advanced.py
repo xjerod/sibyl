@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -48,6 +48,7 @@ from sibyl_core.retrieval.query_ranking import (
     rank_by_query_coverage,
     should_accept_query_coverage_refinement,
 )
+from sibyl_core.retrieval.reranking import RerankResult
 from sibyl_core.services.graph import EntityManager, SurrealGraphClient, prepare_graph_schema
 
 # =============================================================================
@@ -2289,6 +2290,86 @@ class TestHybridSearch:
 
         assert result.total >= 1
         assert "vector" in result.metadata["sources"]
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_reports_applied_reranking(self) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        e1 = make_entity_for_test("id1", name="Python")
+        manager.search_results = [(e1, 0.9)]
+        rerank_result = RerankResult(
+            results=[(e1, 0.97)],
+            reranked_count=1,
+            model_name="test-reranker",
+            metadata={"top_k": 3, "original_count": 1, "final_count": 1},
+        )
+        rerank = AsyncMock(return_value=rerank_result)
+
+        with patch("sibyl_core.retrieval.reranking.rerank_results", new=rerank):
+            result = await hybrid_search(
+                "Python",
+                client,  # type: ignore[arg-type]
+                manager,  # type: ignore[arg-type]
+                config=HybridConfig(
+                    graph_weight=0,
+                    apply_reranking=True,
+                    rerank_model="test-reranker",
+                    rerank_top_k=3,
+                ),
+            )
+
+        assert result.metadata["reranking_applied"] is True
+        assert result.metadata["reranking"] == {
+            "enabled": True,
+            "applied": True,
+            "reranked_count": 1,
+            "requested_model": "test-reranker",
+            "top_k": 3,
+            "original_count": 1,
+            "final_count": 1,
+            "model": "test-reranker",
+        }
+        rerank.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_reports_skipped_reranking(self) -> None:
+        client = MockGraphClientForHybrid()
+        manager = MockEntityManagerForHybrid()
+
+        e1 = make_entity_for_test("id1", name="Python")
+        manager.search_results = [(e1, 0.9)]
+        rerank_result = RerankResult(
+            results=[(e1, 0.9)],
+            reranked_count=0,
+            model_name=None,
+            metadata={"reranking_skipped": "sentence_transformers_not_installed"},
+        )
+        rerank = AsyncMock(return_value=rerank_result)
+
+        with patch("sibyl_core.retrieval.reranking.rerank_results", new=rerank):
+            result = await hybrid_search(
+                "Python",
+                client,  # type: ignore[arg-type]
+                manager,  # type: ignore[arg-type]
+                config=HybridConfig(
+                    graph_weight=0,
+                    apply_reranking=True,
+                    rerank_model="test-reranker",
+                    rerank_top_k=3,
+                ),
+            )
+
+        assert result.metadata["reranking_applied"] is False
+        assert result.metadata["reranking"] == {
+            "enabled": True,
+            "applied": False,
+            "reranked_count": 0,
+            "requested_model": "test-reranker",
+            "top_k": 3,
+            "reranking_skipped": "sentence_transformers_not_installed",
+            "model": None,
+        }
 
     @pytest.mark.asyncio
     async def test_hybrid_search_with_temporal_boost(self) -> None:
