@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, cast
 
+import structlog
+
 from sibyl_core.auth.memory_policy import (
     MemoryPolicyAction,
     MemoryPolicyDecision,
@@ -45,6 +47,8 @@ from sibyl_core.services.surreal_content import (
 from sibyl_core.tools.helpers import _generate_id
 from sibyl_core.tools.responses import AddResponse
 
+log = structlog.get_logger()
+
 
 class WriteMode(StrEnum):
     DISABLED = "disabled"
@@ -55,6 +59,18 @@ class WriteMode(StrEnum):
 class ReflectionWriteResult:
     response: AddResponse
     metadata: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class _RelationshipWriteReceipt:
+    requested: int = 0
+    created: int = 0
+    failed: int = 0
+    errors: tuple[str, ...] = ()
+
+    @property
+    def state(self) -> str:
+        return "partial" if self.failed or self.errors else "complete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,8 +357,10 @@ async def persist_reflection_candidate(
         raw_source_ids=source_ids,
         native_write_path=native_write_path,
     )
-    if relationships:
-        await runtime.relationship_manager.create_bulk(relationships)
+    relationship_receipt = await _write_promotion_relationships(
+        runtime.relationship_manager,
+        relationships,
+    )
 
     invalidation_metadata = await _apply_candidate_temporal_invalidations(
         runtime=runtime,
@@ -366,11 +384,43 @@ async def persist_reflection_candidate(
             **policy_metadata,
             "native_write_mode": WriteMode.ENABLED.value,
             "native_write_path": native_write_path,
-            "native_relationship_count": len(relationships),
+            "native_relationship_count": relationship_receipt.created,
+            "native_relationship_requested_count": relationship_receipt.requested,
+            "native_relationship_failed_count": relationship_receipt.failed,
+            "promotion_state": relationship_receipt.state,
+            "promotion_errors": list(relationship_receipt.errors),
             "raw_source_ids": source_ids,
             "source_ids": source_ids,
             **invalidation_metadata,
         },
+    )
+
+
+async def _write_promotion_relationships(
+    relationship_manager: Any,
+    relationships: Sequence[Relationship],
+) -> _RelationshipWriteReceipt:
+    requested = len(relationships)
+    if not relationships:
+        return _RelationshipWriteReceipt()
+    try:
+        created, failed = await relationship_manager.create_bulk(relationships)
+    except Exception as exc:
+        log.warning(
+            "reflection_promotion_relationships_failed",
+            relationships=requested,
+            error_type=type(exc).__name__,
+        )
+        return _RelationshipWriteReceipt(
+            requested=requested,
+            failed=requested,
+            errors=(str(exc),),
+        )
+    return _RelationshipWriteReceipt(
+        requested=requested,
+        created=created,
+        failed=failed,
+        errors=(f"{failed} promotion relationships failed",) if failed else (),
     )
 
 

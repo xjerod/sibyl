@@ -165,6 +165,29 @@ async def test_project_memory_entity_creates_projected_entities_and_mentions() -
 
 
 @pytest.mark.asyncio
+async def test_project_memory_entity_marks_partial_relationship_writes() -> None:
+    source = _session("I bought a Samsung TV for the den.")
+    entity_manager = SimpleNamespace(
+        create_direct_bulk=AsyncMock(
+            side_effect=lambda entities, **_: [entity.id for entity in entities]
+        )
+    )
+    relationship_manager = SimpleNamespace(create_bulk=AsyncMock(return_value=(1, 1)))
+
+    result = await project_memory_entity(
+        entity_manager=entity_manager,
+        relationship_manager=relationship_manager,
+        source=source,
+        group_id="org-123",
+        generate_embeddings=False,
+    )
+
+    assert result.relationships == 1
+    assert result.projection_state == "partial"
+    assert result.errors == ("1 projection relationships failed",)
+
+
+@pytest.mark.asyncio
 async def test_project_memory_entities_batches_and_dedupes_targets() -> None:
     sources = [
         _session("I bought a Samsung TV for the den.", entity_id="session_one"),

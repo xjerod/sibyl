@@ -163,6 +163,7 @@ class MemoryProjectionResult:
     extracted: int = 0
     projected_entities: int = 0
     relationships: int = 0
+    projection_state: str = "complete"
     skipped: bool = False
     reason: str | None = None
     errors: tuple[str, ...] = field(default_factory=tuple)
@@ -174,6 +175,7 @@ class MemoryProjectionBatchResult:
     extracted: int = 0
     projected_entities: int = 0
     relationships: int = 0
+    projection_state: str = "complete"
     skipped: int = 0
     projected_entity_ids_by_source_id: dict[str, tuple[str, ...]] = field(default_factory=dict)
     projected_entity_links_by_source_id: dict[str, tuple[ProjectedEntitySourceLink, ...]] = field(
@@ -309,6 +311,7 @@ async def project_memory_entity(
         extracted=batch.extracted,
         projected_entities=batch.projected_entities,
         relationships=batch.relationships,
+        projection_state=batch.projection_state,
         skipped=batch.skipped > 0,
         errors=batch.errors,
     )
@@ -487,6 +490,7 @@ async def _persist_projection_batch(
             sources=sources_count,
             extracted=extracted_count,
             skipped=skipped,
+            projection_state="partial",
             errors=(str(exc),),
         )
 
@@ -529,6 +533,7 @@ async def _persist_projection_batch(
         extracted=extracted_count,
         projected_entities=len(entity_writes.created_ids),
         relationships=relationship_count,
+        projection_state="partial" if errors else "complete",
         skipped=skipped,
         projected_entity_ids_by_source_id=resolved_entity_ids_by_source_id,
         projected_entity_links_by_source_id=resolved_links_by_source_id,

@@ -573,6 +573,7 @@ async def add(
                     extracted=projection_result.extracted,
                     projected_entities=projection_result.projected_entities,
                     relationships=projection_result.relationships,
+                    projection_state=projection_result.projection_state,
                     errors=projection_result.errors,
                 )
             elif projection_result.extracted:
@@ -582,6 +583,7 @@ async def add(
                     extracted=projection_result.extracted,
                     projected_entities=projection_result.projected_entities,
                     relationships=projection_result.relationships,
+                    projection_state=projection_result.projection_state,
                     errors=len(projection_result.errors),
                 )
 
@@ -648,6 +650,7 @@ async def add(
                     extracted=projection_result.extracted,
                     projected_entities=projection_result.projected_entities,
                     relationships=projection_result.relationships,
+                    projection_state=projection_result.projection_state,
                     errors=projection_result.errors,
                 )
             elif projection_result.extracted:
@@ -657,6 +660,7 @@ async def add(
                     extracted=projection_result.extracted,
                     projected_entities=projection_result.projected_entities,
                     relationships=projection_result.relationships,
+                    projection_state=projection_result.projection_state,
                     errors=len(projection_result.errors),
                 )
 

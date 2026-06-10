@@ -490,6 +490,7 @@ async def create_entity(  # noqa: PLR0915
                 extracted=projection_result.extracted,
                 projected_entities=projection_result.projected_entities,
                 relationships=projection_result.relationships,
+                projection_state=projection_result.projection_state,
                 errors=projection_result.errors,
             )
         elif projection_result.extracted:
@@ -499,6 +500,7 @@ async def create_entity(  # noqa: PLR0915
                 extracted=projection_result.extracted,
                 projected_entities=projection_result.projected_entities,
                 relationships=projection_result.relationships,
+                projection_state=projection_result.projection_state,
                 errors=len(projection_result.errors),
             )
 
@@ -547,6 +549,7 @@ async def create_entity(  # noqa: PLR0915
             "auto_links_created": auto_links_created,
             "projected_entities": projection_result.projected_entities,
             "projection_relationships": projection_result.relationships,
+            "projection_state": projection_result.projection_state,
             "pending_ops_processed": len(pending_results),
             "deduplicated": deduplicated,
         }
@@ -603,6 +606,7 @@ async def project_memory_batch(
         "extracted": projection.extracted,
         "projected_entities": projection.projected_entities,
         "relationships": projection.relationships,
+        "projection_state": projection.projection_state,
         "skipped": projection.skipped,
         "errors": list(projection.errors),
     }
