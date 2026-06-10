@@ -1028,6 +1028,8 @@ class _GraphExpansionClient:
         self.calls.append((query, params))
         if "FROM mentions" in query:
             return [{"uuid": "mentioned-node"}]
+        if 'out.entity_type = "community"' in query or "target_id IN $community_uuids" in query:
+            return []
         if "FROM relates_to" in query:
             return [{"uuid": "related-node"}]
         if "FROM entity" in query:
@@ -1057,6 +1059,8 @@ class _GraphExpansionClient:
 class _WeightedGraphExpansionClient:
     async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
         if "FROM mentions" in query:
+            return []
+        if 'out.entity_type = "community"' in query or "target_id IN $community_uuids" in query:
             return []
         if "FROM relates_to" in query:
             rows = [
@@ -1092,6 +1096,8 @@ class _OverlappingGraphExpansionClient:
     async def execute_query(self, query: str, **_params: object) -> list[dict[str, object]]:
         if "FROM mentions" in query:
             return [{"uuid": "shared-node"}]
+        if 'out.entity_type = "community"' in query or "target_id IN $community_uuids" in query:
+            return []
         if "FROM relates_to" in query:
             return [{"uuid": "shared-node", "relationship": "DECIDES"}]
         if "FROM entity" in query:
@@ -1112,6 +1118,8 @@ class _OverlappingGraphExpansionClient:
 class _DepthGraphExpansionClient:
     async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
         if "FROM mentions" in query:
+            return []
+        if 'out.entity_type = "community"' in query or "target_id IN $community_uuids" in query:
             return []
         if "FROM relates_to" in query:
             source_uuids = params.get("source_uuids")
@@ -1136,6 +1144,47 @@ class _DepthGraphExpansionClient:
                     "name": "Decision Context",
                     "entity_type": "decision",
                     "content": "second-hop decision context",
+                    "project_id": "project_123",
+                    "attributes": {},
+                    "created_at": None,
+                },
+            ]
+        return []
+
+
+class _CommunityGraphExpansionClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute_query(self, query: str, **params: object) -> list[dict[str, object]]:
+        self.calls.append((query, params))
+        if "FROM mentions" in query:
+            return []
+        if 'out.entity_type = "community"' in query:
+            assert params["source_uuids"] == ["task-seed"]
+            return [{"uuid": "community-auth"}]
+        if "target_id IN $community_uuids" in query:
+            assert params["community_uuids"] == ["community-auth"]
+            assert params["source_uuids"] == ["task-seed"]
+            return [{"uuid": "community-peer", "community_id": "community-auth"}]
+        if "FROM relates_to" in query:
+            return [{"uuid": "generic-node", "relationship": "RELATED_TO"}]
+        if "FROM entity" in query:
+            return [
+                {
+                    "uuid": "generic-node",
+                    "name": "Generic Context",
+                    "entity_type": "task",
+                    "content": "generic nearby context",
+                    "project_id": "project_123",
+                    "attributes": {},
+                    "created_at": None,
+                },
+                {
+                    "uuid": "community-peer",
+                    "name": "Community Peer",
+                    "entity_type": "task",
+                    "content": "shared community context",
                     "project_id": "project_123",
                     "attributes": {},
                     "created_at": None,
@@ -1644,6 +1693,53 @@ def test_graph_expansion_path_score_uses_fallback_and_floor() -> None:
         "MENTIONS",
         depth=99,
     ) == pytest.approx(0.1)
+
+
+@pytest.mark.asyncio
+async def test_graph_expansion_uses_shared_community_membership() -> None:
+    plan = replace(
+        build_context_retrieval_plan(
+            query="active task followup",
+            organization_id="org-123",
+            facets=[ContextFacet.ACTIVE_WORK],
+            facet_types={ContextFacet.ACTIVE_WORK: ["task"]},
+            principal_id="user-123",
+            project="project_123",
+            accessible_projects={"project_123"},
+            limit=12,
+        ),
+        graph_expansion_depth=2,
+    )
+    client = _CommunityGraphExpansionClient()
+
+    candidates = await search_module._graph_expansion_candidates(
+        client=client,
+        plan=plan,
+        search_filter=search_module.SearchFilter(project_ids=("project_123",)),
+        seed_candidates=[
+            RetrievalCandidate(
+                id="task-seed",
+                type="task",
+                name="Seed Task",
+                content="seed",
+                score=1.0,
+                source=None,
+                metadata={},
+                project_id="project_123",
+            )
+        ],
+        limit=4,
+    )
+
+    assert [candidate.id for candidate in candidates] == [
+        "community-peer",
+        "generic-node",
+    ]
+    assert candidates[0].score == pytest.approx(0.74)
+    assert candidates[0].metadata["graph_expansion_relationship"] == "SHARES_COMMUNITY"
+    assert candidates[0].metadata["graph_expansion_community_id"] == "community-auth"
+    assert sum('out.entity_type = "community"' in query for query, _ in client.calls) == 1
+    assert sum("target_id IN $community_uuids" in query for query, _ in client.calls) == 1
 
 
 @pytest.mark.asyncio

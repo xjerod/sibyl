@@ -70,6 +70,7 @@ _GRAPH_EXPANSION_RELATIONSHIP_WEIGHTS = {
     "ABOUT": 0.78,
     "BELONGS_TO": 0.72,
     "CONTAINS": 0.72,
+    "SHARES_COMMUNITY": 0.74,
     "DERIVED_FROM": 0.7,
     "DOCUMENTED_IN": 0.66,
     "RELATED_TO": 0.64,
@@ -196,6 +197,7 @@ class _GraphExpansionHop:
     depth: int
     relationship: str
     score: float
+    community_id: str | None = None
 
 
 def coerce_fusion_backend(
@@ -1377,6 +1379,16 @@ async def _node_bfs_records(
                 limit=fetch_limit,
             )
         )
+        if depth == 1:
+            next_hops.extend(
+                await _community_member_hops(
+                    client=client,
+                    source_uuids=entity_frontier,
+                    group_id=group_id,
+                    depth=depth,
+                    limit=fetch_limit,
+                )
+            )
         next_entities.extend(hop.uuid for hop in next_hops)
 
         for hop in sorted(
@@ -1489,6 +1501,86 @@ async def _relation_target_hops(
     return _dedupe_expansion_hops(hops)
 
 
+async def _community_member_hops(
+    *,
+    client: Any,
+    source_uuids: Sequence[str],
+    group_id: str,
+    depth: int,
+    limit: int,
+) -> list[_GraphExpansionHop]:
+    if not source_uuids:
+        return []
+    community_ids = await _community_ids_for_entities(
+        client=client,
+        source_uuids=source_uuids,
+        group_id=group_id,
+        limit=limit,
+    )
+    if not community_ids:
+        return []
+    rows = await _execute_query_records(
+        client,
+        """
+        SELECT source_id AS uuid, target_id AS community_id
+        FROM relates_to
+        WHERE target_id IN $community_uuids
+          AND source_id NOT IN $source_uuids
+          AND name = "BELONGS_TO"
+          AND group_id = $group_id
+          AND in.group_id = $group_id
+          AND in.entity_type != "community"
+        ORDER BY target_id
+        LIMIT $limit;
+        """,
+        community_uuids=community_ids,
+        source_uuids=list(source_uuids),
+        group_id=group_id,
+        limit=max(int(limit), 1),
+    )
+    hops: list[_GraphExpansionHop] = []
+    for row in rows:
+        uuid = _string_value(row.get("uuid"))
+        if not uuid:
+            continue
+        hops.append(
+            _GraphExpansionHop(
+                uuid=uuid,
+                depth=depth,
+                relationship="SHARES_COMMUNITY",
+                score=_graph_expansion_path_score("SHARES_COMMUNITY", depth=depth),
+                community_id=_string_value(row.get("community_id")),
+            )
+        )
+    return _dedupe_expansion_hops(hops)
+
+
+async def _community_ids_for_entities(
+    *,
+    client: Any,
+    source_uuids: Sequence[str],
+    group_id: str,
+    limit: int,
+) -> list[str]:
+    rows = await _execute_query_records(
+        client,
+        """
+        SELECT target_id AS uuid
+        FROM relates_to
+        WHERE source_id IN $source_uuids
+          AND name = "BELONGS_TO"
+          AND group_id = $group_id
+          AND out.group_id = $group_id
+          AND out.entity_type = "community"
+        LIMIT $limit;
+        """,
+        source_uuids=list(source_uuids),
+        group_id=group_id,
+        limit=max(int(limit), 1),
+    )
+    return _dedupe_strings(_record_uuids(rows))
+
+
 async def _hydrate_graph_expansion_records(
     *,
     client: Any,
@@ -1517,6 +1609,8 @@ async def _hydrate_graph_expansion_records(
         record["graph_expansion_depth"] = hop.depth
         record["graph_expansion_relationship"] = hop.relationship
         record["graph_expansion_score"] = hop.score
+        if hop.community_id:
+            record["graph_expansion_community_id"] = hop.community_id
         records.append(record)
     records.sort(key=_record_score, reverse=True)
     return records
@@ -1776,6 +1870,7 @@ def _selected_record_metadata(row: Mapping[str, object]) -> dict[str, object]:
         "graph_expansion_depth",
         "graph_expansion_relationship",
         "graph_expansion_score",
+        "graph_expansion_community_id",
     ):
         value = row.get(key)
         if value is not None:
