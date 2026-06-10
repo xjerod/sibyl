@@ -12,6 +12,15 @@ from sibyl_core.evals.context import (
     get_sample_context_pack_cases,
     load_context_pack_cases,
 )
+from sibyl_core.evals.golden import (
+    GOLDEN_EVAL_SCHEMA_VERSION,
+    GoldenContextCase,
+    GoldenDocument,
+    GoldenEvalDataset,
+    GoldenRetrievalQuery,
+    GoldenTextLabel,
+    load_golden_eval_dataset,
+)
 from sibyl_core.evals.longmemeval import (
     CORPUS_TEXT_POLICIES,
     CORPUS_TEXT_POLICY,
@@ -69,6 +78,7 @@ __all__ = [
     "CORPUS_TEXT_POLICIES",
     "CORPUS_TEXT_POLICY",
     "FROZEN_CONTEXT_PACK_SUITE_NAMES",
+    "GOLDEN_EVAL_SCHEMA_VERSION",
     "USER_AND_ASSISTANT_CORPUS_TEXT_POLICY",
     "ContextPackCaseResult",
     "ContextPackEvalCase",
@@ -81,6 +91,11 @@ __all__ = [
     "EvalReport",
     "EvalResult",
     "EvalRunner",
+    "GoldenContextCase",
+    "GoldenDocument",
+    "GoldenEvalDataset",
+    "GoldenRetrievalQuery",
+    "GoldenTextLabel",
     "LongMemEvalCorpusDocument",
     "LongMemEvalV2Question",
     "LongMemEvalV2State",
@@ -99,6 +114,7 @@ __all__ = [
     "get_sample_queries",
     "iter_longmemeval_v2_trajectories",
     "load_context_pack_cases",
+    "load_golden_eval_dataset",
     "load_longmemeval_v2_haystack",
     "load_longmemeval_v2_questions",
     "load_longmemeval_v2_trajectories",

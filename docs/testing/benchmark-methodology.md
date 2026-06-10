@@ -198,6 +198,13 @@ metadata for the default release run. Local reports from `core:bench-context` ar
 `benchmarks/results/context-pack/` and then gated with
 `moon run bench-gate -- <report.json> --profile context-pack`.
 
+`benchmarks/golden_context_retrieval_dataset.json` is the labeled RC golden dataset that ties the
+retrieval and context-pack fixtures together. It defines stable fixture document IDs, graded
+retrieval positives, forbidden leakage sentinels, and per-case context labels. The loader in
+`sibyl_core.evals` validates the schema, document references, and corpus fixture hashes so future
+retrieval and context-pack runners can consume the same labels instead of drifting into parallel
+fixtures.
+
 ## Reporting Rules
 
 - Lead with `bench-live` when describing Sibyl’s current runtime behavior.
