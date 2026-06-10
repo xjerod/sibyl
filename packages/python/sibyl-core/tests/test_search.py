@@ -2115,3 +2115,42 @@ def test_hybrid_query_coverage_rerank_matches_direct_core_call() -> None:
         entity["id"] for entity, _score in via_core[0]
     ]
     assert via_helper[1:] == via_core[1:]
+
+
+def test_query_coverage_refinement_reuses_candidate_text() -> None:
+    """The guarded second pass must not re-tokenize via caller text hooks."""
+
+    results = [
+        (
+            {
+                "id": "weak",
+                "name": "Weather chatter",
+                "content": "User: we chatted about the weather forecast.",
+            },
+            0.9,
+        ),
+        (
+            {
+                "id": "strong",
+                "name": "Homegrown tomato basil dinner",
+                "content": "User: my homegrown tomato and basil dinner recipe was a hit.",
+            },
+            0.8,
+        ),
+    ]
+    calls: list[str] = []
+
+    def text_fn(item: dict[str, str]) -> str:
+        calls.append(item["id"])
+        return hybrid_module._entity_text(item)
+
+    query_ranking_module.rank_items_by_query_coverage(
+        "what homegrown tomato basil dinner recipe did I make",
+        list(results),
+        text_fn=text_fn,
+        id_fn=hybrid_module._entity_id,
+        timestamp_fn=hybrid_module.get_entity_timestamp,
+        temporal_target=None,
+    )
+
+    assert calls == ["weak", "strong"]

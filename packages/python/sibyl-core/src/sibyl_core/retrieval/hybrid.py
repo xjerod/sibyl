@@ -8,6 +8,7 @@ Implements a two-phase retrieval strategy:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -581,7 +582,8 @@ async def hybrid_search(
             merged,
             query_coverage_rerank_applied,
             query_coverage_refinement_applied,
-        ) = _apply_query_coverage_rerank(
+        ) = await asyncio.to_thread(
+            _apply_query_coverage_rerank,
             query,
             merged,
             temporal_target=temporal_target,

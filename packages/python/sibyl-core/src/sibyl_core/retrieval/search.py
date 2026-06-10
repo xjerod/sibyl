@@ -406,7 +406,8 @@ async def context_search(
     )
     fused = fusion.candidates
     if search_plan.query.strip():
-        fused = _apply_query_coverage_to_fused(
+        fused = await asyncio.to_thread(
+            _apply_query_coverage_to_fused,
             search_plan.query,
             fused,
             temporal_target=None,
