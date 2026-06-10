@@ -24,6 +24,7 @@ describe('websocket event contract', () => {
         'graph_updated',
         'question_answered',
         'source_import_updated',
+        'raw_capture_changed',
       ])
     );
   });
@@ -31,6 +32,7 @@ describe('websocket event contract', () => {
   it('accepts known events and rejects unknown events', () => {
     expect(isWebSocketEventType('backup_complete')).toBe(true);
     expect(isWebSocketEventType('source_import_updated')).toBe(true);
+    expect(isWebSocketEventType('raw_capture_changed')).toBe(true);
     expect(isWebSocketEventType('surprise')).toBe(false);
   });
 });

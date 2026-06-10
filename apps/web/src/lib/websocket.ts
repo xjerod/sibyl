@@ -84,6 +84,15 @@ export interface GraphUpdatedPayload {
   [key: string]: unknown;
 }
 
+export interface RawCaptureChangedPayload {
+  organization_id: string;
+  raw_memory_ids: string[];
+  promotion_job_id?: string | null;
+  rows_seen?: number;
+  previous_versionstamp?: number;
+  next_versionstamp?: number;
+}
+
 export interface WebSocketErrorPayload {
   message: string;
 }
@@ -115,6 +124,7 @@ export interface WebSocketEventPayloadMap {
   graph_updated: GraphUpdatedPayload;
   question_answered: Record<string, unknown>;
   source_import_updated: SourceImportStatusResponse;
+  raw_capture_changed: RawCaptureChangedPayload;
   pong: Record<string, unknown>;
   subscribed: WebSocketSubscribedPayload;
   error: WebSocketErrorPayload;
@@ -144,6 +154,7 @@ export const WEBSOCKET_EVENT_TYPES = [
   'graph_updated',
   'question_answered',
   'source_import_updated',
+  'raw_capture_changed',
   'pong',
   'subscribed',
   'error',
