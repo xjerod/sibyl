@@ -23,6 +23,7 @@ from sibyl_core.evals.longmemeval import (
 )
 from sibyl_core.evals.longmemeval_replay import (
     ReplaySummary,
+    longmemeval_rerank_feature_rows,
     replay_longmemeval_report,
     replay_longmemeval_report_path,
     rerank_longmemeval_case,
@@ -102,6 +103,7 @@ __all__ = [
     "load_longmemeval_v2_questions",
     "load_longmemeval_v2_trajectories",
     "load_queries",
+    "longmemeval_rerank_feature_rows",
     "mean_reciprocal_rank",
     "ndcg_at_k",
     "precision_at_k",
