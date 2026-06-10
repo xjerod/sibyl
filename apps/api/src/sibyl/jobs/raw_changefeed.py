@@ -11,7 +11,7 @@ from typing import Any
 
 import structlog
 
-from sibyl.api.event_types import WSEvent
+from sibyl.api.raw_capture_events import publish_raw_capture_changed
 from sibyl.config import settings
 from sibyl.jobs import queue as job_queue
 from sibyl.persistence.surreal.content import surreal_content_client
@@ -246,23 +246,14 @@ async def _safe_broadcast_raw_capture_changed(result: Mapping[str, object]) -> N
     raw_memory_ids = result.get("changed_raw_memory_ids")
     if not organization_id or not isinstance(raw_memory_ids, list):
         return
-    try:
-        from sibyl.api.pubsub import publish_event
-
-        await publish_event(
-            WSEvent.RAW_CAPTURE_CHANGED,
-            {
-                "organization_id": organization_id,
-                "raw_memory_ids": [str(raw_memory_id) for raw_memory_id in raw_memory_ids],
-                "promotion_job_id": result.get("promotion_job_id"),
-                "rows_seen": result.get("rows_seen"),
-                "previous_versionstamp": result.get("previous_versionstamp"),
-                "next_versionstamp": result.get("next_versionstamp"),
-            },
-            org_id=organization_id,
-        )
-    except Exception:
-        log.debug("raw_capture_changefeed_broadcast_failed", organization_id=organization_id)
+    await publish_raw_capture_changed(
+        organization_id=organization_id,
+        raw_memory_ids=raw_memory_ids,
+        promotion_job_id=result.get("promotion_job_id"),
+        rows_seen=result.get("rows_seen"),
+        previous_versionstamp=result.get("previous_versionstamp"),
+        next_versionstamp=result.get("next_versionstamp"),
+    )
 
 
 def _raw_capture_refs_for_org(

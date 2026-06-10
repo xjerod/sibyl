@@ -198,6 +198,10 @@ async def test_remember_raw_uses_current_org_and_principal() -> None:
             AsyncMock(return_value=_memory(organization_id=str(org.id), source_id="source-1")),
         ) as remember,
         patch("sibyl.api.routes.memory.log_memory_audit_event", AsyncMock()) as audit,
+        patch(
+            "sibyl.api.routes.memory.publish_raw_capture_changed",
+            AsyncMock(),
+        ) as publish_changed,
     ):
         response = await remember_raw(
             RawMemoryRememberRequest(
@@ -245,6 +249,10 @@ async def test_remember_raw_uses_current_org_and_principal() -> None:
     assert response.source_id == "source-1"
     assert response.principal_id == "user-123"
     assert response.policy_reason == "same_scope_write_allowed"
+    publish_changed.assert_awaited_once_with(
+        organization_id=str(org.id),
+        raw_memory_ids=["memory-1"],
+    )
 
 
 @pytest.mark.asyncio

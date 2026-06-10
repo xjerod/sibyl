@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from sibyl.api.event_types import WSEvent
 from sibyl.jobs import raw_changefeed
 
 
@@ -126,7 +127,7 @@ async def test_poll_raw_capture_changefeed_queues_changes_and_saves_cursor(
         "promotion_job_id": "raw_promotion:queued",
     }
     publish_event.assert_awaited_once_with(
-        raw_changefeed.WSEvent.RAW_CAPTURE_CHANGED,
+        WSEvent.RAW_CAPTURE_CHANGED,
         {
             "organization_id": "org-1",
             "raw_memory_ids": ["raw-a", "raw-b"],
@@ -158,7 +159,7 @@ async def test_raw_capture_changefeed_broadcast_payload_uses_org_scope(
     )
 
     publish_event.assert_awaited_once_with(
-        raw_changefeed.WSEvent.RAW_CAPTURE_CHANGED,
+        WSEvent.RAW_CAPTURE_CHANGED,
         {
             "organization_id": "org-1",
             "raw_memory_ids": ["raw-a", "raw-b"],

@@ -12,6 +12,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from sibyl.api.decorators import handle_workflow_errors
+from sibyl.api.raw_capture_events import publish_raw_capture_changed
 from sibyl.api.schemas import (
     MemoryAuditEventResponse,
     MemoryAuditListResponse,
@@ -1702,6 +1703,10 @@ async def remember_raw(
                 "diary": request.diary,
                 "tag_count": len(request.tags),
             },
+        )
+        await publish_raw_capture_changed(
+            organization_id=memory.organization_id,
+            raw_memory_ids=[memory.id],
         )
         response = _raw_memory_response(memory, policy_reason=write_decision.reason)
         telemetry_registry().record_memory_operation(
