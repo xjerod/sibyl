@@ -156,8 +156,10 @@ LAYER_LIMITS = {
 
 
 _WORK_ITEM_TYPES = {"task", "epic"}
-_PRIOR_WORK_STATUSES = {"done"}
+# Tasks finish as "done"; epic container status derives to "completed".
+_PRIOR_WORK_STATUSES = {"done", "completed"}
 _DROPPED_WORK_STATUSES = {"archived"}
+_IN_FLIGHT_WORK_STATUSES = {"doing", "in_progress", "blocked", "review"}
 
 
 def _facet_for_type(entity_type: str, facets: list[ContextFacet]) -> ContextFacet:
@@ -457,6 +459,17 @@ _ITEM_METADATA_KEYS = (
     "valid_at",
     "learnings",
     "description",
+    # Policy and correction gates downstream (synthesis render filters) read
+    # these; dropping them silently disables defense-in-depth checks.
+    "memory_scope",
+    "principal_id",
+    "scope_key",
+    "redacted",
+    "superseded_by_source_id",
+    "duplicate_of_source_id",
+    "unresolved_claims",
+    "supported",
+    "claim",
 )
 
 
@@ -553,7 +566,12 @@ def _lineage_key(item: ContextItem) -> str:
 def _lineage_rank(item: ContextItem) -> tuple[int, float]:
     if item.metadata.get("active_lookup"):
         return (-1, -item.score)
-    type_rank = _LINEAGE_TYPE_RANK.get((item.type or "").lower(), _LINEAGE_DEFAULT_RANK)
+    item_type = (item.type or "").lower()
+    if item_type in _WORK_ITEM_TYPES:
+        status = str(item.metadata.get("status") or "").lower()
+        if status in _IN_FLIGHT_WORK_STATUSES:
+            return (-1, -item.score)
+    type_rank = _LINEAGE_TYPE_RANK.get(item_type, _LINEAGE_DEFAULT_RANK)
     return (type_rank, -item.score)
 
 
@@ -720,7 +738,7 @@ def _item_markdown_lines(
     )
     quality_label = f" _{quality}_" if quality else ""
     lines = [f"- **{item.name}**{type_label} `{item.id}`{quality_label}"]
-    if item.content:
+    if item.content and item.content.strip() != (item.name or "").strip():
         lines.append(f"  - Memory: {_compact_text(item.content, max_content_chars)}")
     if include_related and item.related:
         related_entries = [
@@ -1013,14 +1031,15 @@ def _merge_active_work(
     existing_ids = {item.id for item in active_items}
     merged: list[ContextSection] = []
     inserted = False
-    active_index = list(facets).index(ContextFacet.ACTIVE_WORK)
+    facet_positions = {facet: index for index, facet in enumerate(facets)}
+    active_index = facet_positions.get(ContextFacet.ACTIVE_WORK, 0)
     for section in sections:
         if section.facet is ContextFacet.ACTIVE_WORK:
             retained = [item for item in section.items if item.id not in existing_ids]
             merged.append(replace(section, items=[*active_items, *retained]))
             inserted = True
             continue
-        if not inserted and list(facets).index(section.facet) > active_index:
+        if not inserted and facet_positions.get(section.facet, len(facet_positions)) > active_index:
             merged.append(
                 ContextSection(
                     facet=ContextFacet.ACTIVE_WORK,

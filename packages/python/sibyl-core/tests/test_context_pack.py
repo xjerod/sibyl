@@ -1453,3 +1453,145 @@ async def test_lean_metadata_drops_description_equal_to_content(
     by_id = {item.id: item for item in pack.items}
     assert "description" not in by_id["decision-1"].metadata
     assert by_id["decision-2"].metadata["description"] == "A longer different summary"
+
+
+@pytest.mark.asyncio
+async def test_completed_epics_route_to_prior_art(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result("epic-done", "epic", "Shipped epic", metadata={"status": "completed"}),
+            _result("epic-live", "epic", "Live epic", metadata={"status": "in_progress"}),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("ship retrieval", intent="build", organization_id="org-123")
+
+    by_facet = {item.id: item.facet for item in pack.items}
+    assert by_facet["epic-done"] == ContextFacet.PRIOR_ART
+    assert by_facet["epic-live"] == ContextFacet.ACTIVE_WORK
+
+
+@pytest.mark.asyncio
+async def test_lean_metadata_keeps_policy_gate_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.RECENT_MEMORY: [
+            _result(
+                "raw_memory:abc",
+                "raw_memory",
+                "Private capture",
+                metadata={
+                    "memory_scope": "private",
+                    "principal_id": "user-1",
+                    "scope_key": "user-1",
+                    "redacted": True,
+                    "superseded_by_source_id": "raw_memory:def",
+                    "unresolved_claims": ["claim-1"],
+                    "supported": False,
+                    "retrieval_signals": ["raw_lexical"],
+                },
+            ),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("recall private", intent="learn", organization_id="org-123")
+
+    metadata = pack.items[0].metadata
+    assert metadata["memory_scope"] == "private"
+    assert metadata["principal_id"] == "user-1"
+    assert metadata["scope_key"] == "user-1"
+    assert metadata["redacted"] is True
+    assert metadata["superseded_by_source_id"] == "raw_memory:def"
+    assert metadata["unresolved_claims"] == ["claim-1"]
+    assert metadata["supported"] is False
+    assert "retrieval_signals" not in metadata
+
+
+@pytest.mark.asyncio
+async def test_lineage_dedup_keeps_in_flight_task_over_same_named_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result(
+                "task-doing",
+                "task",
+                "Ship native retrieval",
+                score=2.0,
+                metadata={"status": "doing"},
+            ),
+        ],
+        ContextFacet.DECISIONS: [
+            _result("decision-1", "decision", "Ship native retrieval", score=0.5),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("ship retrieval", intent="build", organization_id="org-123")
+
+    ids = [item.id for item in pack.items]
+    assert "task-doing" in ids
+    assert "decision-1" not in ids
+
+
+def test_merge_active_work_tolerates_unknown_section_facets() -> None:
+    from sibyl_core.models.context import ContextSection
+
+    item = ContextItem(
+        id="task-1",
+        type="task",
+        name="Live task",
+        content="In flight",
+        score=0.0,
+        facet=ContextFacet.ACTIVE_WORK,
+        reason="task is currently in progress for this project",
+        metadata={"active_lookup": True},
+    )
+    sections = [
+        ContextSection(facet=ContextFacet.GOTCHAS, title="Gotchas", items=[]),
+    ]
+
+    merged = context_module._merge_active_work(
+        sections,
+        [item],
+        [ContextFacet.ACTIVE_WORK, ContextFacet.DECISIONS],
+    )
+
+    assert any(section.facet is ContextFacet.ACTIVE_WORK for section in merged)
+
+
+def test_markdown_skips_memory_line_when_content_equals_name() -> None:
+    from sibyl_core.models.context import ContextPack, ContextSection
+
+    item = ContextItem(
+        id="task-1",
+        type="task",
+        name="De-noise context packs",
+        content="De-noise context packs",
+        score=0.0,
+        facet=ContextFacet.ACTIVE_WORK,
+        reason="task is currently in progress for this project",
+        metadata={"status": "doing"},
+    )
+    pack = ContextPack(
+        goal="ship",
+        intent=ContextIntent.BUILD,
+        query="ship",
+        domain=None,
+        project=None,
+        sections=[
+            ContextSection(facet=ContextFacet.ACTIVE_WORK, title="Active Work", items=[item])
+        ],
+        total_items=1,
+        layer=ContextLayer.RECALL,
+    )
+
+    markdown = context_pack_to_markdown(pack)
+
+    assert "**De-noise context packs** (task · doing)" in markdown
+    assert "Memory:" not in markdown
