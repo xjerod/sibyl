@@ -450,6 +450,15 @@ def pack_cmd(
             help="Include full retrieval metadata per item (for auditing noisy packs)",
         ),
     ] = False,
+    budget: Annotated[
+        int | None,
+        typer.Option(
+            "--budget",
+            min=100,
+            max=8000,
+            help="Cap rendered markdown at roughly this many tokens",
+        ),
+    ] = None,
 ) -> None:
     """Compile a precise context pack for an agent."""
     effective_project = project or (None if all_projects else resolve_project_from_cwd())
@@ -469,6 +478,7 @@ def pack_cmd(
                     include_related=related,
                     related_limit=related_limit,
                     audit=audit,
+                    markdown_token_budget=budget,
                 )
         except SibylClientError as e:
             handle_client_error(e)

@@ -147,7 +147,10 @@ async def context_pack(
             else None,
         )
         payload = context_pack_to_dict(pack)
-        payload["markdown"] = context_pack_to_markdown(pack)
+        payload["markdown"] = context_pack_to_markdown(
+            pack,
+            token_budget=request.markdown_token_budget,
+        )
         response = ContextPackResponse.model_validate(payload)
         await log_context_pack_audit(
             user_id=ctx.user_id,

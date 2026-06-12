@@ -1375,3 +1375,52 @@ async def test_lineage_dedup_collapses_same_name_duplicates(
     matching = [item for item in pack.items if item.name == "Raw saves refresh embeddings"]
     assert len(matching) == 1
     assert matching[0].id == "raw_memory:one"
+
+
+def _budget_pack(item_count: int):
+    from sibyl_core.models.context import ContextPack, ContextSection
+
+    items = [
+        ContextItem(
+            id=f"decision-{index}",
+            type="decision",
+            name=f"Decision {index}",
+            content="A decision body that takes up meaningful space in the pack " * 4,
+            score=1.0,
+            facet=ContextFacet.DECISIONS,
+            reason="decision records a choice",
+            source=f"decision-{index}",
+            metadata={"source_id": f"decision-{index}"},
+        )
+        for index in range(item_count)
+    ]
+    return ContextPack(
+        goal="ship",
+        intent=ContextIntent.BUILD,
+        query="ship",
+        domain=None,
+        project=None,
+        sections=[ContextSection(facet=ContextFacet.DECISIONS, title="Decisions", items=items)],
+        total_items=item_count,
+        layer=ContextLayer.RECALL,
+    )
+
+
+def test_markdown_token_budget_trims_items() -> None:
+    pack = _budget_pack(8)
+
+    full = context_pack_to_markdown(pack, max_items=8, items_per_section=8)
+    trimmed = context_pack_to_markdown(pack, max_items=8, items_per_section=8, token_budget=200)
+
+    assert len(trimmed) < len(full)
+    assert len(trimmed) <= 200 * 4 + 120
+    assert "Decision 0" in trimmed
+    assert "Trimmed to ~200 tokens" in trimmed
+
+
+def test_markdown_token_budget_always_renders_first_item() -> None:
+    pack = _budget_pack(3)
+
+    trimmed = context_pack_to_markdown(pack, token_budget=100)
+
+    assert "Decision 0" in trimmed

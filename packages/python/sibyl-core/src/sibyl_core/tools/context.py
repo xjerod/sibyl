@@ -691,6 +691,48 @@ def _quality_metadata_to_markdown(
     return "; ".join(parts)
 
 
+_MARKDOWN_CHARS_PER_TOKEN = 4
+
+
+def _item_markdown_lines(
+    item: ContextItem,
+    *,
+    pack_project: str | None,
+    max_content_chars: int,
+    include_related: bool,
+) -> list[str]:
+    status = _compact_metadata_value(item.metadata.get("status"))
+    if item.type and status:
+        type_label = f" ({item.type} · {status})"
+    elif item.type:
+        type_label = f" ({item.type})"
+    else:
+        type_label = ""
+    item_quality = getattr(item, "quality", item.metadata.get("quality", {}))
+    quality = _quality_metadata_to_markdown(
+        item_quality,
+        item_id=item.id,
+        pack_project=pack_project,
+    )
+    quality_label = f" _{quality}_" if quality else ""
+    lines = [f"- **{item.name}**{type_label} `{item.id}`{quality_label}"]
+    if item.content:
+        lines.append(f"  - Memory: {_compact_text(item.content, max_content_chars)}")
+    if include_related and item.related:
+        related_entries = [
+            candidate
+            for candidate in item.related
+            if not (candidate.relationship == "BELONGS_TO" and candidate.type == "project")
+        ]
+        if related_entries:
+            related = "; ".join(
+                f"{candidate.relationship} {candidate.name} ({candidate.type})"
+                for candidate in related_entries[:3]
+            )
+            lines.append(f"  - Related: {related}")
+    return lines
+
+
 def context_pack_to_markdown(
     pack: ContextPack,
     *,
@@ -698,12 +740,21 @@ def context_pack_to_markdown(
     items_per_section: int = 3,
     max_content_chars: int = 280,
     include_related: bool = True,
+    token_budget: int | None = None,
 ) -> str:
-    """Render a context pack as compact Markdown for agent injection."""
+    """Render a context pack as compact Markdown for agent injection.
+
+    token_budget caps the rendered size at roughly that many tokens
+    (chars/4 estimate); at least one item always renders so a tight
+    budget degrades to a minimal brief instead of an empty pack.
+    """
 
     max_items = max(1, min(max_items, 50))
     items_per_section = max(1, min(items_per_section, 10))
     max_content_chars = max(80, min(max_content_chars, 1200))
+    char_budget = (
+        max(400, token_budget * _MARKDOWN_CHARS_PER_TOKEN) if token_budget is not None else None
+    )
 
     lines = [
         f"# Sibyl Context Pack: {pack.goal}",
@@ -716,46 +767,38 @@ def context_pack_to_markdown(
     if pack.project:
         lines.append(f"Project: {pack.project}")
 
+    used = sum(len(line) + 1 for line in lines)
     remaining = max_items
+    emitted_items = 0
+    trimmed = False
     for section in pack.sections:
-        if remaining <= 0:
+        if remaining <= 0 or trimmed:
             break
-        lines.extend(["", f"## {section.title}"])
+        section_lines = ["", f"## {section.title}"]
+        section_emitted = False
         for item in section.items[:items_per_section]:
             if remaining <= 0:
                 break
-            status = _compact_metadata_value(item.metadata.get("status"))
-            if item.type and status:
-                type_label = f" ({item.type} · {status})"
-            elif item.type:
-                type_label = f" ({item.type})"
-            else:
-                type_label = ""
-            item_quality = getattr(item, "quality", item.metadata.get("quality", {}))
-            quality = _quality_metadata_to_markdown(
-                item_quality,
-                item_id=item.id,
+            item_lines = _item_markdown_lines(
+                item,
                 pack_project=pack.project,
+                max_content_chars=max_content_chars,
+                include_related=include_related,
             )
-            quality_label = f" _{quality}_" if quality else ""
-            lines.append(f"- **{item.name}**{type_label} `{item.id}`{quality_label}")
-            if item.content:
-                lines.append(f"  - Memory: {_compact_text(item.content, max_content_chars)}")
-            if include_related and item.related:
-                related_entries = [
-                    candidate
-                    for candidate in item.related
-                    if not (candidate.relationship == "BELONGS_TO" and candidate.type == "project")
-                ]
-                if related_entries:
-                    related = "; ".join(
-                        f"{candidate.relationship} {candidate.name} ({candidate.type})"
-                        for candidate in related_entries[:3]
-                    )
-                    lines.append(f"  - Related: {related}")
+            block = [*section_lines, *item_lines] if not section_emitted else item_lines
+            block_chars = sum(len(line) + 1 for line in block)
+            if char_budget is not None and emitted_items > 0 and used + block_chars > char_budget:
+                trimmed = True
+                break
+            lines.extend(block)
+            used += block_chars
+            section_emitted = True
+            emitted_items += 1
             remaining -= 1
 
-    if pack.usage_hint:
+    if trimmed:
+        lines.extend(["", f"_Trimmed to ~{token_budget} tokens; raise --budget for more._"])
+    elif pack.usage_hint:
         lines.extend(["", f"_Hint: {pack.usage_hint}_"])
 
     return "\n".join(lines)

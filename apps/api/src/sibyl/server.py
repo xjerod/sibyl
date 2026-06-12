@@ -277,6 +277,7 @@ async def _compile_mcp_context_pack(
     include_related: bool,
     related_limit: int,
     audit: bool = False,
+    markdown_token_budget: int | None = None,
 ) -> dict[str, Any]:
     from sibyl_core.tools.core import (
         compile_context as _compile_context,
@@ -329,7 +330,7 @@ async def _compile_mcp_context_pack(
     except RecallConcurrencyLimitExceededError as exc:
         raise ValueError("recall_concurrency_limit_exceeded") from exc
     payload = context_pack_to_dict(pack)
-    payload["markdown"] = context_pack_to_markdown(pack)
+    payload["markdown"] = context_pack_to_markdown(pack, token_budget=markdown_token_budget)
     await log_context_pack_audit(
         user_id=ctx.user_id,
         organization_id=ctx.org_id,
@@ -1425,6 +1426,7 @@ def _register_tools(mcp: FastMCP) -> None:
         include_related: bool = True,
         related_limit: int = 3,
         audit: bool = False,
+        markdown_token_budget: int | None = None,
     ) -> dict[str, Any]:
         """Compile a precise context pack for an agent goal.
 
@@ -1449,6 +1451,8 @@ def _register_tools(mcp: FastMCP) -> None:
             include_related: Include one-hop related graph context.
             related_limit: Related items per selected context item.
             audit: Include full retrieval metadata per item for pack auditing.
+            markdown_token_budget: Cap rendered markdown at roughly this many
+                tokens for small-context consumers.
         """
         return await _compile_mcp_context_pack(
             goal=goal,
@@ -1461,6 +1465,7 @@ def _register_tools(mcp: FastMCP) -> None:
             include_related=include_related,
             related_limit=related_limit,
             audit=audit,
+            markdown_token_budget=markdown_token_budget,
         )
 
     # =========================================================================

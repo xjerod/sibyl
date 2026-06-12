@@ -26,6 +26,12 @@ class ContextPackRequest(BaseModel):
         default=False,
         description="Include full retrieval metadata per item for pack auditing",
     )
+    markdown_token_budget: int | None = Field(
+        default=None,
+        ge=100,
+        le=8000,
+        description="Cap rendered markdown at roughly this many tokens",
+    )
 
 
 class ContextPackRelatedItem(BaseModel):

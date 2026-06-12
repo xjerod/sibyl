@@ -1755,6 +1755,7 @@ class SibylClient:
         include_related: bool = True,
         related_limit: int = 3,
         audit: bool = False,
+        markdown_token_budget: int | None = None,
     ) -> dict[str, Any]:
         """Compile a structured context pack for an agent goal."""
         data: dict[str, Any] = {
@@ -1772,6 +1773,8 @@ class SibylClient:
             data["project"] = project
         if agent_id:
             data["agent_id"] = agent_id
+        if markdown_token_budget is not None:
+            data["markdown_token_budget"] = markdown_token_budget
         return await self._request("POST", "/context/pack", json=data)
 
     async def reflect(

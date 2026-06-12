@@ -279,6 +279,7 @@ def test_context_pack_json_uses_detected_project(
         include_related=True,
         related_limit=3,
         audit=False,
+        markdown_token_budget=None,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
 
@@ -309,6 +310,7 @@ def test_context_pack_all_projects_omits_project_scope(
         include_related=True,
         related_limit=3,
         audit=False,
+        markdown_token_budget=None,
     )
     mock_resolve_project_from_cwd.assert_not_called()
 
@@ -356,5 +358,6 @@ def test_context_pack_can_request_agent_diary(
         include_related=True,
         related_limit=3,
         audit=False,
+        markdown_token_budget=None,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()

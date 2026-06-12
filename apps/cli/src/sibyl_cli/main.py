@@ -257,7 +257,7 @@ def _derive_capture_title(content: str) -> str:
 def _should_emit_command_marker(ctx: typer.Context) -> bool:
     if environ.get("SIBYL_QUIET", "").lower() in QUIET_ENV_VALUES:
         return False
-    if ctx.invoked_subcommand in {None, "health"}:
+    if ctx.invoked_subcommand in {None, "health", "brief"}:
         return False
     return not any(arg in {"--json", "-j", "--help"} for arg in sys.argv[1:])
 
@@ -2192,6 +2192,55 @@ def synthesis_remember_command(
     run_synthesis_remember()
 
 
+@app.command("brief")
+def brief_context(
+    goal: str = typer.Argument(..., help="Subagent goal or task"),
+    intent: str = typer.Option(
+        "build",
+        "--intent",
+        "-i",
+        callback=_normalize_context_intent,
+        help=CONTEXT_INTENT_HELP,
+    ),
+    project: str | None = typer.Option(None, "--project", "-p", help="Project ID"),
+    all_projects: bool = typer.Option(False, "--all", "-a", help="Use all accessible projects"),
+    budget: int = typer.Option(
+        1500,
+        "--budget",
+        min=100,
+        max=8000,
+        help="Token budget for the rendered brief",
+    ),
+) -> None:
+    """One-shot lean context brief for injecting into a subagent prompt.
+
+    Prints wake-layer markdown only: no skill ceremony, no related-graph
+    expansion, no JSON envelope. Pipe or paste straight into a worker
+    agent's prompt.
+    """
+    effective_project = project or (None if all_projects else resolve_project_from_cwd())
+
+    @run_async
+    async def run_brief() -> None:
+        try:
+            async with get_client() as client:
+                pack = await client.context_pack(
+                    goal=goal,
+                    intent=intent,
+                    layer="wake",
+                    project=effective_project,
+                    limit=8,
+                    include_related=False,
+                    related_limit=0,
+                    markdown_token_budget=budget,
+                )
+            sys.stdout.write((pack.get("markdown") or "") + "\n")
+        except SibylClientError as e:
+            _handle_client_error(e)
+
+    run_brief()
+
+
 @app.command("recall")
 def recall_context(
     goal: str = typer.Argument(..., help="Agent goal or user task"),
@@ -2222,6 +2271,13 @@ def recall_context(
         False,
         "--audit",
         help="Include full retrieval metadata per item (for auditing noisy packs)",
+    ),
+    budget: int | None = typer.Option(
+        None,
+        "--budget",
+        min=100,
+        max=8000,
+        help="Cap rendered markdown at roughly this many tokens",
     ),
     raw: bool = typer.Option(False, "--raw", help="Recall verbatim raw memories"),
     diary: bool = typer.Option(False, "--diary", help="Recall a private agent diary"),
@@ -2304,6 +2360,7 @@ def recall_context(
                     include_related=related,
                     related_limit=3,
                     audit=audit,
+                    markdown_token_budget=budget,
                 )
 
             if json_output:

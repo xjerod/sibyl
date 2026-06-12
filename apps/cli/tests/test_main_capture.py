@@ -1200,6 +1200,7 @@ def test_recall_command_outputs_markdown_context(
         include_related=True,
         related_limit=3,
         audit=False,
+        markdown_token_budget=None,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
 
@@ -2257,6 +2258,7 @@ def test_recall_command_can_request_agent_diary_context(
         include_related=True,
         related_limit=3,
         audit=False,
+        markdown_token_budget=None,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
 
@@ -2539,4 +2541,37 @@ def test_reflect_command_explicit_task_links_and_no_active_task(
     payload = mock_client.reflect.await_args.kwargs
     assert payload["related_to"] == ["plan_1", "task_1"]
     mock_client.explore.assert_not_called()
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_brief_command_prints_markdown_only(
+    mock_get_client: MagicMock,
+    mock_resolve_project_from_cwd: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.context_pack = AsyncMock(
+        return_value={
+            "goal": "fix the parser",
+            "markdown": "# Sibyl Context Pack: fix the parser\n\n## Active Work",
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["brief", "fix the parser"])
+
+    assert result.exit_code == 0
+    assert result.stdout.startswith("# Sibyl Context Pack: fix the parser")
+    mock_client.context_pack.assert_awaited_once_with(
+        goal="fix the parser",
+        intent="build",
+        layer="wake",
+        project="project_123",
+        limit=8,
+        include_related=False,
+        related_limit=0,
+        markdown_token_budget=1500,
+    )
     mock_resolve_project_from_cwd.assert_called_once_with()
