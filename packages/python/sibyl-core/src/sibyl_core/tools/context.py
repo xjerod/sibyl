@@ -35,11 +35,13 @@ SearchFn = Callable[..., Awaitable[SearchResponse]]
 RelatedFn = Callable[..., Awaitable[list[ContextRelatedItem]]]
 RelatedBatchFn = Callable[..., Awaitable[dict[str, list[ContextRelatedItem]]]]
 RawMemoryRecallFn = Callable[..., Awaitable[list[RawMemory]]]
+ActiveWorkFn = Callable[..., Awaitable[list["ContextItem"]]]
 
 log = structlog.get_logger()
 
 FACET_TITLES = {
     ContextFacet.ACTIVE_WORK: "Active Work",
+    ContextFacet.PRIOR_ART: "Prior Art",
     ContextFacet.ARTIFACTS: "Artifacts",
     ContextFacet.CONSTRAINTS: "Constraints",
     ContextFacet.DECISIONS: "Decisions",
@@ -54,6 +56,7 @@ FACET_TITLES = {
 
 FACET_TYPES = {
     ContextFacet.ACTIVE_WORK: ["task", "epic", "project"],
+    ContextFacet.PRIOR_ART: ["task", "epic"],
     ContextFacet.ARTIFACTS: ["artifact", "document", "source", "config_file"],
     ContextFacet.CONSTRAINTS: ["rule", "guide"],
     ContextFacet.DECISIONS: ["decision"],
@@ -75,6 +78,7 @@ INTENT_FACETS = {
         ContextFacet.CONSTRAINTS,
         ContextFacet.PROCEDURES,
         ContextFacet.GOTCHAS,
+        ContextFacet.PRIOR_ART,
         ContextFacet.ARTIFACTS,
         ContextFacet.RECENT_MEMORY,
     ],
@@ -85,6 +89,7 @@ INTENT_FACETS = {
         ContextFacet.DOMAIN,
         ContextFacet.CONSTRAINTS,
         ContextFacet.ACTIVE_WORK,
+        ContextFacet.PRIOR_ART,
     ],
     ContextIntent.IDEATE: [
         ContextFacet.IDEATION,
@@ -107,6 +112,7 @@ INTENT_FACETS = {
         ContextFacet.GOTCHAS,
         ContextFacet.ARTIFACTS,
         ContextFacet.ACTIVE_WORK,
+        ContextFacet.PRIOR_ART,
         ContextFacet.RECENT_MEMORY,
     ],
     ContextIntent.DEBUG: [
@@ -114,6 +120,7 @@ INTENT_FACETS = {
         ContextFacet.PROCEDURES,
         ContextFacet.ARTIFACTS,
         ContextFacet.ACTIVE_WORK,
+        ContextFacet.PRIOR_ART,
         ContextFacet.RECENT_MEMORY,
     ],
     ContextIntent.DECIDE: [
@@ -136,6 +143,7 @@ INTENT_FACETS = {
         ContextFacet.IDEATION,
         ContextFacet.DOMAIN,
         ContextFacet.PROCEDURES,
+        ContextFacet.PRIOR_ART,
         ContextFacet.RECENT_MEMORY,
     ],
 }
@@ -147,6 +155,11 @@ LAYER_LIMITS = {
 }
 
 
+_WORK_ITEM_TYPES = {"task", "epic"}
+_PRIOR_WORK_STATUSES = {"done"}
+_DROPPED_WORK_STATUSES = {"archived"}
+
+
 def _facet_for_type(entity_type: str, facets: list[ContextFacet]) -> ContextFacet:
     normalized_type = entity_type.lower()
     for facet in facets:
@@ -156,6 +169,27 @@ def _facet_for_type(entity_type: str, facets: list[ContextFacet]) -> ContextFace
         if fallback in facets:
             return fallback
     return facets[0]
+
+
+def _work_item_status(result: SearchResult) -> str | None:
+    metadata = result.metadata or {}
+    status = metadata.get("status")
+    if status is None:
+        return None
+    return str(getattr(status, "value", status)).lower() or None
+
+
+def _facet_for_result(result: SearchResult, facets: list[ContextFacet]) -> ContextFacet | None:
+    """Route a result to a facet, keeping completed work out of Active Work."""
+
+    normalized_type = (result.type or "").lower()
+    if normalized_type in _WORK_ITEM_TYPES:
+        status = _work_item_status(result)
+        if status in _DROPPED_WORK_STATUSES:
+            return None
+        if status in _PRIOR_WORK_STATUSES:
+            return ContextFacet.PRIOR_ART if ContextFacet.PRIOR_ART in facets else None
+    return _facet_for_type(normalized_type, facets)
 
 
 def _coerce_intent(intent: str | ContextIntent) -> ContextIntent:
@@ -204,6 +238,8 @@ def _reason_for(result: SearchResult, facet: ContextFacet) -> str:
     result_type = result.type or "memory"
     if facet == ContextFacet.ACTIVE_WORK:
         return f"{result_type} can change what the agent should do next"
+    if facet == ContextFacet.PRIOR_ART:
+        return f"completed {result_type} whose learnings may transfer to this goal"
     if facet == ContextFacet.DECISIONS:
         return f"{result_type} records a choice or rationale the agent should preserve"
     if facet == ContextFacet.IDEATION:
@@ -400,11 +436,16 @@ def _item_from_result(result: SearchResult, facet: ContextFacet) -> ContextItem:
     quality = _quality_metadata_from_result(result)
     source = _compact_metadata_value(result.source) or quality.source or result.id
     metadata.setdefault("source_id", source)
+    content = result.content
+    if facet is ContextFacet.PRIOR_ART:
+        learnings = metadata.get("learnings")
+        if isinstance(learnings, str) and learnings.strip():
+            content = learnings.strip()
     kwargs: dict[str, Any] = {
         "id": result.id,
         "type": result.type,
         "name": result.name,
-        "content": result.content,
+        "content": content,
         "score": result.score,
         "facet": facet,
         "reason": _reason_for(result, facet),
@@ -418,6 +459,10 @@ def _item_from_result(result: SearchResult, facet: ContextFacet) -> ContextItem:
     return ContextItem(**kwargs)
 
 
+def _item_sort_key(item: ContextItem) -> tuple[int, float]:
+    return (0 if item.metadata.get("active_lookup") else 1, -item.score)
+
+
 def _dedupe_sections(sections: list[ContextSection], limit: int) -> list[ContextSection]:
     seen: set[str] = set()
     remaining = limit
@@ -425,7 +470,7 @@ def _dedupe_sections(sections: list[ContextSection], limit: int) -> list[Context
 
     for section in sections:
         items: list[ContextItem] = []
-        for item in sorted(section.items, key=lambda candidate: candidate.score, reverse=True):
+        for item in sorted(section.items, key=_item_sort_key):
             if remaining <= 0:
                 break
             key = item.id or f"{item.type}:{item.name}"
@@ -649,7 +694,9 @@ async def _compile_fallback_sections(
     for result in response.results:
         if _is_synthetic_relationship_result(result):
             continue
-        facet = _facet_for_type(result.type or "", facets)
+        facet = _facet_for_result(result, facets)
+        if facet is None:
+            continue
         grouped[facet].append(_item_from_result(result, facet))
 
     return [
@@ -684,7 +731,9 @@ def _sections_from_response(
     for result in response.results:
         if _is_synthetic_relationship_result(result):
             continue
-        facet = _facet_for_type(result.type or "", list(facets))
+        facet = _facet_for_result(result, list(facets))
+        if facet is None:
+            continue
         grouped[facet].append(_item_from_result(result, facet))
 
     return [
@@ -692,6 +741,105 @@ def _sections_from_response(
         for facet in facets
         if (items := grouped[facet])
     ]
+
+
+_ACTIVE_WORK_LOOKUP_STATUSES = "doing,blocked,review"
+_ACTIVE_WORK_LOOKUP_LIMIT = 5
+
+
+def _enum_value(value: Any) -> str:
+    return str(getattr(value, "value", value))
+
+
+def _item_from_active_entity(entity: Any) -> ContextItem:
+    entity_id = str(entity.id)
+    status = _enum_value(getattr(entity, "status", "") or "")
+    quality = ContextItemQualityMetadata(
+        origin="graph",
+        source=entity_id,
+        created_at=_compact_metadata_value(getattr(entity, "created_at", None)),
+        updated_at=_compact_metadata_value(getattr(entity, "updated_at", None)),
+        project_id=_compact_metadata_value(getattr(entity, "project_id", None)),
+    )
+    metadata: dict[str, Any] = {
+        "source_id": entity_id,
+        "active_lookup": True,
+        "status": status,
+        "priority": _enum_value(getattr(entity, "priority", "") or ""),
+    }
+    content = str(getattr(entity, "description", "") or getattr(entity, "content", "") or "")
+    reason = "task is currently in progress for this project"
+    if status == "blocked":
+        reason = "task is currently blocked for this project"
+    return ContextItem(
+        id=entity_id,
+        type=_enum_value(getattr(entity, "entity_type", "task")),
+        name=str(entity.name),
+        content=content,
+        score=0.0,
+        facet=ContextFacet.ACTIVE_WORK,
+        reason=reason,
+        source=entity_id,
+        quality=quality,
+        metadata=metadata,
+    )
+
+
+async def _default_active_work(
+    *,
+    organization_id: str,
+    project: str,
+    limit: int,
+) -> list[ContextItem]:
+    from sibyl_core.models.entities import EntityType
+
+    runtime = await get_graph_runtime(organization_id)
+    entities = await runtime.entity_manager.list_by_type(
+        EntityType.TASK,
+        limit=limit,
+        project_id=project,
+        status=_ACTIVE_WORK_LOOKUP_STATUSES,
+    )
+    return [_item_from_active_entity(entity) for entity in entities]
+
+
+def _merge_active_work(
+    sections: list[ContextSection],
+    active_items: list[ContextItem],
+    facets: Sequence[ContextFacet],
+) -> list[ContextSection]:
+    if not active_items:
+        return sections
+
+    existing_ids = {item.id for item in active_items}
+    merged: list[ContextSection] = []
+    inserted = False
+    active_index = list(facets).index(ContextFacet.ACTIVE_WORK)
+    for section in sections:
+        if section.facet is ContextFacet.ACTIVE_WORK:
+            retained = [item for item in section.items if item.id not in existing_ids]
+            merged.append(replace(section, items=[*active_items, *retained]))
+            inserted = True
+            continue
+        if not inserted and list(facets).index(section.facet) > active_index:
+            merged.append(
+                ContextSection(
+                    facet=ContextFacet.ACTIVE_WORK,
+                    title=FACET_TITLES[ContextFacet.ACTIVE_WORK],
+                    items=list(active_items),
+                )
+            )
+            inserted = True
+        merged.append(section)
+    if not inserted:
+        merged.append(
+            ContextSection(
+                facet=ContextFacet.ACTIVE_WORK,
+                title=FACET_TITLES[ContextFacet.ACTIVE_WORK],
+                items=list(active_items),
+            )
+        )
+    return merged
 
 
 async def _compile_native_sections(
@@ -732,6 +880,7 @@ async def compile_context(
     search_fn: SearchFn = default_search,
     related_fn: RelatedFn = _default_related_items,
     raw_memory_recall_fn: RawMemoryRecallFn = recall_raw_memory,
+    active_work_fn: ActiveWorkFn | None = None,
     allowed_memory_scope_keys: set[str] | None = None,
 ) -> ContextPack:
     """Build a small, structured context pack for an agent goal."""
@@ -779,6 +928,26 @@ async def compile_context(
             "context_native_search_failed",
             error_type=type(exc).__name__,
         )
+
+    if (
+        ContextFacet.ACTIVE_WORK in facets
+        and project
+        and (accessible_projects is None or project in accessible_projects)
+    ):
+        lookup = active_work_fn if active_work_fn is not None else _default_active_work
+        try:
+            active_items = await lookup(
+                organization_id=organization_id,
+                project=project,
+                limit=min(per_facet_limit, _ACTIVE_WORK_LOOKUP_LIMIT),
+            )
+        except Exception as exc:
+            active_items = []
+            log.warning(
+                "context_active_work_lookup_failed",
+                error_type=type(exc).__name__,
+            )
+        sections = _merge_active_work(sections, active_items, facets)
 
     sections = _dedupe_sections(sections, limit)
     if not sections and retrieval_failed:

@@ -97,6 +97,14 @@ def _types_include(kwargs: dict[str, Any], facet: ContextFacet) -> bool:
     return not requested or bool(requested.intersection(FACET_TYPES[facet]))
 
 
+@pytest.fixture(autouse=True)
+def _stub_active_work_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def no_active_work(**kwargs: Any) -> list[ContextItem]:
+        return []
+
+    monkeypatch.setattr(context_module, "_default_active_work", no_active_work)
+
+
 def test_recent_memory_types_include_projected_fact_cards() -> None:
     types = context_module._types_for_facets([ContextFacet.RECENT_MEMORY])
 
@@ -908,3 +916,184 @@ async def async_compile_context_for_serialization(monkeypatch: pytest.MonkeyPatc
         organization_id="org-123",
         limit=1,
     )
+
+
+@pytest.mark.asyncio
+async def test_compile_context_routes_done_tasks_to_prior_art(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result("task-doing", "task", "Live task", metadata={"status": "doing"}),
+            _result(
+                "task-done",
+                "task",
+                "Finished task",
+                score=0.95,
+                metadata={"status": "done", "learnings": "Pool size must match concurrency."},
+            ),
+            _result("task-archived", "task", "Dead task", metadata={"status": "archived"}),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context(
+        "ship retrieval",
+        intent="build",
+        organization_id="org-123",
+    )
+
+    by_facet = {section.facet: section for section in pack.sections}
+    active = by_facet[ContextFacet.ACTIVE_WORK]
+    prior = by_facet[ContextFacet.PRIOR_ART]
+    assert [item.id for item in active.items] == ["task-doing"]
+    assert [item.id for item in prior.items] == ["task-done"]
+    assert all(item.id != "task-archived" for item in pack.items)
+
+
+@pytest.mark.asyncio
+async def test_prior_art_items_promote_learnings_to_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result(
+                "task-done",
+                "task",
+                "Finished task",
+                metadata={"status": "done", "learnings": "Pool size must match concurrency."},
+            ),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context(
+        "ship retrieval",
+        intent="build",
+        organization_id="org-123",
+    )
+
+    item = pack.items[0]
+    assert item.facet == ContextFacet.PRIOR_ART
+    assert item.content == "Pool size must match concurrency."
+    assert "learnings" in item.reason or "completed" in item.reason
+
+
+@pytest.mark.asyncio
+async def test_compile_context_drops_done_tasks_without_prior_art_facet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result("task-done", "task", "Finished task", metadata={"status": "done"}),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context(
+        "learn from memory",
+        intent="learn",
+        organization_id="org-123",
+    )
+
+    assert all(item.id != "task-done" for item in pack.items)
+
+
+@pytest.mark.asyncio
+async def test_compile_context_statusless_work_items_stay_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result("epic-1", "epic", "Live epic"),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context(
+        "ship retrieval",
+        intent="build",
+        organization_id="org-123",
+    )
+
+    assert pack.items[0].facet == ContextFacet.ACTIVE_WORK
+
+
+@pytest.mark.asyncio
+async def test_compile_context_direct_active_lookup_leads_active_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result(
+                "task-semantic",
+                "task",
+                "Semantically matched task",
+                score=1.4,
+                metadata={"status": "doing"},
+            ),
+            _result(
+                "task-direct",
+                "task",
+                "Currently doing task",
+                score=1.2,
+                metadata={"status": "doing"},
+            ),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    async def fake_active_work(**kwargs: Any) -> list[ContextItem]:
+        assert kwargs["organization_id"] == "org-123"
+        assert kwargs["project"] == "project-1"
+        return [
+            ContextItem(
+                id="task-direct",
+                type="task",
+                name="Currently doing task",
+                content="In flight",
+                score=0.0,
+                facet=ContextFacet.ACTIVE_WORK,
+                reason="task is currently in progress for this project",
+                source="task-direct",
+                metadata={"active_lookup": True, "status": "doing", "source_id": "task-direct"},
+            )
+        ]
+
+    pack = await compile_context(
+        "ship retrieval",
+        intent="build",
+        project="project-1",
+        organization_id="org-123",
+        active_work_fn=fake_active_work,
+    )
+
+    active = next(s for s in pack.sections if s.facet == ContextFacet.ACTIVE_WORK)
+    assert [item.id for item in active.items] == ["task-direct", "task-semantic"]
+    assert active.items[0].metadata.get("active_lookup") is True
+
+
+@pytest.mark.asyncio
+async def test_compile_context_active_lookup_failure_degrades_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result("task-1", "task", "Live task", metadata={"status": "doing"}),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    async def broken_active_work(**kwargs: Any) -> list[ContextItem]:
+        msg = "graph offline"
+        raise RuntimeError(msg)
+
+    pack = await compile_context(
+        "ship retrieval",
+        intent="build",
+        project="project-1",
+        organization_id="org-123",
+        active_work_fn=broken_active_work,
+    )
+
+    assert [item.id for item in pack.items] == ["task-1"]
