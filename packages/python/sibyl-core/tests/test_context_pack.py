@@ -362,7 +362,11 @@ async def test_compile_context_wake_layer_caps_items_and_skips_related(
     related_calls: list[str] = []
     responses = {
         facet: [
-            _result(f"{facet.value}-{index}", FACET_TYPES[facet][0], f"Memory {index}")
+            _result(
+                f"{facet.value}-{index}",
+                FACET_TYPES[facet][0],
+                f"{facet.value} memory {index}",
+            )
             for index in range(2)
         ]
         for facet in [
@@ -1292,3 +1296,82 @@ def test_markdown_renderer_omits_related_line_when_only_project_edges() -> None:
     markdown = context_pack_to_markdown(pack)
 
     assert "Related:" not in markdown
+
+
+@pytest.mark.asyncio
+async def test_lineage_dedup_drops_procedure_mirrors_of_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result(
+                "task-1",
+                "task",
+                "Build native retrieval baseline",
+                score=1.2,
+                metadata={"status": "doing"},
+            ),
+        ],
+        ContextFacet.PROCEDURES: [
+            _result(
+                "procedure-1",
+                "procedure",
+                "Procedure: Build native retrieval baseline",
+                score=1.4,
+            ),
+            _result("procedure-2", "procedure", "Independent runbook", score=0.7),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("ship retrieval", intent="build", organization_id="org-123")
+
+    ids = [item.id for item in pack.items]
+    assert "task-1" in ids
+    assert "procedure-1" not in ids
+    assert "procedure-2" in ids
+
+
+@pytest.mark.asyncio
+async def test_lineage_dedup_prefers_decision_over_raw_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.DECISIONS: [
+            _result("decision-1", "decision", "RC packet separates closure", score=0.8),
+        ],
+        ContextFacet.RECENT_MEMORY: [
+            _result(
+                "raw_memory:abc",
+                "raw_memory",
+                "RC packet separates closure",
+                score=1.5,
+            ),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("continue rc work", intent="build", organization_id="org-123")
+
+    ids = [item.id for item in pack.items]
+    assert "decision-1" in ids
+    assert "raw_memory:abc" not in ids
+
+
+@pytest.mark.asyncio
+async def test_lineage_dedup_collapses_same_name_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.RECENT_MEMORY: [
+            _result("raw_memory:one", "raw_memory", "Raw saves refresh embeddings", score=0.9),
+            _result("raw_memory:two", "raw_memory", "Raw saves refresh embeddings", score=0.5),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("debug recall", intent="learn", organization_id="org-123")
+
+    matching = [item for item in pack.items if item.name == "Raw saves refresh embeddings"]
+    assert len(matching) == 1
+    assert matching[0].id == "raw_memory:one"

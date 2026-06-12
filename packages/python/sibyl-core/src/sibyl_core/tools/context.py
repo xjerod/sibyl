@@ -515,6 +515,72 @@ def _item_sort_key(item: ContextItem) -> tuple[int, float]:
     return (0 if item.metadata.get("active_lookup") else 1, -item.score)
 
 
+_LINEAGE_TYPE_RANK = {
+    "decision": 0,
+    "plan": 0,
+    "idea": 0,
+    "claim": 0,
+    "rule": 0,
+    "guide": 0,
+    "pattern": 0,
+    "error_pattern": 0,
+    "artifact": 0,
+    "task": 1,
+    "epic": 1,
+    "project": 1,
+    "procedure": 2,
+    "template": 2,
+    "tool": 2,
+    "document": 2,
+    "source": 2,
+    "config_file": 2,
+}
+_LINEAGE_DEFAULT_RANK = 3
+_PROCEDURE_NAME_PREFIX = "procedure: "
+
+
+def _lineage_key(item: ContextItem) -> str:
+    name = " ".join((item.name or "").strip().lower().split())
+    if name.startswith(_PROCEDURE_NAME_PREFIX):
+        name = name[len(_PROCEDURE_NAME_PREFIX) :]
+    return name
+
+
+def _lineage_rank(item: ContextItem) -> tuple[int, float]:
+    if item.metadata.get("active_lookup"):
+        return (-1, -item.score)
+    type_rank = _LINEAGE_TYPE_RANK.get((item.type or "").lower(), _LINEAGE_DEFAULT_RANK)
+    return (type_rank, -item.score)
+
+
+def _dedupe_lineage(sections: list[ContextSection]) -> list[ContextSection]:
+    """Collapse derivation-lineage duplicates across sections.
+
+    The graph stores the same fact in multiple shapes: a raw memory and the
+    decision reflected from it, a task and its auto-generated procedure
+    mirror. ID-based dedup can't see these; name-stem grouping keeps the
+    most distilled shape (decision over task over procedure over raw).
+    """
+
+    winners: dict[str, ContextItem] = {}
+    for section in sections:
+        for item in section.items:
+            key = _lineage_key(item)
+            if not key:
+                continue
+            best = winners.get(key)
+            if best is None or _lineage_rank(item) < _lineage_rank(best):
+                winners[key] = item
+
+    kept = {id(item) for item in winners.values()}
+    deduped: list[ContextSection] = []
+    for section in sections:
+        items = [item for item in section.items if not _lineage_key(item) or id(item) in kept]
+        if items:
+            deduped.append(replace(section, items=items))
+    return deduped
+
+
 def _dedupe_sections(sections: list[ContextSection], limit: int) -> list[ContextSection]:
     seen: set[str] = set()
     remaining = limit
@@ -1038,6 +1104,7 @@ async def compile_context(
             )
         sections = _merge_active_work(sections, active_items, facets)
 
+    sections = _dedupe_lineage(sections)
     sections = _dedupe_sections(sections, limit)
     if not sections and retrieval_failed:
         sections = _dedupe_sections(
