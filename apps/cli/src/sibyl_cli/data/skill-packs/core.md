@@ -202,9 +202,27 @@ sibyl recall "ship the context graph" --intent build
 
 # JSON for scripts and agent injectors
 sibyl recall "plan the launch" --intent plan --json
+
+# Cap the rendered markdown at roughly N tokens
+sibyl recall "resume the migration" --budget 1200
 ```
 
-**When to use:** Before acting. This is the agent-ready working memory view.
+**When to use:** Before acting. This is the agent-ready working memory view. The Active Work
+section is grounded in a direct status lookup, so in-flight tasks always lead it; completed work
+appears under Prior Art with its learnings as the content.
+
+---
+
+### Brief - One-Shot Context for Subagents
+
+```bash
+# Lean wake-layer markdown, nothing else on stdout
+sibyl brief "fix the parser crash" --budget 1500
+```
+
+**When to use:** When dispatching a worker or subagent. Run it as the parent and paste the output
+into the worker's prompt. Workers that only need this do not need the full core skill pack —
+point them at `sibyl skill get quick` instead.
 
 ---
 
@@ -214,13 +232,16 @@ sibyl recall "plan the launch" --intent plan --json
 # Markdown for agent injection
 sibyl context pack "evaluate launch readiness" --intent plan --domain sibyl --markdown
 
-# JSON for auditing sections, IDs, source quality, and noisy retrieval
+# JSON for scripting against lean, agent-relevant item metadata
 sibyl context pack "debug memory retrieval" --intent debug --json
+
+# Full retrieval metadata per item (signals, ranks, policy fields)
+sibyl context pack "debug memory retrieval" --intent debug --json --audit
 ```
 
-**When to use:** When you need the structured context that hooks and agents consume directly. Audit
-the pack when context feels off. Relationship-edge records such as `BELONGS_TO` with `rel_*` IDs are
-projection noise, not domain knowledge.
+**When to use:** When you need the structured context that hooks and agents consume directly.
+Item metadata is a lean projection by default; pass `--audit` to inspect retrieval signals and
+policy decisions when a pack looks noisy or wrong.
 
 ---
 

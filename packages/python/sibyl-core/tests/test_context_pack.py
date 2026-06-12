@@ -1424,3 +1424,32 @@ def test_markdown_token_budget_always_renders_first_item() -> None:
     trimmed = context_pack_to_markdown(pack, token_budget=100)
 
     assert "Decision 0" in trimmed
+
+
+@pytest.mark.asyncio
+async def test_lean_metadata_drops_description_equal_to_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.DECISIONS: [
+            _result(
+                "decision-1",
+                "decision",
+                "Decision",
+                metadata={"description": "Decision content"},
+            ),
+            _result(
+                "decision-2",
+                "decision",
+                "Other",
+                metadata={"description": "A longer different summary"},
+            ),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("ship", intent="decide", organization_id="org-123")
+
+    by_id = {item.id: item for item in pack.items}
+    assert "description" not in by_id["decision-1"].metadata
+    assert by_id["decision-2"].metadata["description"] == "A longer different summary"

@@ -493,6 +493,10 @@ def _item_from_result(
         learnings = metadata.get("learnings")
         if isinstance(learnings, str) and learnings.strip():
             content = learnings.strip()
+    if not audit:
+        description = metadata.get("description")
+        if isinstance(description, str) and description.strip() == (content or "").strip():
+            metadata.pop("description", None)
     kwargs: dict[str, Any] = {
         "id": result.id,
         "type": result.type,
