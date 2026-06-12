@@ -141,6 +141,7 @@ async def context_pack(
             limit=request.limit,
             include_related=request.include_related,
             related_limit=request.related_limit,
+            audit=request.audit,
             allowed_memory_scope_keys=set(ctx.api_key_memory_scope_keys)
             if ctx.api_key_memory_scope_keys is not None
             else None,

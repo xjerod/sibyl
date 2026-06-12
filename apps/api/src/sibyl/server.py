@@ -276,6 +276,7 @@ async def _compile_mcp_context_pack(
     limit: int,
     include_related: bool,
     related_limit: int,
+    audit: bool = False,
 ) -> dict[str, Any]:
     from sibyl_core.tools.core import (
         compile_context as _compile_context,
@@ -319,6 +320,7 @@ async def _compile_mcp_context_pack(
                 limit=limit,
                 include_related=include_related,
                 related_limit=related_limit,
+                audit=audit,
                 organization_id=ctx.org_id,
                 allowed_memory_scope_keys=set(ctx.api_key_memory_scope_keys)
                 if ctx.api_key_memory_scope_keys is not None
@@ -1422,6 +1424,7 @@ def _register_tools(mcp: FastMCP) -> None:
         limit: int = 24,
         include_related: bool = True,
         related_limit: int = 3,
+        audit: bool = False,
     ) -> dict[str, Any]:
         """Compile a precise context pack for an agent goal.
 
@@ -1445,6 +1448,7 @@ def _register_tools(mcp: FastMCP) -> None:
             limit: Maximum total context items, clamped to 1-50.
             include_related: Include one-hop related graph context.
             related_limit: Related items per selected context item.
+            audit: Include full retrieval metadata per item for pack auditing.
         """
         return await _compile_mcp_context_pack(
             goal=goal,
@@ -1456,6 +1460,7 @@ def _register_tools(mcp: FastMCP) -> None:
             limit=limit,
             include_related=include_related,
             related_limit=related_limit,
+            audit=audit,
         )
 
     # =========================================================================

@@ -304,6 +304,7 @@ async def test_compile_context_defaults_to_native_retrieval_mode(
         principal_id="user-123",
         organization_id="org-123",
         search_fn=unexpected_search,
+        audit=True,
     )
 
     assert [item.id for item in pack.items] == ["decision-native"]
@@ -1097,3 +1098,98 @@ async def test_compile_context_active_lookup_failure_degrades_gracefully(
     )
 
     assert [item.id for item in pack.items] == ["task-1"]
+
+
+_NOISY_METADATA = {
+    "status": "done",
+    "learnings": "Keep pool size at concurrency.",
+    "tags": ["surreal"],
+    "priority": "high",
+    "updated_at": "2026-05-12T08:04:21Z",
+    "metadata": '{"nested": "double-serialized copy"}',
+    "retrieval_signals": ["node_vector"],
+    "retrieval_ranks": {"node_vector": 1},
+    "retrieval_scores": {"node_vector": 0.45},
+    "candidate_kind": "node",
+    "candidate_project_id": "project-1",
+    "candidate_visibility": "project",
+    "candidate_policy_reason": "project_access_verified",
+    "policy_reason": "project_access_verified",
+    "embedding_metadata": {"provider": "openai"},
+    "graph_expansion_depth": 1,
+    "graph_native_signal_boost": 1.2,
+    "freshness": 1.01,
+    "_direct_insert": True,
+    "created_by": "user-uuid",
+    "branch_name": "task/foo",
+    "commit_shas": [],
+    "assignees": ["system"],
+}
+
+
+@pytest.mark.asyncio
+async def test_pack_items_trim_retrieval_plumbing_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result("task-1", "task", "Task", metadata=dict(_NOISY_METADATA)),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context("ship faster", intent="build", organization_id="org-123")
+
+    item = pack.items[0]
+    kept = set(item.metadata)
+    assert "status" in kept
+    assert "learnings" in kept
+    assert "tags" in kept
+    assert "priority" in kept
+    assert "updated_at" in kept
+    assert "source_id" in kept
+    for noisy in (
+        "metadata",
+        "retrieval_signals",
+        "retrieval_ranks",
+        "retrieval_scores",
+        "candidate_kind",
+        "candidate_project_id",
+        "candidate_visibility",
+        "candidate_policy_reason",
+        "policy_reason",
+        "embedding_metadata",
+        "graph_expansion_depth",
+        "graph_native_signal_boost",
+        "freshness",
+        "_direct_insert",
+        "created_by",
+        "branch_name",
+        "commit_shas",
+        "assignees",
+    ):
+        assert noisy not in kept, f"{noisy} leaked into lean pack metadata"
+
+
+@pytest.mark.asyncio
+async def test_pack_items_keep_full_metadata_in_audit_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ContextFacet.ACTIVE_WORK: [
+            _result("task-1", "task", "Task", metadata=dict(_NOISY_METADATA)),
+        ],
+    }
+    monkeypatch.setattr(context_module, "context_search", _facet_native_search(responses))
+
+    pack = await compile_context(
+        "ship faster",
+        intent="build",
+        organization_id="org-123",
+        audit=True,
+    )
+
+    item = pack.items[0]
+    assert item.metadata.get("retrieval_signals") == ["node_vector"]
+    assert item.metadata.get("candidate_kind") == "node"
+    assert item.metadata.get("embedding_metadata") == {"provider": "openai"}

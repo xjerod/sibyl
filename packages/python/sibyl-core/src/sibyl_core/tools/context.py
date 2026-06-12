@@ -431,8 +431,60 @@ async def _default_related_items_batch(
     return related_by_seed
 
 
-def _item_from_result(result: SearchResult, facet: ContextFacet) -> ContextItem:
-    metadata = dict(result.metadata)
+_ITEM_METADATA_KEYS = (
+    "status",
+    "priority",
+    "complexity",
+    "lifecycle_state",
+    "review_state",
+    "tags",
+    "category",
+    "language",
+    "domain",
+    "visibility",
+    "kind",
+    "capture_mode",
+    "capture_surface",
+    "thread_id",
+    "label",
+    "project_id",
+    "epic_id",
+    "parent_task_id",
+    "created_at",
+    "updated_at",
+    "completed_at",
+    "occurred_at",
+    "valid_at",
+    "learnings",
+    "description",
+)
+
+
+def _lean_item_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Project full candidate metadata down to fields agents act on.
+
+    Retrieval plumbing (signal scores, candidate policy fields, embedding
+    provenance, double-serialized record copies) stays out of packs unless
+    the caller asks for an audit view.
+    """
+
+    lean: dict[str, Any] = {}
+    for key in _ITEM_METADATA_KEYS:
+        value = metadata.get(key)
+        if value is None or value == "" or value == [] or value == {}:
+            continue
+        lean[key] = value
+    return lean
+
+
+def _item_from_result(
+    result: SearchResult,
+    facet: ContextFacet,
+    *,
+    audit: bool = False,
+) -> ContextItem:
+    full_metadata = dict(result.metadata)
+    metadata = full_metadata if audit else _lean_item_metadata(full_metadata)
     quality = _quality_metadata_from_result(result)
     source = _compact_metadata_value(result.source) or quality.source or result.id
     metadata.setdefault("source_id", source)
@@ -676,6 +728,7 @@ async def _compile_fallback_sections(
     organization_id: str,
     limit: int,
     search_fn: SearchFn,
+    audit: bool = False,
 ) -> list[ContextSection]:
     response = await search_fn(
         query=query,
@@ -697,7 +750,7 @@ async def _compile_fallback_sections(
         facet = _facet_for_result(result, facets)
         if facet is None:
             continue
-        grouped[facet].append(_item_from_result(result, facet))
+        grouped[facet].append(_item_from_result(result, facet, audit=audit))
 
     return [
         ContextSection(facet=facet, title=FACET_TITLES[facet], items=items)
@@ -726,6 +779,7 @@ def _sections_from_response(
     response: SearchResponse,
     *,
     facets: Sequence[ContextFacet],
+    audit: bool = False,
 ) -> list[ContextSection]:
     grouped: dict[ContextFacet, list[ContextItem]] = {facet: [] for facet in facets}
     for result in response.results:
@@ -734,7 +788,7 @@ def _sections_from_response(
         facet = _facet_for_result(result, list(facets))
         if facet is None:
             continue
-        grouped[facet].append(_item_from_result(result, facet))
+        grouped[facet].append(_item_from_result(result, facet, audit=audit))
 
     return [
         ContextSection(facet=facet, title=FACET_TITLES[facet], items=items)
@@ -849,6 +903,7 @@ async def _compile_native_sections(
     limit: int,
     per_facet_limit: int,
     raw_memory_recall_fn: RawMemoryRecallFn,
+    audit: bool = False,
 ) -> list[ContextSection]:
     search_limit = min(50, max(limit, per_facet_limit * len(facets)))
     response = await context_search(
@@ -860,7 +915,7 @@ async def _compile_native_sections(
         embedding_provider=configured_embedding_provider(),
         raw_memory_recall_fn=raw_memory_recall_fn,
     )
-    return _sections_from_response(response, facets=facets)
+    return _sections_from_response(response, facets=facets, audit=audit)
 
 
 async def compile_context(
@@ -877,6 +932,7 @@ async def compile_context(
     limit: int = 24,
     include_related: bool = False,
     related_limit: int = 3,
+    audit: bool = False,
     search_fn: SearchFn = default_search,
     related_fn: RelatedFn = _default_related_items,
     raw_memory_recall_fn: RawMemoryRecallFn = recall_raw_memory,
@@ -921,6 +977,7 @@ async def compile_context(
             limit=limit,
             per_facet_limit=per_facet_limit,
             raw_memory_recall_fn=raw_memory_recall_fn,
+            audit=audit,
         )
     except Exception as exc:
         retrieval_failed = True
@@ -961,6 +1018,7 @@ async def compile_context(
                 organization_id=organization_id,
                 limit=limit,
                 search_fn=search_fn,
+                audit=audit,
             ),
             limit,
         )

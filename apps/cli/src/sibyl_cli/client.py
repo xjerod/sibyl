@@ -1754,6 +1754,7 @@ class SibylClient:
         limit: int = 24,
         include_related: bool = True,
         related_limit: int = 3,
+        audit: bool = False,
     ) -> dict[str, Any]:
         """Compile a structured context pack for an agent goal."""
         data: dict[str, Any] = {
@@ -1763,6 +1764,7 @@ class SibylClient:
             "limit": limit,
             "include_related": include_related,
             "related_limit": related_limit,
+            "audit": audit,
         }
         if domain:
             data["domain"] = domain

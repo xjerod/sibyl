@@ -443,6 +443,13 @@ def pack_cmd(
     json_out: Annotated[
         bool, typer.Option("--json", "-j", help="JSON output (for scripting)")
     ] = False,
+    audit: Annotated[
+        bool,
+        typer.Option(
+            "--audit",
+            help="Include full retrieval metadata per item (for auditing noisy packs)",
+        ),
+    ] = False,
 ) -> None:
     """Compile a precise context pack for an agent."""
     effective_project = project or (None if all_projects else resolve_project_from_cwd())
@@ -461,6 +468,7 @@ def pack_cmd(
                     limit=limit,
                     include_related=related,
                     related_limit=related_limit,
+                    audit=audit,
                 )
         except SibylClientError as e:
             handle_client_error(e)

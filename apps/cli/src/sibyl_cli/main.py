@@ -2218,6 +2218,11 @@ def recall_context(
         help="Include one-hop related graph context",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output full JSON"),
+    audit: bool = typer.Option(
+        False,
+        "--audit",
+        help="Include full retrieval metadata per item (for auditing noisy packs)",
+    ),
     raw: bool = typer.Option(False, "--raw", help="Recall verbatim raw memories"),
     diary: bool = typer.Option(False, "--diary", help="Recall a private agent diary"),
     memory_scope: str = typer.Option("private", "--scope", help="Raw memory scope"),
@@ -2298,6 +2303,7 @@ def recall_context(
                     limit=limit,
                     include_related=related,
                     related_limit=3,
+                    audit=audit,
                 )
 
             if json_output:

@@ -1199,6 +1199,7 @@ def test_recall_command_outputs_markdown_context(
         limit=12,
         include_related=True,
         related_limit=3,
+        audit=False,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
 
@@ -2255,6 +2256,7 @@ def test_recall_command_can_request_agent_diary_context(
         limit=12,
         include_related=True,
         related_limit=3,
+        audit=False,
     )
     mock_resolve_project_from_cwd.assert_called_once_with()
 

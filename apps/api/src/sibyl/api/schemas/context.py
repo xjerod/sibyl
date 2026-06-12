@@ -22,6 +22,10 @@ class ContextPackRequest(BaseModel):
     limit: int = Field(default=24, ge=1, le=50, description="Maximum total context items")
     include_related: bool = Field(default=True, description="Include one-hop related graph context")
     related_limit: int = Field(default=3, ge=0, le=5, description="Related items per context item")
+    audit: bool = Field(
+        default=False,
+        description="Include full retrieval metadata per item for pack auditing",
+    )
 
 
 class ContextPackRelatedItem(BaseModel):
