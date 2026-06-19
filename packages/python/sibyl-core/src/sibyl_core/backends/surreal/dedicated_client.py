@@ -261,10 +261,35 @@ class DedicatedSurrealClient:
         started_at = query_start()
         retry_count = 0
         result: object = None
+        can_retry = _can_retry_raw_query(query) if raw else _can_retry_query(query)
         connection = await self._available.get()
         try:
             while True:
                 try:
+                    if not can_retry:
+                        while True:
+                            try:
+                                client = await connection.connect()
+                                await self._send_query(
+                                    client,
+                                    "RETURN true;",
+                                    params={},
+                                    raw=False,
+                                )
+                                break
+                            except Exception as exc:
+                                if not _is_transient_connection_error(exc):
+                                    raise
+                                await connection.drop()
+                                if retry_count >= _MAX_CLOSED_CONNECTION_RETRIES:
+                                    raise
+                                retry_count += 1
+                                logger.warning(
+                                    "SurrealDB dedicated client connection failed during "
+                                    "write preflight; retrying attempt=%s error=%s",
+                                    retry_count,
+                                    exc,
+                                )
                     client = await connection.connect()
                     result = await self._send_query(client, query, params=params, raw=raw)
                     break
@@ -272,7 +297,6 @@ class DedicatedSurrealClient:
                     if not _is_transient_connection_error(exc):
                         raise
                     await connection.drop()
-                    can_retry = _can_retry_raw_query(query) if raw else _can_retry_query(query)
                     if not can_retry or retry_count >= _MAX_CLOSED_CONNECTION_RETRIES:
                         raise
                     retry_count += 1

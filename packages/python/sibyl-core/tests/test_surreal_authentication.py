@@ -306,6 +306,8 @@ async def test_surreal_dedicated_client_drops_query_id_keyerror_on_write(monkeyp
             self.database = database
 
         async def query(self, query: str, params: object | None = None) -> list[dict[str, str]]:
+            if query == "RETURN true;":
+                return []
             raise KeyError("c87ffcce-66d3-4c07-aa06-7e40f3a9e67f")
 
         async def close(self) -> None:
@@ -454,7 +456,7 @@ async def test_surreal_content_client_allows_two_closed_raw_read_retries(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_surreal_content_client_does_not_retry_closed_write(monkeypatch) -> None:
+async def test_surreal_content_client_preflights_stale_write_socket(monkeypatch) -> None:
     class ConnectionClosedError(RuntimeError):
         pass
 
@@ -463,6 +465,8 @@ async def test_surreal_content_client_does_not_retry_closed_write(monkeypatch) -
 
     class FakeAsyncSurreal:
         def __init__(self, url: str) -> None:
+            self.queries: list[str] = []
+            self.closed = False
             clients.append(self)
 
         async def signin(self, credentials: dict[str, str]) -> None:
@@ -473,6 +477,59 @@ async def test_surreal_content_client_does_not_retry_closed_write(monkeypatch) -
             self.database = database
 
         async def query(self, query: str, params: object | None = None) -> list[Any]:
+            self.queries.append(query)
+            if self is clients[0] and query == "RETURN true;" and len(self.queries) > 1:
+                raise ConnectionClosedError("sent 1011 keepalive ping timeout")
+            return [{"ok": "yes"}]
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(sys.modules, "surrealdb", SimpleNamespace(AsyncSurreal=FakeAsyncSurreal))
+    client = SurrealContentClient(
+        url="ws://localhost:8000/rpc",
+        username="root",
+        password="root",
+        pool_size=1,
+    )
+
+    await client.execute_query("SELECT * FROM system_settings;")
+    result = await client.execute_query(
+        "CREATE system_settings CONTENT $record;",
+        record={"key": "x"},
+    )
+
+    assert result == [{"ok": "yes"}]
+    assert len(clients) == 2
+    assert clients[0].closed is True
+    assert clients[1].queries == ["RETURN true;", "CREATE system_settings CONTENT $record;"]
+
+
+@pytest.mark.asyncio
+async def test_surreal_content_client_does_not_retry_closed_write(monkeypatch) -> None:
+    class ConnectionClosedError(RuntimeError):
+        pass
+
+    ConnectionClosedError.__module__ = "websockets.exceptions"
+    clients: list[FakeAsyncSurreal] = []
+
+    class FakeAsyncSurreal:
+        def __init__(self, url: str) -> None:
+            self.queries: list[str] = []
+            self.closed = False
+            clients.append(self)
+
+        async def signin(self, credentials: dict[str, str]) -> None:
+            self.credentials = credentials
+
+        async def use(self, namespace: str, database: str) -> None:
+            self.namespace = namespace
+            self.database = database
+
+        async def query(self, query: str, params: object | None = None) -> list[Any]:
+            self.queries.append(query)
+            if query == "RETURN true;":
+                return []
             raise ConnectionClosedError("sent 1011 keepalive ping timeout")
 
         async def close(self) -> None:
@@ -489,6 +546,8 @@ async def test_surreal_content_client_does_not_retry_closed_write(monkeypatch) -
         await client.execute_query("CREATE system_settings CONTENT $record;", record={"key": "x"})
 
     assert len(clients) == 1
+    assert clients[0].queries == ["RETURN true;", "CREATE system_settings CONTENT $record;"]
+    assert clients[0].closed is True
 
 
 @pytest.mark.asyncio
