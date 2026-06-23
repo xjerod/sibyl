@@ -232,7 +232,14 @@ class TestSessionBundleRoute:
         assert response.relevant_entities[0].entity_type == "raw_memory"
         assert response.relevant_entities[0].memory_scope == "private"
         assert response.relevant_entities[1].scope_key == "proj_1"
-        assert [call.kwargs["memory_scope"] for call in recall_raw.await_args_list] == [
-            "private",
-            "project",
+        assert [
+            (
+                call.kwargs["memory_scope"],
+                call.kwargs.get("scope_key"),
+                call.kwargs.get("project_id"),
+            )
+            for call in recall_raw.await_args_list
+        ] == [
+            ("private", None, "proj_1"),
+            ("project", "proj_1", None),
         ]

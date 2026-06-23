@@ -93,15 +93,19 @@ async def _append_raw_memories(
     if not principal_id or limit <= 0:
         return
 
-    scope_requests: list[tuple[str, str | None]] = [("private", None)]
-    scope_requests.extend(("project", project_id) for project_id in selected_project_ids)
+    scope_requests: list[tuple[str, str | None, str | None]] = []
+    if selected_project_ids:
+        scope_requests.extend(("private", None, project_id) for project_id in selected_project_ids)
+        scope_requests.extend(("project", project_id, None) for project_id in selected_project_ids)
+    else:
+        scope_requests.append(("private", None, None))
 
     async with recall_concurrency_slot(
         organization_id=organization_id,
         user_id=principal_id,
         organization_role=organization_role,
     ):
-        for memory_scope, scope_key in scope_requests:
+        for memory_scope, scope_key, project_filter in scope_requests:
             remaining = limit - len(memories)
             if remaining <= 0:
                 break
@@ -112,6 +116,7 @@ async def _append_raw_memories(
                     query=query,
                     memory_scope=memory_scope,
                     scope_key=scope_key,
+                    project_id=project_filter,
                     limit=remaining,
                 )
             except Exception as exc:
@@ -119,6 +124,7 @@ async def _append_raw_memories(
                     "session_raw_memory_lookup_failed",
                     memory_scope=memory_scope,
                     scope_key=scope_key,
+                    project_id=project_filter,
                     error=str(exc),
                 )
                 continue
