@@ -8,13 +8,26 @@ updates:
       day: "monday"
       time: "12:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 4
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
     groups:
-      enterprise-auth-runtime:
+      python-security:
+        applies-to: security-updates
         patterns:
-          - "argon2-cffi"
-          - "authlib"
-          - "pyjwt"
+          - "*"
+      python-version:
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      python-major:
+        update-types:
+          - "major"
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/"
@@ -23,7 +36,34 @@ updates:
       day: "monday"
       time: "12:30"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 4
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
+    groups:
+      web-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      web-runtime:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      web-dev:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      web-major:
+        update-types:
+          - "major"
+        patterns:
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -32,4 +72,15 @@ updates:
       day: "monday"
       time: "13:00"
       timezone: "Etc/UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      actions-version:
+        patterns:
+          - "*"
