@@ -214,8 +214,16 @@ def test_session_bundle_json_blends_raw_memory(
     assert payload["relevant_entities"][0]["memory_scope"] == "private"
     assert payload["relevant_entities"][1]["scope_key"] == "project_123"
     assert [
-        call.kwargs["memory_scope"] for call in mock_client.recall_raw_memory.await_args_list
-    ] == ["private", "project"]
+        (
+            call.kwargs["memory_scope"],
+            call.kwargs.get("scope_key"),
+            call.kwargs.get("project_id"),
+        )
+        for call in mock_client.recall_raw_memory.await_args_list
+    ] == [
+        ("private", None, "project_123"),
+        ("project", "project_123", None),
+    ]
 
 
 @patch("sibyl_cli.session.get_effective_server_url", return_value="http://localhost:3334")

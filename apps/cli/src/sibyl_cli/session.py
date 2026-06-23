@@ -64,11 +64,18 @@ async def _append_raw_memories(
     project: str | None,
     limit: int,
 ) -> None:
-    scope_requests: list[tuple[str, str | None]] = [("private", None)]
+    scope_requests: list[tuple[str, str | None, str | None]] = []
     if project:
-        scope_requests.append(("project", project))
+        scope_requests.extend(
+            [
+                ("private", None, project),
+                ("project", project, None),
+            ]
+        )
+    else:
+        scope_requests.append(("private", None, None))
 
-    for memory_scope, scope_key in scope_requests:
+    for memory_scope, scope_key, project_filter in scope_requests:
         remaining = limit - len(memories)
         if remaining <= 0:
             break
@@ -77,6 +84,7 @@ async def _append_raw_memories(
                 query=query,
                 memory_scope=memory_scope,
                 scope_key=scope_key,
+                project_id=project_filter,
                 limit=remaining,
             )
         except SibylClientError:
