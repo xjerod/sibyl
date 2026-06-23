@@ -128,16 +128,29 @@ def test_publish_workflow_gates_direct_dispatches_before_artifacts() -> None:
     assert "tools/release/aur_pkgbuild.py" in workflow
     assert "hyperb1iss/homebrew-tap" in workflow
     assert "HOMEBREW_TAP_TOKEN" in workflow
-    assert "Upload Homebrew formula artifact" in workflow
-    assert "Check Homebrew tap token" in workflow
-    assert "can_push=false" in workflow
-    assert "steps.tap_token.outputs.can_push == 'true'" in workflow
+    assert all(
+        fragment in workflow
+        for fragment in (
+            "Upload Homebrew formula artifact",
+            "Check Homebrew tap token",
+            "can_push=false",
+            "steps.tap_token.outputs.can_push == 'true'",
+        )
+    )
     assert "gh api repos/hyperb1iss/homebrew-tap --jq '.permissions.push // false'" in workflow
     assert "HOMEBREW_TAP_TOKEN cannot authenticate" in workflow
     assert "HOMEBREW_TAP_TOKEN cannot push to hyperb1iss/homebrew-tap" in workflow
     assert "persist-credentials: true" in workflow
     assert (
         "KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7" in workflow
+    )
+    assert all(
+        fragment in workflow
+        for fragment in (
+            "Check AUR package version",
+            "https://aur.archlinux.org/rpc/?v=5&type=info&arg[]=sibyl",
+            "steps.aur_state.outputs.publish == 'true'",
+        )
     )
     assert "# v4.1.3" in workflow
     assert "AUR_SSH_KEY" in workflow

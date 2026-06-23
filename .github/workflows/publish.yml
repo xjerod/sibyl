@@ -245,13 +245,51 @@ jobs:
         env:
           TAG: ${{ inputs.tag }}
 
+      - name: "◇ Check AUR package version"
+        id: aur_state
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python_version="$(
+            python - <<'PY'
+          import os
+
+          from tools.release.aur_pkgbuild import pep440_version
+
+          print(pep440_version(os.environ["VERSION"]))
+          PY
+          )"
+          current="$(
+            python - <<'PY' || true
+          import json
+          import urllib.request
+
+          url = "https://aur.archlinux.org/rpc/?v=5&type=info&arg[]=sibyl"
+          with urllib.request.urlopen(url, timeout=30) as response:
+              payload = json.load(response)
+          results = payload.get("results") or []
+          if results:
+              print(results[0].get("Version", ""))
+          PY
+          )"
+          expected="${python_version}-1"
+          if [[ "$current" == "$expected" ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "AUR sibyl already matches ${expected}"
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
       - name: "△ Generate PKGBUILD"
+        if: ${{ steps.aur_state.outputs.publish == 'true' }}
         run: |
           python tools/release/aur_pkgbuild.py \
             --version "${{ steps.version.outputs.version }}" \
             --output PKGBUILD
 
       - name: "► Publish to AUR"
+        if: ${{ steps.aur_state.outputs.publish == 'true' }}
         uses: KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7 # v4.1.3
         with:
           pkgname: sibyl
