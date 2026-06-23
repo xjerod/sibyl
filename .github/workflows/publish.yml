@@ -463,8 +463,8 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: >-
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-${{
-            matrix.image }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-${{ matrix.image }}:${{
+            steps.version.outputs.version }}
           format: cyclonedx
           output: sibyl-${{ matrix.image }}-${{ steps.version.outputs.version }}.cdx.json
           scanners: vuln
@@ -481,8 +481,8 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: >-
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-${{
-            matrix.image }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sibyl-${{ matrix.image }}:${{
+            steps.version.outputs.version }}
           format: table
           exit-code: "1"
           vuln-type: os,library
@@ -570,7 +570,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sibyl-${{ matrix.image }}-${{ steps.version.outputs.version }}-cosign
-          path: cosign-receipts/sibyl-${{ matrix.image }}-${{ steps.version.outputs.version }}-cosign-receipt.json
+          path:
+            cosign-receipts/sibyl-${{ matrix.image }}-${{ steps.version.outputs.version
+            }}-cosign-receipt.json
           if-no-files-found: error
           retention-days: 90
 
@@ -655,7 +657,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release view "${{ inputs.tag }}" --json body --jq .body \
+          gh release view "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --json body \
+            --jq .body \
             | awk '
                 /^## Install$/ { stop = 1 }
                 /^## Artifacts$/ { stop = 1 }
