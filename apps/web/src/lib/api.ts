@@ -1323,6 +1323,15 @@ export interface PasswordChangeRequest {
   new_password: string;
 }
 
+export interface PasswordResetRequest {
+  email: string;
+}
+
+export interface PasswordResetConfirmRequest {
+  token: string;
+  new_password: string;
+}
+
 // Onboarding checklist state
 export interface OnboardingChecklist {
   connected_agent?: boolean;
@@ -2493,6 +2502,16 @@ export const api = {
     // Password
     changePassword: (data: PasswordChangeRequest) =>
       fetchApi<void>('/users/me/password', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }).then(() => ({ success: true })),
+    requestPasswordReset: (data: PasswordResetRequest) =>
+      fetchApi<{ message: string }>('/users/password/reset', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    confirmPasswordReset: (data: PasswordResetConfirmRequest) =>
+      fetchApi<void>('/users/password/reset/confirm', {
         method: 'POST',
         body: JSON.stringify(data),
       }).then(() => ({ success: true })),

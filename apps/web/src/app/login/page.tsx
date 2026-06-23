@@ -2,13 +2,13 @@
 
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { type FormEvent, Suspense, useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import { Spinner } from '@/components/ui/spinner';
-import type { AuthProvider } from '@/lib/api';
+import { type AuthProvider, api } from '@/lib/api';
 import { useAuthProviders, useSetupStatus } from '@/lib/hooks';
 
-type AuthMode = 'signin' | 'signup';
+type AuthMode = 'signin' | 'signup' | 'reset';
 
 const ERROR_MESSAGES: Record<string, string> = {
   account_conflict: 'Could not create that account.',
@@ -64,6 +64,7 @@ function LoginContent() {
   const error = searchParams.get('error');
   const inviteToken = searchParams.get('invite');
   const setupComplete = searchParams.get('setup') === 'complete';
+  const resetComplete = searchParams.get('reset') === 'complete';
   const next = getSafeRedirect(rawNext);
 
   const [mode, setMode] = useState<AuthMode>('signin');
@@ -97,10 +98,10 @@ function LoginContent() {
   }, [inviteToken]);
 
   useEffect(() => {
-    if (!allowSignup) {
+    if (!allowSignup && mode === 'signup') {
       setMode('signin');
     }
-  }, [allowSignup]);
+  }, [allowSignup, mode]);
 
   // Show loading while checking setup status
   if (isCheckingSetup || isCheckingProviders || setupStatus?.needs_setup) {
@@ -146,7 +147,7 @@ function LoginContent() {
                 type="button"
                 onClick={() => setMode('signin')}
                 className={`flex-1 py-3 text-sm font-medium transition-colors duration-200 relative rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-inset ${
-                  mode === 'signin'
+                  mode === 'signin' || mode === 'reset'
                     ? 'text-sc-fg-primary'
                     : 'text-sc-fg-muted hover:text-sc-fg-secondary'
                 }`}
@@ -154,7 +155,7 @@ function LoginContent() {
                 Sign In
                 <span
                   className={`absolute bottom-0 left-0 right-0 h-0.5 bg-sc-purple transition-transform duration-300 origin-left ${
-                    mode === 'signin' ? 'scale-x-100' : 'scale-x-0'
+                    mode === 'signin' || mode === 'reset' ? 'scale-x-100' : 'scale-x-0'
                   }`}
                 />
               </button>
@@ -188,6 +189,11 @@ function LoginContent() {
                 Setup complete! Sign in to get started.
               </div>
             )}
+            {resetComplete && (
+              <div className="mb-4 text-sm px-3 py-2 rounded-lg border border-sc-green/30 bg-sc-green/10 text-sc-green">
+                Password updated. Sign in with your new password.
+              </div>
+            )}
             {errorMessage && (
               <div className="mb-4 text-sm px-3 py-2 rounded-lg border border-sc-red/30 bg-sc-red/10 text-sc-red animate-shake">
                 {errorMessage}
@@ -202,7 +208,7 @@ function LoginContent() {
             {oidcProviders.length > 0 && <OIDCProviderList providers={oidcProviders} next={next} />}
 
             {localAuthEnabled ? (
-              <div className="relative h-[280px]">
+              <div className="relative h-[300px]">
                 <div
                   className={`absolute inset-0 transition-all duration-300 ${
                     mode === 'signin'
@@ -214,7 +220,17 @@ function LoginContent() {
                     next={next}
                     inviteToken={inviteToken}
                     breakGlassEnabled={breakGlassEnabled}
+                    onForgotPassword={() => setMode('reset')}
                   />
+                </div>
+                <div
+                  className={`absolute inset-0 transition-all duration-300 ${
+                    mode === 'reset'
+                      ? 'opacity-100 translate-x-0 pointer-events-auto'
+                      : 'opacity-0 translate-x-4 pointer-events-none'
+                  }`}
+                >
+                  <PasswordResetRequestForm onBack={() => setMode('signin')} />
                 </div>
                 {allowSignup && (
                   <div
@@ -264,13 +280,13 @@ function SignInForm({
   next,
   inviteToken,
   breakGlassEnabled,
+  onForgotPassword,
 }: {
   next: string | null;
   inviteToken: string | null;
   breakGlassEnabled: boolean;
+  onForgotPassword: () => void;
 }) {
-  const [showResetNotice, setShowResetNotice] = useState(false);
-
   return (
     <form action="/api/auth/local/login" method="post" className="h-full relative pb-14">
       <input type="hidden" name="redirect" value={next || '/'} />
@@ -339,19 +355,12 @@ function SignInForm({
           </label>
           <button
             type="button"
-            aria-expanded={showResetNotice}
             className="text-xs text-sc-fg-muted hover:text-sc-purple transition-colors duration-200 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sc-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-sc-bg-elevated"
-            onClick={() => setShowResetNotice(true)}
+            onClick={onForgotPassword}
           >
             Forgot password?
           </button>
         </div>
-
-        {showResetNotice && (
-          <div className="text-xs px-3 py-2 rounded-lg border border-sc-cyan/30 bg-sc-cyan/10 text-sc-cyan">
-            Password reset isn't available yet. Contact your administrator to reset your password.
-          </div>
-        )}
       </div>
 
       <Button
@@ -361,6 +370,89 @@ function SignInForm({
       >
         Sign In
       </Button>
+    </form>
+  );
+}
+
+function PasswordResetRequestForm({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await api.security.requestPasswordReset({ email });
+      setMessage(response.message);
+    } catch {
+      setError('Could not send a reset email. Try again in a moment.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <form aria-label="Reset password" onSubmit={handleSubmit} className="h-full relative pb-20">
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-sc-fg-primary">Reset Password</h2>
+          <p className="mt-1 text-xs text-sc-fg-muted">
+            We'll send a reset link if the account exists.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-sc-fg-muted" htmlFor="reset_email">
+            Email
+          </label>
+          <input
+            id="reset_email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={event => setEmail(event.target.value)}
+            className={inputClasses}
+            placeholder="you@example.com"
+          />
+        </div>
+
+        {message && (
+          <div className="text-xs px-3 py-2 rounded-lg border border-sc-green/30 bg-sc-green/10 text-sc-green">
+            {message}
+          </div>
+        )}
+        {error && (
+          <div className="text-xs px-3 py-2 rounded-lg border border-sc-red/30 bg-sc-red/10 text-sc-red">
+            {error}
+          </div>
+        )}
+      </div>
+
+      <div className="absolute bottom-0 left-0 right-0 flex gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          className="flex-1 focus-visible:ring-offset-sc-bg-elevated"
+          onClick={onBack}
+        >
+          Back
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          loading={isSubmitting}
+          className="flex-1 focus-visible:ring-offset-sc-bg-elevated"
+        >
+          Send Link
+        </Button>
+      </div>
     </form>
   );
 }

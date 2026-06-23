@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import smtplib
+from asyncio import to_thread
 from datetime import UTC, datetime
+from email.message import EmailMessage
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +29,13 @@ class EmailClient:
         self._api_key = settings.resend_api_key.get_secret_value()
         self._from_address = settings.email_from
         self._outbox_path = settings.email_outbox_path.strip()
+        self._smtp_host = settings.smtp_host.strip()
+        self._smtp_port = settings.smtp_port
+        self._smtp_username = settings.smtp_username.strip()
+        self._smtp_password = settings.smtp_password.get_secret_value()
+        self._smtp_starttls = settings.smtp_starttls
+        self._smtp_ssl = settings.smtp_ssl
+        self._smtp_timeout_seconds = settings.smtp_timeout_seconds
         self._resend: object | None = None
 
         if self._api_key:
@@ -40,7 +50,7 @@ class EmailClient:
     @property
     def configured(self) -> bool:
         """Check if email sending is configured."""
-        return bool(self._api_key and self._resend)
+        return bool(self._smtp_host or (self._api_key and self._resend))
 
     async def send(
         self,
@@ -66,7 +76,16 @@ class EmailClient:
             reply_to=reply_to,
         )
 
-        if not self.configured:
+        if self._smtp_host:
+            return await self._send_smtp(
+                to=recipients,
+                subject=subject,
+                html=html,
+                text=text,
+                reply_to=reply_to,
+            )
+
+        if not self._resend:
             log.info(
                 "email_skipped",
                 reason="not_configured",
@@ -98,6 +117,60 @@ class EmailClient:
         except Exception:
             log.exception("email_failed", to=recipients, subject=subject)
             return None
+
+    async def _send_smtp(
+        self,
+        *,
+        to: list[str],
+        subject: str,
+        html: str,
+        text: str | None,
+        reply_to: str | None,
+    ) -> str | None:
+        try:
+            await to_thread(
+                self._send_smtp_sync,
+                to=to,
+                subject=subject,
+                html=html,
+                text=text,
+                reply_to=reply_to,
+            )
+            log.info("email_sent", provider="smtp", to=to, subject=subject)
+            return None
+        except Exception:
+            log.exception("email_failed", provider="smtp", to=to, subject=subject)
+            return None
+
+    def _send_smtp_sync(
+        self,
+        *,
+        to: list[str],
+        subject: str,
+        html: str,
+        text: str | None,
+        reply_to: str | None,
+    ) -> None:
+        message = EmailMessage()
+        message["From"] = self._from_address
+        message["To"] = ", ".join(to)
+        message["Subject"] = subject
+        if reply_to:
+            message["Reply-To"] = reply_to
+        message.set_content(text or "")
+        message.add_alternative(html, subtype="html")
+
+        smtp_cls = smtplib.SMTP_SSL if self._smtp_ssl else smtplib.SMTP
+        with smtp_cls(
+            self._smtp_host,
+            self._smtp_port,
+            timeout=self._smtp_timeout_seconds,
+        ) as smtp:
+            if self._smtp_starttls and not self._smtp_ssl:
+                smtp.starttls()
+            if self._smtp_username:
+                smtp.login(self._smtp_username, self._smtp_password)
+            smtp.send_message(message)
 
     def _write_outbox(
         self,

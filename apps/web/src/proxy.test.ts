@@ -34,4 +34,13 @@ describe('proxy auth refresh', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('location')).toBeNull();
   });
+
+  it('allows password reset links without auth cookies', () => {
+    const request = new NextRequest('http://web.test/reset-password?token=reset-token');
+
+    const response = proxy(request);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+  });
 });

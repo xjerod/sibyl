@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuthProviders, useSetupStatus } from '@/lib/hooks';
-import { render, screen } from '@/test/utils';
+import { render, screen, within } from '@/test/utils';
 import LoginPage from './page';
 
 const routerReplace = vi.fn();
 let searchParams = new URLSearchParams();
+
+const apiMocks = vi.hoisted(() => ({
+  requestPasswordReset: vi.fn(),
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -34,6 +38,14 @@ vi.mock('@/lib/hooks', () => ({
   useSetupStatus: vi.fn(),
 }));
 
+vi.mock('@/lib/api', () => ({
+  api: {
+    security: {
+      requestPasswordReset: apiMocks.requestPasswordReset,
+    },
+  },
+}));
+
 const setupStatus = {
   needs_setup: false,
   has_users: true,
@@ -55,6 +67,7 @@ function authProvidersResult(data: ReturnType<typeof useAuthProviders>['data']) 
 describe('LoginPage', () => {
   beforeEach(() => {
     routerReplace.mockClear();
+    apiMocks.requestPasswordReset.mockReset();
     searchParams = new URLSearchParams();
     vi.mocked(useSetupStatus).mockReturnValue({
       data: setupStatus,
@@ -153,5 +166,25 @@ describe('LoginPage', () => {
     render(<LoginPage />);
 
     expect(screen.getByLabelText('Incident reason')).toHaveAttribute('name', 'break_glass_reason');
+  });
+
+  it('requests a password reset from the forgot-password flow', async () => {
+    apiMocks.requestPasswordReset.mockResolvedValue({
+      message: 'If an account exists, a reset email has been sent.',
+    });
+    const { user } = render(<LoginPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }));
+
+    const resetForm = screen.getByRole('form', { name: 'Reset password' });
+    await user.type(within(resetForm).getByLabelText('Email'), 'stef@hyperbliss.tech');
+    await user.click(within(resetForm).getByRole('button', { name: 'Send Link' }));
+
+    expect(apiMocks.requestPasswordReset).toHaveBeenCalledWith({
+      email: 'stef@hyperbliss.tech',
+    });
+    expect(
+      await screen.findByText('If an account exists, a reset email has been sent.')
+    ).toBeInTheDocument();
   });
 });

@@ -354,10 +354,25 @@ class Settings(BaseSettings):
         description="Bearer token required for the root /metrics scrape endpoint outside local dev",
     )
 
-    # Email configuration (Resend)
+    # Email configuration
     resend_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="Resend API key for transactional emails",
+    )
+    smtp_host: str = Field(default="", description="SMTP host for transactional emails")
+    smtp_port: int = Field(default=587, ge=1, le=65535, description="SMTP port")
+    smtp_username: str = Field(default="", description="SMTP authentication username")
+    smtp_password: SecretStr = Field(
+        default=SecretStr(""),
+        description="SMTP authentication password",
+    )
+    smtp_starttls: bool = Field(default=True, description="Use STARTTLS for SMTP")
+    smtp_ssl: bool = Field(default=False, description="Use implicit TLS for SMTP")
+    smtp_timeout_seconds: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=120.0,
+        description="SMTP connection timeout in seconds",
     )
     email_from: str = Field(
         default="Sibyl <noreply@sibyl.dev>",

@@ -17,6 +17,19 @@ sibyl_break_glass_enabled: false
 # MCP bearer-token enforcement: on | auto | off.
 sibyl_mcp_auth_mode: "auto"
 
+# Transactional email. Leave SMTP host empty to disable live delivery while
+# keeping the JSONL outbox available for break-glass recovery.
+sibyl_resend_api_key: ""
+sibyl_smtp_host: ""
+sibyl_smtp_port: 587
+sibyl_smtp_username: ""
+sibyl_smtp_password: ""
+sibyl_smtp_starttls: true
+sibyl_smtp_ssl: false
+sibyl_smtp_timeout_seconds: 20
+sibyl_email_from: "Sibyl <noreply@sibyl.dev>"
+sibyl_email_outbox_path: ""
+
 # SurrealDB root user. The password is a secret with no default.
 sibyl_surreal_username: root
 

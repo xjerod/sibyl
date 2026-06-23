@@ -20,6 +20,7 @@ async def test_email_client_writes_jsonl_outbox(
     outbox_path = tmp_path / "email-outbox.jsonl"
     monkeypatch.setattr(config_module.settings, "email_outbox_path", str(outbox_path))
     monkeypatch.setattr(config_module.settings, "resend_api_key", SecretStr(""))
+    monkeypatch.setattr(config_module.settings, "smtp_host", "")
 
     client = EmailClient()
     await client.send(
@@ -35,3 +36,45 @@ async def test_email_client_writes_jsonl_outbox(
     assert record["to"] == ["auth-flow@example.com"]
     assert record["subject"] == "Reset your Sibyl password"
     assert "reset-token" in record["text"]
+
+
+@pytest.mark.asyncio
+async def test_email_client_sends_via_smtp_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent_messages: list[dict[str, object]] = []
+
+    monkeypatch.setattr(config_module.settings, "email_outbox_path", "")
+    monkeypatch.setattr(config_module.settings, "resend_api_key", SecretStr(""))
+    monkeypatch.setattr(config_module.settings, "smtp_host", "smtp.gmail.com")
+    monkeypatch.setattr(config_module.settings, "smtp_port", 587)
+    monkeypatch.setattr(config_module.settings, "smtp_username", "sibyl@hyperbliss.tech")
+    monkeypatch.setattr(config_module.settings, "smtp_password", SecretStr("app-password"))
+    monkeypatch.setattr(config_module.settings, "smtp_starttls", True)
+    monkeypatch.setattr(config_module.settings, "smtp_ssl", False)
+    monkeypatch.setattr(config_module.settings, "smtp_timeout_seconds", 20.0)
+
+    def fake_send_smtp_sync(self: EmailClient, **kwargs: object) -> None:
+        sent_messages.append(kwargs)
+
+    monkeypatch.setattr(EmailClient, "_send_smtp_sync", fake_send_smtp_sync)
+
+    client = EmailClient()
+    assert client.configured is True
+
+    await client.send(
+        to="auth-flow@example.com",
+        subject="Reset your Sibyl password",
+        html="<a href='http://localhost/reset-password?token=reset-token'>Reset</a>",
+        text="http://localhost/reset-password?token=reset-token",
+    )
+
+    assert sent_messages == [
+        {
+            "to": ["auth-flow@example.com"],
+            "subject": "Reset your Sibyl password",
+            "html": "<a href='http://localhost/reset-password?token=reset-token'>Reset</a>",
+            "text": "http://localhost/reset-password?token=reset-token",
+            "reply_to": None,
+        }
+    ]

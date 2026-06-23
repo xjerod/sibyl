@@ -36,9 +36,9 @@ export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const start = Date.now();
 
-  // Login and setup pages: always allow without auth
+  // Login, setup, and password reset pages: always allow without auth
   // Setup page handles its own redirect if setup is already complete
-  if (pathname === '/login' || pathname === '/setup') {
+  if (pathname === '/login' || pathname === '/setup' || pathname === '/reset-password') {
     log.debug('proxy', { path: pathname, action: 'allow_public' });
     return NextResponse.next();
   }

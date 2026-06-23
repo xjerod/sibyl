@@ -240,6 +240,40 @@ describe('fetchApi auth state machine', () => {
     const { api } = await import('./api');
     await expect(api.auth.logout()).resolves.toBeUndefined();
   });
+
+  it('posts password reset request and confirmation payloads', async () => {
+    const { fetchMock } = scriptFetch([
+      {
+        match: '/users/password/reset',
+        response: jsonResponse({ message: 'If an account exists, a reset email has been sent.' }),
+      },
+      {
+        match: '/users/password/reset/confirm',
+        response: { ok: true, status: 204, headers: new Headers() },
+      },
+    ]);
+
+    const { api } = await import('./api');
+    await expect(
+      api.security.requestPasswordReset({ email: 'stef@hyperbliss.tech' })
+    ).resolves.toEqual({
+      message: 'If an account exists, a reset email has been sent.',
+    });
+    await expect(
+      api.security.confirmPasswordReset({
+        token: 'reset-token',
+        new_password: 'new-password',
+      })
+    ).resolves.toEqual({ success: true });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      email: 'stef@hyperbliss.tech',
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      token: 'reset-token',
+      new_password: 'new-password',
+    });
+  });
 });
 
 describe('backend record normalizers', () => {
