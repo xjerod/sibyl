@@ -2,7 +2,7 @@
 
 - Status: living product and architecture spec
 - Last validated: 2026-06-23
-- Current release floor: v1.0.0-rc.6 (v1.0 release-candidate phase)
+- Current release floor: v1.0.0-rc.7 (v1.0 release-candidate phase)
 - Active 1.0 roadmap: [`SIBYL_1_0_ROADMAP.md`](SIBYL_1_0_ROADMAP.md)
 
 This document defines Sibyl's northstar: the product shape, architecture principles, and deletion

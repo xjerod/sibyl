@@ -530,7 +530,7 @@ save instance-wide model routing. A typical solo developer uses around $5/month 
 
 ### Is it production-ready?
 
-Sibyl is in the v1.0 release-candidate phase (latest `v1.0.0-rc.6`). SurrealDB is the default
+Sibyl is in the v1.0 release-candidate phase (latest `v1.0.0-rc.7`). SurrealDB is the default
 runtime for graph, content, and auth; PostgreSQL is retained only for migration and archive
 rehearsal. **We use Sibyl to build Sibyl.** Every feature, task, and learning you see here was
 tracked inside the system itself.

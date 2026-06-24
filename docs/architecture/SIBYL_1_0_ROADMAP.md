@@ -2,7 +2,7 @@
 
 - Status: active planning baseline
 - Created: 2026-05-15
-- Current release floor: v1.0.0-rc.6
+- Current release floor: v1.0.0-rc.7
 - Current implementation focus: v1.0 RC Evidence Freeze
 - Active remap spec:
   [`SIBYL_POST_V010_RELEASE_REMAP_SPEC.md`](SIBYL_POST_V010_RELEASE_REMAP_SPEC.md)
@@ -281,7 +281,7 @@ current baseline, not as the start of new implementation.
 ### v0.11: Corpus Runtime (absorbed into the v1.0 RC line)
 
 Status: not cut as a standalone release. This packet's work landed across `v1.0.0-rc.1` through
-`v1.0.0-rc.6`. Kept here as the corpus-runtime scope and gate list, not a forthcoming version.
+`v1.0.0-rc.7`. Kept here as the corpus-runtime scope and gate list, not a forthcoming version.
 
 Goal: make source-grounded memory work on real corpora.
 
@@ -313,7 +313,7 @@ Required gates:
 ### v0.12: Memory Workspace OS (absorbed into the v1.0 RC line)
 
 Status: not cut as a standalone release. This packet's work landed across `v1.0.0-rc.1` through
-`v1.0.0-rc.6`. Kept here as the workspace-OS scope and gate list, not a forthcoming version.
+`v1.0.0-rc.7`. Kept here as the workspace-OS scope and gate list, not a forthcoming version.
 
 Goal: make Sibyl's automatic memory behavior understandable and correctable from one product
 surface.
@@ -341,7 +341,7 @@ Required gates:
 ### v0.13: Surreal-Only Runtime Closure (absorbed into the v1.0 RC line)
 
 Status: not cut as a standalone release. This packet's work landed across `v1.0.0-rc.1` through
-`v1.0.0-rc.6`. Kept here as the runtime-closure scope and gate list, not a forthcoming version.
+`v1.0.0-rc.7`. Kept here as the runtime-closure scope and gate list, not a forthcoming version.
 
 Goal: remove remaining Graphiti and Redis-required default-runtime assumptions.
 
@@ -373,9 +373,9 @@ Required gates:
 - `backup-restore-gate`
 - `moon run :check`
 
-### v1.0 RC (active milestone, latest tag v1.0.0-rc.6)
+### v1.0 RC (active milestone, latest tag v1.0.0-rc.7)
 
-Status: active. The release-candidate line is current; `v1.0.0-rc.1` through `v1.0.0-rc.6` have
+Status: active. The release-candidate line is current; `v1.0.0-rc.1` through `v1.0.0-rc.7` have
 shipped, absorbing the v0.11 through v0.13 packets above.
 
 Goal: freeze the claim surface and cut only when receipts are boring.
