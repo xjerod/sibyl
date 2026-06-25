@@ -217,15 +217,15 @@ def test_docker_upgrade_tag_updates_pinned_compose_images(
         )
     )
 
-    docker_module.update_configured_image_tag("1.0.0-rc.7")
+    docker_module.update_configured_image_tag("1.0.0-rc.8")
 
     env = (docker_dir / ".env").read_text()
     compose = yaml.safe_load((docker_dir / "docker-compose.yml").read_text())
     services = compose["services"]
-    assert "SIBYL_IMAGE_TAG=1.0.0-rc.7" in env
-    assert services["api"]["image"] == "ghcr.io/hyperb1iss/sibyl-api-crawler:1.0.0-rc.7"
-    assert services["worker"]["image"] == "ghcr.io/hyperb1iss/sibyl-api-crawler:1.0.0-rc.7"
-    assert services["web"]["image"] == "ghcr.io/hyperb1iss/sibyl-web:1.0.0-rc.7"
+    assert "SIBYL_IMAGE_TAG=1.0.0-rc.8" in env
+    assert services["api"]["image"] == "ghcr.io/hyperb1iss/sibyl-api-crawler:1.0.0-rc.8"
+    assert services["worker"]["image"] == "ghcr.io/hyperb1iss/sibyl-api-crawler:1.0.0-rc.8"
+    assert services["web"]["image"] == "ghcr.io/hyperb1iss/sibyl-web:1.0.0-rc.8"
     assert services["surrealdb"]["image"] == "${SIBYL_SURREAL_IMAGE:-surrealdb/surrealdb:v3.1.0}"
 
 
