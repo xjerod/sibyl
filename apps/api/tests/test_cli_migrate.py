@@ -323,6 +323,7 @@ def test_migrate_consolidate_plan_prints_safe_flow() -> None:
             "stefanie-jane",
             "--target-host",
             "eternia",
+            "--target-sudo",
             "--server-url",
             "https://sibyl.example.test",
             "--email",
@@ -345,6 +346,8 @@ def test_migrate_consolidate_plan_prints_safe_flow() -> None:
     assert "sibyld migrate merge" in output
     assert "--canonical-org-id org-canonical" in output
     assert f"scp {output_path} eternia:/tmp/sibyl-consolidated.tar.gz" in output
+    assert "sudo -n docker cp /tmp/sibyl-consolidated.tar.gz" in output
+    assert "sudo -n docker compose --project-directory /opt/sibyl" in output
     assert "sibyld migrate import /tmp/sibyl-consolidated.tar.gz" in output
     assert "--target-mode surreal --skip-auth --yes --dry-run" in output
     assert "sibyld migrate verify /tmp/sibyl-consolidated.tar.gz" in output

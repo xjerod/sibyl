@@ -1255,8 +1255,12 @@ def _run_target_consolidation_import(
     target_service: str,
     canonical_org_id: str,
     apply: bool,
+    target_sudo: bool,
     plan: bool,
 ) -> None:
+    docker_cmd: list[str | Path] = ["docker"]
+    if target_sudo:
+        docker_cmd = ["sudo", "-n", "docker"]
     _run_operator_command(
         ["scp", output, f"{target_host}:{target_archive_path}"],
         label=f"Copy merged archive to {target_host}",
@@ -1264,13 +1268,13 @@ def _run_target_consolidation_import(
     )
     _run_target_command(
         target_host,
-        ["docker", "cp", target_archive_path, f"{target_container}:{target_archive_path}"],
+        [*docker_cmd, "cp", target_archive_path, f"{target_container}:{target_archive_path}"],
         label=f"Copy merged archive into {target_container}",
         plan=plan,
     )
 
     import_args: list[str | Path] = [
-        "docker",
+        *docker_cmd,
         "compose",
         "--project-directory",
         target_compose_dir,
@@ -1307,7 +1311,7 @@ def _run_target_consolidation_import(
     _run_target_command(
         target_host,
         [
-            "docker",
+            *docker_cmd,
             "compose",
             "--project-directory",
             target_compose_dir,
@@ -1417,6 +1421,10 @@ def consolidate_instances(
         str,
         typer.Option("--target-container", help="Docker container name for docker cp"),
     ] = "sibyl-backend",
+    target_sudo: Annotated[
+        bool,
+        typer.Option("--target-sudo", help="Run target Docker commands through sudo -n"),
+    ] = False,
     target_archive_path: Annotated[
         str,
         typer.Option("--target-archive-path", help="Archive path inside the target host/container"),
@@ -1510,6 +1518,7 @@ def consolidate_instances(
             target_service=target_service,
             canonical_org_id=canonical_org_id,
             apply=apply,
+            target_sudo=target_sudo,
             plan=plan,
         )
     else:

@@ -44,6 +44,7 @@ uv run --directory apps/api sibyld migrate consolidate \
   --canonical-org-name "Stefanie Jane" \
   --canonical-org-slug stefanie-jane \
   --target-host eternia \
+  --target-sudo \
   --server-url https://sibyl.hyperbliss.tech \
   --context-name eternia \
   --email stef@hyperbliss.tech \
@@ -61,6 +62,7 @@ uv run --directory apps/api sibyld migrate consolidate \
   --canonical-org-name "Stefanie Jane" \
   --canonical-org-slug stefanie-jane \
   --target-host eternia \
+  --target-sudo \
   --server-url https://sibyl.hyperbliss.tech \
   --context-name eternia \
   --email stef@hyperbliss.tech \
@@ -77,6 +79,7 @@ Defaults assume the target host is reachable by SSH and runs the self-hosted Doc
 
 Override those with `--target-compose-dir`, `--target-service`, `--target-container`, or
 `--target-archive-path` when the deploy shape differs.
+Pass `--target-sudo` when the SSH user needs `sudo -n docker ...` for Docker access.
 
 For already-collected archives, skip SSH exports and pass them directly:
 
