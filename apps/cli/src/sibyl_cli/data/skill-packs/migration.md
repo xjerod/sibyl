@@ -20,6 +20,80 @@ If none of these apply, the regular Sibyl skill is the right one.
 
 ---
 
+## Consolidating Personal Surreal Instances into One Target
+
+Use this when the user has multiple current Sibyl instances and wants to merge their graph/content
+into a hosted canonical org, such as Eternia. This is not a legacy FalkorDB migration.
+
+The safe default is content consolidation only:
+
+- Export each source with auth skipped.
+- Merge all archives into the target org ID.
+- Run the target import dry run first.
+- Import with `--skip-auth` and without `--clean`.
+- Configure the local CLI to the hosted URL after the import succeeds.
+
+The one-shot helper is:
+
+```bash
+uv run --directory apps/api sibyld migrate consolidate \
+  --source local=<local-org-id> \
+  --source laptop=<laptop-org-id> \
+  --source desktop=<desktop-org-id> \
+  --canonical-org-id <target-org-id> \
+  --canonical-org-name "Stefanie Jane" \
+  --canonical-org-slug stefanie-jane \
+  --target-host eternia \
+  --server-url https://sibyl.hyperbliss.tech \
+  --context-name eternia \
+  --email stef@hyperbliss.tech \
+  --setup-cli
+```
+
+Run without `--apply` first. That exports, checks, merges, copies the archive to the target, and
+runs `sibyld migrate import ... --dry-run` inside the target backend container. Add `--apply` only
+after the dry run is clean:
+
+```bash
+uv run --directory apps/api sibyld migrate consolidate \
+  --source local=<local-org-id> \
+  --canonical-org-id <target-org-id> \
+  --canonical-org-name "Stefanie Jane" \
+  --canonical-org-slug stefanie-jane \
+  --target-host eternia \
+  --server-url https://sibyl.hyperbliss.tech \
+  --context-name eternia \
+  --email stef@hyperbliss.tech \
+  --setup-cli \
+  --apply
+```
+
+Defaults assume the target host is reachable by SSH and runs the self-hosted Docker Compose deploy:
+
+- Compose project directory: `/opt/sibyl`
+- Backend service: `backend`
+- Backend container: `sibyl-backend`
+- Target archive path: `/tmp/sibyl-consolidated.tar.gz`
+
+Override those with `--target-compose-dir`, `--target-service`, `--target-container`, or
+`--target-archive-path` when the deploy shape differs.
+
+For already-collected archives, skip SSH exports and pass them directly:
+
+```bash
+uv run --directory apps/api sibyld migrate consolidate \
+  --archive ~/sibyl-exports/laptop.tar.gz \
+  --archive ~/sibyl-exports/desktop.tar.gz \
+  --canonical-org-id <target-org-id> \
+  --target-host eternia
+```
+
+Keep `--skip-auth` semantics. The helper intentionally preserves the target's working users,
+sessions, SMTP settings, and API keys. Importing auth from personal machines can duplicate the owner
+or clobber a live login surface.
+
+---
+
 ## The anchor: commit `290b824b`
 
 `docs/guide/migrating-from-falkor.md` references "the v0.6 compatibility release" for the export

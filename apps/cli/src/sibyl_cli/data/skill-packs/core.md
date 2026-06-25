@@ -704,6 +704,19 @@ The playbook covers:
 
 Do not auto-start `moon run dev` after migration — propose it; let the user run it. Sacred Boundary.
 
+## Consolidating Personal Instances
+
+When merging several current Surreal-backed Sibyl instances into a hosted canonical org, load the
+migration playbook:
+
+```bash
+sibyl skill get migration
+```
+
+Use `sibyld migrate consolidate` to export sources with auth skipped, merge graph/content archives,
+dry-run the hosted import, then add `--apply` only after the target dry run is clean. Preserve the
+target auth surface; do not import personal-machine auth into a working hosted instance.
+
 ---
 
 ## Output Formats
