@@ -24,9 +24,10 @@ This guide teaches you how to:
 
 Sibyl is built on a simple insight: **good work compounds when context survives the session.**
 
-Most coding sessions start from scratch. The OAuth gotcha you figured out yesterday disappears. The
-pattern that finally made your tests pass gets buried in scrollback. Useful context exists, but it
-isn't structured or searchable.
+The knowledge you generate while working is worth keeping, but it usually stays locked in whichever
+tool produced it. The OAuth gotcha you figured out in one agent never reaches the next. The pattern
+that finally made your tests pass gets buried in scrollback. The context exists, but it stays
+trapped in one tool instead of portable, structured, and searchable memory that stays yours.
 
 Sibyl fixes this by providing:
 
@@ -40,7 +41,9 @@ Sibyl fixes this by providing:
 
 ![Sibyl Dashboard](/screenshots/web-dashboard.png)
 
-Sibyl consists of three main components:
+Sibyl consists of four main components: the **sibyld** server daemon, the **sibyl** CLI, the
+**Next.js** web app, and the **sibyl-core** Python library underneath. The three you interact with
+directly:
 
 ### 1. CLI + Skills
 

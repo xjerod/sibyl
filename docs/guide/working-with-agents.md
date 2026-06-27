@@ -11,15 +11,17 @@ productive than the last.
 
 ## The Core Insight
 
-AI agents are brilliant but amnesiac. Every session starts from zero. They can't remember:
+The memory you generate while working becomes someone else's asset, locked inside whichever tool you
+happened to use. What you teach one agent, the next one never sees, so the same hard-won context
+keeps dying between tools:
 
 - The OAuth gotcha you figured out yesterday
 - The pattern that finally made your tests pass
 - The architectural decision that took hours to reach
 
-**Sibyl fixes this.** It gives your agent persistent memory, a knowledge graph that survives
-forever. When you set things up correctly, your agent starts every session with relevant context
-instead of a blank slate.
+**Sibyl fixes this.** It gives your agents one shared knowledge graph that stays yours, so what you
+teach one tool every tool keeps. When you set things up correctly, your agent starts every session
+with the context you already own instead of rebuilding it.
 
 ## Setting Up Your Environment
 

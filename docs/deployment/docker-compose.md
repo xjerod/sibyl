@@ -23,7 +23,7 @@ Docker Compose runs the database services while applications run natively for ho
 
 - Docker and Docker Compose
 - Python 3.13+
-- Node.js 20+ and pnpm
+- Node.js 24 and pnpm
 - uv (Python package manager)
 
 ## Quick Start

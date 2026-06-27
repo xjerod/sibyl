@@ -345,7 +345,7 @@ Query related entities:
 
 ```bash
 # Find all tasks in an epic
-sibyl explore related epic_oauth --relationship-type BELONGS_TO
+sibyl explore related epic_oauth --rel BELONGS_TO
 
 # Or use filter
 sibyl task list --epic epic_oauth

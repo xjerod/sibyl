@@ -187,7 +187,6 @@ The following noisy loggers are suppressed to WARNING level:
 - `httpx`, `httpcore`
 - `arq.worker`, `arq.jobs`
 - `mcp`, `fastmcp`
-- `neo4j`
 
 ### Access Logging
 

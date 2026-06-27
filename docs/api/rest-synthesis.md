@@ -16,7 +16,7 @@ mirrors the MCP synthesis tools.
 All endpoints require authentication via:
 
 - JWT access token (cookie or Authorization header)
-- API key with `api:read` scope for `/plan`, `api:write` for `/draft` with `remember`
+- API key with `api:write` scope (both `/plan` and `/draft` are mutating POST requests)
 
 ## Role Requirements
 
@@ -168,14 +168,14 @@ artifact as a memory record.
 
 ```json
 {
-  "goal": "Draft release notes for v0.9.0",
+  "goal": "Draft release notes for 1.0.0",
   "output_type": "release_notes",
   "project": "proj_abc123",
   "output_format": "markdown",
   "remember": true,
   "memory_scope": "project",
   "scope_key": "proj_abc123",
-  "tags": ["release", "v0.9.0"]
+  "tags": ["release", "1.0.0"]
 }
 ```
 
@@ -200,8 +200,8 @@ The draft response is a plan response plus an `artifact` field:
 {
   "run_id": "synth_def456",
   "status": "verified",
-  "request": { "goal": "Draft release notes for v0.9.0" },
-  "outline": { "title": "Sibyl v0.9.0 Release Notes", "sections": [] },
+  "request": { "goal": "Draft release notes for 1.0.0" },
+  "outline": { "title": "Sibyl 1.0.0 Release Notes", "sections": [] },
   "source_packs": [],
   "verification": {
     "status": "pass",
@@ -212,8 +212,8 @@ The draft response is a plan response plus an `artifact` field:
   "artifact": {
     "artifact_id": "art_789",
     "format": "markdown",
-    "title": "Sibyl v0.9.0 Release Notes",
-    "markdown": "# Sibyl v0.9.0\n\n## Highlights\n...",
+    "title": "Sibyl 1.0.0 Release Notes",
+    "markdown": "# Sibyl 1.0.0\n\n## Highlights\n...",
     "json_payload": {},
     "source_ids": ["pattern_remember", "decision_raw_memory"],
     "section_source_ids": {

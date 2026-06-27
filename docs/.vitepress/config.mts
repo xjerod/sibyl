@@ -282,6 +282,7 @@ export default defineConfig({
                     items: [
                         { text: 'Kubernetes', link: '/deployment/kubernetes' },
                         { text: 'Helm Chart', link: '/deployment/helm-chart' },
+                        { text: 'Ansible', link: '/deployment/ansible' },
                         { text: 'Environment Variables', link: '/deployment/environment' },
                     ],
                 },

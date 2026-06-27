@@ -157,7 +157,7 @@ sessions move faster. **The system learns as you work.**
 | Without Sibyl                    | With Sibyl                                |
 | -------------------------------- | ----------------------------------------- |
 | Agent rediscovers same solutions | Agent recalls existing patterns instantly |
-| Context lost between sessions    | Knowledge persists in a graph             |
+| Memory trapped in one tool       | Portable memory you own                   |
 | Manual prompting required        | Hooks inject context automatically        |
 | No task tracking                 | Full lifecycle with learnings capture     |
 | Scattered documentation          | Searchable, connected knowledge graph     |

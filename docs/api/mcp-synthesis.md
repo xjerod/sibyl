@@ -111,14 +111,14 @@ interface SynthesisDraftExtra {
 {
   "name": "synthesis_draft",
   "arguments": {
-    "goal": "Draft release notes for v0.9.0",
+    "goal": "Draft release notes for 1.0.0",
     "output_type": "release_notes",
     "project": "proj_abc123",
     "output_format": "markdown",
     "remember": true,
     "memory_scope": "project",
     "scope_key": "proj_abc123",
-    "tags": ["release", "v0.9.0"]
+    "tags": ["release", "1.0.0"]
   }
 }
 ```

@@ -19,7 +19,8 @@ Sibyl requires the following for development:
 - **Python 3.13+** - Core backend language
 - **Node.js 24** - For the web frontend
 - **Docker** - For local SurrealDB and optional dev services
-- **OpenAI API Key** - For generating embeddings
+- **Anthropic API Key** - For LLM entity extraction and synthesis
+- **OpenAI or Gemini API Key** - For generating embeddings
 
 ### Version Management
 
@@ -127,7 +128,8 @@ database. The default compose file starts only SurrealDB, plus Redis when that p
 Export runtime settings in your shell:
 
 ```bash
-export SIBYL_OPENAI_API_KEY=sk-...        # For embeddings
+export SIBYL_OPENAI_API_KEY=sk-...        # For embeddings (OpenAI provider)
+# export SIBYL_GEMINI_API_KEY=...         # Alternative embedding provider (Gemini)
 # SIBYL_JWT_SECRET is auto-generated in dev.
 
 # Recommended local runtime
@@ -140,15 +142,15 @@ export SIBYL_SURREAL_PASSWORD=root
 # Optional
 export SIBYL_LOG_LEVEL=INFO
 export SIBYL_EMBEDDING_MODEL=text-embedding-3-small
-export SIBYL_ANTHROPIC_API_KEY=...        # For LLM operations
+export SIBYL_ANTHROPIC_API_KEY=...        # For LLM entity extraction and synthesis
 ```
 
 ### Required Environment Variables
 
-| Variable               | Description                              |
-| ---------------------- | ---------------------------------------- |
-| `SIBYL_OPENAI_API_KEY` | OpenAI API key for generating embeddings |
-| `SIBYL_JWT_SECRET`     | Secret key for production JWT signing    |
+| Variable               | Description                                                          |
+| ---------------------- | -------------------------------------------------------------------- |
+| `SIBYL_OPENAI_API_KEY` | OpenAI API key for embeddings (or `SIBYL_GEMINI_API_KEY` for Gemini) |
+| `SIBYL_JWT_SECRET`     | Secret key for production JWT signing                                |
 
 ### Optional Environment Variables
 

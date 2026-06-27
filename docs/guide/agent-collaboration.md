@@ -293,7 +293,7 @@ manage("start_task", entity_id="available_task")
 
 ```python
 # Find recent additions
-search("", types=["episode"], since="7d")
+search("", types=["episode"])
 
 # Promote valuable episodes to patterns
 add("Promoted pattern",
@@ -311,7 +311,7 @@ add("New team rule",
 
 ```python
 # Find outdated entries
-search("deprecated", since="1y")
+search("deprecated")
 
 # Archive or update
 manage("archive_task", entity_id="outdated_pattern",
@@ -432,7 +432,7 @@ manage("complete_task", entity_id="task_oauth",
 
 ```python
 # Review completed work
-search("", types=["task"], status="done", since="1d")
+search("", types=["task"], status="done")
 
 # Plan follow-ups
 add("Add refresh token rotation",
