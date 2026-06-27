@@ -211,6 +211,7 @@ tasks:
   check:
     deps:
       - ~:inventory-check
+      - ~:sync-versions-check
       - ~:inventory-lint
       - ~:inventory-typecheck
       - ~:inventory-test
@@ -273,6 +274,29 @@ tasks:
       - api:test
       - cli:test
       - web:test
+
+  sync-versions:
+    command: uv run python tools/release/sync_versions.py
+    inputs:
+      - VERSION
+      - tools/release/sync_versions.py
+
+  sync-versions-check:
+    command: uv run python tools/release/sync_versions.py --check
+    inputs:
+      - VERSION
+      - tools/release/sync_versions.py
+      - charts/sibyl/Chart.yaml
+      - charts/surrealdb/Chart.yaml
+      - docker-compose.quickstart.yml
+      - infra/ansible/roles/sibyl/defaults/main.yml
+      - infra/ansible/roles/sibyl/files/docker-compose.yml
+      - docs/cli/docker.md
+      - docs/guide/installation.md
+      - docs/deployment/ansible.md
+      - docs/deployment/helm-chart.md
+      - docs/deployment/kubernetes.md
+      - docs/deployment/monitoring.md
 
   inventory:
     command: uv run python tools/inventory/runtime_surface.py
