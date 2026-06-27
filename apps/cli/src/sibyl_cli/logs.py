@@ -7,7 +7,7 @@ Requires organization OWNER role.
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated
+from typing import Annotated, Protocol
 
 import typer
 
@@ -31,6 +31,11 @@ app = typer.Typer(
     help="View server logs (requires OWNER role)",
     no_args_is_help=True,
 )
+
+
+class _LogStreamClient(Protocol):
+    base_url: str
+    auth_token: str | None
 
 
 def _format_level(level: str) -> str:
@@ -156,25 +161,21 @@ def tail(
 
 
 async def _stream_logs(
-    client: object,
+    client: _LogStreamClient,
     service: str | None,
     level: str | None,
 ) -> None:
     """Stream logs via WebSocket."""
     import websockets
 
-    from sibyl_cli.auth_store import get_access_token
-    from sibyl_cli.client import _get_default_api_url
-
-    api_url = _get_default_api_url()
-    token = get_access_token(api_url)
+    token = client.auth_token
 
     if not token:
         error("Authentication required - run 'sibyl auth login' first")
         raise typer.Exit(1)
 
     # Build WebSocket URL (strip /api suffix for WS endpoint)
-    base_url = api_url.removesuffix("/api")
+    base_url = client.base_url.removesuffix("/api")
     ws_url = base_url.replace("http://", "ws://").replace("https://", "wss://")
     ws_url = f"{ws_url}/api/logs/stream?token={token}"
 
