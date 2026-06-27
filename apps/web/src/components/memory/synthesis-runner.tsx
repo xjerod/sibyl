@@ -405,7 +405,7 @@ export function SynthesisRunner() {
                   value={goal}
                   rows={4}
                   onChange={event => setGoal(event.target.value)}
-                  placeholder="Summarize the v0.9 roadmap with remaining risks and evidence."
+                  placeholder="Summarize the 1.0 roadmap with remaining risks and evidence."
                 />
               )}
             </FormField>

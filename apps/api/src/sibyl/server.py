@@ -1,7 +1,8 @@
 """MCP Server definition using FastMCP with streamable-http transport.
 
-Exposes 5 tools and 2 resources:
-- Tools: search, explore, add, manage, logs
+Exposes 11 tools and 2 resources:
+- Tools: search, explore, context, remember, reflect, add, manage, logs,
+  synthesis_plan, synthesis_draft, synthesis_verify
 - Resources: sibyl://health, sibyl://stats
 """
 
