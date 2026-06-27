@@ -98,14 +98,14 @@ must carry an owner and reason here.
 | `.env.test.example` | `falkor`, `postgres` | 10 | dev env templates | Environment templates keep legacy ports, migration knobs, and optional Redis/Valkey secrets. |
 | `AGENTS.md` | `graphiti`, `redis`, `valkey` | 5 | project instructions | Project agent guides preserve ports, archive shapes, and compatibility boundaries. |
 | `CLAUDE.md` | `graphiti`, `redis`, `valkey` | 5 | project instructions | Project agent guides preserve ports, archive shapes, and compatibility boundaries. |
-| `README.md` | `graphiti`, `postgres`, `redis`, `valkey` | 12 | v0.8 pure Surreal closure | Default quickstart plus explicit legacy migration and optional Redis coordination notes. |
+| `README.md` | `redis`, `valkey` | 8 | v0.8 pure Surreal closure | Default quickstart plus explicit legacy migration and optional Redis coordination notes. |
 | `Tiltfile` | `redis`, `valkey` | 14 | local Kubernetes/Tilt dev | Local Tilt and Helm dev keep Redis/Valkey as explicit coordination while Surreal owns data. |
 | `apps/api/README.md` | `postgres`, `redis` | 12 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/api/pyproject.toml` | `redis` | 2 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `apps/cli/README.md` | `redis` | 1 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/cli/src/sibyl_cli/data/skill-packs/core.md` | `falkor`, `postgres`, `redis` | 10 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `apps/cli/src/sibyl_cli/data/skill-packs/examples.md` | `redis` | 3 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
-| `apps/cli/src/sibyl_cli/data/skill-packs/migration.md` | `falkor`, `graphiti`, `postgres`, `redis` | 75 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
+| `apps/cli/src/sibyl_cli/data/skill-packs/migration.md` | `falkor`, `graphiti`, `postgres`, `redis` | 76 | v0.8 packaged docs | Packaged README and skill docs retain migration and optional coordination language. |
 | `charts/sibyl/Chart.yaml` | `valkey` | 1 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `charts/sibyl/templates/backend-deployment.yaml` | `redis` | 6 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
 | `charts/sibyl/templates/bootstrap-job.yaml` | `redis` | 6 | v0.8 deployment config | Compose and chart files retain Redis as an explicit coordination profile or chart option. |
