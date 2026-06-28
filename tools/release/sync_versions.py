@@ -32,6 +32,18 @@ VERSION_FILE = REPO_ROOT / "VERSION"
 # context match never captures an unrelated version (e.g. SurrealDB's appVersion).
 _VER = r"\d+\.\d+\.\d+(?:-rc\.\d+)?"
 
+# The same version in PEP 440 normalized form (1.0.0-rc.8 -> 1.0.0rc8), used by
+# the internal Python package pins. Our scheme only ever carries a final or
+# `-rc.N` suffix (see _VER), so this matches the canonical
+# tools.release.homebrew_formula.pep440_version for every accepted version; the
+# release-workflow-test gate enforces that parity.
+_PEP440_VER = r"\d+\.\d+\.\d+(?:rc\d+)?"
+
+
+def _pep440(version: str) -> str:
+    return version.replace("-rc.", "rc")
+
+
 # Each target lists (pattern, replacement) pairs. Patterns capture the
 # non-version context as groups so only the version token is rewritten. They
 # are anchored to Sibyl-specific surroundings (chart fields, the SIBYL_* image
@@ -42,6 +54,7 @@ _Sub = tuple[str, str]
 
 def _targets(version: str) -> dict[str, list[_Sub]]:
     v = version
+    pv = _pep440(version)
     return {
         # Helm chart metadata (the wrapper chart tracks the app release).
         "charts/sibyl/Chart.yaml": [
@@ -84,6 +97,14 @@ def _targets(version: str) -> dict[str, list[_Sub]]:
         ],
         "docs/deployment/monitoring.md": [
             (rf'("version": "){_VER}(")', rf"\g<1>{v}\g<2>"),
+        ],
+        # Internal Python package pins on sibyl-core (PEP 440 normalized form).
+        # release-workflow-test fails the gate if these drift from VERSION.
+        "apps/api/pyproject.toml": [
+            (rf"(sibyl-core\[[^\]]*\]==){_PEP440_VER}", rf"\g<1>{pv}"),
+        ],
+        "apps/cli/pyproject.toml": [
+            (rf"(sibyl-core==){_PEP440_VER}", rf"\g<1>{pv}"),
         ],
     }
 
