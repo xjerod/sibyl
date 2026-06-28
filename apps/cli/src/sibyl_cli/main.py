@@ -148,7 +148,7 @@ app.command("down")(down_cmd)
 app.command("whoami")(whoami_cmd)
 
 
-SEARCH_PREVIEW_CHARS = 220
+SEARCH_PREVIEW_CHARS = 360
 CAPTURE_TITLE_CHARS = 72
 QUIET_ENV_VALUES = {"1", "true", "yes", "on"}
 ENTITY_TYPE_ALIASES = {
@@ -1449,7 +1449,10 @@ def search(
                         r.get("result_origin")
                         or ("document" if metadata.get("document_id") else "graph")
                     ).lower()
-                    origin_label = "docs" if origin == "document" else "graph"
+                    origin_label = {
+                        "document": "docs",
+                        "raw_memory": "memory",
+                    }.get(origin, "graph")
 
                     # Header: Document name (source)
                     # Skip file paths - they're not useful. Show source name only.

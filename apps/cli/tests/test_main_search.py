@@ -24,13 +24,13 @@ class _FakeClientContext:
 
 
 def test_format_search_preview_keeps_more_context() -> None:
-    content = "[Docs > Search] " + ("alpha " * 18) + "MAGICLATE " + ("omega " * 20)
+    content = "[Docs > Search] " + ("alpha " * 45) + "MAGICLATE " + ("omega " * 45)
 
     preview = _format_search_preview(content)
 
     assert "MAGICLATE" in preview
     assert "[Docs > Search]" not in preview
-    assert len(preview) > 100
+    assert len(preview) > 300
     assert len(preview) <= SEARCH_PREVIEW_CHARS + 1
     assert preview.endswith("…")
 
@@ -58,9 +58,9 @@ def test_search_command_renders_longer_previews(
                     "name": "Result name",
                     "source": "example-source",
                     "content": "[Docs > Search] "
-                    + ("alpha " * 18)
+                    + ("alpha " * 45)
                     + "MAGICLATE "
-                    + ("omega " * 20),
+                    + ("omega " * 45),
                     "metadata": {
                         "heading_path": ["Docs", "Search"],
                         "snippet": "alpha <mark>MAGICLATE</mark> omega",
@@ -109,6 +109,37 @@ def test_search_command_can_search_graph_only(
         include_documents=False,
         include_graph=True,
     )
+    mock_resolve_project_from_cwd.assert_called_once_with()
+
+
+@patch("sibyl_cli.main.resolve_project_from_cwd", return_value="project_123")
+@patch("sibyl_cli.main.get_client")
+def test_search_command_labels_raw_memory_results(
+    mock_get_client: MagicMock, mock_resolve_project_from_cwd: MagicMock
+) -> None:
+    mock_client = MagicMock()
+    mock_client.search = AsyncMock(
+        return_value={
+            "results": [
+                {
+                    "id": "raw_memory:123",
+                    "name": "Raw capture",
+                    "source": "cli:manual",
+                    "content": "alpha beta gamma",
+                    "result_origin": "raw_memory",
+                    "metadata": {},
+                }
+            ]
+        }
+    )
+    mock_get_client.return_value = _FakeClientContext(mock_client)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["search", "alpha"])
+
+    assert result.exit_code == 0
+    assert "memory Raw capture" in result.stdout
+    assert "graph Raw capture" not in result.stdout
     mock_resolve_project_from_cwd.assert_called_once_with()
 
 
