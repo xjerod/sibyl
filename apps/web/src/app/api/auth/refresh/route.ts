@@ -1,6 +1,4 @@
 import type { NextRequest } from 'next/server';
-import { NextResponse } from 'next/server';
-import { safeRelativePath } from '@/lib/auth-refresh';
 
 function backendApiBase(): string {
   const explicit = process.env.SIBYL_API_URL;
@@ -61,18 +59,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     status: backendResponse.status,
     headers,
   });
-  copyRefreshHeaders(backendResponse, response);
-  return response;
-}
-
-export async function GET(request: NextRequest): Promise<Response> {
-  const next = safeRelativePath(request.nextUrl.searchParams.get('next'));
-  const backendResponse = await requestRefresh(request);
-  const target = backendResponse.ok
-    ? next
-    : `/login?next=${encodeURIComponent(next)}&error=session_expired`;
-
-  const response = NextResponse.redirect(new URL(target, request.url));
   copyRefreshHeaders(backendResponse, response);
   return response;
 }

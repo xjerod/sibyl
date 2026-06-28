@@ -8,7 +8,7 @@ function tokenWithExp(exp: number): string {
 }
 
 describe('proxy auth refresh', () => {
-  it('redirects protected page loads through refresh when access is stale', () => {
+  it('allows protected page loads when only the refresh cookie is usable', () => {
     const expired = tokenWithExp(Math.floor((Date.now() - 60_000) / 1000));
     const request = new NextRequest('http://web.test/projects?view=active', {
       headers: {
@@ -18,9 +18,18 @@ describe('proxy auth refresh', () => {
 
     const response = proxy(request);
 
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+  });
+
+  it('redirects protected page loads without auth cookies to login', () => {
+    const request = new NextRequest('http://web.test/projects?view=active');
+
+    const response = proxy(request);
+
     expect(response.status).toBe(307);
     expect(response.headers.get('location')).toBe(
-      'http://web.test/api/auth/refresh?next=%2Fprojects%3Fview%3Dactive'
+      'http://web.test/login?next=%2Fprojects%3Fview%3Dactive'
     );
   });
 
