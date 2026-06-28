@@ -2,17 +2,11 @@ import { NextRequest } from 'next/server';
 import { describe, expect, it } from 'vitest';
 import { proxy } from './proxy';
 
-function tokenWithExp(exp: number): string {
-  const payload = Buffer.from(JSON.stringify({ exp }), 'utf8').toString('base64url');
-  return `header.${payload}.signature`;
-}
-
 describe('proxy auth refresh', () => {
   it('allows protected page loads when only the refresh cookie is usable', () => {
-    const expired = tokenWithExp(Math.floor((Date.now() - 60_000) / 1000));
     const request = new NextRequest('http://web.test/projects?view=active', {
       headers: {
-        cookie: `sibyl_access_token=${expired}; sibyl_refresh_token=refresh`,
+        cookie: 'sibyl_refresh_token=refresh',
       },
     });
 
