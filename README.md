@@ -32,6 +32,7 @@
   <a href="#-quickstart">Quickstart</a> •
   <a href="#-the-memory-loop">Memory Loop</a> •
   <a href="#the-cli">CLI</a> •
+  <a href="#-skills--hooks">Skills</a> •
   <a href="#mcp-integration">MCP</a> •
   <a href="https://hyperb1iss.github.io/sibyl/">📖 Docs</a>
 </p>
@@ -62,7 +63,7 @@ yours.**
 | Capability                       | What It Means                                                                                                           |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | 🔮 **Compounding Context**       | Every session adds to the graph instead of starting over. The longer you use it, the sharper it gets                    |
-| 🪄 **The Memory Loop**           | `recall → act → remember → reflect` runs through the CLI, MCP, and hooks. Agents wake with context and leave it behind  |
+| 🪄 **The Memory Loop**           | `recall → act → remember → reflect` runs through the CLI, skills, MCP, and hooks. Agents wake with context and leave it behind  |
 | 🎯 **Semantic Search**           | Find knowledge by meaning. "Authentication patterns" surfaces OAuth notes even when "OAuth" isn't in the text           |
 | 🦋 **Task Workflow**             | Plan with epics and tasks, then track execution across sessions and teammates in one place                              |
 | 🧪 **Source-Grounded Synthesis** | Draft verified documents from your own memory with citation, freshness, and gap checks                                  |
@@ -201,6 +202,34 @@ A full admin interface at `http://localhost:3337`:
 **Built with:** Next.js 16, React 19, React Query, Tailwind CSS 4, and the SilkCircuit design
 system.
 
+## 🛠️ Skills & Hooks
+
+Skills are how an agent learns to _use_ Sibyl, the bridge that makes "if your agent can run a
+command, it speaks Sibyl" real. The loader teaches the memory loop, every CLI verb with the flags
+that actually exist on your machine, context-pack usage, and the error patterns to avoid, so agents
+stop guessing the interface from stale training data.
+
+**Skills are not Claude-only.** `sibyl skill install` drops the loader into every agent skill root it
+knows: Claude Code (`~/.claude/skills`), Codex (`~/.codex/skills`), and the generic `~/.agents/skills`
+convention. The same workflow follows you across tools.
+
+```bash
+sibyl skill install        # Install the tiny /sibyl loader into every agent skill root
+sibyl skill list           # List the version-matched packs the CLI can serve
+sibyl skill get core       # Print the full workflow + command contract
+moon run hooks:install     # Optional Claude Code context hooks for repo dev
+```
+
+The installed skill is deliberately tiny: a loader that points the agent back at the CLI. The real
+skill packs (`core`, `quick`, `workflows`, `examples`, `migration`) are **built into the CLI** and
+served on demand with `sibyl skill get`, each matched to the exact Sibyl version on the machine.
+Upgrade the CLI and the guidance upgrades with it. No stale skill copies drift out of sync, and a
+subagent on any host gets the same source of truth from one command.
+
+Hooks are separate and, for now, specific to Claude Code: a single **SessionStart** hook prints a
+compact wake-up bundle with active tasks and relevant memory, then the agent owns invoking the
+`sibyl` skill and calling `sibyl recall` for working context. See [Skills & Hooks](docs/guide/skills.md).
+
 ## MCP Integration
 
 Connect Claude Code, Cursor, or any MCP client to Sibyl:
@@ -234,23 +263,6 @@ Sibyl exposes eleven MCP tools, organized by what they do:
 | `synthesis_verify` | Verify citation, freshness, and gap coverage              |
 | `manage`           | State changes: task lifecycle, crawling, analysis, admin  |
 | `logs`             | Recent server logs (requires OWNER role)                  |
-
-### Claude Code Skills & Hooks
-
-Sibyl ships with [skills](https://docs.anthropic.com/en/docs/claude-code/skills) and
-[hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) for built-in Claude Code integration.
-
-```bash
-sibyl skill install        # Install the tiny /sibyl loader skill
-sibyl skill get core       # Print version-matched guidance from the CLI bundle
-moon run hooks:install     # Optional Claude Code context hooks for repo dev
-```
-
-The installed `/sibyl` skill is intentionally tiny: it points agents back to the installed CLI,
-which serves the full markdown skill packs for the exact Sibyl version on the machine. A single
-**SessionStart** hook prints a compact session bundle with active tasks and relevant memory; the
-agent owns invoking the `sibyl` skill and calling `sibyl recall` for working context. See
-[Skills & Hooks](docs/guide/skills.md).
 
 ## Architecture
 

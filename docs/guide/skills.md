@@ -6,8 +6,12 @@ description: Teaching agents how to work with Sibyl
 # Skills & Hooks
 
 Sibyl's power comes from two complementary systems: **Skills** teach agents structured workflows,
-and **Hooks** inject knowledge automatically. Together, they give Claude structured workflows and
+and **Hooks** inject knowledge automatically. Together they give your agent structured workflows and
 automatic context from your knowledge graph.
+
+**Skills are not Claude-only.** The loader installs into Claude Code, Codex, and the generic
+`~/.agents` convention, so any agent that can run a shell command speaks Sibyl. Hooks, for now, are
+specific to Claude Code.
 
 ## The Two Systems
 
@@ -25,7 +29,8 @@ Think of it this way:
 
 ## Hooks: Automatic Context
 
-Hooks are the magic that makes Sibyl invisible. They run automatically at specific moments:
+Hooks are the magic that makes Sibyl invisible on Claude Code. They run automatically at specific
+moments:
 
 ### SessionStart Hook
 
@@ -80,7 +85,8 @@ moon run hooks:uninstall
 
 ## Skills: Teaching Workflows
 
-Skills are markdown documents that teach Claude specific workflows. Invoke them with slash commands:
+Skills are markdown documents that teach an agent specific workflows. On Claude Code and Codex you
+invoke them with slash commands:
 
 ### sibyl
 
@@ -90,7 +96,7 @@ The unified skill for all Sibyl operations:
 /sibyl
 ```
 
-**Teaches Claude:**
+**Teaches the agent:**
 
 - CLI command syntax and patterns
 - Search-first workflow
@@ -141,32 +147,46 @@ allowed-tools: Bash, Grep, Glob, Read
 | --------------- | ----------------------------------------- |
 | `name`          | Skill identifier (must be unique)         |
 | `description`   | Brief description for skill discovery     |
-| `allowed-tools` | Tools Claude can use when skill is active |
+| `allowed-tools` | Tools available to the agent in the skill |
 
 ## Installing Skills
 
-Install the stable `/sibyl` loader skill with:
+Install the stable loader skill with:
 
 ```bash
 sibyl skill install
 ```
 
-The loader points agents back to the installed CLI. Load the version-matched core guidance with:
+This drops the tiny `/sibyl` loader into every agent skill root it knows: Claude Code
+(`~/.claude/skills`), Codex (`~/.codex/skills`), and the generic `~/.agents/skills` convention. The
+same workflow follows you across tools. Pass `--force` to replace existing symlinked or
+non-directory targets.
+
+### Skill packs live in the CLI
+
+The loader is deliberately tiny. It points the agent back at the installed CLI, which serves the
+full, version-matched guidance as **skill packs built into the binary**:
+
+| Pack        | What it covers                                                       |
+| ----------- | -------------------------------------------------------------------- |
+| `core`      | The full recall → act → remember → reflect loop and command contract |
+| `quick`     | Minimal verb table for subagents (~500 tokens)                       |
+| `workflows` | Longer task, project, memory, and debugging workflows                |
+| `examples`  | Concrete CLI examples for search, tasks, memory, and projects        |
+| `migration` | Legacy Graphiti/FalkorDB migration guidance                          |
 
 ```bash
-sibyl skill get core
+sibyl skill list           # List the packs this CLI version can serve
+sibyl skill get core       # Print the core pack (load this before knowledge work)
+sibyl skill get workflows  # Any other pack on demand
 ```
 
-Additional bundled markdown packs are available with:
+Because the packs ship inside the CLI, the guidance always matches the exact Sibyl version on the
+machine. Upgrade the CLI and the skill content upgrades with it. No stale copies drift out of sync,
+and a subagent on any host gets the same source of truth from one command.
 
-```bash
-sibyl skill list
-sibyl skill get workflows
-sibyl skill get examples
-```
-
-Hooks are separate from skills because they execute automatically on prompt and session events.
-Install hooks only when that automation is explicitly desired.
+Hooks are separate from skills because they execute automatically on session events. Install hooks
+only when that automation is explicitly desired, and only on Claude Code.
 
 ### Manual Installation
 
@@ -180,23 +200,16 @@ ln -s /path/to/sibyl/skills/sibyl ~/.claude/skills/
 
 ## Skill Location
 
-Skills are stored in:
+The loader installs to each agent's skill root:
 
 ```
-~/.claude/skills/
-└── sibyl/
-    └── SKILL.md
+~/.claude/skills/sibyl/SKILL.md     # Claude Code
+~/.codex/skills/sibyl/SKILL.md      # Codex
+~/.agents/skills/sibyl/SKILL.md     # generic agents
 ```
 
-`SKILL.md` is a small loader. The full version-matched guidance is served from the installed CLI
-with `sibyl skill get core` and related pack commands.
-
-Codex installs the same skill to:
-
-```
-~/.codex/skills/
-└── sibyl/
-```
+`SKILL.md` is just the loader. The full version-matched guidance is served from the installed CLI
+with `sibyl skill get core` and the related pack commands above.
 
 ## Creating Custom Skills
 
@@ -500,7 +513,7 @@ sibyl task complete task_xyz --learnings "Key insights from review..." \`\`\`
 2. Add more specific examples
 3. Include command output examples
 
-### Claude Ignoring Skill Guidance
+### Agent Ignoring Skill Guidance
 
 1. Make instructions more explicit
 2. Use numbered steps
@@ -511,4 +524,4 @@ sibyl task complete task_xyz --learnings "Key insights from review..." \`\`\`
 - [The Memory Loop](./memory-loop.md) - The cycle hooks support
 - [Claude Code Integration](./claude-code.md) - Full MCP setup
 - [Agent Collaboration](./agent-collaboration.md) - Shared-assistant patterns
-- [Capturing Knowledge](./capturing-knowledge.md) - What to teach Claude
+- [Capturing Knowledge](./capturing-knowledge.md) - What to teach your agent
