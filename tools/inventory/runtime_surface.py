@@ -261,15 +261,10 @@ GRAPHITI_COMPATIBILITY_ALLOWLIST: tuple[GraphitiCompatibilityRecord, ...] = ()
 
 ARCHITECTURE_LEGACY_TERM_FILES = (
     "docs/architecture/AUDIT_2026-05-28.md",
-    "docs/architecture/PACKAGING_PLAN_2026-05-19.md",
-    "docs/architecture/PERMISSION_SYSTEM_AUDIT.md",
-    "docs/architecture/INGESTION_IMPLEMENTATION_PLAN_2026-05-30.md",
     "docs/architecture/retrieval-system.md",
     "docs/architecture/SIBYL_1_0_ROADMAP.md",
     "docs/architecture/SIBYL_NORTHSTAR.md",
     "docs/architecture/SIBYL_POST_V010_RELEASE_REMAP_SPEC.md",
-    "docs/architecture/SIBYL_REFLECTION_OS_PLAN.md",
-    "docs/architecture/TASKIQ_MIGRATION_PLAN.md",
 )
 ENTERPRISE_LEGACY_TERM_FILES = (
     "docs/admin/installing.md",
