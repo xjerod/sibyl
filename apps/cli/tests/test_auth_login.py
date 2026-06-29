@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from sibyl_cli import auth
+from sibyl_cli import auth, config_store
 from sibyl_cli.main import app
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -142,6 +143,41 @@ def test_login_auto_returns_after_no_browser_url(
 
     output = capsys.readouterr().out
     assert "approval polling skipped" in output
+
+
+def test_login_context_uses_existing_org_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = CliRunner()
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(config_store.Path, "home", lambda: tmp_path)
+    config_store.create_context(
+        "eternia",
+        "https://old.example",
+        org_slug="stefanie-jane",
+        set_active=True,
+    )
+    monkeypatch.setattr(auth, "_login_auto", lambda **kwargs: calls.append(kwargs))
+
+    result = runner.invoke(
+        app,
+        [
+            "auth",
+            "login",
+            "https://sibyl.hyperbliss.tech",
+            "--context",
+            "eternia",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls[0]["credential_scope_name"] == "context:eternia:org:stefanie-jane"
+    ctx = config_store.get_context("eternia")
+    assert ctx is not None
+    assert ctx.server_url == "https://sibyl.hyperbliss.tech"
+    assert ctx.org_slug == "stefanie-jane"
 
 
 def test_login_auto_warns_when_env_token_overrides_saved_credentials(

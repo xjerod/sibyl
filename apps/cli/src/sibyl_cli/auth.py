@@ -67,6 +67,12 @@ def _current_credential_scope(context_name: str | None = None) -> str | None:
     return credential_scope(ctx.name, ctx.org_slug)
 
 
+def _login_credential_scope(context_name: str | None = None) -> str | None:
+    if not context_name:
+        return _current_credential_scope()
+    return _current_credential_scope(context_name) or credential_scope(context_name, None)
+
+
 def _load_oauth_metadata(*, issuer_url: str, insecure: bool = False) -> dict:
     import httpx
 
@@ -784,7 +790,7 @@ def login_cmd(
     # Positional URL takes precedence over --server option
     effective_server = url.strip() if url.strip() else server
     api_url = _compute_api_url(effective_server)
-    scope = credential_scope(context, None) if context else _current_credential_scope()
+    scope = _login_credential_scope(context)
 
     # Perform login
     _login_auto(
