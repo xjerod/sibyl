@@ -8,9 +8,9 @@ description: The solo self-host path - one command to a private memory graph on 
 Sibyl's default shape is personal. No company, no identity provider, no hosted Sibyl tenant. One
 command brings up a private knowledge graph on your own machine, you create your own owner account,
 and every agent you run talks to it at `localhost`. Your memory graph lives on your hardware and
-stays there. The one caveat: extraction and embeddings call the AI providers you configure (Anthropic
-for entity extraction, OpenAI or Gemini for embeddings), so that text is sent to those APIs the same
-way it would be with any tool that uses them.
+stays there. The one caveat: extraction and embeddings call the AI providers you configure
+(Anthropic for entity extraction, OpenAI or Gemini for embeddings), so that text is sent to those
+APIs the same way it would be with any tool that uses them.
 
 This page is the end-to-end solo path. If you administer Sibyl for a team behind corporate SSO, see
 [Self-Hosting & Admin](../admin/installing.md) instead.
@@ -20,8 +20,8 @@ This page is the end-to-end solo path. If you administer Sibyl for a team behind
 - A local SurrealDB knowledge graph, running on your box
 - The full memory loop (`recall → act → remember → reflect`) from any terminal
 - A web UI at `http://localhost:3337` for the graph explorer, tasks, and the memory workspace
-- An MCP endpoint at `http://localhost:3334/mcp` for Claude Code, Codex, Cursor, and anything else
-  that speaks MCP
+- The `sibyl` CLI as your agents' main interface — any tool that runs shell commands can use it —
+  with an MCP endpoint at `http://localhost:3334/mcp` for MCP-native clients
 - One owner account: you
 
 ## Step 1: Install and Start
@@ -40,9 +40,9 @@ curl -fsSL https://raw.githubusercontent.com/hyperb1iss/sibyl/main/install.sh | 
 
 `sibyl up` is the front door for personal use. On first run it reads `OPENAI_API_KEY` and
 `ANTHROPIC_API_KEY` from your environment if they are set, generates its own secrets, and writes a
-compose file plus `.env` under `~/.sibyl/local` before opening your browser. If those keys are not in
-your environment, you add them in the setup wizard instead (Step 2). Everything binds to `127.0.0.1`,
-so nothing is exposed to your network.
+compose file plus `.env` under `~/.sibyl/local` before opening your browser. If those keys are not
+in your environment, you add them in the setup wizard instead (Step 2). Everything binds to
+`127.0.0.1`, so nothing is exposed to your network.
 
 ::: tip Prefer no Docker? Run the embedded daemon directly with `sibyl init --local` then
 `sibyl serve`. See [Keeping It Running](#keeping-it-running) for the daemon options. :::
@@ -62,15 +62,15 @@ That is the whole account story for a solo install. No OIDC, no role claims, no 
 
 ## Step 3: Point the CLI at Your Local Server
 
-A fresh Sibyl CLI already defaults to `http://localhost:3334`, so on a clean setup you can go straight
-to a health check:
+A fresh Sibyl CLI already defaults to `http://localhost:3334`, so on a clean setup you can go
+straight to a health check:
 
 ```bash
 sibyl health
 ```
 
-`sibyl up` starts the server but does not change your CLI's active context. If you previously pointed
-the CLI at a remote server, create or switch to the local context explicitly (it defaults to
+`sibyl up` starts the server but does not change your CLI's active context. If you previously
+pointed the CLI at a remote server, create or switch to the local context explicitly (it defaults to
 localhost, so no URL is needed):
 
 ```bash
@@ -82,16 +82,34 @@ Sibyl is now yours from any terminal.
 
 ## Step 4: Connect Your Agent
 
-Any MCP-capable agent connects to your local endpoint at `http://localhost:3334/mcp`. The **Connect**
-page in the web UI shows the client config for each tool. You supply an API key with the `mcp` scope,
-created from Settings → Security → API Keys or with the CLI:
+The primary way an agent uses Sibyl is the `sibyl` CLI. If a tool can run a shell command, it can
+use Sibyl: the agent runs `sibyl recall`, `sibyl remember`, `sibyl search`, and the rest against the
+local server from Step 3. This is the recommended path — it is lighter-weight than MCP (less token
+overhead) and every Sibyl command is available. Sign in once with `sibyl auth login` if a write
+reports that authentication is required.
+
+Teach your agent the workflow by installing the Sibyl skill (and, for Claude Code, the session
+hooks):
+
+```bash
+sibyl local setup
+```
+
+This installs the `sibyl` skill for Claude Code and Codex. In a client that supports skills,
+`/sibyl` loads the full memory-loop workflow; run `sibyl local setup --snippet` to print a prompt
+snippet you can paste into any agent's instructions instead. See
+[Working with Agents](./working-with-agents.md) and [Skills & Hooks](./skills.md).
+
+### Prefer MCP tools?
+
+MCP-native clients can also connect to the endpoint at `http://localhost:3334/mcp`. Reach for MCP
+only when a client works better with structured tool calls; otherwise the CLI is the lighter path.
+`sibyl up` generates a signing secret on first run, so MCP auth is on by default. Create a scoped
+key and add it to your client config:
 
 ```bash
 sibyl auth api-key create --name "claude-code" --scopes mcp
 ```
-
-`sibyl up` generates a signing secret on first run, so MCP auth is on by default. Drop the key into
-your client config:
 
 ```json
 {
@@ -107,11 +125,9 @@ your client config:
 }
 ```
 
-That same entry works for Claude Code, Cursor, Claude Desktop, and other MCP clients. Sibyl
-auto-generates a signing secret even for a bare `sibyl serve`, so MCP auth stays on by default. If you
-want an unauthenticated endpoint for local development only, set `SIBYL_MCP_AUTH_MODE=off` and drop
-the `Authorization` header. See [Agents & MCP](./claude-code.md) and
-[MCP Configuration](./mcp-configuration.md) for per-client details.
+For an unauthenticated local-only endpoint, set `SIBYL_MCP_AUTH_MODE=off` and drop the header. See
+[Agents & MCP](./claude-code.md) and [MCP Configuration](./mcp-configuration.md) for per-client
+details.
 
 ## Step 5: Run the Memory Loop
 
@@ -145,11 +161,11 @@ to care about them.
 
 You have three ways to run the server on your own machine. Pick one:
 
-| Command                          | What it is                                                   | Best for                                       |
-| -------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| [`sibyl up` / `sibyl local`](../cli/local.md) | Batteries-included Docker stack, `~/.sibyl/local` | The default. Easiest personal instance.        |
-| [`sibyl serve` / `start` / `stop`](../cli/service.md) | Embedded native daemon, no Docker              | Lightweight, no container runtime              |
-| [`sibyl docker`](../cli/docker.md) | Pinned Docker stack with explicit image tags              | Reproducible upgrades, worker/crawler services |
+| Command                                               | What it is                                        | Best for                                       |
+| ----------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------- |
+| [`sibyl up` / `sibyl local`](../cli/local.md)         | Batteries-included Docker stack, `~/.sibyl/local` | The default. Easiest personal instance.        |
+| [`sibyl serve` / `start` / `stop`](../cli/service.md) | Embedded native daemon, no Docker                 | Lightweight, no container runtime              |
+| [`sibyl docker`](../cli/docker.md)                    | Pinned Docker stack with explicit image tags      | Reproducible upgrades, worker/crawler services |
 
 Common lifecycle commands:
 
@@ -169,9 +185,9 @@ sibyl service install
 ## Going Remote Later
 
 Nothing about the solo path locks you in. If you later want Sibyl on a small cloud VM you can reach
-from anywhere, the [single-host Ansible guide](../deployment/ansible.md) provisions one box with TLS,
-pairs cleanly with Tailscale for a private zero-public-port setup, and keeps the same local-first
-auth. Point any CLI at it with `sibyl init --remote https://your-host`.
+from anywhere, the [single-host Ansible guide](../deployment/ansible.md) provisions one box with
+TLS, pairs cleanly with Tailscale for a private zero-public-port setup, and keeps the same
+local-first auth. Point any CLI at it with `sibyl init --remote https://your-host`.
 
 ## Where to Go Next
 
