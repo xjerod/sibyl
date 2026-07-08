@@ -14,6 +14,9 @@ EXPECTED_REQUIRED_TRAJECTORIES = 2
 EXPECTED_LAFS_GAIN = 0.125
 EXPECTED_MEMORY_QUERY_AVG_SECONDS = 2.5
 EXPECTED_EMBEDDING_JOB_WAIT_TIMEOUT_SECONDS = 1_800.0
+EXPECTED_BULK_MAX_ENTITIES = 16
+EXPECTED_BULK_MAX_CONTENT_CHARS = 200_000
+EXPECTED_EMBEDDING_BACKFILL_MAX_PENDING_JOBS = 8
 TEST_CONTENT_MAX_CHARS = 420
 
 
@@ -106,6 +109,14 @@ def test_official_runner_plan_materializes_honest_runtime_inputs(tmp_path: Path)
     assert (
         memory_config["memory_params"]["embedding_job_wait_timeout_seconds"]
         == EXPECTED_EMBEDDING_JOB_WAIT_TIMEOUT_SECONDS
+    )
+    assert memory_config["memory_params"]["bulk_max_entities"] == EXPECTED_BULK_MAX_ENTITIES
+    assert (
+        memory_config["memory_params"]["bulk_max_content_chars"] == EXPECTED_BULK_MAX_CONTENT_CHARS
+    )
+    assert (
+        memory_config["memory_params"]["embedding_backfill_max_pending_jobs"]
+        == EXPECTED_EMBEDDING_BACKFILL_MAX_PENDING_JOBS
     )
     assert plan["honesty_contract"]["answer_gold_visible_to_memory"] is False
     assert plan["required_trajectory_count"] == EXPECTED_REQUIRED_TRAJECTORIES
@@ -343,6 +354,9 @@ def test_sibyl_memory_insert_defers_embeddings_and_tracks_backfill_job() -> None
     memory.project_id = "project_lme"
     memory.run_id = "run_lme"
     memory.content_max_chars = TEST_CONTENT_MAX_CHARS
+    memory.bulk_max_entities = 16
+    memory.bulk_max_content_chars = 200_000
+    memory.embedding_backfill_max_pending_jobs = 8
     memory.include_screenshot_refs = False
     memory.defer_embeddings = True
     memory.created_entities = 0
@@ -359,6 +373,80 @@ def test_sibyl_memory_insert_defers_embeddings_and_tracks_backfill_job() -> None
     assert memory.created_entities == 1
     assert memory.inserted_trajectories == 1
     assert memory._pending_embedding_job_ids == {"embed-lme-v2-1"}
+
+
+def test_sibyl_memory_batches_payloads_by_entity_count_and_content_size() -> None:
+    module = _load_memory_module()
+
+    batches = module._payload_batches(
+        [
+            {"name": "a", "description": "", "content": "aaaaa"},
+            {"name": "b", "description": "", "content": "bbbbb"},
+            {"name": "c", "description": "", "content": "cccccccccccc"},
+            {"name": "d", "description": "", "content": "ddddd"},
+        ],
+        max_entities=2,
+        max_content_chars=14,
+    )
+
+    assert [[item["name"] for item in batch] for batch in batches] == [
+        ["a", "b"],
+        ["c"],
+        ["d"],
+    ]
+
+
+def test_sibyl_memory_drains_backfills_when_pending_threshold_is_reached() -> None:
+    module = _load_memory_module()
+    memory = module.SibylLiveApiMemory.__new__(module.SibylLiveApiMemory)
+    module.Memory.__init__(memory, {})
+    calls = 0
+    drain_calls = 0
+
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json: dict[str, object] | None = None,
+        params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        nonlocal calls
+        del method, path, json, params
+        calls += 1
+        return {
+            "created": 1,
+            "background_jobs": {
+                "embedding_backfill": {
+                    "status": "queued",
+                    "job_ids": [f"embed-lme-v2-{calls}"],
+                }
+            },
+        }
+
+    def fake_drain() -> None:
+        nonlocal drain_calls
+        drain_calls += 1
+        memory._pending_embedding_job_ids.clear()
+
+    memory.project_id = "project_lme"
+    memory.run_id = "run_lme"
+    memory.content_max_chars = 20
+    memory.bulk_max_entities = 1
+    memory.bulk_max_content_chars = 200_000
+    memory.embedding_backfill_max_pending_jobs = 1
+    memory.include_screenshot_refs = False
+    memory.defer_embeddings = True
+    memory.created_entities = 0
+    memory.inserted_trajectories = 0
+    memory._pending_embedding_job_ids = set()
+    memory._request_json = fake_request
+    memory._drain_embedding_backfills = fake_drain
+
+    memory.insert(_trajectory("t1", tree="button Priority " * 20))
+
+    assert calls > 1
+    assert drain_calls == calls
+    assert memory._pending_embedding_job_ids == set()
 
 
 def test_sibyl_memory_insert_rejects_missing_deferred_embedding_job() -> None:

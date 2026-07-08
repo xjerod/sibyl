@@ -60,6 +60,9 @@ DEFAULT_CONTEXT_ITEMS = 8
 DEFAULT_CONTEXT_CHARS_PER_ITEM = 18_000
 DEFAULT_EMBEDDING_JOB_WAIT_TIMEOUT_SECONDS = 1_800.0
 DEFAULT_EMBEDDING_JOB_POLL_SECONDS = 0.5
+DEFAULT_BULK_MAX_ENTITIES = 16
+DEFAULT_BULK_MAX_CONTENT_CHARS = 200_000
+DEFAULT_EMBEDDING_BACKFILL_MAX_PENDING_JOBS = 8
 MAX_BULK_CREATE = 128
 
 _AUTH_CACHE: dict[tuple[str, str, str], dict[str, str]] = {}
@@ -180,6 +183,29 @@ class SibylLiveApiMemory(Memory):
             "embedding_job_poll_seconds",
             DEFAULT_EMBEDDING_JOB_POLL_SECONDS,
         )
+        self.bulk_max_entities = max(
+            1,
+            min(
+                _param_int(memory_params, "bulk_max_entities", DEFAULT_BULK_MAX_ENTITIES),
+                MAX_BULK_CREATE,
+            ),
+        )
+        self.bulk_max_content_chars = max(
+            1,
+            _param_int(
+                memory_params,
+                "bulk_max_content_chars",
+                DEFAULT_BULK_MAX_CONTENT_CHARS,
+            ),
+        )
+        self.embedding_backfill_max_pending_jobs = max(
+            1,
+            _param_int(
+                memory_params,
+                "embedding_backfill_max_pending_jobs",
+                DEFAULT_EMBEDDING_BACKFILL_MAX_PENDING_JOBS,
+            ),
+        )
         self.project_id = _param_str(memory_params, "project_id", "")
         self.inserted_trajectories = 0
         self.created_entities = 0
@@ -211,7 +237,11 @@ class SibylLiveApiMemory(Memory):
             content_max_chars=self.content_max_chars,
             include_screenshot_refs=self.include_screenshot_refs,
         )
-        for batch in _batches(payloads, MAX_BULK_CREATE):
+        for batch in _payload_batches(
+            payloads,
+            max_entities=self.bulk_max_entities,
+            max_content_chars=self.bulk_max_content_chars,
+        ):
             created = self._request_json(
                 "POST",
                 "/entities/bulk",
@@ -219,6 +249,8 @@ class SibylLiveApiMemory(Memory):
             )
             self.created_entities += _created_count(created)
             self._remember_embedding_backfill_jobs(created)
+            if len(self._pending_embedding_job_ids) >= self.embedding_backfill_max_pending_jobs:
+                self._drain_embedding_backfills()
         self.inserted_trajectories += 1
 
     def query(self, query: str, query_image: str | None = None) -> list[MemoryContextItem]:
@@ -508,8 +540,42 @@ def _entity_name(trajectory_id: str, chunk_index: int, chunk_count: int) -> str:
     return f"LongMemEval-V2 trajectory {trajectory_id}{suffix}"[:200]
 
 
-def _batches(items: list[dict[str, object]], size: int) -> list[list[dict[str, object]]]:
-    return [items[index : index + size] for index in range(0, len(items), size)]
+def _payload_batches(
+    items: list[dict[str, object]],
+    *,
+    max_entities: int,
+    max_content_chars: int,
+) -> list[list[dict[str, object]]]:
+    batches: list[list[dict[str, object]]] = []
+    current: list[dict[str, object]] = []
+    current_chars = 0
+    max_entities = max(1, min(max_entities, MAX_BULK_CREATE))
+    max_content_chars = max(1, max_content_chars)
+    for item in items:
+        item_chars = _payload_content_chars(item)
+        would_exceed_count = len(current) >= max_entities
+        would_exceed_chars = current_chars + item_chars > max_content_chars
+        if current and (would_exceed_count or would_exceed_chars):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(item)
+        current_chars += item_chars
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _payload_content_chars(item: dict[str, object]) -> int:
+    return sum(
+        len(value)
+        for value in (
+            item.get("name"),
+            item.get("description"),
+            item.get("content"),
+        )
+        if isinstance(value, str)
+    )
 
 
 def _background_job_ids(response: dict[str, object], key: str) -> list[str]:
