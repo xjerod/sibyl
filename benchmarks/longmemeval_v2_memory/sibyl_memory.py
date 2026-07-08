@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -57,6 +58,8 @@ DEFAULT_CONTENT_MAX_CHARS = 50_000
 DEFAULT_SEARCH_LIMIT = 12
 DEFAULT_CONTEXT_ITEMS = 8
 DEFAULT_CONTEXT_CHARS_PER_ITEM = 18_000
+DEFAULT_EMBEDDING_JOB_WAIT_TIMEOUT_SECONDS = 1_800.0
+DEFAULT_EMBEDDING_JOB_POLL_SECONDS = 0.5
 MAX_BULK_CREATE = 128
 
 _AUTH_CACHE: dict[tuple[str, str, str], dict[str, str]] = {}
@@ -166,9 +169,21 @@ class SibylLiveApiMemory(Memory):
             "include_screenshot_refs",
             False,
         )
+        self.defer_embeddings = _param_bool(memory_params, "defer_embeddings", True)
+        self.embedding_job_wait_timeout_seconds = _param_float(
+            memory_params,
+            "embedding_job_wait_timeout_seconds",
+            DEFAULT_EMBEDDING_JOB_WAIT_TIMEOUT_SECONDS,
+        )
+        self.embedding_job_poll_seconds = _param_float(
+            memory_params,
+            "embedding_job_poll_seconds",
+            DEFAULT_EMBEDDING_JOB_POLL_SECONDS,
+        )
         self.project_id = _param_str(memory_params, "project_id", "")
         self.inserted_trajectories = 0
         self.created_entities = 0
+        self._pending_embedding_job_ids: set[str] = set()
         self._client = _new_http_client(self.api_url)
         self._closed = False
         self._refresh_token = ""
@@ -200,12 +215,14 @@ class SibylLiveApiMemory(Memory):
             created = self._request_json(
                 "POST",
                 "/entities/bulk",
-                json={"entities": batch},
+                json={"entities": batch, "defer_embeddings": self.defer_embeddings},
             )
-            self.created_entities += int(created.get("created") or 0)
+            self.created_entities += _created_count(created)
+            self._remember_embedding_backfill_jobs(created)
         self.inserted_trajectories += 1
 
     def query(self, query: str, query_image: str | None = None) -> list[MemoryContextItem]:
+        self._drain_embedding_backfills()
         payload = {
             "query": query,
             "types": ["session"],
@@ -240,8 +257,56 @@ class SibylLiveApiMemory(Memory):
             "run_id": self.run_id,
             "inserted_trajectories": self.inserted_trajectories,
             "created_entities": self.created_entities,
+            "defer_embeddings": self.defer_embeddings,
+            "pending_embedding_backfill_jobs": len(self._pending_embedding_job_ids),
             "returned_context_items": len(memory_context),
         }
+
+    def _remember_embedding_backfill_jobs(self, response: dict[str, object]) -> None:
+        if not self.defer_embeddings:
+            return
+        job_ids = _background_job_ids(response, "embedding_backfill")
+        if not job_ids and _created_count(response) > 0:
+            msg = "/entities/bulk deferred embeddings but returned no backfill job ids"
+            raise RuntimeError(msg)
+        self._pending_embedding_job_ids.update(job_ids)
+
+    def _drain_embedding_backfills(self) -> None:
+        if not self._pending_embedding_job_ids:
+            return
+
+        pending = set(self._pending_embedding_job_ids)
+        deadline = time.monotonic() + self.embedding_job_wait_timeout_seconds
+        last_statuses: dict[str, str] = {}
+        while pending:
+            for job_id in sorted(pending):
+                status = self._request_json("GET", f"/jobs/{job_id}")
+                status_value = _stripped_str(status.get("status")) or "unknown"
+                last_statuses[job_id] = status_value
+                if status_value == "complete":
+                    if status.get("error"):
+                        msg = (
+                            f"embedding backfill job {job_id} failed: "
+                            f"{status['error']}"
+                        )
+                        raise RuntimeError(msg)
+                    pending.remove(job_id)
+                elif status_value in {"cancelled", "not_found"}:
+                    msg = f"embedding backfill job {job_id} ended as {status_value}"
+                    raise RuntimeError(msg)
+
+            if not pending:
+                break
+            if time.monotonic() >= deadline:
+                statuses = ", ".join(
+                    f"{job_id}={last_statuses.get(job_id, 'unknown')}"
+                    for job_id in sorted(pending)
+                )
+                msg = f"timed out waiting for embedding backfill jobs: {statuses}"
+                raise RuntimeError(msg)
+            time.sleep(self.embedding_job_poll_seconds)
+
+        self._pending_embedding_job_ids.clear()
 
     def _authenticate(self, memory_params: dict[str, object]) -> None:
         if _is_loopback_url(self.api_url) and not self.allow_localhost:
@@ -351,7 +416,7 @@ class SibylLiveApiMemory(Memory):
         method: str,
         path: str,
         *,
-        json: dict[str, object],
+        json: dict[str, object] | None = None,
         params: dict[str, object] | None = None,
     ) -> dict[str, object]:
         response = self._client.request(method, path, json=json, params=params)
@@ -445,6 +510,30 @@ def _entity_name(trajectory_id: str, chunk_index: int, chunk_count: int) -> str:
 
 def _batches(items: list[dict[str, object]], size: int) -> list[list[dict[str, object]]]:
     return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _background_job_ids(response: dict[str, object], key: str) -> list[str]:
+    background_jobs = response.get("background_jobs")
+    if not isinstance(background_jobs, dict):
+        return []
+    job_info = background_jobs.get(key)
+    if not isinstance(job_info, dict):
+        return []
+    job_ids = job_info.get("job_ids")
+    if not isinstance(job_ids, list):
+        return []
+    return [_stripped_str(job_id) for job_id in job_ids if _stripped_str(job_id)]
+
+
+def _created_count(response: dict[str, object]) -> int:
+    value = response.get("created")
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
+        return int(value)
+    return 0
 
 
 def _new_http_client(api_url: str) -> httpx.Client:
@@ -555,6 +644,20 @@ def _param_int(params: dict[str, object], key: str, default: int) -> int:
         return max(1, value)
     if isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
         return max(1, int(value))
+    return default
+
+
+def _param_float(params: dict[str, object], key: str, default: float) -> float:
+    value = params.get(key)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int | float):
+        return max(0.0, float(value))
+    if isinstance(value, str):
+        try:
+            return max(0.0, float(value.strip()))
+        except ValueError:
+            return default
     return default
 
 

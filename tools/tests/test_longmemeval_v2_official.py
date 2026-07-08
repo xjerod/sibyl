@@ -7,11 +7,13 @@ import subprocess
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 from tools.bench import eval_gate
 
 EXPECTED_REQUIRED_TRAJECTORIES = 2
 EXPECTED_LAFS_GAIN = 0.125
 EXPECTED_MEMORY_QUERY_AVG_SECONDS = 2.5
+EXPECTED_EMBEDDING_JOB_WAIT_TIMEOUT_SECONDS = 1_800.0
 TEST_CONTENT_MAX_CHARS = 420
 
 
@@ -100,6 +102,11 @@ def test_official_runner_plan_materializes_honest_runtime_inputs(tmp_path: Path)
     assert runtime_haystack == {"q-enterprise": ["t1", "t2"]}
     assert memory_config["memory_type"] == "sibyl_live_api"
     assert memory_config["memory_params"]["allow_localhost"] is True
+    assert memory_config["memory_params"]["defer_embeddings"] is True
+    assert (
+        memory_config["memory_params"]["embedding_job_wait_timeout_seconds"]
+        == EXPECTED_EMBEDDING_JOB_WAIT_TIMEOUT_SECONDS
+    )
     assert plan["honesty_contract"]["answer_gold_visible_to_memory"] is False
     assert plan["required_trajectory_count"] == EXPECTED_REQUIRED_TRAJECTORIES
     assert plan["requirements"]["trajectories_jsonl_exists"] is True
@@ -307,6 +314,102 @@ def test_sibyl_memory_query_context_strips_gold_answer() -> None:
         "id": "q1",
         "question": "Which filter was selected?",
     }
+
+
+def test_sibyl_memory_insert_defers_embeddings_and_tracks_backfill_job() -> None:
+    module = _load_memory_module()
+    memory = module.SibylLiveApiMemory.__new__(module.SibylLiveApiMemory)
+    module.Memory.__init__(memory, {})
+    calls: list[dict[str, object]] = []
+
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json: dict[str, object] | None = None,
+        params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        calls.append({"method": method, "path": path, "json": json or {}, "params": params or {}})
+        return {
+            "created": 1,
+            "background_jobs": {
+                "embedding_backfill": {
+                    "status": "queued",
+                    "job_ids": ["embed-lme-v2-1"],
+                }
+            },
+        }
+
+    memory.project_id = "project_lme"
+    memory.run_id = "run_lme"
+    memory.content_max_chars = TEST_CONTENT_MAX_CHARS
+    memory.include_screenshot_refs = False
+    memory.defer_embeddings = True
+    memory.created_entities = 0
+    memory.inserted_trajectories = 0
+    memory._pending_embedding_job_ids = set()
+    memory._request_json = fake_request
+
+    memory.insert(_trajectory("t1"))
+
+    request_json = calls[0]["json"]
+    assert isinstance(request_json, dict)
+    assert calls[0]["path"] == "/entities/bulk"
+    assert request_json["defer_embeddings"] is True
+    assert memory.created_entities == 1
+    assert memory.inserted_trajectories == 1
+    assert memory._pending_embedding_job_ids == {"embed-lme-v2-1"}
+
+
+def test_sibyl_memory_insert_rejects_missing_deferred_embedding_job() -> None:
+    module = _load_memory_module()
+    memory = module.SibylLiveApiMemory.__new__(module.SibylLiveApiMemory)
+    module.Memory.__init__(memory, {})
+
+    memory.defer_embeddings = True
+    memory._pending_embedding_job_ids = set()
+
+    with pytest.raises(RuntimeError, match="returned no backfill job ids"):
+        memory._remember_embedding_backfill_jobs({"created": 1, "background_jobs": {}})
+
+
+def test_sibyl_memory_query_waits_for_embedding_backfill_before_search() -> None:
+    module = _load_memory_module()
+    memory = module.SibylLiveApiMemory.__new__(module.SibylLiveApiMemory)
+    module.Memory.__init__(memory, {})
+    status_responses = [
+        {"status": "queued"},
+        {"status": "complete", "error": None},
+    ]
+    calls: list[str] = []
+
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json: dict[str, object] | None = None,
+        params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        del method, json, params
+        calls.append(path)
+        if path == "/jobs/embed-lme-v2-1":
+            return status_responses.pop(0)
+        if path == "/search":
+            return {"results": []}
+        raise AssertionError(f"unexpected path: {path}")
+
+    memory.project_id = "project_lme"
+    memory.search_limit = 12
+    memory.max_context_items = 8
+    memory.max_context_chars_per_item = 18_000
+    memory.embedding_job_wait_timeout_seconds = 5.0
+    memory.embedding_job_poll_seconds = 0.0
+    memory._pending_embedding_job_ids = {"embed-lme-v2-1"}
+    memory._request_json = fake_request
+
+    assert memory.query("Which filter was selected?") == []
+    assert calls == ["/jobs/embed-lme-v2-1", "/jobs/embed-lme-v2-1", "/search"]
+    assert memory._pending_embedding_job_ids == set()
 
 
 def _write_dataset(root: Path) -> None:

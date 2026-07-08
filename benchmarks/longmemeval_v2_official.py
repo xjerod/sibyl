@@ -192,6 +192,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:  # noqa: PL
     parser.add_argument("--max-context-items", type=int, default=8)
     parser.add_argument("--max-context-chars-per-item", type=int, default=18_000)
     parser.add_argument("--include-screenshot-refs", action="store_true")
+    parser.add_argument("--inline-embeddings", action="store_true")
+    parser.add_argument("--embedding-job-wait-timeout-seconds", type=float, default=1_800.0)
 
     parser.add_argument("--reader-model", default=os.getenv("READER_MODEL", "Qwen/Qwen3.5-9B"))
     parser.add_argument(
@@ -320,6 +322,8 @@ def build_memory_config(args: argparse.Namespace) -> dict[str, object]:
         "max_context_items": args.max_context_items,
         "max_context_chars_per_item": args.max_context_chars_per_item,
         "include_screenshot_refs": args.include_screenshot_refs,
+        "defer_embeddings": not args.inline_embeddings,
+        "embedding_job_wait_timeout_seconds": args.embedding_job_wait_timeout_seconds,
     }
     return {"memory_type": "sibyl_live_api", "memory_params": params}
 

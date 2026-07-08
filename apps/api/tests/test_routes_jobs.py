@@ -93,6 +93,28 @@ class TestJobVisibility:
         assert await _job_visible_to_org(hidden, org=org, session=session) is False
         session.get.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_embedding_backfill_jobs_use_group_id_argument(self) -> None:
+        org = SimpleNamespace(id=UUID("00000000-0000-0000-0000-000000000111"))
+        session = AsyncMock()
+        visible = SimpleNamespace(
+            function="backfill_entity_embeddings",
+            args=([{"id": "session_1"}], str(org.id)),
+            kwargs=None,
+        )
+        hidden = SimpleNamespace(
+            function="backfill_entity_embeddings",
+            args=(
+                [{"id": "session_1"}],
+                "00000000-0000-0000-0000-000000000999",
+            ),
+            kwargs=None,
+        )
+
+        assert await _job_visible_to_org(visible, org=org, session=session) is True
+        assert await _job_visible_to_org(hidden, org=org, session=session) is False
+        session.get.assert_not_called()
+
 
 class TestListJobsRoute:
     @pytest.mark.asyncio
