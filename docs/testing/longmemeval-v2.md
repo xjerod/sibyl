@@ -59,8 +59,9 @@ moon run bench-longmemeval-v2-official-full -- \
   --output-dir runs/sibyl_enterprise_small \
   --api-url http://127.0.0.1:3334/api \
   --allow-localhost \
-  --reader-base-url http://localhost:8023/v1 \
-  --reader-model Qwen/Qwen3.5-9B \
+  --reader-base-url https://openrouter.ai/api/v1 \
+  --reader-model qwen/qwen3.5-9b \
+  --reader-api-key-env OPENROUTER_API_KEY \
   --evaluator-model gpt-5.2
 ```
 
@@ -142,7 +143,7 @@ moon run bench-gate -- \
 - Full dataset prepared with `questions.jsonl`, `haystacks/lme_v2_<tier>.json`,
   `trajectories.jsonl`, and screenshots if image evidence is enabled.
 - Live disposable Sibyl API stack. The adapter mutates the target through `/entities` and `/search`.
-- Reader model endpoint, normally `Qwen/Qwen3.5-9B`.
+- Reader model endpoint, normally OpenRouter `qwen/qwen3.5-9b` with `OPENROUTER_API_KEY`.
 - Evaluator key/model for LLM-graded categories, normally `gpt-5.2`.
 - Same method and tier for `web` and `enterprise` before combining metrics.
 - Combined receipt with official repo SHA, official harness presence, source web/enterprise run
@@ -174,7 +175,7 @@ published V2 score until both domains complete with the official reader and eval
 
 The PR and push workflow path is intentionally metadata-only. The paid official full-suite path is
 manual-only through `workflow_dispatch` with `run_official_full: true`; it requires a reachable
-Qwen3.5-9B reader endpoint and `OPENAI_API_KEY`.
+Qwen3.5-9B reader endpoint, `OPENROUTER_API_KEY`, and `OPENAI_API_KEY`.
 
 Known limits:
 

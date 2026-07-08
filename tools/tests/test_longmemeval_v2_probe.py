@@ -125,6 +125,9 @@ def test_longmemeval_v2_workflow_gates_official_full_run() -> None:
     assert "run_official_full:" in workflow
     assert "if: github.event_name == 'workflow_dispatch' && inputs.run_official_full" in workflow
     assert "moon run bench-longmemeval-v2-official-full" in workflow
+    assert "OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}" in workflow
+    assert '--reader-api-key-env "$READER_API_KEY_ENV"' in workflow
+    assert "https://openrouter.ai/api/v1" in workflow
     assert "build_submission_step_1_single_operating_point.py" in workflow
     assert "build_submission_step_2_build_package.py" in workflow
     assert "--receipt-only" in workflow

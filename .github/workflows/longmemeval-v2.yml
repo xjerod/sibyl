@@ -57,11 +57,15 @@ on:
       official_reader_base_url:
         description: "OpenAI-compatible Qwen reader endpoint"
         type: string
-        default: "http://localhost:8023/v1"
+        default: "https://openrouter.ai/api/v1"
       official_reader_model:
         description: "Official reader model"
         type: string
-        default: "Qwen/Qwen3.5-9B"
+        default: "qwen/qwen3.5-9b"
+      official_reader_api_key_env:
+        description: "Environment variable containing the reader API key"
+        type: string
+        default: "OPENROUTER_API_KEY"
       official_evaluator_model:
         description: "Official evaluator model"
         type: string
@@ -182,10 +186,12 @@ jobs:
       OFFICIAL_LIMIT: ${{ inputs.official_limit || '' }}
       OFFICIAL_DATASET_REVISION: ${{ inputs.official_dataset_revision || '' }}
       OFFICIAL_INCLUDE_SCREENSHOTS: ${{ inputs.official_include_screenshots || false }}
-      READER_BASE_URL: ${{ inputs.official_reader_base_url || 'http://localhost:8023/v1' }}
-      READER_MODEL: ${{ inputs.official_reader_model || 'Qwen/Qwen3.5-9B' }}
+      READER_BASE_URL: ${{ inputs.official_reader_base_url || 'https://openrouter.ai/api/v1' }}
+      READER_MODEL: ${{ inputs.official_reader_model || 'qwen/qwen3.5-9b' }}
+      READER_API_KEY_ENV: ${{ inputs.official_reader_api_key_env || 'OPENROUTER_API_KEY' }}
       EVALUATOR_MODEL: ${{ inputs.official_evaluator_model || 'gpt-5.2' }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       SIBYL_ENVIRONMENT: production
       SIBYL_JWT_SECRET: test-secret-for-longmemeval-v2
       SIBYL_STORE: surreal
@@ -220,7 +226,17 @@ jobs:
             echo "::error::official_reader_base_url must point at the Qwen3.5-9B reader endpoint."
             exit 1
           fi
-          curl -fsS "${READER_BASE_URL%/}/models" > /dev/null || {
+          if [[ -z "${READER_API_KEY_ENV}" ]]; then
+            echo "::error::official_reader_api_key_env must name the reader API key environment variable."
+            exit 1
+          fi
+          reader_api_key="${!READER_API_KEY_ENV:-}"
+          if [[ -z "${reader_api_key}" ]]; then
+            echo "::error::${READER_API_KEY_ENV} repo secret is required for the Qwen3.5-9B reader."
+            exit 1
+          fi
+          curl -fsS -H "Authorization: Bearer ${reader_api_key}" \
+            "${READER_BASE_URL%/}/models" > /dev/null || {
             echo "::error::Reader endpoint is not reachable at ${READER_BASE_URL%/}/models."
             exit 1
           }
@@ -311,6 +327,7 @@ jobs:
             --allow-localhost \
             --reader-base-url "$READER_BASE_URL" \
             --reader-model "$READER_MODEL" \
+            --reader-api-key-env "$READER_API_KEY_ENV" \
             --evaluator-model "$EVALUATOR_MODEL" \
             --evaluator-api-key-env OPENAI_API_KEY \
             "${args[@]}"

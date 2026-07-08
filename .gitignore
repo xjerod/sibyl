@@ -59,6 +59,7 @@ dmypy.json
 # Environment
 .env
 .env.local
+openrouter.key
 
 # Docker
 falkordb_data/

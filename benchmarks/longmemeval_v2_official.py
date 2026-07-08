@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 HTTP_STATUS_OK = 200
@@ -397,21 +397,28 @@ def build_requirement_status(*, args: argparse.Namespace, data_root: Path) -> di
         ),
         "trajectories_jsonl_exists": (data_root / "trajectories.jsonl").exists(),
         "reader_api_key_env_set": bool(os.getenv(args.reader_api_key_env)),
-        "reader_endpoint_reachable": reader_endpoint_reachable(args.reader_base_url),
+        "reader_endpoint_reachable": reader_endpoint_reachable(
+            args.reader_base_url,
+            api_key_env=args.reader_api_key_env,
+        ),
         "evaluator_api_key_env_set": bool(os.getenv(args.evaluator_api_key_env)),
         "transformers_available": importlib.util.find_spec("transformers") is not None,
         "torch_available": importlib.util.find_spec("torch") is not None,
     }
 
 
-def reader_endpoint_reachable(base_url: str) -> bool:
+def reader_endpoint_reachable(base_url: str, *, api_key_env: str = "") -> bool:
     if not base_url:
         return True
     models_url = f"{base_url.rstrip('/')}/models"
     if urlparse(models_url).scheme not in {"http", "https"}:
         return False
+    headers = {}
+    if api_key_env and (api_key := os.getenv(api_key_env)):
+        headers["Authorization"] = f"Bearer {api_key}"
     try:
-        with urlopen(models_url, timeout=2) as response:  # noqa: S310
+        request = Request(models_url, headers=headers)
+        with urlopen(request, timeout=2) as response:  # noqa: S310
             return HTTP_STATUS_OK <= int(response.status) < HTTP_STATUS_SERVER_ERROR
     except Exception:
         return False
