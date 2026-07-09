@@ -144,6 +144,7 @@ def test_longmemeval_v2_full_moon_task_installs_official_harness_deps() -> None:
     )[0]
 
     assert "--with openai-agents" in task
+    assert "--with torchvision" in task
 
 
 def _write_dataset(
